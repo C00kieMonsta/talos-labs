@@ -119,6 +119,13 @@ export const UNKNOWN_REASON_LABELS: Readonly<Record<UnknownReason, string>> = {
   indeterminate: "Not enough information to decide",
 };
 
+/** Short label for a network check the kernel withheld from an unsigned build. */
+export const SOCKET_TABLE_LABEL = "Not available in this build";
+
+/** Shown in place of the permission_denied label when the socket table was hidden. */
+export const SOCKET_TABLE_COPY =
+  "This copy of Talos Labs is not signed, so macOS hides the list of network services from it. There is no permission to grant. Signed releases do not have this limit.";
+
 /** The pane that grants the permission a reason names, if any. */
 export function paneForReason(reason: UnknownReason | null): SettingsPane | null {
   if (reason === "needs_full_disk_access") return "full_disk_access";
@@ -182,6 +189,12 @@ export const URGENCY_LABELS = {
   this_week: "This week",
   when_convenient: "When convenient",
 } as const;
+
+export function formatTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return new Intl.DateTimeFormat("en-GB", { timeStyle: "short" }).format(date);
+}
 
 export function formatDateTime(iso: string): string {
   const date = new Date(iso);

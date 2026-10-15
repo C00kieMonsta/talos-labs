@@ -264,10 +264,16 @@ pub fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
+/// Runs one collector and turns a panic into an unavailable section instead of ending the scan.
+fn guarded(key: SectionKey, collect: impl FnOnce() -> AnySection) -> AnySection {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(collect))
+        .unwrap_or_else(|_| AnySection::unavailable(key, UnavailableReason::CollectorError, Some("panic")))
+}
+
 /// Collects one section on the calling thread, for "I've done this, check again".
 pub fn collect_section(key: SectionKey, cancel: Arc<AtomicBool>) -> AnySection {
     let shared = Shared::new(cancel);
-    collect_one(key, &shared)
+    guarded(key, || collect_one(key, &shared))
 }
 
 /// Collects every section in parallel. Sections still pending at the deadline become `timeout`.
@@ -289,7 +295,7 @@ pub fn collect_all(progress: Arc<ProgressFn>, cancel: Arc<AtomicBool>) -> Result
             .name(format!("talos-collect-{}", key.as_str()))
             .spawn(move || {
                 thread_progress(key, ProgressStatus::Started);
-                let section = collect_one(key, &shared);
+                let section = guarded(key, || collect_one(key, &shared));
                 thread_progress(key, if section.is_ok() { ProgressStatus::Ok } else { ProgressStatus::Unavailable });
                 let _ = tx.send(section);
             });
@@ -360,6 +366,18 @@ mod tests {
         assert!(!s.is_ok());
         let json = serde_json::to_value(&s).unwrap();
         assert_eq!(json, serde_json::json!({ "status": "unavailable", "reason": "permission_denied", "detail": "read_dir: .ssh" }));
+    }
+
+    #[test]
+    fn a_panicking_collector_becomes_an_unavailable_section() {
+        let section = guarded(SectionKey::Ssh, || panic!("parser bug"));
+        assert_eq!(section.key(), SectionKey::Ssh);
+        assert!(!section.is_ok());
+        let json = serde_json::to_value(&section).unwrap();
+        assert_eq!(json["reason"], "collector_error");
+        assert_eq!(json["detail"], "panic");
+        let ok = guarded(SectionKey::Ssh, || AnySection::Ssh(Section::ok(Ssh { dir_exists: false, dir_mode: None, keys: vec![] })));
+        assert!(ok.is_ok());
     }
 
     #[test]

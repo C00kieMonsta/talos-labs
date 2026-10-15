@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use super::{lit, run};
+use super::{check_exit, lit, run};
 use crate::collect::{to_section, Fail};
 use crate::exec::Bin;
 use crate::state::{PasswordPolicy, Section};
@@ -44,6 +44,7 @@ pub fn parse_pwpolicy(text: &str) -> Result<PasswordPolicy, Fail> {
 
 fn inner(cancel: &AtomicBool) -> Result<PasswordPolicy, Fail> {
     let out = run(Bin::Pwpolicy, &["getaccountpolicies"], cancel)?;
+    check_exit(&out, Bin::Pwpolicy)?;
     parse_pwpolicy(&out.stdout)
 }
 

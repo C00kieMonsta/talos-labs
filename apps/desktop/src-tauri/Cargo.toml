@@ -45,11 +45,15 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 [lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"
+panic = "deny"
+string_slice = "deny"
+# CI runs -D warnings, so a new slice or index site must be rewritten with `get` or carry an allow with a reason.
+indexing_slicing = "warn"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+# Panics unwind so `collect::guarded` can turn a collector panic into an unavailable section.
 [profile.release]
 codegen-units = 1
 lto = true
 opt-level = 3
-panic = "abort"
 strip = true

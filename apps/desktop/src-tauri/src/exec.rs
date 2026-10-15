@@ -1,10 +1,10 @@
-//! Runs allow-listed binaries with no shell, a clean environment, a timeout and an output cap.
+//! Runs allow-listed binaries with no shell, a clean environment, a timeout, a cancel flag and an output cap.
 
 use std::io::Read;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use wait_timeout::ChildExt;
 
@@ -74,7 +74,10 @@ impl Bin {
 pub const PATH_ENV: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
 pub const OUTPUT_CAP: usize = 1024 * 1024;
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
-pub const OSASCRIPT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Long enough to answer the first-run Automation prompt, which blocks osascript until the user decides.
+pub const OSASCRIPT_TIMEOUT: Duration = Duration::from_secs(45);
+/// How often a running child is checked against the cancel flag.
+const CANCEL_POLL: Duration = Duration::from_millis(200);
 
 #[derive(Debug, Clone)]
 pub struct Output {
@@ -103,7 +106,29 @@ pub enum ExecError {
     Io(#[from] std::io::Error),
 }
 
-/// Runs `bin` with `args` verbatim. Never a shell.
+enum Stop {
+    Timeout,
+    Cancelled,
+}
+
+/// Waits for the child until `timeout`, checking the cancel flag every `CANCEL_POLL`.
+fn wait_child(child: &mut Child, timeout: Duration, cancel: &AtomicBool) -> std::io::Result<Result<ExitStatus, Stop>> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if cancel.load(Ordering::SeqCst) {
+            return Ok(Err(Stop::Cancelled));
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Ok(Err(Stop::Timeout));
+        }
+        if let Some(status) = child.wait_timeout(remaining.min(CANCEL_POLL))? {
+            return Ok(Ok(status));
+        }
+    }
+}
+
+/// Runs `bin` with `args` verbatim. Never a shell. The child is killed on timeout or cancel.
 pub fn run(bin: Bin, args: &[&str], timeout: Duration, cancel: &AtomicBool) -> Result<Output, ExecError> {
     if cancel.load(Ordering::SeqCst) {
         return Err(ExecError::Cancelled);
@@ -125,14 +150,17 @@ pub fn run(bin: Bin, args: &[&str], timeout: Duration, cancel: &AtomicBool) -> R
     let stdout = child.stdout.take().and_then(spawn_reader);
     let stderr = child.stderr.take().and_then(spawn_reader);
 
-    let status = match child.wait_timeout(timeout)? {
-        Some(status) => status,
-        None => {
+    let status = match wait_child(&mut child, timeout, cancel)? {
+        Ok(status) => status,
+        Err(stop) => {
             let _ = child.kill();
             let _ = child.wait();
             join(stdout);
             join(stderr);
-            return Err(ExecError::Timeout(bin));
+            return Err(match stop {
+                Stop::Timeout => ExecError::Timeout(bin),
+                Stop::Cancelled => ExecError::Cancelled,
+            });
         }
     };
     let (out, out_cut) = join(stdout);
@@ -175,7 +203,7 @@ fn read_capped(reader: &mut impl Read) -> Captured {
             Ok(n) => {
                 let room = OUTPUT_CAP.saturating_sub(kept.len());
                 let take = room.min(n);
-                kept.extend_from_slice(&chunk[..take]);
+                kept.extend_from_slice(chunk.get(..take).unwrap_or(&[]));
                 if take < n {
                     truncated = true;
                 }
@@ -206,6 +234,20 @@ mod tests {
         let started = Instant::now();
         let result = run(Bin::Sleep, &["5"], Duration::from_millis(300), &no_cancel());
         assert!(matches!(result, Err(ExecError::Timeout(Bin::Sleep))));
+        assert!(started.elapsed() < Duration::from_secs(3));
+    }
+
+    #[test]
+    fn cancel_kills_a_running_child() {
+        let cancel = std::sync::Arc::new(AtomicBool::new(false));
+        let flag = std::sync::Arc::clone(&cancel);
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            flag.store(true, Ordering::SeqCst);
+        });
+        let started = Instant::now();
+        let result = run(Bin::Sleep, &["5"], Duration::from_secs(30), &cancel);
+        assert!(matches!(result, Err(ExecError::Cancelled)));
         assert!(started.elapsed() < Duration::from_secs(3));
     }
 

@@ -96,7 +96,7 @@ describe("scan reducer", () => {
 
   it("evaluating -> ready on evaluated with explain off", () => {
     const state = ready();
-    expect(state).toEqual({ kind: "ready", report: REPORT_A, state: DEV_MACHINE, explain: { kind: "off" } });
+    expect(state).toEqual({ kind: "ready", report: REPORT_A, state: DEV_MACHINE, explain: { kind: "off" }, lastRecheck: null });
   });
 
   it("collecting -> failed on collect_failed and keeps the last report", () => {
@@ -148,13 +148,29 @@ describe("scan reducer", () => {
     const rechecking = reduce(ready(), { type: "recheck_started", key: "firewall" });
     const next = replaceSection(DEV_MACHINE, "firewall", HARDENED.sections.firewall);
     const state = reduce(rechecking, { type: "recheck_done", state: next, report: REPORT_B });
-    expect(state).toEqual({ kind: "ready", report: REPORT_B, state: next, explain: { kind: "off" } });
+    expect(state).toEqual({
+      kind: "ready",
+      report: REPORT_B,
+      state: next,
+      explain: { kind: "off" },
+      lastRecheck: { key: "firewall", at: REPORT_B.scannedAt },
+    });
   });
 
-  it("rechecking -> ready on recheck_failed with the previous report", () => {
+  it("rechecking -> ready on recheck_failed with the previous report and no recheck record", () => {
     const rechecking = reduce(ready(), { type: "recheck_started", key: "firewall" });
     const state = reduce(rechecking, { type: "recheck_failed" });
-    expect(state).toEqual({ kind: "ready", report: REPORT_A, state: DEV_MACHINE, explain: { kind: "off" } });
+    expect(state).toEqual({ kind: "ready", report: REPORT_A, state: DEV_MACHINE, explain: { kind: "off" }, lastRecheck: null });
+  });
+
+  it("a rescan drops the recheck record", () => {
+    const rechecking = reduce(ready(), { type: "recheck_started", key: "firewall" });
+    let state = reduce(rechecking, { type: "recheck_done", state: DEV_MACHINE, report: REPORT_B });
+    expect(state.kind === "ready" && state.lastRecheck).not.toBeNull();
+    state = reduce(state, { type: "scan_started", startedAt: STARTED });
+    state = reduce(state, { type: "collected", state: DEV_MACHINE });
+    state = reduce(state, { type: "evaluated", report: REPORT_A });
+    expect(state.kind === "ready" && state.lastRecheck).toBeNull();
   });
 
   it("recheck_done outside rechecking is ignored", () => {
@@ -186,15 +202,35 @@ describe("scan reducer", () => {
   it("explain: prioritise target and failure", () => {
     let state = reduce(ready(), { type: "explain_started", target: "prioritise" });
     expect(state.kind === "ready" && state.explain).toEqual({ kind: "running", target: "prioritise" });
-    state = reduce(state, { type: "explain_failed", reason: "no_api_key" });
-    expect(state.kind === "ready" && state.explain).toEqual({ kind: "failed", reason: "no_api_key" });
+    state = reduce(state, { type: "explain_failed", reason: "no_api_key", target: "prioritise", byRule: {}, order: null });
+    expect(state.kind === "ready" && state.explain).toEqual({
+      kind: "failed",
+      reason: "no_api_key",
+      target: "prioritise",
+      byRule: {},
+      order: null,
+    });
+  });
+
+  it("explain_failed keeps the explanations and order already shown", () => {
+    const order: RuleId[] = ["TL-MAC-001"];
+    let state = reduce(ready(), { type: "explain_ready", byRule: { "TL-MAC-001": EXPLANATION }, order });
+    state = reduce(state, { type: "explain_started", target: "TL-MAC-002" });
+    state = reduce(state, { type: "explain_failed", reason: "timeout", target: "TL-MAC-002", byRule: { "TL-MAC-001": EXPLANATION }, order });
+    expect(state.kind === "ready" && state.explain).toEqual({
+      kind: "failed",
+      reason: "timeout",
+      target: "TL-MAC-002",
+      byRule: { "TL-MAC-001": EXPLANATION },
+      order,
+    });
   });
 
   it("explain actions outside ready are ignored", () => {
     const c = collecting();
     expect(reduce(c, { type: "explain_started", target: "prioritise" })).toBe(c);
     expect(reduce(c, { type: "explain_ready", byRule: {}, order: null })).toBe(c);
-    expect(reduce(c, { type: "explain_failed", reason: "unknown" })).toBe(c);
+    expect(reduce(c, { type: "explain_failed", reason: "unknown", target: "prioritise", byRule: {}, order: null })).toBe(c);
   });
 
   it("explain state is reset by a recheck", () => {

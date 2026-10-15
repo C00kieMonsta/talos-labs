@@ -17,7 +17,7 @@ const READS = [
 const NEVER_READS = [
   "Your documents, photos, mail or messages",
   "Passwords, keys or the contents of any secret",
-  "Your username, your computer's name or your browsing history",
+  "Your computer's name or your browsing history",
   "Anything it would need an administrator password for",
 ];
 

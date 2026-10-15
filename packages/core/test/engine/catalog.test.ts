@@ -112,7 +112,7 @@ describe("macOS catalog invariants", () => {
       "TL-MAC-019": ["high", "remote_access", "2.3.3.4"],
       "TL-MAC-020": ["high", "remote_access", "2.3.3.1"],
       "TL-MAC-021": ["high", "remote_access", "2.3.3.5"],
-      "TL-MAC-022": ["high", "sharing", "2.13.2, 2.3.3.2"],
+      "TL-MAC-022": ["high", "sharing", "2.13.2"],
       "TL-MAC-023": ["info", "persistence", null],
       "TL-MAC-024": ["medium", "persistence", null],
       "TL-MAC-025": ["info", "persistence", null],

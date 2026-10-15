@@ -32,18 +32,12 @@ importers:
       '@tauri-apps/api':
         specifier: ^2
         version: 2.12.4
-      '@tauri-apps/plugin-opener':
-        specifier: ^2
-        version: 2.7.2
       react:
         specifier: ^19.1.0
         version: 19.3.1
       react-dom:
         specifier: ^19.1.0
         version: 19.3.1(react@19.3.1)
-      zod:
-        specifier: ^4.6.7
-        version: 4.6.7
     devDependencies:
       '@tauri-apps/cli':
         specifier: ^2
@@ -641,9 +635,6 @@ packages:
     resolution: {integrity: sha512-f7/LsY74SVb1ChmOPw1ajOpxii0GSzDAgmWHRci8JUYuuai04rXsSbFobpmB0sP2DdlvMD/B5ZotEn8GOGMRUg==}
     engines: {node: '>= 10'}
     hasBin: true
-
-  '@tauri-apps/plugin-opener@2.7.2':
-    resolution: {integrity: sha512-LyybP1VSzTMQiaFYcsbAse47KpivlyXdLZMQzGLEnkgQacGESnpjAfFoQ6h5sqWgAdZDH9szYjPzHMpv0Sz+TQ==}
 
   '@testing-library/dom@10.4.2':
     resolution: {integrity: sha512-yzr2S9HyAIdhz2/6qHgbs665Q7PKVcDF05vsOlHPxG1mo36gKVesdYVeDLnXgfjJ03CrKRk08knc6+E/9m8v2Q==}
@@ -1573,10 +1564,6 @@ snapshots:
       '@tauri-apps/cli-win32-ia32-msvc': 2.12.3
       '@tauri-apps/cli-win32-x64-msvc': 2.12.3
 
-  '@tauri-apps/plugin-opener@2.7.2':
-    dependencies:
-      '@tauri-apps/api': 2.12.4
-
   '@testing-library/dom@10.4.2':
     dependencies:
       '@babel/code-frame': 7.29.7
@@ -2148,4 +2135,5 @@ snapshots:
 
   xmlchars@2.2.0: {}
 
-  zod@4.6.7: {}
+  zod@4.6.7:
+    optional: true

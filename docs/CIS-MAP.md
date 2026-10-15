@@ -35,7 +35,7 @@ Older editions (Sonoma and earlier) number some sections differently
 | Lock Screen | Screen saver starts within 20 minutes | 2.11.1 | 1 | system_settings_screensaver_timeout_enforce |
 | Lock Screen | Password required after screen saver or sleep (delay <= 5 s) | 2.11.2 | 1 | system_settings_screensaver_password_enforce, system_settings_screensaver_ask_for_password_delay_enforce |
 | Users & Groups | Guest account disabled | 2.13.1 | 1 | system_settings_guest_account_disable |
-| Users & Groups | Guest access to shared folders disabled | 2.13.2 | 1 | system_settings_guest_access_smb_disable |
+| Users & Groups | Guest access to shared folders disabled (partial: rule 022 reads each share's `guest access:` flag from `sharing -l`, not the global switch mSCP checks) | 2.13.2 | 1 | system_settings_guest_access_smb_disable |
 | Users & Groups | Automatic login disabled | 2.13.3 | 1 | system_settings_automatic_login_disable |
 | System | System Integrity Protection enabled | 5.1.2 | 1 | os_sip_enable |
 | Passwords | Minimum password length (CIS asks for 15) | 5.2.2 | 1 | pwpolicy_minimum_length_enforce |

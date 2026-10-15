@@ -1,5 +1,5 @@
 //! Contract test: every emitted core fixture deserialises into `state::SystemState` and re-serialises equal.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
 
 use std::path::{Path, PathBuf};
 

@@ -16,9 +16,10 @@ const OPENSSH_MAGIC: &[u8] = b"openssh-key-v1\0";
 
 /// The ciphername string that follows the openssh-key-v1 magic in the decoded body.
 pub fn openssh_cipher(body_base64: &str) -> Option<String> {
-    let compact: String = body_base64.chars().filter(|c| !c.is_whitespace()).collect();
+    // Bytes, not a String: the body comes from an untrusted file and a byte cut inside a multi-byte char would panic.
+    let compact: Vec<u8> = body_base64.bytes().filter(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'=')).collect();
     let usable = compact.len().min(256) / 4 * 4;
-    let bytes = base64::engine::general_purpose::STANDARD.decode(&compact[..usable]).ok()?;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(compact.get(..usable)?).ok()?;
     let rest = bytes.strip_prefix(OPENSSH_MAGIC)?;
     let len = u32::from_be_bytes([*rest.first()?, *rest.get(1)?, *rest.get(2)?, *rest.get(3)?]) as usize;
     let name = rest.get(4..4 + len)?;
@@ -174,6 +175,25 @@ mod tests {
     fn openssh_body_without_magic_is_unknown_encryption() {
         assert_eq!(openssh_cipher("AAAA"), None);
         assert_eq!(classify_key(b"-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----\n"), Some((SshKeyFormat::Openssh, None)));
+    }
+
+    #[test]
+    fn non_ascii_and_invalid_bytes_in_the_body_do_not_panic() {
+        assert_eq!(openssh_cipher("aaa\u{e9}"), None);
+        assert_eq!(openssh_cipher("b3Blab\u{200b}"), None);
+        assert_eq!(openssh_cipher("\u{feff}b3BlbnNzaC1rZXktdjEAAAAABG5vbmU=").as_deref(), Some("none"), "a BOM is dropped and the rest decodes");
+        let euros: String = std::iter::repeat_n('\u{20ac}', 100).collect();
+        assert_eq!(openssh_cipher(&euros), None);
+        let garbage = b"-----BEGIN OPENSSH PRIVATE KEY-----\nb3Blab\xff\xff\n-----END OPENSSH PRIVATE KEY-----\n";
+        assert_eq!(classify_key(garbage), Some((SshKeyFormat::Openssh, None)));
+    }
+
+    #[test]
+    fn whitespace_inside_the_body_is_ignored() {
+        // openssh-key-v1\0 followed by the length-prefixed cipher name "none".
+        let body = "b3BlbnNzaC1rZXktdjEAAAAABG5vbmU=";
+        let (a, b) = body.split_at(12);
+        assert_eq!(openssh_cipher(&format!("{a}\n  {b}")).as_deref(), Some("none"));
     }
 
     #[test]

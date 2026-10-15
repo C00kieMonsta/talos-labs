@@ -40,7 +40,7 @@ Run from the repo root unless noted.
 | `pnpm scan` | runs `talos-collect` (building it when missing), evaluates the result and prints a summary. `pnpm scan --json` prints the `ScanReport`; `pnpm scan <state.json>` evaluates a saved `SystemState` instead of running the collector |
 | `cargo test` (in `apps/desktop/src-tauri`) | parser, exec and serde round-trip tests |
 | `cargo test -- --ignored` | smoke and capability tests that touch the real machine |
-| `cargo clippy --all-targets -- -D warnings` | the crate denies `unwrap_used` and `expect_used` |
+| `cargo clippy --all-targets -- -D warnings` | the crate denies `unwrap_used`, `expect_used`, `panic` and `string_slice` and warns on `indexing_slicing`; with `-D warnings` a new index site must use `get` or carry an allow with a reason |
 | `cargo run --bin talos-collect` | dev binary: runs every collector and prints the `SystemState` JSON |
 | `cargo run --bin talos-collect --features debug-raw` | same, with raw command output logged for parser work |
 
@@ -75,7 +75,7 @@ apps/desktop/src/
   screens/       Welcome, Scanning, Overview, Findings, Finding detail, Ask, Settings, About
 apps/desktop/src-tauri/src/
   commands.rs    Tauri command surface
-  exec.rs        enum Bin and run(bin, args, timeout)
+  exec.rs        enum Bin and run(bin, args, timeout, cancel)
   state.rs       serde mirror of SystemState
   collect/       collect_all, collect_section, macos/<section>.rs
 apps/desktop/src-tauri/tests/fixtures/*.txt   verbatim command outputs for parser tests
@@ -142,7 +142,7 @@ Two optional permissions. Denying either marks the related rule `unknown`; it ne
 
 Full Disk Access. Needed to list Chrome, Brave, Edge and Arc extension directories (and for the capability probe). macOS attributes a command-line process to the app that launched it, so for `cargo run --bin talos-collect` and `pnpm desktop` grant Full Disk Access to the terminal you run them from (Terminal, iTerm2, or your editor) under System Settings > Privacy & Security > Full Disk Access. For a built `.app`, grant it to the app itself. Without it, the `browsers` section reports `needs_full_disk_access` for Chrome-family browsers and rule 028 is `unknown`. That is the expected dev-machine fixture outcome.
 
-Automation. The login-items collector asks System Events for the list of login items through `osascript`. The first run prompts "Terminal would like to control System Events". Approve it. A denial gives error -1743, which the collector maps to `needs_automation_permission`. Manage it under Privacy & Security > Automation. The built app needs `NSAppleEventsUsageDescription` in its `Info.plist` (`apps/desktop/src-tauri/Info.plist`), otherwise macOS denies without prompting.
+Automation. The login-items collector asks System Events for the list of login items through `osascript`. The first run prompts "Terminal would like to control System Events". Approve it. A denial gives error -1743, which the collector maps to `needs_automation_permission`. If the prompt is left unanswered, `osascript` is killed after 45 s and the section is `timeout` with detail `osascript: no answer to the Automation prompt`. Manage it under Privacy & Security > Automation. The built app needs `NSAppleEventsUsageDescription` in its `Info.plist` (`apps/desktop/src-tauri/Info.plist`), otherwise macOS denies without prompting.
 
 To test the denied paths again:
 

@@ -71,7 +71,7 @@ function renderDetail(ruleId: RuleId, license: LicenseState) {
     adapters: fakeAdapters(),
     license,
     gate: buildGate(report, license),
-    scanState: { kind: "ready", report, state: DEV_MACHINE, explain: { kind: "off" } },
+    scanState: { kind: "ready", report, state: DEV_MACHINE, explain: { kind: "off" }, lastRecheck: null },
   });
   return render(createElement(AppContext.Provider, { value }, createElement(FindingDetail, { ruleId })));
 }
@@ -106,7 +106,7 @@ describe("FindingDetail lock overlay", () => {
     const commands = Array.from(document.querySelectorAll(".command code")).map((c) => c.textContent);
     expect(commands.length).toBeGreaterThan(0);
     expect(commands.every((c) => c !== null && !c.includes("{path}"))).toBe(true);
-    expect(commands.some((c) => c?.includes("/Users/antoine/.ssh/id_ed25519"))).toBe(true);
+    expect(commands.some((c) => c?.includes("/Users/alice/.ssh/id_ed25519"))).toBe(true);
   });
 });
 

@@ -1,4 +1,5 @@
 //! Talos Labs desktop: read-only collectors behind a small Tauri command surface.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing))]
 
 pub mod capabilities;
 pub mod collect;

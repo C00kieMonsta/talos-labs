@@ -54,7 +54,7 @@ mod tests {
     #[test]
     fn parses_captured_guest_share_without_name() {
         let shares = parse_sharing(CAPTURED);
-        assert_eq!(shares, vec![Share { path: "/Users/antoine/Public".into(), guest_access: true }]);
+        assert_eq!(shares, vec![Share { path: "/Users/alice/Public".into(), guest_access: true }]);
         let json = serde_json::to_string(&shares).unwrap();
         assert!(!json.contains("Public Folder"), "the name line must not appear in the output");
     }

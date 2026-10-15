@@ -39,21 +39,21 @@ Talos Labs reads security settings and shows them with a fix. It never changes a
 - `std::process::Command::new(path)` with an explicit `args` slice. No shell, no `sh -c`, no string interpolation.
 - `env_clear()`, then `PATH=/usr/bin:/bin:/usr/sbin:/sbin` and `LANG=C`.
 - `stdin` is null. stdout and stderr are captured separately. Output is capped at 1 MiB, decoded as lossy UTF-8.
-- Timeout 5 s per command, 10 s for `osascript`. The child is killed on expiry.
-- The release profile aborts on panic, so the crate denies `clippy::unwrap_used` and `clippy::expect_used`, every collector returns `Result`, and the section boundary maps every `Err` to `unavailable`.
+- Timeout 5 s per command, 45 s for `osascript` (the first-run Automation prompt blocks it until the user answers). The child is killed on expiry.
+- Panics unwind: `collect::guarded` catches a collector panic and records that section as `unavailable` with `collector_error`, so a bug costs one section, not the scan. The crate also denies `clippy::unwrap_used`, `expect_used`, `panic` and `string_slice` and warns on `indexing_slicing`; every collector returns `Result`, and the section boundary maps every `Err` to `unavailable`.
 - Raw command output is never logged in release builds. The `debug-raw` cargo feature enables it for development only.
-- The cancel flag is checked before every spawn, so a cancelled scan ends within one command timeout.
+- The cancel flag is checked before every spawn and polled every 200 ms while a child runs; on cancel the child is killed, so a cancelled scan ends within a fraction of a second.
 
 ### Files the collectors open
 
 - launchd plists in `~/Library/LaunchAgents`, `/Library/LaunchAgents` and `/Library/LaunchDaemons`: label, program path (first of `Program` or `ProgramArguments`), `RunAtLoad`. Arguments are never read.
 - `~/.ssh`: directory and file modes, and the first 4 KiB of each key to classify the header. Key bytes never leave the function. `ssh-keygen` is never invoked.
 - A fixed list of dotfiles (`~/.zshrc ~/.bashrc ~/.zprofile ~/.profile ~/.env ~/.npmrc ~/.netrc ~/.aws/credentials ~/.docker/config.json`), each capped at 1 MiB, matched line by line against a `RegexSet`. A hit stores the path, the pattern name and the line number, never the matched text. `$VAR` references do not match.
-- Browser extension manifests: `name`, `version`, `permissions`, `host_permissions`. Chrome-family directories are TCC-protected and need Full Disk Access.
+- Browser extension manifests: `name`, `version`, `permissions`, `host_permissions`, `content_scripts[].matches` and `default_locale`, plus `_locales/<locale>/messages.json` to resolve a `__MSG_key__` name. Chrome-family `Preferences` and `Secure Preferences`: only `extensions.settings.<id>.state`, to skip disabled extensions. Firefox `profiles.ini` and `extensions.json`. Chrome-family directories are TCC-protected and need Full Disk Access.
 - The XProtect bundle `Info.plist`, for its version.
 - `/Library/Application Support/Apple/Remote Desktop/RemoteManagement.launchd`: existence only.
 
-Never collected: usernames (the current user's name is compared and discarded), the hostname, the user-authored `name:` of share points, launchd arguments, file contents outside the exceptions above, secret values, user document names.
+Never collected as values: the current user's name (read from `whoami`, compared with the admin group and discarded), the hostname, the user-authored `name:` of share points, launchd arguments, file contents outside the exceptions above, secret values, user document names. The account name does appear inside home-directory paths (`/Users/<name>/.ssh/id_ed25519`, dotfiles, user launch agents, shared folders); those are `path` fields, shown locally and stored in the last report, and never sent to the explainer.
 
 ### Permissions
 
@@ -73,7 +73,7 @@ No root. The app never asks for a password. Two TCC permissions are optional: Fu
 ### What the model receives
 
 - System prompt: one frozen, deterministic string built from the catalog (per rule: id, title, explanation, fix summary) plus the role, data contract, audience and output rules.
-- User message: `ExplainerContext`. `schemaVersion`, `os`, `osVersion` (regex-validated), `profile` (four radio-button enums and booleans), `score`, `counts`, and up to 60 findings, each with `ruleId`, `status`, `severity`, `category`, `points` and up to 8 `SafeEvidence` entries whose values are booleans, numbers, or strings matching `/^[A-Za-z0-9._-]{1,32}$/`.
+- User message: `ExplainerContext`. `schemaVersion`, `os`, `osVersion` (regex-validated), `profile` (two enums and two booleans from the Welcome form), `score`, `counts`, and up to 60 findings, each with `ruleId`, `status`, `severity`, `category`, `points` and up to 8 `SafeEvidence` entries whose values are booleans, numbers, or strings matching `/^[A-Za-z0-9._-]{1,32}$/`.
 - For follow-up questions: the question, clamped to 2000 characters, and at most 10 history turns. Assistant turns are previously validated outputs, never raw model text.
 
 ### What it never receives
@@ -90,7 +90,7 @@ No root. The app never asks for a password. Two TCC permissions are optional: Fu
 
 - Input is structural, as above. A canary test sets every display-only string in a fixture to `IGNORE PREVIOUS INSTRUCTIONS <field>`, including an evidence key, and asserts the serialised context contains no such substring.
 - Caps: 60 findings, 8 evidence per finding, 2000-character question, 10 history turns (`EXPLAINER_LIMITS`).
-- Output is JSON matched against a plain JSON Schema with `additionalProperties: false`, validated by the provider SDK, then again by `validateExplanation`, `validatePrioritisation` and `validateAnswer`: unknown fields dropped, every string at most 1200 characters, every list at most 10 items, every `ruleId` must exist in the report, a prioritisation `order` must be a permutation of the input ids. Any string containing a fenced block or a line starting with `sudo `, `$ `, `curl ` or `bash ` rejects the whole response with `rejected_output`. The UI then shows the authored explanation.
+- Output is JSON constrained by a plain JSON Schema with `additionalProperties: false` (Claude `output_config.format`, Ollama `format`), then validated by `validateExplanation`, `validatePrioritisation` and `validateAnswer`: unknown fields dropped, every string at most 1200 characters, every list at most 10 items, every `ruleId` must exist in the report, a prioritisation `order` must be a permutation of the input ids. Any string containing a fenced block or a line starting with `sudo `, `$ `, `curl ` or `bash ` rejects the whole response with `rejected_output`. The UI then shows the authored explanation.
 - Rendering: model text becomes React text nodes. No markdown, no HTML, no links, no copy button. The card is labelled "AI explanation, not verified".
 - The model has no tools and no way to call back into the app. Fix steps and commands always come from the catalog. The model never writes them.
 - Provider adapters: Claude through `@anthropic-ai/sdk` in the webview (`dangerouslyAllowBrowser`, acceptable because the webview loads only bundled assets under the CSP below); Ollama through a fixed `http://127.0.0.1:11434/api/chat`. Model ids are validated by regex. The API key is read from the Keychain at call time and never held in component state or localStorage.
@@ -105,7 +105,7 @@ default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://api.ant
 
 `connect-src` carries `'self' ipc: http://ipc.localhost` for Tauri's command channel plus the two explainer origins. Tauri appends its own script nonces. `style-src 'unsafe-inline'` lets Vite inject stylesheets as `<style>` elements during `tauri dev`; the UI itself sets no inline style attributes. No inline script is allowed.
 
-Capabilities (`apps/desktop/src-tauri/capabilities/default.json`): `core:default` plus the app's own commands. No `shell`, `fs`, `http` or `opener` permission is granted to the webview. `open_settings_pane` maps a closed `SettingsPane` enum to an `x-apple.systempreferences` URL in Rust; the frontend never passes a URL. The webview has no path to the filesystem except the commands below.
+Capabilities (`apps/desktop/src-tauri/capabilities/default.json`): `core:default` only; app-defined commands need no capability entry. No `shell`, `fs`, `http` or `opener` permission is granted to the webview. `open_settings_pane` maps a closed `SettingsPane` enum to an `x-apple.systempreferences` URL in Rust; the frontend never passes a URL. The webview has no path to the filesystem except the commands below.
 
 ```
 collect_system_state, collect_section, cancel_scan, check_capabilities, open_settings_pane,

@@ -12,10 +12,11 @@ use crate::state::{Listener, ListenerBind, Listeners, Protocol, Section, Unavail
 
 static PID_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| lit(r":\d+$"));
 
+/// Any 127/8 address counts as loopback, including the IPv4-mapped form netstat prints for tcp46 sockets.
 pub fn classify_bind(host: &str) -> ListenerBind {
     if host == "*" {
         ListenerBind::All
-    } else if host == "127.0.0.1" || host == "::1" {
+    } else if host == "::1" || host.starts_with("127.") || host.starts_with("::ffff:127.") {
         ListenerBind::Loopback
     } else if host.starts_with("fe80:") {
         ListenerBind::LinkLocal
@@ -30,11 +31,12 @@ pub fn process_token(rest: &[&str]) -> (Option<String>, Option<u32>) {
     let Some(end) = rest.iter().position(|t| PID_TOKEN_RE.is_match(t)) else {
         return (None, None);
     };
-    let start = rest[..end]
+    let start = rest
         .iter()
+        .take(end)
         .rposition(|t| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()))
         .map_or(0, |i| i + 1);
-    let joined = rest[start..=end].join(" ");
+    let joined = rest.get(start..=end).unwrap_or(&[]).join(" ");
     match joined.rsplit_once(':') {
         Some((name, pid)) if !name.is_empty() => (Some(name.to_owned()), pid.parse().ok()),
         _ => (None, None),
@@ -131,7 +133,10 @@ mod tests {
             "tcp4       0      0  127.0.0.1.5432         *.*                    LISTEN                 0            0  131072  131072         postgres:4821   00100 00000106 0000000000b3111a 00000001 00000800      1      0 000000\n",
             "tcp6       0      0  ::1.631                *.*                    LISTEN                 0            0  131072  131072            cupsd:300    00100 00000006 00000000000010e9 00000000 00000800      1      0 000000\n",
             "tcp6       0      0  fe80::86c:3c1f:d.8080  *.*                    LISTEN                 0            0  131072  131072             node:7515   00100 00000106 0000000000b12014 00000001 00000800      1      0 000000\n",
-            "tcp4       0      0  192.168.0.119.8443     *.*                    LISTEN                 0            0  131072  131072             java:5951   00000 00000006 0000000000a599da 00000000 00000800      2      0 000000\n",
+            "tcp4       0      0  10.0.0.5.8443          *.*                    LISTEN                 0            0  131072  131072             java:5951   00000 00000006 0000000000a599da 00000000 00000800      2      0 000000\n",
+            "tcp4       0      0  127.0.0.2.8081         *.*                    LISTEN                 0            0  131072  131072             node:7516   00100 00000106 0000000000b12015 00000001 00000800      1      0 000000\n",
+            "tcp4       0      0  127.0.0.53.5353        *.*                    LISTEN                 0            0  131072  131072          dnsmasq:7517   00100 00000106 0000000000b12016 00000001 00000800      1      0 000000\n",
+            "tcp46      0      0  ::ffff:127.0.0.1.8082  *.*                    LISTEN                 0            0  131072  131072             node:7518   00100 00000106 0000000000b12017 00000001 00000800      1      0 000000\n",
         );
         let l = parse_netstat(&format!("{header}{rows}")).unwrap();
         assert_eq!(find(&l, 22)[0].bind, ListenerBind::All);
@@ -140,6 +145,12 @@ mod tests {
         assert_eq!(find(&l, 631)[0].bind, ListenerBind::Loopback);
         assert_eq!(find(&l, 8080)[0].bind, ListenerBind::LinkLocal);
         assert_eq!(find(&l, 8443)[0].bind, ListenerBind::Specific);
+        assert_eq!(find(&l, 8081)[0].bind, ListenerBind::Loopback, "lo0 aliases are loopback");
+        assert_eq!(find(&l, 5353)[0].bind, ListenerBind::Loopback);
+        assert_eq!(find(&l, 8082)[0].bind, ListenerBind::Loopback, "IPv4-mapped loopback");
+        assert_eq!(classify_bind("127.1.2.3"), ListenerBind::Loopback);
+        assert_eq!(classify_bind("128.0.0.1"), ListenerBind::Specific);
+        assert_eq!(classify_bind("1270.0.0.1"), ListenerBind::Specific);
     }
 
     #[test]
@@ -182,7 +193,7 @@ mod tests {
 
     #[test]
     fn rows_without_listeners_give_an_empty_table() {
-        let text = "Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)\ntcp4       0      0  192.168.0.119.56643    52.29.238.212.443      ESTABLISHED\n";
+        let text = "Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)\ntcp4       0      0  10.0.0.5.56643         203.0.113.10.443       ESTABLISHED\n";
         let l = parse_netstat(text).unwrap();
         assert!(l.entries.is_empty());
         assert!(l.process_names_complete);

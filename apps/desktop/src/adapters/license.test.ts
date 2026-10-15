@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { generateTestKeyPair, issueKey } from "../license/test-keys";
-import { createVerifier } from "../license/verifier";
+import { LICENSE_PUBLIC_KEY_HEX } from "../license/public-key";
+import { forgeKey, generateTestKeyPair, issueKey, ZERO_PUBLIC_KEY_HEX } from "../license/test-keys";
+import { createVerifier, createVerifierOrRejectAll } from "../license/verifier";
 import { LicenseAdapter } from "./license";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -102,6 +103,36 @@ describe("LicenseAdapter.install", () => {
     const state = await adapter().install(issueKey({ ...PAYLOAD, product: "other" }, pair.privateKey));
     expect(state).toEqual({ status: "invalid", reason: "product" });
     expect(invokeMock).not.toHaveBeenCalledWith("license_write", expect.anything());
+  });
+});
+
+describe("LicenseAdapter with a small-order or placeholder public key", () => {
+  const FORGED_KEY = forgeKey({ ...PAYLOAD, lid: "FORGED", plan: "business", seats: 999, updatesUntil: "2099-12-31" });
+
+  it("does not install a key minted without the private key against the zero placeholder", async () => {
+    stored(null);
+    const state = await new LicenseAdapter(createVerifierOrRejectAll(ZERO_PUBLIC_KEY_HEX), BUILD_DATE, new Set()).install(
+      FORGED_KEY,
+    );
+    expect(state).toEqual({ status: "invalid", reason: "signature" });
+    expect(invokeMock).not.toHaveBeenCalledWith("license_write", expect.anything());
+  });
+
+  it("re-validates a stored forged key as invalid against the zero placeholder", async () => {
+    stored(FORGED_KEY);
+    const state = await new LicenseAdapter(createVerifierOrRejectAll(ZERO_PUBLIC_KEY_HEX), BUILD_DATE, new Set()).current();
+    expect(state).toEqual({ status: "invalid", reason: "signature" });
+  });
+
+  it("rejects the forged key with the compiled-in key, whatever it currently is", async () => {
+    stored(FORGED_KEY);
+    const state = await new LicenseAdapter(createVerifierOrRejectAll(LICENSE_PUBLIC_KEY_HEX), BUILD_DATE, new Set()).current();
+    expect(state).toEqual({ status: "invalid", reason: "signature" });
+  });
+
+  it("rejects the forged key with a real key", async () => {
+    stored(FORGED_KEY);
+    expect(await adapter().current()).toEqual({ status: "invalid", reason: "signature" });
   });
 });
 

@@ -26,7 +26,7 @@ File: `packages/core/src/domain/system-state.ts`.
 Rules for the shape:
 
 - One `Section<T>` per area. A section is `{ status: "ok", data }` or `{ status: "unavailable", reason, detail }`. Collectors never throw. `reason` is one of nine fixed `UnavailableReason` values. `detail` is a label written by our code ("parser: netstat"), never command output.
-- Values are booleans, enums, counts, versions, ports, process names and config-file paths. No file contents, no command output, no secret values, no user document names, no usernames, no hostname, no launchd arguments.
+- Values are booleans, enums, counts, versions, ports, process names and config-file paths. No file contents, no command output, no secret values, no user document names, no hostname, no launchd arguments. The account name is not collected as a value, but it sits inside home-directory paths (SSH keys, dotfiles, user launch agents, shared folders); those are `path` fields, shown locally and never sent to the explainer.
 - Fields marked display-only in the source (paths, labels, process names, extension names, login item names, share paths) are shown in the UI and persisted locally. They can never reach the explainer because the explainer payload has no field of that kind (section 5).
 - A `defaults` key whose absence means the OS default is typed `Tri = boolean | "unset"`. The collector records `"unset"`; the rule applies the documented default. Fixtures can test both branches.
 - OS-specific concepts get a neutral name. A field with no equivalent on an OS is `null`, and the rule returns `not_applicable`. A whole area with no equivalent is `unavailable` with `not_supported_on_os`.
@@ -127,7 +127,7 @@ The full table is `docs/RULES.md`. 31 macOS rules, ids `TL-MAC-001` to `TL-MAC-0
 
 By category: encryption 1, network 3, platform 3, updates 5, access_control 6, remote_access 3, sharing 1, persistence 3, backup 2, browser 1, developer 3. Titles are statements a reader can agree or disagree with ("Your disk is encrypted", "Nobody is logged in automatically"). Every rule has an authored `explanation` and a `Fix` with effort and side effects, so the app reads well with no LLM.
 
-`cisEdition` is pinned to CIS Apple macOS 26 Tahoe Benchmark v1.0.0. `docs/CIS-MAP.md` is the source of truth for every `cis` value; its numbers were verified against the NIST mSCP `tahoe` branch on 2026-10-15, and the Sequoia edition uses the same numbers for every control cited. Rule 026 (Time Machine) cites 2.3.4.1 as a partial match: the CIS control is Level 2 and only requires automatic backup when Time Machine is already on. Rule 017 is `info`: it reads the global policy from `pwpolicy`, which a password change does not alter, so a weak or absent policy is `review`, not `fail`; the CIS minimum of 15 is the pass threshold.
+`cisEdition` is pinned to CIS Apple macOS 26 Tahoe Benchmark v1.0.0. `docs/CIS-MAP.md` is the source of truth for every `cis` value; its numbers were verified against the NIST mSCP `tahoe` branch on 2026-10-15, and the Sequoia edition uses the same numbers for every control cited. Rule 026 (Time Machine) cites 2.3.4.1 as a partial match: the CIS control is Level 2 and only requires automatic backup when Time Machine is already on. Rule 022 cites 2.13.2 as a partial match: it reads each share's own `guest access:` flag from `sharing -l` and takes `enabled` from a non-loopback port-445 listener; it does not read the global Users & Groups guest switch that mSCP checks, and its fix steps say so. Rule 017 is `info`: it reads the global policy from `pwpolicy`, which a password change does not alter, so a weak or absent policy is `review`, not `fail`; the CIS minimum of 15 is the pass threshold.
 
 Command policy in fixes:
 
@@ -200,37 +200,37 @@ One frozen string, placed first for cache stability.
 
 `@anthropic-ai/sdk` in the webview. `new Anthropic({ apiKey, dangerouslyAllowBrowser: true, timeout: 60_000, maxRetries: 1 })`. The webview only loads bundled assets under the CSP below, so the browser flag is acceptable. The key comes from `SecretStorePort` at call time and is never held in component state or localStorage.
 
-Each capability is one `client.messages.parse()` call:
+Each capability is one `client.messages.create()` call:
 
 ```ts
-const response = await client.messages.parse(
+const response = await client.messages.create(
   {
     model,                                   // default "claude-opus-5"; user-overridable, validated by /^claude-[a-z0-9-]+$/
     max_tokens: 16000,                       // thinking tokens count against this; do not lowball
     system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
     messages,                                // one user turn, or validated history plus the question for ask
-    output_config: { format: zodOutputFormat(ExplanationSchema), effort: "low" },   // "medium" for ask
+    output_config: { effort, format: { type: "json_schema", schema } },   // effort "low"; "medium" for ask
   },
   { signal },
 );
 ```
 
-`thinking` is omitted: `claude-opus-5` runs adaptive thinking by default. No `tools`. No streaming in v0.1. `zod` and `zodOutputFormat` from `@anthropic-ai/sdk/helpers/zod` are dependencies of `apps/desktop`, not core.
+`schema` is `EXPLANATION_JSON_SCHEMA`, `PRIORITISATION_JSON_SCHEMA` or `ANSWER_JSON_SCHEMA` from `packages/core/src/explainer/schemas.ts`: plain JSON Schema with `additionalProperties: false`, shared with the Ollama adapter. The first text block is parsed as JSON and handed to core's `validateExplanation`, `validatePrioritisation` or `validateAnswer`. No zod helper is involved. `thinking` is omitted: `claude-opus-5` runs adaptive thinking by default. No `tools`. No streaming in v0.1.
 
-Result mapping: `stop_reason === "refusal"` gives `refused`; `parsed_output === null` gives `rejected_output`; `Anthropic.AuthenticationError` gives `auth`; `Anthropic.APIConnectionTimeoutError` gives `timeout`; `Anthropic.APIConnectionError` gives `network`; any other `Anthropic.APIError` gives `unknown`; a missing key gives `no_api_key`.
+Result mapping: `stop_reason === "refusal"` gives `refused`; a response with no text block, or text that is not JSON, gives `rejected_output`; `Anthropic.AuthenticationError` gives `auth`; `Anthropic.APIConnectionTimeoutError` gives `timeout`; `Anthropic.APIConnectionError` gives `network`; any other `Anthropic.APIError` gives `unknown`; a missing key gives `no_api_key`.
 
 ### Ollama adapter
 
-`POST http://127.0.0.1:11434/api/chat` with `stream: false`, the same system prompt, and `format` set to the JSON schema derived from the same zod schema. The model name is validated by `/^[a-z0-9._:-]+$/`. The URL is fixed in v0.1 so the CSP stays static.
+`POST http://127.0.0.1:11434/api/chat` with `stream: false`, the same system prompt, and `format` set to the same JSON schema. The model name is validated by `/^[a-z0-9._:-]+$/`. The URL is fixed in v0.1 so the CSP stays static.
 
 ### Injection defenses
 
 - Input: structural. No machine-originated string can be typed into `ExplainerContext`. A canary test (section 9) proves it.
 - Caps: 60 findings, 8 evidence per finding, question 2000 characters, 10 history turns. Assistant turns in `history` are previously validated outputs, never raw model text.
-- Output: schema-validated by the SDK, then checked again in the adapter. Unknown fields dropped, each string at most 1200 characters, lists at most 10 items, every `ruleId` must exist in the report, `order` must be a permutation. Any string containing a fenced block or a line starting with `sudo `, `$ `, `curl ` or `bash ` rejects the whole response with `rejected_output`. The UI then shows the authored explanation.
+- Output: constrained to a JSON schema by the provider, then checked by core's validators in the adapter. Unknown fields dropped, each string at most 1200 characters, lists at most 10 items, every `ruleId` must exist in the report, `order` must be a permutation. Any string containing a fenced block or a line starting with `sudo `, `$ `, `curl ` or `bash ` rejects the whole response with `rejected_output`. The UI then shows the authored explanation.
 - Rendering: all model text is rendered as React text nodes. No markdown, no HTML, no clickable links, no copy button. Model text sits in a card labelled "AI explanation, not verified".
 - The model has no tools and no network beyond the one request. It cannot call back into the app.
-- CSP in `tauri.conf.json`: `default-src 'self'; connect-src https://api.anthropic.com http://127.0.0.1:11434`. The scaffold ships `csp: null`; this must change before the first release.
+- CSP in `tauri.conf.json`: `default-src 'self'`, with `connect-src` limited to Tauri's IPC origins (`'self' ipc: http://ipc.localhost`), `https://api.anthropic.com` and `http://127.0.0.1:11434`. The exact directive is in docs/SECURITY-MODEL.md, section "Webview and CSP".
 
 ## 6. Licensing and entitlements
 
@@ -247,7 +247,7 @@ entitled(state: LicenseState, feature: Feature): boolean
 
 `parseLicense` lives in `packages/core/src/license/` with a hand-written base64url decoder. It checks format, calls `verify(payloadBytes, signatureBytes)`, parses the payload, checks `v`, `product`, `updatesUntil >= buildDate`, and the revocation set. `LicenseInvalidReason` names which check failed. The desktop adapter injects `@noble/ed25519` with the public key from `apps/desktop/src/license/public-key.ts`, the build date injected by Vite `define`, and a small revocation list from `apps/desktop/src/license/revoked.ts`. The raw key string is stored in `<app_data>/license.key` through Tauri commands and re-verified on every launch. No account, no server, no phone-home, no hardware binding.
 
-`SignatureVerifier` is synchronous. `@noble/ed25519` v3 throws from `verify` unless a synchronous SHA-512 is configured first, and WebCrypto Ed25519 is async-only, so the adapter sets `ed.hashes.sha512 = sha512` once at module load with `sha512` from `@noble/hashes/sha2.js`, then wraps `ed.verify(signature, message, publicKey)` (that argument order) into the `(message, signature)` shape core expects. `@noble/ed25519` and `@noble/hashes` are `apps/desktop` dependencies, alongside `@anthropic-ai/sdk` and `zod`.
+`SignatureVerifier` is synchronous. `@noble/ed25519` v3 throws from `verify` unless a synchronous SHA-512 is configured first, and WebCrypto Ed25519 is async-only, so the adapter sets `ed.hashes.sha512 = sha512` once at module load with `sha512` from `@noble/hashes/sha2.js`, then wraps `ed.verify(signature, message, publicKey, { zip215: false })` (that argument order, strict RFC 8032 mode) into the `(message, signature)` shape core expects. `createVerifier` refuses a small-order public key at construction, because ZIP215 mode would accept a forged signature for one; `createVerifierOrRejectAll` turns that refusal into a verifier that rejects every signature, so the all-zero placeholder in `public-key.ts` leaves the app unlicensed instead of accepting forgeries. `@noble/ed25519` and `@noble/hashes` are `apps/desktop` dependencies, alongside `@anthropic-ai/sdk` and `zod`.
 
 `entitled(state, feature)` returns true for every `Feature` when `state.status` is `valid` and false otherwise. `plan` and `seats` are informational in v0.1: shown in About, not enforced.
 
@@ -263,7 +263,7 @@ keygen issue --plan personal --seats 1 --email a@b.c --updates-until 2027-10-15
 keygen verify <key>
 ```
 
-The private key path comes from `TALOS_SIGNING_KEY`, never from the repo. Tests generate a throwaway pair in-process and assert `LICENSE_PUBLIC_KEY` differs from it.
+The private key path comes from `TALOS_SIGNING_KEY`, never from the repo. Tests generate a throwaway pair in-process and assert `LICENSE_PUBLIC_KEY_HEX` differs from it.
 
 ## 7. UI
 
@@ -281,22 +281,29 @@ Screens in `apps/desktop/src/screens/`:
 Scan state machine, a React reducer in `apps/desktop/src/scan/machine.ts`:
 
 ```ts
+type SectionProgressStatus = "pending" | "ok" | "unavailable";
+type ScanError = "collector_crashed" | "timeout" | "schema_mismatch" | "cancelled";
+type ExplainTarget = RuleId | "prioritise";
+
+/** The last single-section recheck that produced the held report. `at` is the report's scannedAt. */
+interface LastRecheck { key: SectionKey; at: string }
+
 type ScanState =
   | { kind: "idle"; last: ScanReport | null }
-  | { kind: "collecting"; startedAt: string; sections: Record<SectionKey, "pending" | "ok" | "unavailable"> }
+  | { kind: "collecting"; startedAt: string; sections: Record<SectionKey, SectionProgressStatus> }
   | { kind: "evaluating"; state: SystemState }
-  | { kind: "ready"; report: ScanReport; state: SystemState; explain: ExplainState }
+  | { kind: "ready"; report: ScanReport; state: SystemState; explain: ExplainState; lastRecheck: LastRecheck | null }
   | { kind: "rechecking"; report: ScanReport; state: SystemState; key: SectionKey }
-  | { kind: "failed"; error: "collector_crashed" | "timeout" | "schema_mismatch" | "cancelled"; last: ScanReport | null };
+  | { kind: "failed"; error: ScanError; last: ScanReport | null };
 
 type ExplainState =
   | { kind: "off" }
-  | { kind: "running"; target: RuleId | "prioritise" }
+  | { kind: "running"; target: ExplainTarget }
   | { kind: "ready"; byRule: Record<string, Explanation>; order: RuleId[] | null }
-  | { kind: "failed"; reason: ExplainerFailure };
+  | { kind: "failed"; reason: ExplainerFailure; target: ExplainTarget; byRule: Record<string, Explanation>; order: RuleId[] | null };
 ```
 
-Transitions: idle to collecting on Scan; collecting to evaluating when the invoke resolves and the guard passes (60 s budget); collecting to failed on invoke error or guard failure; Cancel aborts the `signal`, the adapter invokes `cancel_scan`, the invoke rejects with `cancelled` and the machine goes to failed; evaluating to ready (the engine is synchronous and cannot fail; unknowns are data), then `ReportStorePort.saveLast`; ready to rechecking on "check again", which calls `collectSection`, replaces that section in the held `SystemState`, re-runs the engine and returns to ready; ready or failed to collecting on Rescan. `explain` is a sub-state of ready and never blocks the report. A section that could not be read never reaches `failed`; it renders as a grey "Couldn't check" card with the reason and the permission to grant.
+Transitions: idle to collecting on Scan; collecting to evaluating when the invoke resolves and the guard passes (60 s budget); collecting to failed on invoke error or guard failure; Cancel aborts the `signal`, the adapter invokes `cancel_scan`, the invoke rejects with `cancelled` and the machine goes to failed; evaluating to ready (the engine is synchronous and cannot fail; unknowns are data), then `ReportStorePort.saveLast`; ready to rechecking on "check again", which calls `collectSection`, replaces that section in the held `SystemState`, re-runs the engine and returns to ready with `lastRecheck` set to the section key and the new report's `scannedAt`; a recheck that fails returns to ready with the previous report and `lastRecheck: null`; ready or failed to collecting on Rescan. `explain` is a sub-state of ready and never blocks the report. A failed explanation keeps the `byRule` map and `order` already shown and records the `target` that failed, so the UI can retry one thing. A section that could not be read never reaches `failed`; it renders as a grey "Couldn't check" card with the reason and the permission to grant.
 
 ## 8. Rust collector layout
 
@@ -306,7 +313,7 @@ apps/desktop/src-tauri/
   src/
     lib.rs                   builder, plugins, generate_handler![...]
     commands.rs              Tauri command surface; thin, maps errors; holds the cancel flag in Tauri state
-    exec.rs                  enum Bin, run(bin, args, timeout) -> Result<Output, ExecError>
+    exec.rs                  enum Bin, run(bin, args, timeout, cancel) -> Result<Output, ExecError>
     state.rs                 serde structs mirroring core SystemState and Section<T>, rename_all = "camelCase"
     capabilities.rs          Full Disk Access probe
     settings_pane.rs         SettingsPane enum -> x-apple.systempreferences URL
@@ -347,20 +354,21 @@ Osascript       /usr/bin/osascript
 Pwpolicy        /usr/bin/pwpolicy
 ```
 
-`systemsetup` and `sfltool` are absent on purpose. `std::process::Command::new(path)` with an explicit `args` slice, `env_clear()` plus `PATH=/usr/bin:/bin:/usr/sbin:/sbin` and `LANG=C`, `stdin(Stdio::null())`, stdout and stderr captured separately (`sysadminctl` writes to stderr), output capped at 1 MiB, lossy UTF-8. Timeout 5 s per command (10 s for `osascript`) via `wait_timeout`; on expiry the child is killed. No shell, no string interpolation, no `sh -c`. `osascript` runs a fixed script constant.
+`systemsetup` and `sfltool` are absent on purpose. `std::process::Command::new(path)` with an explicit `args` slice, `env_clear()` plus `PATH=/usr/bin:/bin:/usr/sbin:/sbin` and `LANG=C`, `stdin(Stdio::null())`, stdout and stderr captured separately (`sysadminctl` writes to stderr), output capped at 1 MiB, lossy UTF-8. Timeout 5 s per command (`DEFAULT_TIMEOUT`) and 45 s for `osascript` (`OSASCRIPT_TIMEOUT`, long enough to answer the first-run Automation prompt, which blocks `osascript` until the user decides), via `wait_timeout` polled every 200 ms; on expiry or cancel the child is killed. No shell, no string interpolation, no `sh -c`. `osascript` runs a fixed script constant.
 
 ### Panics
 
-The release profile keeps `panic = "abort"`, so `catch_unwind` cannot save a section in release builds. Instead the crate denies `clippy::unwrap_used` and `clippy::expect_used`, collectors return `Result`, and the section boundary maps every `Err` to `unavailable`. `collector_error` is reserved for an `Err` that no other reason describes.
+The release profile does not set `panic = "abort"`, so panics unwind. `collect::guarded` wraps every collector call in `catch_unwind` and turns a panic into `unavailable` with `collector_error` and detail `panic`, so one collector bug costs one section, not the scan. On top of that, `[lints.clippy]` in `Cargo.toml` denies `unwrap_used`, `expect_used`, `panic` and `string_slice` and warns on `indexing_slicing`; CI runs `-D warnings`, so a new slice or index site must use `get` or carry an allow with a reason. Collectors return `Result`, and the section boundary maps every `Err` to `unavailable`. `collector_error` is reserved for an `Err` that no other reason describes.
 
 ### Failure mapping
 
 | condition | reason |
 |---|---|
 | binary missing | `tool_missing` |
-| killed on timeout | `timeout` |
+| killed on timeout | `timeout` (for `osascript` the `detail` is `osascript: no answer to the Automation prompt`) |
 | `EPERM` or `EACCES` from a read | `permission_denied` |
-| `EPERM` under `~/Library/Application Support/{Google,BraveSoftware,Microsoft Edge,Arc}` | `needs_full_disk_access` (`ENOENT` there means not installed) |
+| `EPERM` or `EACCES` under `~/Library/Application Support/{Google,BraveSoftware,Microsoft Edge,Arc,Firefox}` | `needs_full_disk_access` (`ENOENT` there means not installed) |
+| collector panic, caught by `collect::guarded` | `collector_error`, `detail` = `panic` |
 | `osascript` error -1743 | `needs_automation_permission` |
 | parser `Err` | `parse_error`, `detail` = parser name |
 | anything else | `collector_error` |
@@ -369,7 +377,7 @@ Known non-error outputs are values, not errors: a label absent from `launchctl p
 
 ### Parsing notes
 
-- `netstat -anv -p tcp`: keep rows whose sixth field is `LISTEN`. The local address is the fourth whitespace field; the port follows the last `.`. `*` gives `bind: all`, `127.0.0.1` or `::1` gives `loopback`, `fe80:` gives `link_local`, anything else `specific`. On macOS 27 a LISTEN row has 21 fields: four numeric columns (`rxbytes txbytes rhiwat shiwat`) sit between the state and the `process:pid` token, and the header's two-word names (`Local Address`) mean header indices do not line up with row indices, so the parser does not index by header. Instead: scan from the seventh field (1-based) for the first token matching `:\d+$`; that token ends the process name. The name is every token after the last all-numeric token before it, joined by single spaces, minus the trailing `:pid`. On the row below this gives `Code Helper (Plu` and pid 47351; joining from the tenth field would give `131072 Code Helper (Plu` and fail the 018 allow-list on every Mac. Names contain spaces and are truncated by the OS at 16 characters. `tests/fixtures/netstat.txt` holds the verbatim header and captured rows, not just the token:
+- `netstat -anv -p tcp`: keep rows whose sixth field is `LISTEN`. The local address is the fourth whitespace field; the port follows the last `.`. `classify_bind`: `*` gives `bind: all`; `::1`, any `127.` address (the whole 127/8 block, so `lo0` aliases such as `127.0.0.2` count) and the IPv4-mapped `::ffff:127.` form that `tcp46` rows print give `loopback`; `fe80:` gives `link_local`; anything else `specific`. Empty output, or a header with no socket rows, is `permission_denied` with detail `netstat: empty socket table` (the kernel withholds the table from ad-hoc signed process trees on macOS 27; see `docs/DEVELOPMENT.md`). On macOS 27 a LISTEN row has 21 fields: four numeric columns (`rxbytes txbytes rhiwat shiwat`) sit between the state and the `process:pid` token, and the header's two-word names (`Local Address`) mean header indices do not line up with row indices, so the parser does not index by header. Instead: scan from the seventh field (1-based) for the first token matching `:\d+$`; that token ends the process name. The name is every token after the last all-numeric token before it, joined by single spaces, minus the trailing `:pid`. On the row below this gives `Code Helper (Plu` and pid 47351; joining from the tenth field would give `131072 Code Helper (Plu` and fail the 018 allow-list on every Mac. Names contain spaces and are truncated by the OS at 16 characters. `tests/fixtures/netstat.txt` holds the verbatim header and captured rows, not just the token:
 
   ```
   Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)          rxbytes      txbytes  rhiwat  shiwat          process:pid    state  options           gencnt    flags   flags1 usecnt rtncnt fltrs
@@ -385,7 +393,7 @@ Known non-error outputs are values, not errors: a label absent from `launchctl p
 - `accounts`: `humanAdminCount` excludes `root` and `_`-prefixed names; the current user's name is compared and discarded, never stored.
 - SSH keys: read the first 4 KiB. For `-----BEGIN OPENSSH PRIVATE KEY-----`, base64-decode the body and read the `ciphername` length-prefixed string after the `openssh-key-v1\0` magic: `none` means unencrypted, `aes256-ctr` (with `bcrypt` kdf) means encrypted. For PEM, `Proc-Type: 4,ENCRYPTED` or `BEGIN ENCRYPTED PRIVATE KEY` means encrypted; a plain `BEGIN RSA PRIVATE KEY` or `BEGIN EC PRIVATE KEY` without `Proc-Type` means unencrypted. Unrecognised headers give `encrypted: null`. `ssh-keygen` is never invoked. Key bytes never leave the function.
 - Dotfiles: the fixed list is `~/.zshrc ~/.bashrc ~/.zprofile ~/.profile ~/.env ~/.npmrc ~/.netrc ~/.aws/credentials ~/.docker/config.json`, each capped at 1 MiB, read line by line through a `RegexSet`. The struct holds path, pattern name and line number, never the match. `$VAR` references do not match.
-- Browsers: Firefox reads `profiles.ini` then each profile's `extensions.json`. Chrome-family reads `<profile>/Extensions/<id>/<version>/manifest.json` for `name`, `version`, `permissions`, `host_permissions`. `broadHostAccess` is true for `<all_urls>` or a `*://*/*` pattern.
+- Browsers: Firefox reads `profiles.ini` then each profile's `extensions.json`, keeping `type: "extension"` add-ons that are not built in (`app-system-defaults`, `app-builtin`, `app-system-addons`, `app-system-share`), not hidden and not disabled (`active: false` or `userDisabled: true`); `broadHostAccess` comes from `userPermissions.origins`. Chrome-family walks every `Default` and `Profile N` directory, reads `<profile>/Extensions/<id>/<version>/manifest.json` from the version directory with the highest numeric version (`1.10_0` beats `1.9_0`), and skips ids whose `extensions.settings.<id>.state` is 0 in the profile's `Preferences` or `Secure Preferences`. It keeps `name`, `version`, `permissions`, `host_permissions` and `content_scripts[].matches`; a `__MSG_key__` name is resolved from `_locales/<default_locale>/messages.json` and falls back to the id. `broadHostAccess` is true when `permissions`, `host_permissions` or any content script `matches` entry is `<all_urls>` or a wildcard host pattern such as `*://*/*`, `http://*/*` or `https://*/*`; `optional_host_permissions` are not granted at install and do not count.
 - Full Disk Access probe: `read_dir` on the first existing Chrome-family directory, falling back to `~/Library/Safari`. `stat` succeeds on TCC-protected directories; only listing or opening fails, with `EPERM`. If no probe directory exists, `fullDiskAccess` is `null`.
 - Login items: `osascript -e 'tell application "System Events" to get the name of every login item'`. The app needs `NSAppleEventsUsageDescription` in its Info.plist or macOS denies without prompting. `sfltool dumpbtm` hangs without root and is not used.
 
@@ -402,11 +410,11 @@ report_save_last(report) / report_load_last()
 license_read() / license_write(key) / license_delete()
 ```
 
-`cancel_scan` sets an `AtomicBool` held in Tauri state and reset at the start of every scan. `exec::run` checks it before spawning a child and each section checks it before each command, returning `Err(Cancelled)`, so a cancelled scan ends within one command timeout (5 s, 10 s for `osascript`) and `collect_system_state` rejects with `cancelled`.
+`cancel_scan` sets an `AtomicBool` held in Tauri state and reset at the start of every scan. `exec::run` checks it before spawning a child and polls it every 200 ms while the child runs, killing the child and returning `Err(Cancelled)`; each section also checks it before each command. A cancelled scan therefore ends within a fraction of a second, even during the 45 s `osascript` wait, and `collect_system_state` rejects with `cancelled`.
 
-`capabilities/default.json` grants `core:default` and the commands above. No `shell`, `fs`, `http` or `opener` permission is granted to the webview. `tauri-plugin-opener` stays in `Cargo.toml` and `lib.rs` because `open_settings_pane` uses it from Rust: `app.opener().open_url(url, None::<&str>)` through `tauri_plugin_opener::OpenerExt`, where `url` comes from the `SettingsPane` match in `settings_pane.rs`, so the frontend never passes a URL. The scaffold's `opener:default` capability and the `@tauri-apps/plugin-opener` JS dependency are removed. The webview has no path to the filesystem except these commands.
+`capabilities/default.json` grants `core:default` only; app-defined commands need no capability entry. No `shell`, `fs`, `http` or `opener` permission is granted to the webview. `tauri-plugin-opener` stays in `Cargo.toml` and `lib.rs` because `open_settings_pane` uses it from Rust: `app.opener().open_url(url, None::<&str>)` through `tauri_plugin_opener::OpenerExt`, where `url` comes from the `SettingsPane` match in `settings_pane.rs`, so the frontend never passes a URL. The scaffold's `opener:default` capability and the `@tauri-apps/plugin-opener` JS dependency are removed. The webview has no path to the filesystem except these commands.
 
-New crates: `plist`, `regex`, `wait-timeout`, `keyring`, `base64`, `dirs`, `libc` (for `EPERM`).
+New crates: `plist`, `regex`, `wait-timeout`, `keyring`, `base64`, `dirs`, `libc` (for `EPERM`), `thiserror`, `chrono`.
 
 ## 9. Test strategy
 
@@ -425,14 +433,15 @@ Desktop (`vitest`, jsdom): `NoExplainer` returns `not_configured`; scan reducer 
 
 Rust (`cargo test`):
 
-- Parser tests with literal fixture strings for every output variant named in the brief: `fdesetup` on and off; `socketfilterfw` state lines; `sysadminctl` immediate, N seconds and off; the verbatim `netstat` header and rows from `tests/fixtures/netstat.txt` plus rows with `*.22`, `127.0.0.1.5432`, `::1.631` and `fe80::`, asserting the name `Code Helper (Plu` with no `131072` prefix; `launchctl print-disabled system` with a label `=> enabled`, `=> disabled`, absent, and output with no `disabled services` block giving `null`; `tmutil` "Failed to mount backup destination"; `defaults` with and without `AutomaticCheckEnabled`, and the four `ConfigDataInstall`/`CriticalUpdateInstall` combinations; `sharing -l` with guest access 0 and 1 and a `name:` line that must not appear in the output; `dscl` group membership; `pwpolicy` with the preamble line and the stock `.{4,}` policy; a dotfile with a fake AWS key where the hit is `{ pattern: "aws_access_key_id", line: 3 }` and the value is absent from the serialised output.
+- Parser tests with literal fixture strings for every output variant named in the brief: `fdesetup` on and off; `socketfilterfw` state lines; `sysadminctl` immediate, N seconds and off; the verbatim `netstat` header and rows from `tests/fixtures/netstat.txt` plus rows with `*.22`, `127.0.0.1.5432`, `::1.631`, `fe80::`, a specific `10.0.0.5`, the `lo0` aliases `127.0.0.2` and `127.0.0.53` and the IPv4-mapped `::ffff:127.0.0.1` (all three loopback), asserting the name `Code Helper (Plu` with no `131072` prefix, and empty output or a header with no rows giving `permission_denied`; `launchctl print-disabled system` with a label `=> enabled`, `=> disabled`, absent, and output with no `disabled services` block giving `null`; `tmutil` "Failed to mount backup destination"; `defaults` with and without `AutomaticCheckEnabled`, and the four `ConfigDataInstall`/`CriticalUpdateInstall` combinations; `sharing -l` with guest access 0 and 1 and a `name:` line that must not appear in the output; `dscl` group membership; `pwpolicy` with the preamble line and the stock `.{4,}` policy; a dotfile with a fake AWS key where the hit is `{ pattern: "aws_access_key_id", line: 3 }` and the value is absent from the serialised output.
 - SSH header tests: keys generated in the test with `ssh-keygen -q -t ed25519 -N "" -f <tmp>` and `-N "pass"`, which is non-interactive, giving `ciphername` `none` and `aes256-ctr`; plus hand-written PEM headers.
-- `exec` tests: a timeout with a `#[cfg(test)]`-only sleep entry kills the child; arguments containing `;`, `$(` and spaces reach the child verbatim; output over 1 MiB is truncated and flagged.
+- `exec` tests: a timeout with a `#[cfg(test)]`-only sleep entry kills the child; a cancel flag set while the child runs kills it within the poll interval; a flag set before the call blocks the spawn; arguments containing `;`, `$(` and spaces reach the child verbatim; output over 1 MiB is truncated and flagged.
+- `collect::guarded`: a collector that panics yields `unavailable` with `collector_error` and detail `panic`.
 - Capabilities test behind `#[ignore]`: the probe reports `false` without Full Disk Access and `true` with it.
 - Serde round-trip: every `packages/core/fixtures/*.json` deserialises into `state::SystemState` and re-serialises equal after key sorting. This is the contract between the two sides.
 - Smoke test behind `#[ignore]`: `collect_all()` on a Mac returns every section as `ok` or `unavailable` with a reason.
 
-CI: GitHub Actions on `macos-latest` runs `pnpm typecheck`, `pnpm test`, `cargo test`, `cargo clippy -D warnings`.
+CI: GitHub Actions on `macos-latest` (`.github/workflows/ci.yml`) runs `pnpm -r typecheck`, `pnpm -r test`, `pnpm --filter @talos/desktop build` (the crate embeds `frontendDist`), `cargo test` and `cargo clippy --all-targets -- -D warnings`. On a tag ref it first fails if `apps/desktop/src/license/public-key.ts` still holds the all-zero placeholder.
 
 ## 10. Out of scope for v0.1
 

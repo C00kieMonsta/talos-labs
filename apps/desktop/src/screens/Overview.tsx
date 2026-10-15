@@ -2,8 +2,9 @@ import type { Finding, ScanReport, Severity, SettingsPane, UnknownReason } from 
 import { ScoreRing } from "../components/ScoreRing";
 import { FindingCard } from "../components/FindingCard";
 import { PermissionCard } from "../components/PermissionCard";
-import { GRADE_SUMMARY, SEVERITY_LABELS, UNKNOWN_REASON_LABELS, formatDateTime, paneForReason } from "../app/labels";
+import { GRADE_SUMMARY, SEVERITY_LABELS, SOCKET_TABLE_COPY, UNKNOWN_REASON_LABELS, formatDateTime, paneForReason } from "../app/labels";
 import { useApp } from "../app/context";
+import { hiddenBySocketTable } from "../app/network-checks";
 import { lastReport } from "../scan/machine";
 
 const COUNTED: readonly Severity[] = ["critical", "high", "medium", "low"];
@@ -65,7 +66,8 @@ function OverviewBody({
   const failing = report.findings.filter((f) => f.status === "fail");
   const unknown = report.findings.filter((f) => f.status === "unknown");
   const permissions = groupByPermission(unknown);
-  const otherUnknown = unknown.filter((f) => paneForReason(f.unknownReason) === null);
+  const networkHidden = unknown.filter((f) => hiddenBySocketTable(report, f));
+  const otherUnknown = unknown.filter((f) => paneForReason(f.unknownReason) === null && !hiddenBySocketTable(report, f));
   const nextThree = freeFixes
     .map((id) => failing.find((f) => f.ruleId === id))
     .filter((f): f is Finding => f !== undefined);
@@ -103,7 +105,7 @@ function OverviewBody({
             {!score.complete && (
               <p>
                 <span className="badge badge-incomplete">Incomplete</span>{" "}
-                <span className="muted">Some areas could not be checked, so the score may be higher than it looks.</span>
+                <span className="muted">Some areas could not be checked. They are not counted, so the real score may be lower than this.</span>
               </p>
             )}
             {score.cappedByCritical && (
@@ -144,7 +146,7 @@ function OverviewBody({
         </section>
       )}
 
-      {(permissions.size > 0 || otherUnknown.length > 0) && (
+      {(permissions.size > 0 || networkHidden.length > 0 || otherUnknown.length > 0) && (
         <section aria-labelledby="couldnt-check">
           <h2 id="couldnt-check">Couldn't check</h2>
           <div className="card-grid">
@@ -156,6 +158,13 @@ function OverviewBody({
                 onOpen={onOpenPane}
               />
             ))}
+            {networkHidden.length > 0 && (
+              <section className="card card-muted" aria-labelledby="unsigned-build">
+                <h3 id="unsigned-build">Network checks are unavailable in this build</h3>
+                <p>{SOCKET_TABLE_COPY}</p>
+                <p className="muted">Affects: {networkHidden.map((f) => f.title).join(", ")}</p>
+              </section>
+            )}
             {otherUnknown.map((finding) => (
               <div key={finding.ruleId} className="card card-muted">
                 <h3>{finding.title}</h3>

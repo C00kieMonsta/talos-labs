@@ -2,7 +2,7 @@
 
 use std::sync::atomic::AtomicBool;
 
-use super::run;
+use super::{check_exit, run};
 use crate::collect::{to_section, Fail};
 use crate::exec::Bin;
 use crate::state::{DiskEncryption, DiskEncryptionMethod, Section};
@@ -23,6 +23,7 @@ pub fn parse_fdesetup(text: &str) -> Result<bool, Fail> {
 
 fn inner(cancel: &AtomicBool) -> Result<DiskEncryption, Fail> {
     let out = run(Bin::Fdesetup, &["status"], cancel)?;
+    check_exit(&out, Bin::Fdesetup)?;
     let on = parse_fdesetup(&out.stdout)?;
     Ok(DiskEncryption { system_volume_encrypted: on, method: DiskEncryptionMethod::Filevault })
 }

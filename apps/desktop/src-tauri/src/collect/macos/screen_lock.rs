@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use super::{defaults, lit, run};
+use super::{check_exit, defaults, lit, run};
 use crate::collect::{to_section, Fail};
 use crate::exec::Bin;
 use crate::state::{IdleSeconds, ScreenLock, Section};
@@ -42,6 +42,10 @@ pub fn parse_idle_time(value: Option<&str>) -> IdleSeconds {
 
 fn inner(cancel: &AtomicBool) -> Result<ScreenLock, Fail> {
     let out = run(Bin::Sysadminctl, &["-screenLock", "status"], cancel)?;
+    // sysadminctl answers on stderr, so only a silent failure is a tool failure.
+    if out.stderr.trim().is_empty() {
+        check_exit(&out, Bin::Sysadminctl)?;
+    }
     let (require_password, delay_seconds) = parse_screen_lock(&format!("{}\n{}", out.stderr, out.stdout))?;
     let idle = defaults::read_current_host_key("com.apple.screensaver", "idleTime", "screensaver", cancel)?;
     Ok(ScreenLock { require_password, delay_seconds, screensaver_idle_seconds: parse_idle_time(idle.as_deref()) })

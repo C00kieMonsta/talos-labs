@@ -1,9 +1,13 @@
 import { DEV_MACHINE } from "../../src/fixtures/dev-machine";
 import { HARDENED } from "../../src/fixtures/hardened";
 import { TL_MAC_018 } from "../../src/rules/macos/tl-mac-018";
-import { describeRule, patchSection } from "../helpers";
+import type { Listener } from "../../src/domain/system-state";
+import { describeRule, patchSection, withUnavailable } from "../helpers";
 
 const base = HARDENED.sections.listeners.status === "ok" ? HARDENED.sections.listeners.data.entries : [];
+const smb: Listener = { protocol: "tcp", port: 445, bind: "all", processName: "launchd", pid: 1 };
+const guestShare = patchSection(HARDENED, "fileSharing", { enabled: true, shares: [{ path: "/Users/sam/Public", guestAccess: true }] });
+const passwordShare = patchSection(HARDENED, "fileSharing", { enabled: true, shares: [{ path: "/Users/sam/Public", guestAccess: false }] });
 
 describeRule(TL_MAC_018, [
   { name: "pass with only allow-listed Apple services", state: HARDENED, status: "pass", keys: ["exposedCount"], kinds: ["number"] },
@@ -42,9 +46,49 @@ describeRule(TL_MAC_018, [
     status: "fail",
   },
   {
-    name: "ports owned by rules 019 to 022 are suppressed",
+    name: "ports owned by rules 019 to 021 are suppressed",
     state: patchSection(HARDENED, "listeners", {
-      entries: [22, 445, 5900, 3283].map((port) => ({ protocol: "tcp" as const, port, bind: "all" as const, processName: "launchd", pid: 1 })),
+      entries: [22, 5900, 3283].map((port) => ({ protocol: "tcp" as const, port, bind: "all" as const, processName: "launchd", pid: 1 })),
+    }),
+    status: "pass",
+    keys: ["exposedCount"],
+  },
+  {
+    name: "445 is suppressed while a share is open to Everyone (rule 022 owns it)",
+    state: patchSection(guestShare, "listeners", { entries: [smb] }),
+    status: "pass",
+    keys: ["exposedCount"],
+  },
+  {
+    name: "445 with password-only shares is reported",
+    state: patchSection(passwordShare, "listeners", { entries: [smb] }),
+    status: "fail",
+    keys: ["exposedCount", "port", "processName"],
+  },
+  {
+    name: "445 is reported when the fileSharing section is unavailable",
+    state: patchSection(withUnavailable(HARDENED, "fileSharing", "tool_missing"), "listeners", { entries: [smb] }),
+    status: "fail",
+    keys: ["exposedCount", "port", "processName"],
+  },
+  {
+    name: "a nameless exposed entry is flagged as incomplete and still fails",
+    state: patchSection(HARDENED, "listeners", {
+      entries: [
+        { protocol: "tcp", port: 5000, bind: "all", processName: null, pid: null },
+        { protocol: "tcp", port: 7000, bind: "all", processName: null, pid: null },
+      ],
+      processNamesComplete: false,
+    }),
+    status: "fail",
+    keys: ["exposedCount", "namesIncomplete", "port", "port"],
+    kinds: ["number", "bool", "number", "number"],
+  },
+  {
+    name: "incomplete names on loopback entries alone add nothing",
+    state: patchSection(HARDENED, "listeners", {
+      entries: [...base, { protocol: "tcp", port: 9000, bind: "loopback", processName: null, pid: null }],
+      processNamesComplete: false,
     }),
     status: "pass",
     keys: ["exposedCount"],

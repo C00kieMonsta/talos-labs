@@ -1,15 +1,20 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { LicenseState, Rule, RuleCatalog } from "@talos/core";
+import type { Explanation, LicenseState, Rule, RuleCatalog, RuleId, SystemState } from "@talos/core";
+import { DEV_MACHINE, MACOS_CATALOG, evaluate } from "@talos/core";
 import { DEFAULT_SETTINGS } from "../settings";
 import { AppContext } from "../app/context";
+import { buildGate } from "../app/gate";
 import type { Gate } from "../app/gate";
 import { fakeAdapters, fakeContextValue, fakeFinding, fakeReport } from "../app/testing";
 import { pendingSections } from "../scan/machine";
+import type { ExplainState, LastRecheck } from "../scan/machine";
 import { Scanning } from "./Scanning";
 import { Welcome } from "./Welcome";
 import { Findings } from "./Findings";
+import { FindingDetail } from "./FindingDetail";
+import { Overview } from "./Overview";
 import { Ask } from "./Ask";
 import { Settings } from "./Settings";
 import { About } from "./About";
@@ -83,6 +88,12 @@ describe("Welcome", () => {
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     expect(onSkip).toHaveBeenCalled();
   });
+
+  it("does not promise to never read the username, since home paths carry it", () => {
+    render(createElement(Welcome, { initial: DEFAULT_SETTINGS.profile, onStart: vi.fn(), onSkip: vi.fn() }));
+    expect(screen.queryByText(/username/i)).toBeNull();
+    expect(screen.getByText("Your computer's name or your browsing history")).toBeTruthy();
+  });
 });
 
 describe("Findings", () => {
@@ -97,6 +108,7 @@ describe("Findings", () => {
         report,
         state: { schemaVersion: 1, collectedAt: report.collectedAt, host: report.platform, sections: {} as never },
         explain: { kind: "ready", byRule: {}, order: ["TL-MAC-002", "TL-MAC-001", "TL-MAC-003"] },
+        lastRecheck: null,
       },
     });
     render(createElement(AppContext.Provider, { value }, createElement(Findings)));
@@ -108,6 +120,164 @@ describe("Findings", () => {
     fireEvent.change(screen.getByLabelText("Severity"), { target: { value: "critical" } });
     expect(screen.getByRole("button", { name: /Your disk is encrypted\. Open details/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /The firewall is on\. Open details/ })).toBeNull();
+  });
+});
+
+const NOW = "2026-10-15T10:00:00.000Z";
+const HIDDEN = { status: "unavailable" as const, reason: "permission_denied" as const, detail: "netstat: empty socket table" };
+const SHARED = { ...HIDDEN, detail: "shared: listeners" };
+/** The dev machine as an unsigned build sees it: the kernel withheld the socket table. */
+const UNSIGNED_STATE: SystemState = {
+  ...DEV_MACHINE,
+  sections: { ...DEV_MACHINE.sections, listeners: HIDDEN, remoteAccess: SHARED, fileSharing: SHARED },
+};
+function readyContext(input: {
+  state: SystemState;
+  license: LicenseState;
+  explain?: ExplainState;
+  lastRecheck?: LastRecheck | null;
+  provider?: "none" | "claude";
+}) {
+  const report = evaluate(input.state, MACOS_CATALOG, { now: NOW, os: "macos" });
+  return fakeContextValue({
+    adapters: fakeAdapters(),
+    license: input.license,
+    gate: buildGate(report, input.license),
+    settings: { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: input.provider ?? "none" } },
+    scanState: { kind: "ready", report, state: input.state, explain: input.explain ?? { kind: "off" }, lastRecheck: input.lastRecheck ?? null },
+  });
+}
+
+describe("Overview", () => {
+  it("tells the user an incomplete score can only be lower, not higher", () => {
+    const value = readyContext({ state: DEV_MACHINE, license: NONE });
+    render(createElement(AppContext.Provider, { value }, createElement(Overview)));
+    expect(screen.getByText("Incomplete")).toBeTruthy();
+    expect(screen.getByText(/real score may be lower than this/)).toBeTruthy();
+    expect(screen.queryByText(/higher than it looks/)).toBeNull();
+  });
+
+  it("folds the socket-table findings into one card that explains the unsigned build", () => {
+    const value = readyContext({ state: UNSIGNED_STATE, license: NONE });
+    render(createElement(AppContext.Provider, { value }, createElement(Overview)));
+    expect(screen.getByRole("heading", { name: "Network checks are unavailable in this build" })).toBeTruthy();
+    expect(screen.getByText(/not signed, so macOS hides the list of network services/)).toBeTruthy();
+    expect(screen.getByText(/Affects: .*Remote Login \(SSH\) is off/)).toBeTruthy();
+    expect(screen.queryByText("Permission was denied")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Remote Login (SSH) is off" })).toBeNull();
+  });
+
+  it("keeps the generic reason for other permission_denied sections", () => {
+    const state: SystemState = {
+      ...DEV_MACHINE,
+      sections: { ...DEV_MACHINE.sections, ssh: { status: "unavailable", reason: "permission_denied", detail: "read_dir: .ssh" } },
+    };
+    const value = readyContext({ state, license: NONE });
+    render(createElement(AppContext.Provider, { value }, createElement(Overview)));
+    expect(screen.queryByRole("heading", { name: "Network checks are unavailable in this build" })).toBeNull();
+    expect(screen.getAllByText("Permission was denied").length).toBeGreaterThan(0);
+  });
+});
+
+describe("FindingDetail", () => {
+  function renderDetail(value: ReturnType<typeof readyContext>, ruleId: RuleId) {
+    return render(createElement(AppContext.Provider, { value }, createElement(FindingDetail, { ruleId })));
+  }
+
+  it("explains the unsigned build and hides the fix, lock and recheck for a socket-table finding", () => {
+    renderDetail(readyContext({ state: UNSIGNED_STATE, license: VALID, provider: "claude" }), "TL-MAC-019");
+    expect(screen.getByText("Not available in this build")).toBeTruthy();
+    expect(screen.getByText(/not signed, so macOS hides the list of network services/)).toBeTruthy();
+    expect(screen.queryByText("Permission was denied")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "How to fix it" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "I've done this, check again" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "AI explanation" })).toBeNull();
+    expect(document.querySelector(".lock")).toBeNull();
+  });
+
+  it("keeps the generic permission_denied label and the fix for a non-network section", () => {
+    const state: SystemState = {
+      ...DEV_MACHINE,
+      sections: { ...DEV_MACHINE.sections, ssh: { status: "unavailable", reason: "permission_denied", detail: "read_dir: .ssh" } },
+    };
+    renderDetail(readyContext({ state, license: VALID }), "TL-MAC-029");
+    expect(screen.getByText("Permission was denied")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "I've done this, check again" })).toBeTruthy();
+  });
+
+  it("frames the authored explanation by status so an unknown or passed check does not read as confirmed", () => {
+    renderDetail(readyContext({ state: DEV_MACHINE, license: NONE }), "TL-MAC-028");
+    expect(screen.getByText(/This check could not run, so nothing below has been confirmed/)).toBeTruthy();
+    cleanup();
+    renderDetail(readyContext({ state: DEV_MACHINE, license: NONE }), "TL-MAC-004");
+    expect(screen.getByText("Passed")).toBeTruthy();
+    expect(screen.getByText(/This check passed\./)).toBeTruthy();
+    cleanup();
+    renderDetail(readyContext({ state: DEV_MACHINE, license: NONE }), "TL-MAC-002");
+    expect(screen.queryByText(/This check could not run/)).toBeNull();
+    expect(screen.queryByText(/This check passed/)).toBeNull();
+  });
+
+  it("reports the result of a recheck even when the status did not change", () => {
+    const lastRecheck: LastRecheck = { key: "firewall", at: NOW };
+    renderDetail(readyContext({ state: DEV_MACHINE, license: VALID, lastRecheck }), "TL-MAC-002");
+    expect(screen.getByRole("status").textContent).toMatch(/^Checked again at \d{2}:\d{2}\. Still needs fixing\.$/);
+    expect(screen.getByRole("button", { name: "I've done this, check again" })).toBeTruthy();
+    cleanup();
+    renderDetail(readyContext({ state: DEV_MACHINE, license: VALID, lastRecheck }), "TL-MAC-029");
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("says when a rechecked item now passes", () => {
+    const lastRecheck: LastRecheck = { key: "platformIntegrity", at: NOW };
+    renderDetail(readyContext({ state: DEV_MACHINE, license: VALID, lastRecheck }), "TL-MAC-004");
+    expect(screen.getByRole("heading", { name: "Checked again" })).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toMatch(/Now passes\.$/);
+  });
+
+  it("shows an explainer failure only on the finding that asked, and keeps earlier explanations", () => {
+    const explanation: Explanation = { ruleId: "TL-MAC-001", whyItMattersForYou: "Why for you.", whatCouldHappen: "What.", urgency: "today" };
+    const explain: ExplainState = { kind: "failed", reason: "timeout", target: "TL-MAC-002", byRule: { "TL-MAC-001": explanation }, order: null };
+    renderDetail(readyContext({ state: DEV_MACHINE, license: VALID, provider: "claude", explain }), "TL-MAC-001");
+    expect(screen.getByText("Why for you.")).toBeTruthy();
+    expect(screen.queryByText(/took too long/)).toBeNull();
+    cleanup();
+    renderDetail(readyContext({ state: DEV_MACHINE, license: VALID, provider: "claude", explain }), "TL-MAC-002");
+    expect(screen.getByText(/took too long/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Explain this for me" })).toBeTruthy();
+  });
+});
+
+describe("Findings suggested order", () => {
+  it("lets a licensed user ask for an AI order from the Findings screen", () => {
+    const value = readyContext({ state: DEV_MACHINE, license: VALID, provider: "claude" });
+    render(createElement(AppContext.Provider, { value }, createElement(Findings)));
+    expect(screen.getByRole("heading", { name: "Suggested order" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Suggest an order" }));
+    expect(value.scan.prioritise).toHaveBeenCalledTimes(1);
+  });
+
+  it("locks the order behind the licence and shows a prioritise failure inline", () => {
+    const locked = readyContext({ state: DEV_MACHINE, license: NONE, provider: "claude" });
+    render(createElement(AppContext.Provider, { value: locked }, createElement(Findings)));
+    expect(screen.getByRole("region", { name: "An AI-suggested order is part of the full version" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Suggest an order" })).toBeNull();
+    cleanup();
+    const failed = readyContext({
+      state: DEV_MACHINE,
+      license: VALID,
+      provider: "claude",
+      explain: { kind: "failed", reason: "network", target: "prioritise", byRule: {}, order: null },
+    });
+    render(createElement(AppContext.Provider, { value: failed }, createElement(Findings)));
+    expect(screen.getByText(/Could not reach the AI provider/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Suggest an order" })).toBeTruthy();
+  });
+
+  it("hides the aside when no AI provider is set and no order exists", () => {
+    const value = readyContext({ state: DEV_MACHINE, license: VALID });
+    render(createElement(AppContext.Provider, { value }, createElement(Findings)));
+    expect(screen.queryByRole("heading", { name: "Suggested order" })).toBeNull();
   });
 });
 

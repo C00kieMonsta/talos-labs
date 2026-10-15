@@ -71,11 +71,11 @@
       "data": {
         "hits": [],
         "scanned": [
-          "/Users/antoine/.zshrc",
-          "/Users/antoine/.zprofile",
-          "/Users/antoine/.npmrc",
-          "/Users/antoine/.aws/credentials",
-          "/Users/antoine/.docker/config.json"
+          "/Users/alice/.zshrc",
+          "/Users/alice/.zprofile",
+          "/Users/alice/.npmrc",
+          "/Users/alice/.aws/credentials",
+          "/Users/alice/.docker/config.json"
         ],
         "unreadable": []
       },
@@ -87,7 +87,7 @@
         "shares": [
           {
             "guestAccess": true,
-            "path": "/Users/antoine/Public"
+            "path": "/Users/alice/Public"
           }
         ]
       },
@@ -189,7 +189,7 @@
           },
           {
             "label": "homebrew.mxcl.postgresql@16",
-            "plistPath": "/Users/antoine/Library/LaunchAgents/homebrew.mxcl.postgresql@16.plist",
+            "plistPath": "/Users/alice/Library/LaunchAgents/homebrew.mxcl.postgresql@16.plist",
             "program": "/opt/homebrew/opt/postgresql@16/bin/postgres",
             "programExists": true,
             "runAtLoad": true,
@@ -240,13 +240,13 @@
             "encrypted": false,
             "format": "openssh",
             "mode": "600",
-            "path": "/Users/antoine/.ssh/id_ed25519"
+            "path": "/Users/alice/.ssh/id_ed25519"
           },
           {
             "encrypted": false,
             "format": "pem",
             "mode": "600",
-            "path": "/Users/antoine/.ssh/aws-eu-west-1.pem"
+            "path": "/Users/alice/.ssh/aws-eu-west-1.pem"
           }
         ]
       },

@@ -366,7 +366,7 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
   },
   {
     "category": "sharing",
-    "cis": "2.13.2, 2.3.3.2",
+    "cis": "2.13.2",
     "evidence": [
       {
         "key": "enabled",
@@ -387,7 +387,7 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
       },
       {
         "key": "guestShareCount",
-        "label": "Folders open to guests",
+        "label": "Folders open to Everyone",
         "value": {
           "kind": "number",
           "unit": "count",
@@ -396,31 +396,32 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
       },
       {
         "key": "sharePath",
-        "label": "Guest folder",
+        "label": "Folder open to Everyone",
         "value": {
           "kind": "path",
-          "value": "/Users/antoine/Public",
+          "value": "/Users/alice/Public",
         },
       },
     ],
-    "explanation": "File Sharing is on and at least one shared folder lets guests in without a password. Anyone on the same network can open that folder and read, and often change, what is inside. On a cafe or hotel network that means strangers.",
+    "explanation": "File Sharing is on and at least one shared folder gives Everyone access, so a guest with no password can open it from the network and read, and often change, what is inside. On a cafe or hotel network that means strangers.",
     "fix": {
       "commands": [],
       "effort": "two_minutes",
-      "settingsPane": "users_groups",
+      "settingsPane": "sharing",
       "settingsPath": [
         "System Settings",
-        "Users & Groups",
-        "Guest User",
+        "General",
+        "Sharing",
+        "File Sharing",
       ],
       "sideEffects": "workflow",
       "steps": [
-        "Open System Settings, then Users & Groups, click the (i) next to Guest User and switch off Allow guest users to connect to shared folders.",
-        "Or open General, then Sharing, click the (i) next to File Sharing, select the folder and set Everyone to No Access.",
+        "Open System Settings, then General, then Sharing, click the (i) next to File Sharing, select the folder shown in the evidence and set Everyone to No Access.",
         "Or, if you do not share files from this Mac, switch File Sharing off altogether.",
+        "Switching off Allow guest users to connect to shared folders under Users & Groups also keeps guests out, but this check does not read that switch, so the folder stays listed until its Everyone setting changes.",
       ],
-      "summary": "Stop guests connecting to shared folders, or turn File Sharing off.",
-      "verify": "Run the check-up again; the guest share count is 0 or File Sharing is off.",
+      "summary": "Set Everyone to No Access on the shared folder, or turn File Sharing off.",
+      "verify": "Run the check-up again; the count of folders open to Everyone is 0, or File Sharing is off.",
     },
     "points": 8,
     "requires": [
@@ -429,7 +430,7 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
     "ruleId": "TL-MAC-022",
     "severity": "high",
     "status": "fail",
-    "title": "Shared folders are not open to guests",
+    "title": "No shared folder is open to Everyone",
     "unknownReason": null,
   },
   {
@@ -474,7 +475,7 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
         "label": "Agent file",
         "value": {
           "kind": "path",
-          "value": "/Users/antoine/Library/LaunchAgents/homebrew.mxcl.postgresql@16.plist",
+          "value": "/Users/alice/Library/LaunchAgents/homebrew.mxcl.postgresql@16.plist",
         },
       },
     ],
@@ -745,15 +746,15 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
         "label": "Key file",
         "value": {
           "kind": "path",
-          "value": "/Users/antoine/.ssh/id_ed25519",
+          "value": "/Users/alice/.ssh/id_ed25519",
         },
       },
       {
-        "key": "keyPath",
-        "label": "Key file",
+        "key": "pemKeyPath",
+        "label": "Key file (PEM)",
         "value": {
           "kind": "path",
-          "value": "/Users/antoine/.ssh/aws-eu-west-1.pem",
+          "value": "/Users/alice/.ssh/aws-eu-west-1.pem",
         },
       },
     ],
@@ -771,6 +772,32 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
           "needsAdmin": false,
           "program": "ssh-keygen",
         },
+        {
+          "appliesTo": "pemKeyPath",
+          "args": [
+            "-p",
+            "-m",
+            "PEM",
+            "-f",
+            "{path}",
+          ],
+          "interactive": true,
+          "needsAdmin": false,
+          "program": "ssh-keygen",
+        },
+        {
+          "appliesTo": "pkcs8KeyPath",
+          "args": [
+            "-p",
+            "-m",
+            "PKCS8",
+            "-f",
+            "{path}",
+          ],
+          "interactive": true,
+          "needsAdmin": false,
+          "program": "ssh-keygen",
+        },
       ],
       "effort": "two_minutes",
       "settingsPane": null,
@@ -778,6 +805,7 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
       "sideEffects": "workflow",
       "steps": [
         "Open Terminal and run the command shown for each key. It asks for the old passphrase (press Return if there is none) and then for a new one, twice.",
+        "For .pem and PKCS#8 keys the command includes -m PEM or -m PKCS8 so the file keeps its format and tools such as the AWS CLI and OpenSSL can still read it.",
         "Choose a passphrase you can remember; a few unrelated words works well.",
         "To avoid typing it every time, run ssh-add --apple-use-keychain with the key path once, and the Mac keychain will supply it.",
       ],

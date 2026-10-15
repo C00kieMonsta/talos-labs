@@ -126,6 +126,50 @@ describe("useScan", () => {
     expect(result.current.scan.state.sections.ssh).toBe(DEV_MACHINE.sections.ssh);
   });
 
+  it("a successful recheck records which section was checked and when", async () => {
+    const d = deps({ systemState: fakeSystemState(DEV_MACHINE, {}, HARDENED) });
+    const { result } = renderHook(() => useScan(d));
+    await act(async () => {
+      await result.current.start();
+    });
+    expect(result.current.scan.kind === "ready" && result.current.scan.lastRecheck).toBeNull();
+    await act(async () => {
+      await result.current.recheck(["ssh"]);
+    });
+    expect(result.current.scan.kind === "ready" && result.current.scan.lastRecheck).toEqual({
+      key: "ssh",
+      at: "2026-10-15T10:00:00.000Z",
+    });
+  });
+
+  it("an explainer failure keeps earlier explanations and names the rule that failed", async () => {
+    const explanation = { ruleId: "TL-MAC-001" as const, whyItMattersForYou: "why", whatCouldHappen: "what", urgency: "today" as const };
+    const explainer = {
+      ...noExplainer,
+      explain: vi.fn(async ({ ruleId }: { ruleId: string }) =>
+        ruleId === "TL-MAC-001" ? { ok: true as const, value: explanation } : { ok: false as const, reason: "timeout" as const },
+      ),
+    };
+    const d = { ...deps(), createExplainer: async () => explainer };
+    const { result } = renderHook(() => useScan(d));
+    await act(async () => {
+      await result.current.start();
+    });
+    await act(async () => {
+      await result.current.explain("TL-MAC-001");
+    });
+    await act(async () => {
+      await result.current.explain("TL-MAC-002");
+    });
+    expect(result.current.scan.kind === "ready" && result.current.scan.explain).toEqual({
+      kind: "failed",
+      reason: "timeout",
+      target: "TL-MAC-002",
+      byRule: { "TL-MAC-001": explanation },
+      order: null,
+    });
+  });
+
   it("a failed recheck returns to ready with the previous report and a notice", async () => {
     const collectSection = async () => {
       throw new Error("boom");

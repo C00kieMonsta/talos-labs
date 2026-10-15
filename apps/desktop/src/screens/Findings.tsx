@@ -1,10 +1,20 @@
 import { useState } from "react";
 import type { Category, Finding, Rule, RuleId, Severity } from "@talos/core";
 import { FindingCard } from "../components/FindingCard";
+import { Lock } from "../components/Lock";
 import { SeverityBadge } from "../components/SeverityBadge";
-import { CATEGORY_LABELS, CATEGORY_ORDER, SEVERITY_LABELS, SEVERITY_ORDER } from "../app/labels";
+import {
+  CATEGORY_LABELS,
+  CATEGORY_ORDER,
+  EXPLAINER_FAILURE_LABELS,
+  SEVERITY_LABELS,
+  SEVERITY_ORDER,
+  SOCKET_TABLE_LABEL,
+} from "../app/labels";
 import { useApp } from "../app/context";
+import { hiddenBySocketTable } from "../app/network-checks";
 import { lastReport } from "../scan/machine";
+import type { ExplainState } from "../scan/machine";
 
 type SeverityFilter = Severity | "all";
 type CategoryFilter = Category | "all";
@@ -14,7 +24,7 @@ function bySeverity(a: Finding, b: Finding): number {
 }
 
 export function Findings() {
-  const { scan, router, catalog } = useApp();
+  const { scan, router, catalog, gate, settings } = useApp();
   const report = lastReport(scan.scan);
   const [severity, setSeverity] = useState<SeverityFilter>("all");
   const [category, setCategory] = useState<CategoryFilter>("all");
@@ -28,8 +38,9 @@ export function Findings() {
     );
   }
 
-  const explain = scan.scan.kind === "ready" ? scan.scan.explain : { kind: "off" as const };
-  const order = explain.kind === "ready" ? explain.order : null;
+  const live = scan.scan.kind === "ready";
+  const explain: ExplainState = scan.scan.kind === "ready" ? scan.scan.explain : { kind: "off" };
+  const order = explain.kind === "ready" || explain.kind === "failed" ? explain.order : null;
   const rankOf = new Map<RuleId, number>();
   if (order !== null) order.forEach((id, index) => rankOf.set(id, index + 1));
 
@@ -49,7 +60,10 @@ export function Findings() {
   const notApplicable = report.results.filter((r) => r.status === "not_applicable").length;
 
   const open = (ruleId: RuleId) => router.navigate({ name: "finding", ruleId });
+  const reasonFor = (finding: Finding) => (hiddenBySocketTable(report, finding) ? SOCKET_TABLE_LABEL : undefined);
   const suggested = order === null ? [] : order.map((id) => report.findings.find((f) => f.ruleId === id)).filter((f): f is Finding => f !== undefined);
+  const aiOn = settings.explainer.provider !== "none";
+  const showAside = aiOn || suggested.length > 0;
 
   return (
     <main className="screen findings">
@@ -81,11 +95,11 @@ export function Findings() {
         </div>
       </header>
 
-      <div className={suggested.length > 0 ? "findings-layout with-aside" : "findings-layout"}>
+      <div className={showAside ? "findings-layout with-aside" : "findings-layout"}>
         <div className="findings-main">
-          <Group title="Needs fixing" empty="Nothing needs fixing." findings={needsFixing} rankOf={rankOf} onOpen={open} />
-          <Group title="Worth a look" empty="Nothing to look at." findings={worthALook} rankOf={rankOf} onOpen={open} />
-          <Group title="Couldn't check" empty="Everything could be checked." findings={couldntCheck} rankOf={rankOf} onOpen={open} />
+          <Group title="Needs fixing" empty="Nothing needs fixing." findings={needsFixing} rankOf={rankOf} reasonFor={reasonFor} onOpen={open} />
+          <Group title="Worth a look" empty="Nothing to look at." findings={worthALook} rankOf={rankOf} reasonFor={reasonFor} onOpen={open} />
+          <Group title="Couldn't check" empty="Everything could be checked." findings={couldntCheck} rankOf={rankOf} reasonFor={reasonFor} onOpen={open} />
 
           <section aria-labelledby="group-passed">
             <h2 id="group-passed">Passed</h2>
@@ -110,23 +124,85 @@ export function Findings() {
           </section>
         </div>
 
-        {suggested.length > 0 && (
-          <aside className="card findings-aside" aria-labelledby="suggested">
-            <h2 id="suggested">Suggested order</h2>
-            <p className="muted small">From the AI, not verified. The groups on the left keep the severity order.</p>
-            <ol>
-              {suggested.map((finding) => (
-                <li key={finding.ruleId}>
-                  <button type="button" className="link-button" onClick={() => open(finding.ruleId)}>
-                    {finding.title}
-                  </button>
-                </li>
-              ))}
-            </ol>
-          </aside>
+        {showAside && (
+          <SuggestedOrder
+            suggested={suggested}
+            explain={explain}
+            live={live}
+            allowed={gate.has("explainer")}
+            onOpen={open}
+            onPrioritise={() => void scan.prioritise()}
+            onSettings={() => router.navigate({ name: "settings" })}
+          />
         )}
       </div>
     </main>
+  );
+}
+
+function SuggestedOrder({
+  suggested,
+  explain,
+  live,
+  allowed,
+  onOpen,
+  onPrioritise,
+  onSettings,
+}: {
+  suggested: readonly Finding[];
+  explain: ExplainState;
+  live: boolean;
+  allowed: boolean;
+  onOpen(ruleId: RuleId): void;
+  onPrioritise(): void;
+  onSettings(): void;
+}) {
+  const working = explain.kind === "running" && explain.target === "prioritise";
+  const busy = explain.kind === "running";
+  const failure = explain.kind === "failed" && explain.target === "prioritise" ? explain.reason : null;
+
+  return (
+    <aside className="card findings-aside" aria-labelledby="suggested">
+      <h2 id="suggested">Suggested order</h2>
+      {!allowed ? (
+        <Lock
+          title="An AI-suggested order is part of the full version"
+          body="Enter a licence key in Settings to turn it on."
+          action={
+            <button type="button" className="button" onClick={onSettings}>
+              Open Settings
+            </button>
+          }
+        />
+      ) : suggested.length > 0 ? (
+        <>
+          <p className="muted small">From the AI, not verified. The groups on the left keep the severity order.</p>
+          <ol>
+            {suggested.map((finding) => (
+              <li key={finding.ruleId}>
+                <button type="button" className="link-button" onClick={() => onOpen(finding.ruleId)}>
+                  {finding.title}
+                </button>
+              </li>
+            ))}
+          </ol>
+        </>
+      ) : working ? (
+        <p className="muted" aria-live="polite">
+          Working out an order for you.
+        </p>
+      ) : !live ? (
+        <p className="muted">Run a fresh check-up to ask the AI which items to tackle first.</p>
+      ) : (
+        <div>
+          <p className="muted small">The AI can suggest which items to tackle first, based on how you use this Mac.</p>
+          {failure !== null && <p className="notice">{EXPLAINER_FAILURE_LABELS[failure]}</p>}
+          <button type="button" className="button" onClick={onPrioritise} disabled={busy}>
+            Suggest an order
+          </button>
+        </div>
+      )}
+    </aside>
   );
 }
 
@@ -135,12 +211,14 @@ function Group({
   empty,
   findings,
   rankOf,
+  reasonFor,
   onOpen,
 }: {
   title: string;
   empty: string;
   findings: readonly Finding[];
   rankOf: ReadonlyMap<RuleId, number>;
+  reasonFor(finding: Finding): string | undefined;
   onOpen(ruleId: RuleId): void;
 }) {
   const id = `group-${title.toLowerCase().replace(/[^a-z]+/g, "-")}`;
@@ -155,10 +233,15 @@ function Group({
         <div className="card-grid">
           {findings.map((finding) => {
             const rank = rankOf.get(finding.ruleId);
-            return rank === undefined ? (
-              <FindingCard key={finding.ruleId} finding={finding} onOpen={onOpen} />
-            ) : (
-              <FindingCard key={finding.ruleId} finding={finding} rank={rank} onOpen={onOpen} />
+            const reasonLabel = reasonFor(finding);
+            return (
+              <FindingCard
+                key={finding.ruleId}
+                finding={finding}
+                {...(rank === undefined ? {} : { rank })}
+                {...(reasonLabel === undefined ? {} : { reasonLabel })}
+                onOpen={onOpen}
+              />
             );
           })}
         </div>

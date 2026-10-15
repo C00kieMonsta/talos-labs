@@ -77,7 +77,7 @@ The `bundle.macOS` keys that matter. Defaults are from the config schema shipped
 - `providerShortName`: only needed when the Apple ID belongs to more than one team.
 - `Info.plist`: a file at `apps/desktop/src-tauri/Info.plist` is merged into the bundle. It must carry `NSAppleEventsUsageDescription`, otherwise macOS denies the login-items collector without prompting.
 
-`bundle.targets` is `all` in the scaffold. For macOS distribution `app` and `dmg` are enough: `pnpm desktop:build -- --bundles app,dmg`.
+`bundle.targets` is `all` in the scaffold. For macOS distribution `app` and `dmg` are enough: `pnpm desktop:build --bundles app,dmg`. Do not put `--` before the flag: Tauri treats everything after `--` as arguments for `cargo build`, which rejects `--bundles`.
 
 ## Flow
 

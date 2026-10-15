@@ -87,7 +87,7 @@ mod tests {
 
     #[test]
     fn latest_backup_path_gives_timestamp() {
-        let (reachable, at) = parse_latest_backup("/Volumes/Elements/Backups.backupdb/Mac/2026-10-15-120000\n", "");
+        let (reachable, at) = parse_latest_backup("/Volumes/Backup/Backups.backupdb/Mac/2026-10-15-120000\n", "");
         assert!(reachable);
         let at = at.unwrap();
         assert!(at.starts_with("2026-10-1"), "{at}");

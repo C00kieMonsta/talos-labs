@@ -59,6 +59,8 @@ The private key never enters the repo. Keep it on one machine with an offline ba
 
 Paste the hex printed by `keypair` into `apps/desktop/src/license/public-key.ts` as `LICENSE_PUBLIC_KEY_HEX`. The adapter wraps `@noble/ed25519` around it with a synchronous SHA-512 from `@noble/hashes`. Tests generate a throwaway pair in-process and assert it differs from `LICENSE_PUBLIC_KEY_HEX`, so a test key cannot ship by accident.
 
+The shipped placeholder is 64 zeros. That is a small-order Ed25519 point, for which noble's default ZIP215 mode would accept a forged signature, so `createVerifier` in `apps/desktop/src/license/verifier.ts` refuses it at construction and `createVerifierOrRejectAll` falls back to a verifier that rejects every signature. A build that still carries the placeholder validates no licence at all: every key reports `invalid` with reason `signature` and the app runs unlicensed. The placeholder fails closed. CI (`.github/workflows/ci.yml`) also fails on a tag ref while `public-key.ts` still holds the zeros.
+
 ## Revocation
 
 `apps/desktop/src/license/revoked.ts` holds a set of `lid` strings. Add the `lid` of a leaked or refunded key. It takes effect in the next build. There is no online check, so a revoked key keeps working in builds released before the revocation.

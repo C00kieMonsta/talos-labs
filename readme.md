@@ -30,7 +30,7 @@ The boundaries are described in [docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md)
 | Background programs | plists in the LaunchAgents and LaunchDaemons folders: label, program path, run at load |
 | Login items | System Events via `osascript` |
 | Backups | `tmutil destinationinfo`, `tmutil latestbackup` |
-| Browser extensions | Firefox and Chrome-family extension manifests: name, version, permissions |
+| Browser extensions | Firefox and Chrome-family extension manifests: name, version, permissions and site access; disabled extensions are skipped |
 | SSH | `~/.ssh` permissions and the header of each key, to tell whether it has a passphrase |
 | Shell config files | a fixed list (`.zshrc`, `.bashrc`, `.netrc`, `.aws/credentials` and a few more) matched against secret patterns |
 
@@ -38,7 +38,7 @@ The boundaries are described in [docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md)
 
 - File contents, with two narrow exceptions: the first 4 KiB of an SSH key, to classify its header, and the fixed list of shell config files, scanned line by line for secret patterns. In both cases the bytes stay inside the collector. A dotfile hit records the file, the pattern name and the line number, never the matched value.
 - Documents, mail, messages, photos, browser history, saved passwords or the Keychain.
-- Usernames, the hostname, the user-authored names of shared folders, or the arguments of background programs.
+- The hostname, the user-authored names of shared folders, or the arguments of background programs. Your account name is not collected as a value, but it is part of file paths shown in the report (an SSH key under your home folder, for example). Those paths stay on this Mac and are never sent to an AI provider.
 - Anything that needs root. The app never asks for an administrator password and never runs `sudo`.
 - Anything on the network. The only outbound connection is to the AI provider you choose, and by default there is none.
 
@@ -108,3 +108,7 @@ docs                 design, rules, CIS map, development, signing, licensing, se
 ## Status
 
 v0.1 is in development. Builds are unsigned and not notarised, so they are not for distribution. Do not hand an unsigned build to anyone. See [docs/SIGNING.md](docs/SIGNING.md).
+
+## Known limitations in unsigned builds
+
+In an ad-hoc signed build (every `pnpm desktop` and unsigned `pnpm desktop:build`) the kernel returns an empty TCP socket table to the app, so the listeners, remote access and file sharing sections show as "Couldn't check" and rules TL-MAC-018 to TL-MAC-022 come back `unknown`, never a false pass. A Developer ID signed build gets the full table. The measurements are in [docs/notes/socket-table-signing.md](docs/notes/socket-table-signing.md).

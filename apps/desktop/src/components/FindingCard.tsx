@@ -5,10 +5,13 @@ import { CATEGORY_LABELS, UNKNOWN_REASON_LABELS } from "../app/labels";
 export function FindingCard({
   finding,
   rank,
+  reasonLabel,
   onOpen,
 }: {
   finding: Finding;
   rank?: number;
+  /** Replaces the generic reason label for an unknown finding. */
+  reasonLabel?: string;
   onOpen(ruleId: RuleId): void;
 }) {
   return (
@@ -32,7 +35,7 @@ export function FindingCard({
         <p className="finding-card-points">+{finding.points} points when fixed</p>
       )}
       {finding.status === "unknown" && finding.unknownReason !== null && (
-        <p className="muted small">{UNKNOWN_REASON_LABELS[finding.unknownReason]}</p>
+        <p className="muted small">{reasonLabel ?? UNKNOWN_REASON_LABELS[finding.unknownReason]}</p>
       )}
     </button>
   );

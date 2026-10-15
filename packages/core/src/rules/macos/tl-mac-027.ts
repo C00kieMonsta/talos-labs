@@ -15,7 +15,7 @@ export const TL_MAC_027: Rule = {
   evidenceKeys: ["hasBackup", "hoursSinceBackup", "destinationReachable"],
   evidenceVocabulary: {},
   explanation:
-    "Backups are set up, but the most recent one is more than a week old. A backup only protects the work you had done when it ran, so a long gap means days of files, photos and settings that could be lost. This usually happens when the backup disk is not plugged in or the network drive is out of reach.",
+    "Backups are set up, but the most recent one is more than a week old, or none has completed yet. A backup only protects the work you had done when it ran, so a long gap means days of files, photos and settings that could be lost. When the backup disk is unplugged or the network drive is out of reach, the Mac cannot say when the last backup ran, and this check reports that it could not tell instead of failing.",
   fix: {
     summary: "Connect the backup disk and run a backup now.",
     settingsPath: ["System Settings", "General", "Time Machine"],
@@ -34,7 +34,7 @@ export const TL_MAC_027: Rule = {
       "Click the Time Machine icon in the menu bar and choose Back Up Now. If the icon is hidden, turn it on under System Settings, then Control Centre.",
       "Leave the Mac on until the backup finishes.",
     ],
-    verify: "Time Machine shows a latest backup time within the last week.",
+    verify: "Time Machine shows a latest backup time within the last week, and the check-up passes while the backup disk is connected.",
     effort: "ten_minutes",
     sideEffects: "none",
   },
@@ -48,7 +48,8 @@ export const TL_MAC_027: Rule = {
       evidence.push(ev.bool("destinationReachable", "Backup disk reachable", data.destinationReachable));
     }
     if (data.lastBackupAt === null) {
-      return fail(evidence);
+      // An unreachable disk hides the backup date, so no age was measured.
+      return data.destinationReachable === false ? unknown("indeterminate", evidence) : fail(evidence);
     }
     const hours = hoursBetween(data.lastBackupAt, state.collectedAt);
     if (hours === null) {

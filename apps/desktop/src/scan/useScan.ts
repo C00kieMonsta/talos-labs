@@ -138,7 +138,7 @@ export function useScan(deps: ScanDeps): ScanController {
           const state = replaceSection(current.state, key, section);
           const report = deps.engine(state);
           dispatch({ type: "recheck_done", state, report });
-          scanRef.current = { kind: "ready", report, state, explain: { kind: "off" } };
+          scanRef.current = { kind: "ready", report, state, explain: { kind: "off" }, lastRecheck: { key, at: report.scannedAt } };
           try {
             await deps.adapters.reports.saveLast(report);
           } catch {
@@ -175,10 +175,10 @@ export function useScan(deps: ScanDeps): ScanController {
           };
           dispatch({ type: "explain_ready", ...cacheRef.current });
         } else {
-          dispatch({ type: "explain_failed", reason: result.reason });
+          dispatch({ type: "explain_failed", reason: result.reason, target: ruleId, ...cacheRef.current });
         }
       } catch {
-        dispatch({ type: "explain_failed", reason: "unknown" });
+        dispatch({ type: "explain_failed", reason: "unknown", target: ruleId, ...cacheRef.current });
       }
     },
     [deps],
@@ -196,10 +196,10 @@ export function useScan(deps: ScanDeps): ScanController {
         cacheRef.current = { ...cacheRef.current, order: [...result.value.order] };
         dispatch({ type: "explain_ready", ...cacheRef.current });
       } else {
-        dispatch({ type: "explain_failed", reason: result.reason });
+        dispatch({ type: "explain_failed", reason: result.reason, target: "prioritise", ...cacheRef.current });
       }
     } catch {
-      dispatch({ type: "explain_failed", reason: "unknown" });
+      dispatch({ type: "explain_failed", reason: "unknown", target: "prioritise", ...cacheRef.current });
     }
   }, [deps]);
 

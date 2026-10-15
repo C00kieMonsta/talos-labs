@@ -54,6 +54,17 @@ describe("renderCommand", () => {
     expect(out[0]?.text).toBe("launchctl bootout gui/$UID '/Users/a b/Library/LaunchAgents/x.plist'");
   });
 
+  it("quotes a filled path that contains a dollar sign so the shell cannot expand it", () => {
+    const agent = (value: string): Evidence => ({ key: "agentPlist", label: "Plist", value: { kind: "path", value } });
+    expect(renderCommand(bootoutUser, [agent("/Users/a/Library/LaunchAgents/com.helper$USER.plist")])[0]?.text).toBe(
+      "launchctl bootout gui/$UID '/Users/a/Library/LaunchAgents/com.helper$USER.plist'",
+    );
+    expect(renderCommand(bootoutUser, [agent("/Users/a/Library/LaunchAgents/x$IFS.plist")])[0]?.text).toBe(
+      "launchctl bootout gui/$UID '/Users/a/Library/LaunchAgents/x$IFS.plist'",
+    );
+    expect(renderCommand(chmod, [keyPath("~/.ssh/id_rsa")])[0]?.text).toBe("chmod 600 '~/.ssh/id_rsa'");
+  });
+
   it("rule 023 shape: each command only takes its own evidence key", () => {
     const fix: Fix = {
       summary: "Review background programs",

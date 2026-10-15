@@ -2,7 +2,7 @@
 
 use std::sync::atomic::AtomicBool;
 
-use super::run;
+use super::{check_exit, run};
 use crate::collect::{to_section, Fail};
 use crate::exec::Bin;
 use crate::state::{Firewall, Section};
@@ -34,6 +34,7 @@ pub fn parse_firewall(text: &str) -> Result<Firewall, Fail> {
 
 fn inner(cancel: &AtomicBool) -> Result<Firewall, Fail> {
     let out = run(Bin::Socketfilterfw, &["--getglobalstate", "--getstealthmode", "--getblockall"], cancel)?;
+    check_exit(&out, Bin::Socketfilterfw)?;
     parse_firewall(&out.stdout)
 }
 

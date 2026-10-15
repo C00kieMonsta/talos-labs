@@ -57,6 +57,15 @@ pub fn run(bin: Bin, args: &[&str], cancel: &AtomicBool) -> Result<Output, ExecE
     exec::run(bin, args, DEFAULT_TIMEOUT, cancel)
 }
 
+/// A non-zero exit with nothing on stdout is a tool failure, not a parser failure.
+/// Output with a non-zero exit still goes to the parser, which decides.
+pub fn check_exit(out: &Output, bin: Bin) -> Result<(), Fail> {
+    if !out.success() && out.stdout.trim().is_empty() {
+        return Err(Fail::collector(&format!("{}: exit", bin.name())));
+    }
+    Ok(())
+}
+
 pub fn check_cancel(cancel: &AtomicBool) -> Result<(), Fail> {
     if cancel.load(Ordering::SeqCst) { Err(Fail::collector("cancelled")) } else { Ok(()) }
 }
@@ -93,6 +102,17 @@ pub fn lit_set(patterns: &[&str]) -> RegexSet {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_tool_with_no_output_is_a_collector_error() {
+        let out = |code: Option<i32>, stdout: &str| Output { stdout: stdout.to_owned(), stderr: "DS Error: -14136\n".to_owned(), exit_code: code, truncated: false };
+        let fail = check_exit(&out(Some(56), ""), Bin::Dscl).unwrap_err();
+        assert_eq!(fail.reason, crate::state::UnavailableReason::CollectorError);
+        assert_eq!(fail.detail.as_deref(), Some("dscl: exit"));
+        assert!(check_exit(&out(None, "\n"), Bin::Dscl).is_err(), "killed by a signal");
+        assert!(check_exit(&out(Some(1), "assessments disabled\n"), Bin::Spctl).is_ok(), "output goes to the parser");
+        assert!(check_exit(&out(Some(0), ""), Bin::Sysadminctl).is_ok(), "stderr-only tools exit 0");
+    }
 
     #[test]
     fn mode_string_keeps_permission_bits_only() {

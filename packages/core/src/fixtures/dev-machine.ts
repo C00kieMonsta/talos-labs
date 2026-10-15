@@ -93,7 +93,7 @@ export const DEV_MACHINE: SystemState = {
       status: "ok",
       data: {
         enabled: true,
-        shares: [{ path: "/Users/antoine/Public", guestAccess: true }],
+        shares: [{ path: "/Users/alice/Public", guestAccess: true }],
       },
     },
     persistence: {
@@ -110,7 +110,7 @@ export const DEV_MACHINE: SystemState = {
           },
           {
             scope: "user_agent",
-            plistPath: "/Users/antoine/Library/LaunchAgents/homebrew.mxcl.postgresql@16.plist",
+            plistPath: "/Users/alice/Library/LaunchAgents/homebrew.mxcl.postgresql@16.plist",
             label: "homebrew.mxcl.postgresql@16",
             program: "/opt/homebrew/opt/postgresql@16/bin/postgres",
             programExists: true,
@@ -169,8 +169,8 @@ export const DEV_MACHINE: SystemState = {
         dirExists: true,
         dirMode: "700",
         keys: [
-          { path: "/Users/antoine/.ssh/id_ed25519", format: "openssh", encrypted: false, mode: "600" },
-          { path: "/Users/antoine/.ssh/aws-eu-west-1.pem", format: "pem", encrypted: false, mode: "600" },
+          { path: "/Users/alice/.ssh/id_ed25519", format: "openssh", encrypted: false, mode: "600" },
+          { path: "/Users/alice/.ssh/aws-eu-west-1.pem", format: "pem", encrypted: false, mode: "600" },
         ],
       },
     },
@@ -178,11 +178,11 @@ export const DEV_MACHINE: SystemState = {
       status: "ok",
       data: {
         scanned: [
-          "/Users/antoine/.zshrc",
-          "/Users/antoine/.zprofile",
-          "/Users/antoine/.npmrc",
-          "/Users/antoine/.aws/credentials",
-          "/Users/antoine/.docker/config.json",
+          "/Users/alice/.zshrc",
+          "/Users/alice/.zprofile",
+          "/Users/alice/.npmrc",
+          "/Users/alice/.aws/credentials",
+          "/Users/alice/.docker/config.json",
         ],
         unreadable: [],
         hits: [],

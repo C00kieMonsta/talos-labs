@@ -9,10 +9,14 @@ import { useApp } from "../app/context";
 import {
   CATEGORY_LABELS,
   EXPLAINER_FAILURE_LABELS,
+  SOCKET_TABLE_COPY,
+  SOCKET_TABLE_LABEL,
   UNKNOWN_REASON_LABELS,
   URGENCY_LABELS,
+  formatTime,
   paneForReason,
 } from "../app/labels";
+import { hiddenBySocketTable } from "../app/network-checks";
 import { lastReport } from "../scan/machine";
 import type { ExplainState } from "../scan/machine";
 
@@ -22,6 +26,23 @@ const STATUS_LABELS: Readonly<Record<RuleStatus, string>> = {
   unknown: "Couldn't check",
   pass: "Passed",
   not_applicable: "Doesn't apply to this Mac",
+};
+
+/** The authored explanation is written for a failing check; other statuses get a lead line saying so. */
+const EXPLANATION_LEAD: Readonly<Record<RuleStatus, string | null>> = {
+  fail: null,
+  review: null,
+  unknown: "This check could not run, so nothing below has been confirmed on this Mac. It describes what the check looks for.",
+  pass: "This check passed. The text below describes what it guards against.",
+  not_applicable: "This check does not apply to this Mac. The text below describes what it guards against.",
+};
+
+const RECHECK_RESULT: Readonly<Record<RuleStatus, string>> = {
+  fail: "Still needs fixing.",
+  review: "Still worth a look.",
+  unknown: "Still could not be checked.",
+  pass: "Now passes.",
+  not_applicable: "Does not apply to this Mac.",
 };
 
 /** A finding from the report, or a passing rule rebuilt from the catalog. */
@@ -87,10 +108,15 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
   const rechecking = scan.scan.kind === "rechecking";
   const explain: ExplainState = scan.scan.kind === "ready" ? scan.scan.explain : { kind: "off" };
   const aiOn = settings.explainer.provider !== "none";
-  const actionable = view.status === "fail" || view.status === "review" || view.status === "unknown";
+  // The kernel withheld the socket table from this build; no permission or fix changes that.
+  const unsignedBuild = report !== null && hiddenBySocketTable(report, view);
+  const actionable = !unsignedBuild && (view.status === "fail" || view.status === "review" || view.status === "unknown");
   const locked = actionable && gate.fixLocked({ ruleId: view.ruleId, status: view.status });
   const permissionPane = paneForReason(view.unknownReason);
   const openPane = (pane: SettingsPane) => void adapters.openSettingsPane(pane);
+  const lastRecheck = scan.scan.kind === "ready" ? scan.scan.lastRecheck : null;
+  const checkedAgain = lastRecheck !== null && view.requires.includes(lastRecheck.key) ? lastRecheck : null;
+  const lead = EXPLANATION_LEAD[view.status];
 
   return (
     <main className="screen detail">
@@ -107,9 +133,16 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
         </div>
         <h1>{view.title}</h1>
         {view.status === "unknown" && view.unknownReason !== null && (
-          <p className="muted">{UNKNOWN_REASON_LABELS[view.unknownReason]}</p>
+          <p className="muted">{unsignedBuild ? SOCKET_TABLE_LABEL : UNKNOWN_REASON_LABELS[view.unknownReason]}</p>
         )}
       </header>
+
+      {unsignedBuild && (
+        <section className="card card-muted" aria-labelledby="unsigned-heading">
+          <h2 id="unsigned-heading">Why this check could not run</h2>
+          <p>{SOCKET_TABLE_COPY}</p>
+        </section>
+      )}
 
       {(permissionPane === "full_disk_access" || permissionPane === "automation") && (
         <PermissionCard pane={permissionPane} affected={[]} onOpen={openPane} />
@@ -122,6 +155,7 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
 
       <section className="card" aria-labelledby="why-heading">
         <h2 id="why-heading">Why it matters</h2>
+        {lead !== null && <p className="muted">{lead}</p>}
         <p>{view.explanation}</p>
       </section>
 
@@ -151,10 +185,15 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
           <FixCard fix={view.fix} evidence={view.evidence} points={view.points} onOpenPane={openPane} />
         ))}
 
-      {actionable && (
+      {(actionable || checkedAgain !== null) && (
         <section className="card recheck" aria-labelledby="recheck-heading">
-          <h2 id="recheck-heading">Done it?</h2>
-          {!gate.has("recheck") ? (
+          <h2 id="recheck-heading">{actionable ? "Done it?" : "Checked again"}</h2>
+          {checkedAgain !== null && (
+            <p className="recheck-result" role="status">
+              Checked again at {formatTime(checkedAgain.at)}. {RECHECK_RESULT[view.status]}
+            </p>
+          )}
+          {!actionable ? null : !gate.has("recheck") ? (
             <p className="muted">Checking a single item again is part of the full version. You can always rescan from the Overview.</p>
           ) : !live && !rechecking ? (
             <p className="muted">Run a fresh check-up first, then you can check this item again on its own.</p>
@@ -189,9 +228,11 @@ function AiCard({
   onExplain(): void;
   onSettings(): void;
 }) {
-  const explanation: Explanation | undefined = explain.kind === "ready" ? explain.byRule[ruleId] : undefined;
+  const explanation: Explanation | undefined =
+    explain.kind === "ready" || explain.kind === "failed" ? explain.byRule[ruleId] : undefined;
   const running = explain.kind === "running" && explain.target === ruleId;
   const busy = explain.kind === "running";
+  const failure = explain.kind === "failed" && explain.target === ruleId ? explain.reason : null;
 
   return (
     <section className="card ai-card" aria-labelledby="ai-heading">
@@ -226,7 +267,7 @@ function AiCard({
         <p className="muted">Run a fresh check-up to ask for an AI explanation of this item.</p>
       ) : (
         <div>
-          {explain.kind === "failed" && <p className="notice">{EXPLAINER_FAILURE_LABELS[explain.reason]}</p>}
+          {failure !== null && <p className="notice">{EXPLAINER_FAILURE_LABELS[failure]}</p>}
           <button type="button" className="button" onClick={onExplain} disabled={busy}>
             Explain this for me
           </button>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LicenseState, ScanReport } from "@talos/core";
 import { AppContext, useApp } from "./app/context";
 import type { AppContextValue } from "./app/context";
@@ -137,8 +137,31 @@ export default function App() {
   );
 }
 
+function routeKey(route: Route): string {
+  return route.name === "finding" ? `finding:${route.ruleId}` : route.name;
+}
+
 function Screen() {
   const { route } = useApp().router;
+  const host = useRef<HTMLDivElement>(null);
+  const key = routeKey(route);
+
+  // Move focus to the new screen's heading so keyboard and screen-reader users land on it.
+  useEffect(() => {
+    const heading = host.current?.querySelector("h1");
+    if (heading === null || heading === undefined) return;
+    heading.tabIndex = -1;
+    heading.focus();
+  }, [key]);
+
+  return (
+    <div ref={host} className="screen-host">
+      {screenFor(route)}
+    </div>
+  );
+}
+
+function screenFor(route: Route) {
   switch (route.name) {
     case "overview":
       return <Overview />;

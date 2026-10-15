@@ -309,6 +309,14 @@
   margin: 0;
 }
 
+.recheck-result {
+  font-weight: 600;
+}
+
+h1[tabindex="-1"]:focus:not(:focus-visible) {
+  outline: none;
+}
+
 .lock {
   position: relative;
   border: 1px dashed var(--border);

@@ -2,7 +2,7 @@
 
 use std::sync::atomic::AtomicBool;
 
-use super::{defaults, run};
+use super::{check_exit, defaults, run};
 use crate::collect::{to_section, Fail};
 use crate::exec::Bin;
 use crate::state::{Accounts, Section, Tri};
@@ -37,8 +37,10 @@ pub fn parse_login_window(dump: &str) -> (Tri, bool) {
 
 fn inner(cancel: &AtomicBool) -> Result<Accounts, Fail> {
     let dscl = run(Bin::Dscl, &[".", "-read", "/Groups/admin", "GroupMembership"], cancel)?;
+    check_exit(&dscl, Bin::Dscl)?;
     let members = parse_group_membership(&dscl.stdout)?;
     let whoami = run(Bin::Whoami, &[], cancel)?;
+    check_exit(&whoami, Bin::Whoami)?;
     let (current_user_is_admin, human_admin_count) = summarise(&members, &whoami.stdout);
     let dump = defaults::read_domain(LOGINWINDOW_DOMAIN, "loginwindow", cancel)?.unwrap_or_default();
     let (guest_enabled, auto_login_enabled) = parse_login_window(&dump);
@@ -58,8 +60,8 @@ mod tests {
     fn parses_captured_membership() {
         let text = include_str!("../../../tests/fixtures/dscl-admin.txt");
         let members = parse_group_membership(text).unwrap();
-        assert_eq!(members, ["root", "antoineboxho", "antoine", "_mbsetupuser"]);
-        assert_eq!(summarise(&members, "antoineboxho\n"), (true, 2));
+        assert_eq!(members, ["root", "alice", "bob", "_mbsetupuser"]);
+        assert_eq!(summarise(&members, "alice\n"), (true, 2));
         assert_eq!(summarise(&members, "sam"), (false, 2));
         assert_eq!(summarise(&members, ""), (false, 2));
     }

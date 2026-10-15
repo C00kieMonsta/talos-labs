@@ -7,7 +7,8 @@ export interface RenderedCommand {
 }
 
 const PLACEHOLDER = "{path}";
-const SAFE_ARG = /^[A-Za-z0-9_./@:=+,$~-]+$/;
+/** Anything outside this set is single-quoted so the shell cannot expand or split a filled path. */
+const SAFE_ARG = /^[A-Za-z0-9_./@:=+,-]+$/;
 
 function quote(value: string): string {
   return SAFE_ARG.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;

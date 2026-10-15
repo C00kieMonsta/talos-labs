@@ -1,9 +1,9 @@
 
 			List of Share Points
-name:		Antoine’s Public Folder
-path:		/Users/antoine/Public
+name:		Alice’s Public Folder
+path:		/Users/alice/Public
 	smb:	{
-    		name:	Antoine’s Public Folder
+    		name:	Alice’s Public Folder
     		shared:	1
     		guest access:	1
     		read-only:	0

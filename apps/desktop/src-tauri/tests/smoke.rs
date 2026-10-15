@@ -1,5 +1,5 @@
 //! Runs the real collectors on this Mac. Ignored by default; run with `cargo test -- --ignored`.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;

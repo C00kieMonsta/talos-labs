@@ -6,10 +6,11 @@ import type {
   SettingsPane,
   SystemStatePort,
 } from "@talos/core";
+import { MACOS_CATALOG } from "@talos/core";
 import type { ExplainerSettings } from "../settings";
 import { LICENSE_PUBLIC_KEY_HEX } from "../license/public-key";
 import { REVOKED } from "../license/revoked";
-import { createVerifier } from "../license/verifier";
+import { createVerifierOrRejectAll } from "../license/verifier";
 import { ClaudeExplainerAdapter } from "./claude-explainer";
 import type { ReportSource } from "./explainer-shared";
 import { FileReportStore } from "./file-report-store";
@@ -64,11 +65,12 @@ export async function createExplainer(settings: ExplainerSettings, deps: Explain
 
 export function createAdapters(): Adapters {
   const secrets = new KeychainSecretStore();
-  const reports = new FileReportStore();
+  const reports = new FileReportStore(MACOS_CATALOG);
   const reportSource: ReportSource = () => reports.current();
   return {
     systemState: new TauriSystemStateAdapter(),
-    license: new LicenseAdapter(createVerifier(LICENSE_PUBLIC_KEY_HEX), __BUILD_DATE__, REVOKED),
+    // A placeholder or otherwise unusable key rejects every licence rather than accepting forged ones.
+    license: new LicenseAdapter(createVerifierOrRejectAll(LICENSE_PUBLIC_KEY_HEX), __BUILD_DATE__, REVOKED),
     secrets,
     reports,
     openSettingsPane,

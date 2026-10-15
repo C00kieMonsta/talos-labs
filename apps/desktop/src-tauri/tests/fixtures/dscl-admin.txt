@@ -1,1 +1,1 @@
-GroupMembership: root antoineboxho antoine _mbsetupuser
+GroupMembership: root alice bob _mbsetupuser
