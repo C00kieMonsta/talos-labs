@@ -31,7 +31,7 @@ import { TL_MAC_029 } from "./tl-mac-029";
 import { TL_MAC_030 } from "./tl-mac-030";
 import { TL_MAC_031 } from "./tl-mac-031";
 
-export const MACOS_CATALOG_VERSION = "0.1.0";
+export const MACOS_CATALOG_VERSION = "0.2.0";
 export const MACOS_CIS_EDITION = "CIS Apple macOS 26 Tahoe Benchmark v1.0.0";
 
 export const MACOS_CATALOG: RuleCatalog = {

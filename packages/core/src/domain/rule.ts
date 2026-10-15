@@ -27,8 +27,13 @@ export type RuleOutcome =
 
 export interface Rule {
   readonly id: RuleId;
-  /** Reader-facing statement, e.g. "Your disk is encrypted". */
+  /** Reader-facing statement of what is checked, e.g. "Your disk is encrypted". */
   readonly title: string;
+  /**
+   * The problem stated plainly, used as the headline when the rule fails or needs review,
+   * e.g. "Your disk is not encrypted". Same length class as title; no trailing full stop.
+   */
+  readonly failTitle: string;
   readonly severity: Severity;
   readonly category: Category;
   /** Benchmark section in the catalog's cisEdition, or null. */

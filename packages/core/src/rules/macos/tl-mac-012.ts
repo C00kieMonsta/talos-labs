@@ -5,6 +5,7 @@ import { ev, fail, MACOS_ONLY, pass, section } from "../helpers";
 export const TL_MAC_012: Rule = {
   id: "TL-MAC-012",
   title: "A password is needed right after the screen locks",
+  failTitle: "A password is not needed right after the screen locks",
   severity: "high",
   category: "access_control",
   cis: "2.11.2",
@@ -31,7 +32,7 @@ export const TL_MAC_012: Rule = {
       "Open System Settings, then Lock Screen.",
       "Set Require password after screen saver begins or display is turned off to Immediately.",
     ],
-    verify: "Lock Screen shows Immediately, or sysadminctl -screenLock status reports an immediate lock.",
+    verify: "Lock Screen shows Immediately.",
     effort: "two_minutes",
     sideEffects: "none",
   },

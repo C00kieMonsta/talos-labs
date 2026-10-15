@@ -17,6 +17,11 @@ export interface CollectOptions {
   readonly onProgress?: (progress: SectionProgress) => void;
 }
 
+/** Options for a single-section recheck. */
+export interface CollectSectionOptions {
+  readonly signal?: AbortSignalLike;
+}
+
 export interface Capabilities {
   /** null when no probe directory exists on this machine. */
   readonly fullDiskAccess: boolean | null;
@@ -26,6 +31,9 @@ export interface Capabilities {
 export interface SystemStatePort {
   collect(options?: CollectOptions): Promise<SystemState>;
   /** Re-collect one section for "I've done this, check again". */
-  collectSection<K extends SectionKey>(key: K): Promise<SystemStateSections[K]>;
+  collectSection<K extends SectionKey>(
+    key: K,
+    options?: CollectSectionOptions,
+  ): Promise<SystemStateSections[K]>;
   capabilities(): Promise<Capabilities>;
 }

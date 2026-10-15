@@ -1,0 +1,8 @@
+_mbsetupuser                   248
+_spotlight                     89
+alice                          501
+carol                          502
+com.example.helper.nobody      1000
+daemon                         1
+nobody                         -2
+root                           0

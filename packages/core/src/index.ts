@@ -15,6 +15,7 @@ export * from "./ports/report-store-port";
 export { evaluate, evaluateRule, sanitiseEvidence } from "./engine/evaluate";
 export { computeScore, gradeFor, pointsFor, CRITICAL_CAP } from "./engine/score";
 export { reportIdFor } from "./engine/report-id";
+export { headlineFor, unknownHeadline } from "./engine/headline";
 
 export { MACOS_CATALOG, MACOS_CATALOG_VERSION, MACOS_CIS_EDITION } from "./rules/macos/index";
 
@@ -31,6 +32,8 @@ export {
   containsCommandText,
   clampQuestion,
   clampHistory,
+  buildBrowserPrompt,
+  BROWSER_PROMPT_MAX_CHARS,
 } from "./explainer/index";
 
 export { parseLicense, entitled, freeFixRuleIds, FREE_FIX_COUNT, LICENSE_PREFIX, LICENSE_PRODUCT } from "./license/index";

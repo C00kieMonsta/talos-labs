@@ -7,7 +7,7 @@ import type {
   SystemStatePort,
 } from "@talos/core";
 import { MACOS_CATALOG } from "@talos/core";
-import type { ExplainerSettings } from "../settings";
+import type { Assistant, ExplainerSettings } from "../settings";
 import { LICENSE_PUBLIC_KEY_HEX } from "../license/public-key";
 import { REVOKED } from "../license/revoked";
 import { createVerifierOrRejectAll } from "../license/verifier";
@@ -18,6 +18,7 @@ import { KeychainSecretStore } from "./keychain-secret-store";
 import { LicenseAdapter } from "./license";
 import { NoApiKeyExplainer, NoExplainer } from "./no-explainer";
 import { OllamaExplainerAdapter } from "./ollama-explainer";
+import { openAssistant } from "./open-assistant";
 import { openSettingsPane } from "./settings-pane";
 import { TauriSystemStateAdapter } from "./tauri-system-state";
 
@@ -27,6 +28,7 @@ export { NoApiKeyExplainer, NoExplainer } from "./no-explainer";
 export { FileReportStore } from "./file-report-store";
 export { KeychainSecretStore } from "./keychain-secret-store";
 export { LicenseAdapter } from "./license";
+export { openAssistant } from "./open-assistant";
 export { openSettingsPane } from "./settings-pane";
 export { ScanError, TauriSystemStateAdapter, type ScanErrorKind } from "./tauri-system-state";
 export type { ReportSource } from "./explainer-shared";
@@ -37,6 +39,8 @@ export interface Adapters {
   secrets: SecretStorePort;
   reports: ReportStorePort;
   openSettingsPane(pane: SettingsPane): Promise<void>;
+  /** Opens the user's own Claude or ChatGPT account in the browser with a prompt built by core. */
+  openAssistant(assistant: Assistant, prompt: string): Promise<void>;
   createExplainer(settings: ExplainerSettings): Promise<ExplainerPort>;
 }
 
@@ -47,6 +51,8 @@ export interface ExplainerDeps {
 
 export async function createExplainer(settings: ExplainerSettings, deps: ExplainerDeps): Promise<ExplainerPort> {
   switch (settings.provider) {
+    // The browser hand-off runs no model in the app, so every in-app call reports not_configured.
+    case "browser":
     case "none":
       return new NoExplainer();
     case "claude": {
@@ -74,6 +80,7 @@ export function createAdapters(): Adapters {
     secrets,
     reports,
     openSettingsPane,
+    openAssistant,
     createExplainer: (settings) => createExplainer(settings, { secrets, reportSource }),
   };
 }

@@ -3,10 +3,15 @@ import { SAFE_STRING_PATTERN } from "../../src/ports/explainer-port";
 import { DEV_MACHINE } from "../../src/fixtures/dev-machine";
 import { FRESH_INSTALL } from "../../src/fixtures/fresh-install";
 import { HARDENED } from "../../src/fixtures/hardened";
+import { unknownHeadline } from "../../src/engine/headline";
 import { MACOS_CATALOG } from "../../src/rules/macos/index";
 import { ctxFor } from "../helpers";
 
 const FIXTURES = [DEV_MACHINE, HARDENED, FRESH_INSTALL];
+
+/** Terminal and the tools the catalog's commands use. Reader-facing lines must not name them. */
+const TERMINAL_OR_COMMAND =
+  /\b(terminal|fdesetup|socketfilterfw|spctl|csrutil|sysadminctl|pwpolicy|chmod|launchctl|defaults|tmutil|softwareupdate|kickstart|ssh-keygen|lsof|ls -la)\b/i;
 
 describe("macOS catalog invariants", () => {
   it("has 31 rules with unique ids TL-MAC-001 to TL-MAC-031 in order", () => {
@@ -20,7 +25,7 @@ describe("macOS catalog invariants", () => {
   });
 
   it("pins the catalog version and benchmark edition", () => {
-    expect(MACOS_CATALOG.version).toBe("0.1.0");
+    expect(MACOS_CATALOG.version).toBe("0.2.0");
     expect(MACOS_CATALOG.cisEdition).toBe("CIS Apple macOS 26 Tahoe Benchmark v1.0.0");
   });
 
@@ -71,6 +76,61 @@ describe("macOS catalog invariants", () => {
       expect(rule.title.trim().length, rule.id).toBeGreaterThan(0);
       const text = [rule.explanation, rule.fix.summary, ...rule.fix.steps, rule.fix.verify ?? ""].join(" ");
       expect(text, rule.id).not.toMatch(/\b(license|color|center|organize|recognize)\b/i);
+    }
+  });
+
+  it("every rule has a failTitle that states the problem, differs from the title, and is a bare sentence", () => {
+    for (const rule of MACOS_CATALOG.rules) {
+      expect(rule.failTitle.trim().length, rule.id).toBeGreaterThan(0);
+      expect(rule.failTitle, rule.id).not.toBe(rule.title);
+      expect(rule.failTitle, rule.id).not.toMatch(/\.$/);
+      expect(rule.failTitle, rule.id).not.toContain("\u2014");
+      expect(rule.failTitle, rule.id).toMatch(/^[A-Z]/);
+      expect(rule.failTitle, rule.id).not.toMatch(/\b(license|color|center|organize|recognize)\b/i);
+    }
+  });
+
+  it("every title is a statement with a finite verb, so the unknown headline reads as a sentence", () => {
+    const FINITE_VERB = /\b(is|are|can|stays|install|update|locks|points|opens|ran)\b/;
+    for (const rule of MACOS_CATALOG.rules) {
+      expect(rule.title, rule.id).toMatch(FINITE_VERB);
+      expect(rule.title, rule.id).not.toMatch(/^\S+ (that|which) /);
+      expect(unknownHeadline(rule.title), rule.id).toMatch(/^Couldn't check whether \S+ /);
+    }
+  });
+
+  it("a fix with a Settings path and commands never points a step at a command or Terminal", () => {
+    const MENTIONS_COMMAND = /\b(command|commands|terminal)\b/i;
+    for (const rule of MACOS_CATALOG.rules) {
+      if (rule.fix.settingsPath === null || rule.fix.commands.length === 0) {
+        continue;
+      }
+      for (const step of rule.fix.steps) {
+        expect(step, rule.id).not.toMatch(MENTIONS_COMMAND);
+      }
+    }
+  });
+
+  it("no verify line sends the reader to Terminal", () => {
+    for (const rule of MACOS_CATALOG.rules) {
+      expect(rule.fix.verify ?? "", rule.id).not.toMatch(TERMINAL_OR_COMMAND);
+    }
+  });
+
+  it("no fix summary names Terminal or a command-line tool, since every reader sees it", () => {
+    for (const rule of MACOS_CATALOG.rules) {
+      expect(rule.fix.summary, rule.id).not.toMatch(TERMINAL_OR_COMMAND);
+    }
+  });
+
+  it("no step spells out a program that fix.commands already carries", () => {
+    for (const rule of MACOS_CATALOG.rules) {
+      for (const command of rule.fix.commands) {
+        const program = new RegExp(`(^|\\s)${command.program.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`);
+        for (const step of rule.fix.steps) {
+          expect(step, `${rule.id} step names ${command.program}`).not.toMatch(program);
+        }
+      }
     }
   });
 

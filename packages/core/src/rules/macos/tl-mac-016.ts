@@ -4,6 +4,7 @@ import { ev, fail, MACOS_ONLY, pass, section } from "../helpers";
 export const TL_MAC_016: Rule = {
   id: "TL-MAC-016",
   title: "Nobody is logged in automatically",
+  failTitle: "Someone is logged in automatically",
   severity: "high",
   category: "access_control",
   cis: "2.13.3",

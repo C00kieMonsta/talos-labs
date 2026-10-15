@@ -4,6 +4,7 @@ import { ev, fail, MACOS_ONLY, notFalse, pass, section, TRI_VOCABULARY } from ".
 export const TL_MAC_008: Rule = {
   id: "TL-MAC-008",
   title: "macOS updates install automatically",
+  failTitle: "Updates to macOS do not install automatically",
   severity: "medium",
   category: "updates",
   cis: "1.3",

@@ -1,4 +1,7 @@
+import { useEffect, useRef } from "react";
 import type { Evidence, Explanation, Finding, Rule, RuleId, RuleStatus, SettingsPane } from "@talos/core";
+import { buildBrowserPrompt, toExplainerContext } from "@talos/core";
+import { AssistantCard } from "../components/AssistantCard";
 import { EvidenceTable } from "../components/EvidenceTable";
 import { FixCard } from "../components/FixCard";
 import { Lock } from "../components/Lock";
@@ -19,6 +22,7 @@ import {
 import { hiddenBySocketTable } from "../app/network-checks";
 import { lastReport } from "../scan/machine";
 import type { ExplainState } from "../scan/machine";
+import { isInAppProvider } from "../settings";
 
 const STATUS_LABELS: Readonly<Record<RuleStatus, string>> = {
   fail: "Needs fixing",
@@ -48,7 +52,10 @@ const RECHECK_RESULT: Readonly<Record<RuleStatus, string>> = {
 /** A finding from the report, or a passing rule rebuilt from the catalog. */
 interface DetailView {
   readonly ruleId: RuleId;
+  /** The check as a positive statement, e.g. "Your disk is encrypted". */
   readonly title: string;
+  /** Status-aware heading. Equals title for a passing rule. */
+  readonly headline: string;
   readonly severity: Finding["severity"];
   readonly category: Finding["category"];
   readonly cis: string | null;
@@ -65,6 +72,7 @@ function fromRule(rule: Rule, status: RuleStatus, evidence: readonly Evidence[])
   return {
     ruleId: rule.id,
     title: rule.title,
+    headline: rule.title,
     severity: rule.severity,
     category: rule.category,
     cis: rule.cis,
@@ -79,7 +87,7 @@ function fromRule(rule: Rule, status: RuleStatus, evidence: readonly Evidence[])
 }
 
 export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
-  const { scan, router, catalog, gate, settings, adapters } = useApp();
+  const { scan, router, catalog, gate, settings, updateSettings, adapters } = useApp();
   const report = lastReport(scan.scan);
   const finding = report?.findings.find((f) => f.ruleId === ruleId);
   const result = report?.results.find((r) => r.ruleId === ruleId);
@@ -106,17 +114,29 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
 
   const live = scan.scan.kind === "ready";
   const rechecking = scan.scan.kind === "rechecking";
-  const explain: ExplainState = scan.scan.kind === "ready" ? scan.scan.explain : { kind: "off" };
-  const aiOn = settings.explainer.provider !== "none";
+  // An explanation already on screen stays while its section is read again.
+  const explain: ExplainState = scan.scan.kind === "ready" || scan.scan.kind === "rechecking" ? scan.scan.explain : { kind: "off" };
+  const { provider, assistant } = settings.explainer;
+  const inAppAi = isInAppProvider(provider);
   // The kernel withheld the socket table from this build; no permission or fix changes that.
   const unsignedBuild = report !== null && hiddenBySocketTable(report, view);
-  const actionable = !unsignedBuild && (view.status === "fail" || view.status === "review" || view.status === "unknown");
-  const locked = actionable && gate.fixLocked({ ruleId: view.ruleId, status: view.status });
+  // A fix is only shown for a confirmed problem; an unknown check has nothing confirmed to fix yet.
+  const fixable = !unsignedBuild && (view.status === "fail" || view.status === "review");
+  const actionable = fixable || (!unsignedBuild && view.status === "unknown");
+  const locked = fixable && gate.fixLocked({ ruleId: view.ruleId, status: view.status });
   const permissionPane = paneForReason(view.unknownReason);
   const openPane = (pane: SettingsPane) => void adapters.openSettingsPane(pane);
   const lastRecheck = scan.scan.kind === "ready" ? scan.scan.lastRecheck : null;
   const checkedAgain = lastRecheck !== null && view.requires.includes(lastRecheck.key) ? lastRecheck : null;
   const lead = EXPLANATION_LEAD[view.status];
+  // async so a throw while building the prompt surfaces as a rejection the card can show.
+  const openInBrowser =
+    report !== null && provider === "browser"
+      ? async () => {
+          const context = toExplainerContext(report, catalog, settings.profile);
+          await adapters.openAssistant(assistant, buildBrowserPrompt(context, catalog, view.ruleId));
+        }
+      : null;
 
   return (
     <main className="screen detail">
@@ -131,7 +151,12 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
           <span className="muted small">{CATEGORY_LABELS[view.category]}</span>
           {view.cis !== null && <span className="muted small">CIS {view.cis}</span>}
         </div>
-        <h1>{view.title}</h1>
+        <h1>{view.headline}</h1>
+        {view.headline !== view.title && (
+          <p className="muted detail-check">
+            What we check: {view.title}. Result: {STATUS_LABELS[view.status]}.
+          </p>
+        )}
         {view.status === "unknown" && view.unknownReason !== null && (
           <p className="muted">{unsignedBuild ? SOCKET_TABLE_LABEL : UNKNOWN_REASON_LABELS[view.unknownReason]}</p>
         )}
@@ -159,7 +184,7 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
         <p>{view.explanation}</p>
       </section>
 
-      {aiOn && actionable && (
+      {inAppAi && actionable && (
         <AiCard
           ruleId={view.ruleId}
           explain={explain}
@@ -170,7 +195,16 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
         />
       )}
 
-      {actionable &&
+      {openInBrowser !== null && actionable && (
+        <AssistantCard
+          assistant={assistant}
+          target="item"
+          onOpen={openInBrowser}
+          onSwitch={(next) => updateSettings({ explainer: { ...settings.explainer, assistant: next } })}
+        />
+      )}
+
+      {fixable &&
         (locked ? (
           <Lock
             title="This fix is part of the full version"
@@ -182,34 +216,88 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
             }
           />
         ) : (
-          <FixCard fix={view.fix} evidence={view.evidence} points={view.points} onOpenPane={openPane} />
+          <FixCard
+            fix={view.fix}
+            evidence={view.evidence}
+            points={view.points}
+            developerMode={settings.developerMode}
+            onOpenPane={openPane}
+          />
         ))}
 
       {(actionable || checkedAgain !== null) && (
-        <section className="card recheck" aria-labelledby="recheck-heading">
-          <h2 id="recheck-heading">{actionable ? "Done it?" : "Checked again"}</h2>
-          {checkedAgain !== null && (
-            <p className="recheck-result" role="status">
-              Checked again at {formatTime(checkedAgain.at)}. {RECHECK_RESULT[view.status]}
-            </p>
-          )}
-          {!actionable ? null : !gate.has("recheck") ? (
-            <p className="muted">Checking a single item again is part of the full version. You can always rescan from the Overview.</p>
-          ) : !live && !rechecking ? (
-            <p className="muted">Run a fresh check-up first, then you can check this item again on its own.</p>
-          ) : (
-            <button
-              type="button"
-              className="button button-primary"
-              onClick={() => void scan.recheck(view.requires)}
-              disabled={rechecking}
-            >
-              {rechecking ? "Checking again" : "I've done this, check again"}
-            </button>
-          )}
-        </section>
+        <RecheckCard
+          status={view.status}
+          actionable={actionable}
+          allowed={gate.has("recheck")}
+          live={live}
+          rechecking={rechecking}
+          checkedAgain={checkedAgain}
+          onRecheck={() => void scan.recheck(view.requires)}
+        />
       )}
     </main>
+  );
+}
+
+function RecheckCard({
+  status,
+  actionable,
+  allowed,
+  live,
+  rechecking,
+  checkedAgain,
+  onRecheck,
+}: {
+  status: RuleStatus;
+  actionable: boolean;
+  allowed: boolean;
+  live: boolean;
+  rechecking: boolean;
+  checkedAgain: { readonly at: string } | null;
+  onRecheck(): void;
+}) {
+  const unknown = status === "unknown";
+  const result = useRef<HTMLParagraphElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const resultAt = checkedAgain?.at ?? null;
+  const previousAt = useRef(resultAt);
+
+  // A fresh result that unmounted the button, or left focus on the document, is read next.
+  useEffect(() => {
+    if (resultAt === previousAt.current) return;
+    previousAt.current = resultAt;
+    if (resultAt === null) return;
+    const active = document.activeElement;
+    if (active === null || active === document.body || !active.isConnected) result.current?.focus();
+  }, [resultAt]);
+
+  return (
+    <section className="card recheck" aria-labelledby="recheck-heading">
+      <h2 id="recheck-heading">{!actionable ? "Checked again" : unknown ? "Check again" : "Done it?"}</h2>
+      {actionable && unknown && <p className="muted">Once the reason above has been dealt with, check this item again on its own.</p>}
+      <p className="recheck-result progress-note" role="status" ref={result} tabIndex={-1}>
+        {checkedAgain === null ? "" : `Checked again at ${formatTime(checkedAgain.at)}. ${RECHECK_RESULT[status]}`}
+      </p>
+      {!actionable ? null : !allowed ? (
+        <p className="muted">Checking a single item again is part of the full version. You can always rescan from the Overview.</p>
+      ) : !live && !rechecking ? (
+        <p className="muted">Run a fresh check-up first, then you can check this item again on its own.</p>
+      ) : (
+        <button
+          type="button"
+          className="button button-primary"
+          ref={button}
+          onClick={() => {
+            if (!rechecking) onRecheck();
+          }}
+          aria-disabled={rechecking}
+          aria-busy={rechecking}
+        >
+          {rechecking ? "Checking again" : unknown ? "Check this item again" : "I've done this, check again"}
+        </button>
+      )}
+    </section>
   );
 }
 
@@ -233,11 +321,22 @@ function AiCard({
   const running = explain.kind === "running" && explain.target === ruleId;
   const busy = explain.kind === "running";
   const failure = explain.kind === "failed" && explain.target === ruleId ? explain.reason : null;
+  const heading = useRef<HTMLHeadingElement>(null);
+  const wasRunning = useRef(false);
+  const hasExplanation = explanation !== undefined;
+
+  // When the explanation the user asked for lands, read it next: focus the heading above it.
+  useEffect(() => {
+    if (wasRunning.current && !running && hasExplanation) heading.current?.focus();
+    wasRunning.current = running;
+  }, [running, hasExplanation]);
 
   return (
     <section className="card ai-card" aria-labelledby="ai-heading">
       <div className="section-head">
-        <h2 id="ai-heading">AI explanation</h2>
+        <h2 id="ai-heading" ref={heading} tabIndex={-1}>
+          AI explanation
+        </h2>
         <span className="badge badge-ai">AI explanation, not verified</span>
       </div>
       {!allowed ? (
@@ -259,16 +358,27 @@ function AiCard({
           <p className="label">Urgency</p>
           <p>{URGENCY_LABELS[explanation.urgency]}</p>
         </div>
-      ) : running ? (
-        <p className="muted" aria-live="polite">
-          Writing an explanation for you.
-        </p>
       ) : !live ? (
         <p className="muted">Run a fresh check-up to ask for an AI explanation of this item.</p>
       ) : (
         <div>
-          {failure !== null && <p className="notice">{EXPLAINER_FAILURE_LABELS[failure]}</p>}
-          <button type="button" className="button" onClick={onExplain} disabled={busy}>
+          {failure !== null && (
+            <p className="notice" role="alert">
+              {EXPLAINER_FAILURE_LABELS[failure]}
+            </p>
+          )}
+          <p className="muted progress-note" aria-live="polite">
+            {running ? "Writing an explanation for you." : ""}
+          </p>
+          <button
+            type="button"
+            className="button"
+            onClick={() => {
+              if (!busy) onExplain();
+            }}
+            aria-disabled={busy}
+            aria-busy={running}
+          >
             Explain this for me
           </button>
         </div>

@@ -4,6 +4,7 @@ import { ev, fail, MACOS_ONLY, notApplicable, pass, section } from "../helpers";
 export const TL_MAC_003: Rule = {
   id: "TL-MAC-003",
   title: "Your Mac stays quiet to network probes",
+  failTitle: "Your Mac answers network probes",
   severity: "low",
   category: "network",
   cis: "2.2.2",
@@ -30,7 +31,7 @@ export const TL_MAC_003: Rule = {
       "Open System Settings, then Network, then Firewall, and click Options.",
       "Switch on Enable stealth mode and click OK.",
     ],
-    verify: "socketfilterfw --getstealthmode prints \"Stealth mode enabled\".",
+    verify: "Network > Firewall > Options shows Enable stealth mode switched on.",
     effort: "two_minutes",
     sideEffects: "none",
   },

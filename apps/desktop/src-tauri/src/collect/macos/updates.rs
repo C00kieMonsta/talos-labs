@@ -20,8 +20,13 @@ pub fn parse_software_update(dump: &str, commerce_auto_update: Option<&str>) -> 
         (Some(false), _) | (_, Some(false)) => Tri::False,
         _ => Tri::True,
     };
+    // RecommendedUpdates lists what is pending; LastUpdatesAvailable is a counter that stays at 1 after the install.
+    let pending_count = match defaults::array_len(dump, "RecommendedUpdates") {
+        Some(n) => Some(n as u64),
+        None => map.get("LastUpdatesAvailable").and_then(|v| v.parse().ok()),
+    };
     Updates {
-        pending_count: map.get("LastUpdatesAvailable").and_then(|v| v.parse().ok()),
+        pending_count,
         last_check_at: map.get("LastSuccessfulDate").and_then(|v| defaults::date_to_iso(v)),
         last_result_code: map.get("LastResultCode").and_then(|v| v.parse().ok()),
         automatic_check: defaults::tri(&map, "AutomaticCheckEnabled"),
@@ -51,7 +56,7 @@ mod tests {
     #[test]
     fn parses_captured_dump_without_automatic_check_key() {
         let u = parse_software_update(CAPTURED, Some("0"));
-        assert_eq!(u.pending_count, Some(1));
+        assert_eq!(u.pending_count, Some(0), "RecommendedUpdates is empty although LastUpdatesAvailable is 1");
         assert_eq!(u.last_check_at.as_deref(), Some("2026-10-15T08:56:56.000Z"));
         assert_eq!(u.last_result_code, Some(2));
         assert_eq!(u.automatic_check, Tri::Unset);
@@ -59,6 +64,21 @@ mod tests {
         assert_eq!(u.auto_install_os, Tri::True);
         assert_eq!(u.auto_install_security_responses, Tri::True);
         assert_eq!(u.app_store_auto_update, Tri::False);
+    }
+
+    /// The captured dump with one entry in `RecommendedUpdates`, in the shape `defaults read` prints it.
+    const PENDING: &str = "{\n    AutomaticDownload = 1;\n    LastResultCode = 2;\n    LastSuccessfulDate = \"2026-10-15 08:56:56 +0000\";\n    LastUpdatesAvailable = 1;\n    RecommendedUpdates =     (\n                {\n            \"Display Name\" = \"macOS Tahoe 27.1\";\n            \"Display Version\" = \"27.1\";\n            Identifier = \"MSU_UPDATE_26B74_patch_27.1_minor\";\n            \"Product Key\" = \"MSU_UPDATE_26B74_patch_27.1_minor\";\n        }\n    );\n    SplatEnabled = 1;\n}\n";
+
+    #[test]
+    fn pending_count_comes_from_recommended_updates() {
+        assert_eq!(parse_software_update(PENDING, None).pending_count, Some(1));
+        let two = PENDING.replace("        }\n    );", "        },\n                {\n            \"Display Name\" = \"Safari 27.1\";\n        }\n    );");
+        assert_eq!(parse_software_update(&two, None).pending_count, Some(2));
+        let counter_only = parse_software_update("{\n    LastUpdatesAvailable = 1;\n}\n", None);
+        assert_eq!(counter_only.pending_count, Some(1), "the counter is the fallback when the list is absent");
+        let counter_zero = parse_software_update("{\n    LastUpdatesAvailable = 0;\n}\n", None);
+        assert_eq!(counter_zero.pending_count, Some(0));
+        assert_eq!(parse_software_update("{\n    SplatEnabled = 1;\n}\n", None).pending_count, None);
     }
 
     #[test]

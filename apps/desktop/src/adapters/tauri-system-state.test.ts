@@ -126,6 +126,71 @@ describe("TauriSystemStateAdapter.collectSection", () => {
       kind: "collector_crashed",
     });
   });
+
+  it("rejects with cancelled on abort and forwards it to cancel_section, even if the command never answers", async () => {
+    const controller = new AbortController();
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "cancel_section" ? Promise.resolve(undefined) : new Promise<never>(() => undefined),
+    );
+    const pending = new TauriSystemStateAdapter().collectSection("firewall", { signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "ScanError", kind: "cancelled" });
+    expect(invokeMock).toHaveBeenCalledWith("collect_section", { key: "firewall" });
+    expect(invokeMock).toHaveBeenCalledWith("cancel_section");
+  });
+
+  it("rejects at once when the signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      new TauriSystemStateAdapter().collectSection("firewall", { signal: controller.signal }),
+    ).rejects.toMatchObject({ kind: "cancelled" });
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("still rejects with cancelled when cancel_section itself fails", async () => {
+    const controller = new AbortController();
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "cancel_section" ? Promise.reject(new Error("no window")) : new Promise<never>(() => undefined),
+    );
+    const pending = new TauriSystemStateAdapter().collectSection("ssh", { signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ kind: "cancelled" });
+  });
+
+  it("removes its abort listener once the section arrives and never calls cancel_section", async () => {
+    const listeners = new Set<() => void>();
+    const signal = {
+      aborted: false,
+      addEventListener: vi.fn((_type: "abort", listener: () => void) => listeners.add(listener)),
+      removeEventListener: vi.fn((_type: "abort", listener: () => void) => listeners.delete(listener)),
+    };
+    invokeMock.mockResolvedValueOnce(DEV_MACHINE.sections.firewall);
+    const section = await new TauriSystemStateAdapter().collectSection("firewall", { signal });
+    expect(section).toEqual(DEV_MACHINE.sections.firewall);
+    expect(signal.addEventListener).toHaveBeenCalledTimes(1);
+    expect(signal.removeEventListener).toHaveBeenCalledTimes(1);
+    expect(listeners.size).toBe(0);
+    expect(invokeMock).not.toHaveBeenCalledWith("cancel_section");
+  });
+
+  it("a late answer after abort is dropped rather than surfaced", async () => {
+    const controller = new AbortController();
+    let finish: (value: unknown) => void = () => undefined;
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "cancel_section"
+        ? Promise.resolve(undefined)
+        : new Promise<unknown>((resolve) => {
+            finish = resolve;
+          }),
+    );
+    const pending = new TauriSystemStateAdapter().collectSection("firewall", { signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ kind: "cancelled" });
+    finish(DEV_MACHINE.sections.firewall);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await expect(pending).rejects.toMatchObject({ kind: "cancelled" });
+  });
 });
 
 describe("TauriSystemStateAdapter.capabilities", () => {

@@ -29,17 +29,19 @@ export function computeScore(rules: readonly Rule[], results: readonly RuleResul
     unknown: 0,
     not_applicable: 0,
   };
+  // Results are matched to rules by id, so their order does not matter.
+  const severityById = new Map(rules.map((rule) => [rule.id, rule.severity]));
   let deducted = 0;
   let criticalFailed = false;
-  results.forEach((result, index) => {
+  for (const result of results) {
     counts[result.status] += 1;
     if (result.status === "fail") {
       deducted += result.points;
-      if (rules[index]?.severity === "critical") {
+      if (severityById.get(result.ruleId) === "critical") {
         criticalFailed = true;
       }
     }
-  });
+  }
 
   const evaluable = counts.pass + counts.fail + counts.review;
   if (evaluable === 0) {

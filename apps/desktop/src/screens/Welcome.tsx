@@ -70,8 +70,9 @@ export function Welcome({
       <form className="card" onSubmit={submit} aria-labelledby="about-you">
         <h2 id="about-you">A little about you</h2>
         <p className="muted">
-          These answers help the explanations fit your situation. They stay on this Mac. You can change them later in
-          Settings.
+          These answers help the explanations fit your situation. You can change them later in Settings. AI help
+          opens in your own Claude or ChatGPT account. Only the check-up results are sent, never file names, paths or
+          passwords.
         </p>
         <ProfileForm value={profile} onChange={setProfile} idPrefix="welcome" />
         <div className="actions">

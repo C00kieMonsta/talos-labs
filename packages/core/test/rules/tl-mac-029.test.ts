@@ -65,3 +65,11 @@ describe("TL-MAC-029 fix commands keep the key format", () => {
     expect(paths("pkcs8KeyPath")).toEqual([]);
   });
 });
+
+describe("TL-MAC-029 text", () => {
+  it("does not claim a single key when the evidence can list several", () => {
+    expect(TL_MAC_029.explanation).toContain("At least one of yours is stored with no passphrase");
+    expect(TL_MAC_029.explanation).not.toContain(" One of yours");
+    expect(TL_MAC_029.fix.summary).not.toContain("ssh-keygen");
+  });
+});

@@ -4,6 +4,7 @@ import { ev, fail, MACOS_ONLY, pass, section } from "../helpers";
 export const TL_MAC_006: Rule = {
   id: "TL-MAC-006",
   title: "Built-in malware protection is present",
+  failTitle: "Built-in malware protection is missing or cannot be read",
   severity: "medium",
   category: "platform",
   cis: "5.10",

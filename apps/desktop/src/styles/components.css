@@ -4,18 +4,19 @@
   gap: var(--space-1);
   padding: 8px 14px;
   border-radius: var(--radius-small);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   background: var(--bg-elevated);
   color: var(--fg);
   cursor: pointer;
   min-height: 36px;
 }
 
-.button:hover:not(:disabled) {
+.button:hover:not(:disabled):not([aria-disabled="true"]) {
   border-color: var(--fg-muted);
 }
 
-.button:disabled {
+.button:disabled,
+.button[aria-disabled="true"] {
   opacity: 0.55;
   cursor: default;
 }
@@ -29,6 +30,7 @@
 
 .button-ghost {
   background: transparent;
+  border-color: var(--border);
 }
 
 .button-small {
@@ -136,7 +138,9 @@
 }
 
 .finding-card {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   width: 100%;
   text-align: left;
   cursor: pointer;
@@ -155,14 +159,18 @@
 }
 
 .finding-card-title {
-  margin-bottom: 4px;
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 0 0 4px;
 }
 
 .finding-card-points {
   color: var(--grade-good);
   font-weight: 600;
   font-size: 13px;
-  margin: 0;
+  margin: auto 0 0;
 }
 
 .finding-unknown {
@@ -240,6 +248,10 @@
   width: 45%;
 }
 
+.evidence td {
+  overflow-wrap: anywhere;
+}
+
 .evidence td.mono {
   word-break: break-all;
 }
@@ -276,11 +288,13 @@
   padding: 0;
 }
 
+/* Two columns: the command, then Copy at the right edge; the note always goes under the command. */
 .command {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--space-1);
-  flex-wrap: wrap;
+  column-gap: var(--space-1);
+  row-gap: 2px;
   background: var(--bg-muted);
   border-radius: var(--radius-small);
   padding: var(--space-1) var(--space-2);
@@ -288,8 +302,17 @@
 }
 
 .command code {
-  flex: 1 1 auto;
+  grid-column: 1;
   word-break: break-all;
+}
+
+.command .button {
+  grid-column: 2;
+  justify-self: end;
+}
+
+.command .command-note {
+  grid-column: 1 / -1;
 }
 
 .fix-meta {
@@ -313,8 +336,18 @@
   font-weight: 600;
 }
 
-h1[tabindex="-1"]:focus:not(:focus-visible) {
+/* Headings and notes focused by script, not by Tab, show no ring. */
+[tabindex="-1"]:focus:not(:focus-visible) {
   outline: none;
+}
+
+/* An always-mounted live region; takes no room until it has text. */
+.progress-note:empty {
+  margin: 0;
+}
+
+h1[tabindex="-1"]:focus-visible {
+  width: fit-content;
 }
 
 .lock {
@@ -398,6 +431,7 @@ h1[tabindex="-1"]:focus:not(:focus-visible) {
   padding: var(--space-3) var(--space-2);
   border-right: 1px solid var(--border);
   background: var(--bg-elevated);
+  overflow-y: auto;
 }
 
 .nav-brand {
@@ -457,7 +491,7 @@ input[type="password"],
 textarea,
 select {
   padding: 8px 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-small);
   background: var(--bg-elevated);
   width: 100%;

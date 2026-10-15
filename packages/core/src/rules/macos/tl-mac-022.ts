@@ -5,6 +5,7 @@ import { ev, fail, MACOS_ONLY, pass, section } from "../helpers";
 export const TL_MAC_022: Rule = {
   id: "TL-MAC-022",
   title: "No shared folder is open to Everyone",
+  failTitle: "A shared folder is open to Everyone",
   severity: "high",
   category: "sharing",
   cis: "2.13.2",

@@ -4,6 +4,7 @@ import { ev, fail, MACOS_ONLY, notFalse, pass, section, TRI_VOCABULARY } from ".
 export const TL_MAC_007: Rule = {
   id: "TL-MAC-007",
   title: "Updates are checked and downloaded automatically",
+  failTitle: "Updates are not checked or downloaded automatically",
   severity: "medium",
   category: "updates",
   cis: "1.2",
@@ -20,6 +21,13 @@ export const TL_MAC_007: Rule = {
     commands: [
       {
         program: "defaults",
+        args: ["write", "/Library/Preferences/com.apple.SoftwareUpdate", "AutomaticCheckEnabled", "-bool", "true"],
+        needsAdmin: true,
+        interactive: false,
+        appliesTo: null,
+      },
+      {
+        program: "defaults",
         args: ["write", "/Library/Preferences/com.apple.SoftwareUpdate", "AutomaticDownload", "-bool", "true"],
         needsAdmin: true,
         interactive: false,
@@ -29,7 +37,6 @@ export const TL_MAC_007: Rule = {
     steps: [
       "Open System Settings, then General, then Software Update, and click the (i) next to Automatic Updates.",
       "Switch on Check for updates and Download new updates when available.",
-      "If you prefer Terminal, run the command shown, then run it again with AutomaticCheckEnabled in place of AutomaticDownload.",
     ],
     verify: "Both switches show as on in the Automatic Updates sheet.",
     effort: "two_minutes",

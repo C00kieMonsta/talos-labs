@@ -1,3 +1,4 @@
+import { describe, expect, it } from "vitest";
 import { DEV_MACHINE } from "../../src/fixtures/dev-machine";
 import { HARDENED } from "../../src/fixtures/hardened";
 import { TL_MAC_007 } from "../../src/rules/macos/tl-mac-007";
@@ -25,3 +26,12 @@ describeRule(TL_MAC_007, [
     status: "fail",
   },
 ]);
+
+describe("TL-MAC-007 fix", () => {
+  it("carries one command per switch and no step that names a command", () => {
+    expect(TL_MAC_007.fix.commands.map((command) => command.args[2])).toEqual(["AutomaticCheckEnabled", "AutomaticDownload"]);
+    for (const step of TL_MAC_007.fix.steps) {
+      expect(step).not.toMatch(/\b(command|commands|terminal)\b/i);
+    }
+  });
+});

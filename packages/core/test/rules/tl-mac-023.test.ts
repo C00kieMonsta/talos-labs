@@ -1,3 +1,4 @@
+import { describe, expect, it } from "vitest";
 import { DEV_MACHINE } from "../../src/fixtures/dev-machine";
 import { HARDENED } from "../../src/fixtures/hardened";
 import { TL_MAC_023 } from "../../src/rules/macos/tl-mac-023";
@@ -31,3 +32,17 @@ describeRule(TL_MAC_023, [
     kinds: ["number", "text", "path"],
   },
 ]);
+
+describe("TL-MAC-023 text", () => {
+  it("has a title and fail title that read as sentences", () => {
+    expect(TL_MAC_023.title).toBe("No program is set to start in the background");
+    expect(TL_MAC_023.failTitle).toBe("Some programs start in the background on their own");
+  });
+
+  it("keeps the launchctl commands out of the steps so the Settings path stands alone", () => {
+    expect(TL_MAC_023.fix.commands).toHaveLength(2);
+    for (const step of TL_MAC_023.fix.steps) {
+      expect(step).not.toMatch(/\b(command|commands|terminal)\b/i);
+    }
+  });
+});

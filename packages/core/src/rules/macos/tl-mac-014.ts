@@ -4,6 +4,7 @@ import { ev, fail, MACOS_ONLY, pass, section } from "../helpers";
 export const TL_MAC_014: Rule = {
   id: "TL-MAC-014",
   title: "Your everyday account is not an administrator",
+  failTitle: "Your everyday account is an administrator",
   severity: "low",
   category: "access_control",
   cis: null,

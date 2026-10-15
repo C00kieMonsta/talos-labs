@@ -4,6 +4,7 @@ import { ev, fail, MACOS_ONLY, notFalse, pass, section, TRI_VOCABULARY } from ".
 export const TL_MAC_011: Rule = {
   id: "TL-MAC-011",
   title: "App Store apps update automatically",
+  failTitle: "App Store apps do not update automatically",
   severity: "low",
   category: "updates",
   cis: "1.4",

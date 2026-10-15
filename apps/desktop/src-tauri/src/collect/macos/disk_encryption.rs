@@ -21,11 +21,16 @@ pub fn parse_fdesetup(text: &str) -> Result<bool, Fail> {
     Err(Fail::parse("fdesetup"))
 }
 
+/// FileVault off means the system volume has no encryption method at all.
+fn from_status(on: bool) -> DiskEncryption {
+    let method = if on { DiskEncryptionMethod::Filevault } else { DiskEncryptionMethod::None };
+    DiskEncryption { system_volume_encrypted: on, method }
+}
+
 fn inner(cancel: &AtomicBool) -> Result<DiskEncryption, Fail> {
     let out = run(Bin::Fdesetup, &["status"], cancel)?;
     check_exit(&out, Bin::Fdesetup)?;
-    let on = parse_fdesetup(&out.stdout)?;
-    Ok(DiskEncryption { system_volume_encrypted: on, method: DiskEncryptionMethod::Filevault })
+    Ok(from_status(parse_fdesetup(&out.stdout)?))
 }
 
 pub fn collect(cancel: &AtomicBool) -> Section<DiskEncryption> {
@@ -48,6 +53,13 @@ mod tests {
         assert!(parse_fdesetup("FileVault is On.\n").unwrap());
         assert!(parse_fdesetup("FileVault is On.\nDeferred enablement appears to be active for user 'x'.\n").unwrap());
         assert!(!parse_fdesetup("FileVault is Off.\nDeferred enablement appears to be active for user 'x'.\n").unwrap());
+    }
+
+    #[test]
+    fn off_reports_no_encryption_method() {
+        assert_eq!(from_status(false).method, DiskEncryptionMethod::None);
+        assert!(!from_status(false).system_volume_encrypted);
+        assert_eq!(from_status(true).method, DiskEncryptionMethod::Filevault);
     }
 
     #[test]

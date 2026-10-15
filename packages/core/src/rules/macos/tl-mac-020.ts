@@ -5,6 +5,7 @@ import { remoteServiceOutcome } from "./tl-mac-019";
 export const TL_MAC_020: Rule = {
   id: "TL-MAC-020",
   title: "Screen Sharing is off",
+  failTitle: "Screen Sharing is on",
   severity: "high",
   category: "remote_access",
   cis: "2.3.3.1",

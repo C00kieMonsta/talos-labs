@@ -4,6 +4,7 @@ import { ev, fail, MACOS_ONLY, pass, section } from "../helpers";
 export const TL_MAC_002: Rule = {
   id: "TL-MAC-002",
   title: "The firewall is on",
+  failTitle: "The firewall is off",
   severity: "high",
   category: "network",
   cis: "2.2.1",
@@ -27,7 +28,7 @@ export const TL_MAC_002: Rule = {
       },
     ],
     steps: ["Open System Settings, then Network, then Firewall.", "Switch Firewall on."],
-    verify: "Network > Firewall shows the switch on, or socketfilterfw --getglobalstate prints \"enabled\".",
+    verify: "Network > Firewall shows the switch on.",
     effort: "two_minutes",
     sideEffects: "none",
   },

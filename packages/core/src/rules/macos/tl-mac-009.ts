@@ -4,6 +4,7 @@ import { ev, fail, MACOS_ONLY, notFalse, pass, section, TRI_VOCABULARY } from ".
 export const TL_MAC_009: Rule = {
   id: "TL-MAC-009",
   title: "Security fixes install automatically",
+  failTitle: "Security fixes do not install automatically",
   severity: "high",
   category: "updates",
   cis: "1.5",
@@ -25,11 +26,17 @@ export const TL_MAC_009: Rule = {
         interactive: false,
         appliesTo: null,
       },
+      {
+        program: "defaults",
+        args: ["write", "/Library/Preferences/com.apple.SoftwareUpdate", "CriticalUpdateInstall", "-bool", "true"],
+        needsAdmin: true,
+        interactive: false,
+        appliesTo: null,
+      },
     ],
     steps: [
       "Open System Settings, then General, then Software Update, and click the (i) next to Automatic Updates.",
       "Switch on Install Security Responses and system files.",
-      "If you prefer Terminal, run the command shown, then run it again with CriticalUpdateInstall in place of ConfigDataInstall.",
     ],
     verify: "Install Security Responses and system files shows as on in the Automatic Updates sheet.",
     effort: "two_minutes",

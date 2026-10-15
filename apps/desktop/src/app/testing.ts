@@ -1,4 +1,6 @@
 import { vi } from "vitest";
+import { createElement, useState } from "react";
+import type { ReactNode } from "react";
 import type {
   ExplainerPort,
   Finding,
@@ -18,7 +20,8 @@ import type { AppSettings } from "../settings";
 import type { AppContextValue } from "./context";
 import type { Gate } from "./gate";
 import type { ScanState } from "../scan/machine";
-import type { ScanController } from "../scan/useScan";
+import type { AskMessage, ScanController } from "../scan/useScan";
+import { AppContext } from "./context";
 
 /** Test doubles for everything the screens touch. Nothing here reaches Tauri. */
 
@@ -63,6 +66,7 @@ export function fakeAdapters(overrides: Partial<Adapters> = {}, state: SystemSta
       loadLast: vi.fn(async (): Promise<ScanReport | null> => null),
     },
     openSettingsPane: vi.fn(async () => undefined),
+    openAssistant: vi.fn(async () => undefined),
     createExplainer: vi.fn(async () => noExplainer),
     ...overrides,
   };
@@ -73,6 +77,7 @@ export function fakeScanController(scan: ScanState): ScanController {
     scan,
     notice: null,
     dismissNotice: vi.fn(),
+    dismissFailure: vi.fn(),
     loadLast: vi.fn(async () => undefined),
     start: vi.fn(async () => undefined),
     cancel: vi.fn(),
@@ -80,6 +85,10 @@ export function fakeScanController(scan: ScanState): ScanController {
     explain: vi.fn(async () => undefined),
     prioritise: vi.fn(async () => undefined),
     ask: vi.fn(async () => ({ ok: false as const, reason: "not_configured" as const })),
+    conversation: [],
+    setConversation: vi.fn(),
+    draft: "",
+    setDraft: vi.fn(),
   };
 }
 
@@ -102,14 +111,32 @@ export function fakeContextValue(input: {
     setLicense: vi.fn(),
     gate: input.gate,
     scan: fakeScanController(scanState),
-    router: { route: { name: "overview" }, navigate: vi.fn(), back: vi.fn() },
+    router: { route: { name: "overview" }, lastMove: "navigate", navigate: vi.fn(), back: vi.fn(), replace: vi.fn() },
   };
+}
+
+/** A provider whose licence, settings and Ask conversation are real React state, so a screen re-renders after writing through the context. */
+export function StatefulProvider({ value, children }: { value: AppContextValue; children?: ReactNode }) {
+  const [license, setLicense] = useState<LicenseState>(value.license);
+  const [settings, setSettings] = useState<AppSettings>(value.settings);
+  const [conversation, setConversation] = useState<readonly AskMessage[]>(value.scan.conversation);
+  const [draft, setDraft] = useState(value.scan.draft);
+  const live: AppContextValue = {
+    ...value,
+    license,
+    setLicense,
+    settings,
+    updateSettings: (patch) => setSettings((prev) => ({ ...prev, ...patch })),
+    scan: { ...value.scan, conversation, setConversation, draft, setDraft },
+  };
+  return createElement(AppContext.Provider, { value: live }, children);
 }
 
 /** A small hand-built report so screen tests do not depend on the engine. */
 export function fakeFinding(overrides: Partial<Finding> & Pick<Finding, "ruleId" | "status">): Finding {
   return {
     title: `Check ${overrides.ruleId}`,
+    headline: overrides.status === "unknown" ? `Couldn't check ${overrides.ruleId}` : `Fix ${overrides.ruleId}`,
     severity: "high",
     category: "network",
     cis: null,
@@ -145,7 +172,7 @@ export function fakeReport(findings: readonly Finding[], passes: readonly RuleId
     scannedAt: "2026-10-15T10:00:00.000Z",
     collectedAt: DEV_MACHINE.collectedAt,
     coreVersion: "0.1.0",
-    catalogVersion: "0.1.0",
+    catalogVersion: "0.2.0",
     cisEdition: "test edition",
     platform: DEV_MACHINE.host,
     sections,

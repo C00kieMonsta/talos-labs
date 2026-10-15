@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { Rule, RuleCatalog } from "../../src/domain/rule";
 import { SECTION_KEYS } from "../../src/domain/system-state";
 import { evaluate } from "../../src/engine/evaluate";
-import { CRITICAL_CAP, gradeFor } from "../../src/engine/score";
+import { headlineFor, unknownHeadline } from "../../src/engine/headline";
+import { computeScore, CRITICAL_CAP, gradeFor } from "../../src/engine/score";
 import { ALL_UNAVAILABLE } from "../../src/fixtures/all-unavailable";
 import { DEV_MACHINE } from "../../src/fixtures/dev-machine";
 import { FRESH_INSTALL } from "../../src/fixtures/fresh-install";
@@ -62,10 +63,24 @@ describe("evaluate on dev-machine", () => {
       const rule = MACOS_CATALOG.rules.find((r) => r.id === finding.ruleId);
       expect(rule).toBeDefined();
       expect(finding.title).toBe(rule?.title);
+      expect(finding.headline).toBe(rule === undefined ? "" : headlineFor(rule, finding.status));
       expect(finding.explanation).toBe(rule?.explanation);
       expect(finding.fix).toEqual(rule?.fix);
       expect(finding.requires).toEqual(rule?.requires);
       expect(["fail", "review", "unknown"]).toContain(finding.status);
+    }
+  });
+
+  it("headline is the failTitle on fail and review, and a Couldn't-check sentence on unknown", () => {
+    const headline = (id: string) => report.findings.find((f) => f.ruleId === `TL-MAC-${id}`)?.headline;
+    expect(headline("001")).toBe("Your disk is not encrypted");
+    expect(headline("022")).toBe("A shared folder is open to Everyone");
+    expect(headline("017")).toBe("Short passwords are allowed");
+    expect(headline("023")).toBe("Some programs start in the background on their own");
+    expect(headline("025")).toBe("Some apps open at login");
+    expect(headline("028")).toBe("Couldn't check whether browser extensions are limited to the sites they need");
+    for (const finding of report.findings) {
+      expect(finding.headline, finding.ruleId).not.toBe(finding.title);
     }
   });
 
@@ -80,7 +95,7 @@ describe("evaluate on dev-machine", () => {
   it("fills the report header from the inputs", () => {
     expect(report.schemaVersion).toBe(1);
     expect(report.coreVersion).toBe(CORE_VERSION);
-    expect(report.catalogVersion).toBe("0.1.0");
+    expect(report.catalogVersion).toBe("0.2.0");
     expect(report.cisEdition).toBe("CIS Apple macOS 26 Tahoe Benchmark v1.0.0");
     expect(report.collectedAt).toBe(DEV_MACHINE.collectedAt);
     expect(report.scannedAt).toBe(ctxFor(DEV_MACHINE).now);
@@ -120,6 +135,31 @@ describe("evaluate on the other fixtures", () => {
     for (const key of SECTION_KEYS) {
       expect(report.sections[key].status).toBe("unavailable");
     }
+  });
+
+  it("all-unavailable headlines keep acronyms and names capitalised and lower-case ordinary openers", () => {
+    const report = run(ALL_UNAVAILABLE);
+    const headline = (id: string) => report.findings.find((f) => f.ruleId === `TL-MAC-${id}`)?.headline;
+    for (const finding of report.findings) {
+      expect(finding.headline, finding.ruleId).toMatch(/^Couldn't check whether /);
+    }
+    expect(headline("001")).toBe("Couldn't check whether your disk is encrypted");
+    expect(headline("003")).toBe("Couldn't check whether your Mac stays quiet to network probes");
+    expect(headline("005")).toBe("Couldn't check whether system protection (SIP) is on");
+    expect(headline("006")).toBe("Couldn't check whether built-in malware protection is present");
+    expect(headline("008")).toBe("Couldn't check whether macOS updates install automatically");
+    expect(headline("011")).toBe("Couldn't check whether App Store apps update automatically");
+    expect(headline("015")).toBe("Couldn't check whether the Guest account is off");
+    expect(headline("019")).toBe("Couldn't check whether Remote Login (SSH) is off");
+    expect(headline("020")).toBe("Couldn't check whether Screen Sharing is off");
+    expect(headline("021")).toBe("Couldn't check whether Remote Management is off");
+    expect(headline("023")).toBe("Couldn't check whether no program is set to start in the background");
+    expect(headline("025")).toBe("Couldn't check whether no app opens at login");
+    expect(headline("028")).toBe("Couldn't check whether browser extensions are limited to the sites they need");
+    expect(headline("029")).toBe("Couldn't check whether SSH keys are protected by a passphrase");
+    expect(headline("030")).toBe("Couldn't check whether your SSH folder is private");
+    expect(headline("031")).toBe("Couldn't check whether no password or key is stored in a plain-text config file");
+    expect(unknownHeadline("")).toBe("Couldn't check whether ");
   });
 
   it("fresh-install gives indeterminate on 010 and the documented outcomes", () => {
@@ -182,6 +222,20 @@ describe("engine mechanics", () => {
     expect(report.score.value).toBe(CRITICAL_CAP);
     expect(report.score.cappedByCritical).toBe(true);
     expect(report.score.grade).toBe("poor");
+  });
+
+  it("computeScore matches results to rules by id, so a shuffled list scores the same", () => {
+    const catalog: RuleCatalog = { ...MACOS_CATALOG, rules: [TL_MAC_001, TL_MAC_002] };
+    const report = run({ ...DEV_MACHINE, sections: { ...DEV_MACHINE.sections, firewall: HARDENED.sections.firewall } }, catalog);
+    expect(report.results.map((r) => `${r.ruleId}:${r.status}`)).toEqual(["TL-MAC-001:fail", "TL-MAC-002:pass"]);
+    expect(report.score.cappedByCritical).toBe(true);
+    expect(computeScore(catalog.rules, [...report.results].reverse())).toEqual(report.score);
+    expect(computeScore([TL_MAC_002, TL_MAC_001], report.results)).toEqual(report.score);
+
+    const full = run(DEV_MACHINE);
+    const rotated = [...full.results.slice(7), ...full.results.slice(0, 7)];
+    expect(computeScore(MACOS_CATALOG.rules, rotated)).toEqual(full.score);
+    expect(computeScore([...MACOS_CATALOG.rules].reverse(), full.results)).toEqual(full.score);
   });
 
   it("the cap does not report as binding when the value is already below it", () => {

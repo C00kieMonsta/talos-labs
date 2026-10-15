@@ -12,7 +12,7 @@ const ROLES: readonly { value: Role; label: string }[] = [
 const TECHNICAL: readonly { value: Technical; label: string }[] = [
   { value: "low", label: "Not very. Keep it simple." },
   { value: "medium", label: "Somewhat. I can follow steps." },
-  { value: "high", label: "Very. Show me the commands." },
+  { value: "high", label: "Very. Be precise and brief." },
 ];
 
 /** Three radio questions and one toggle. Never free text. */

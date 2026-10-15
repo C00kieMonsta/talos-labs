@@ -3,7 +3,8 @@ import { ev, fail, MACOS_ONLY, notApplicable, pass, section } from "../helpers";
 
 export const TL_MAC_004: Rule = {
   id: "TL-MAC-004",
-  title: "Only checked apps can open",
+  title: "Only apps from known developers can open",
+  failTitle: "Apps from unknown developers can open",
   severity: "high",
   category: "platform",
   cis: "2.6.5",
@@ -22,7 +23,7 @@ export const TL_MAC_004: Rule = {
       "Open System Settings, then Privacy & Security, and scroll to the Security heading.",
       "Under Allow applications from, choose App Store & Known Developers.",
     ],
-    verify: "Open Terminal and run spctl --status. It should print \"assessments enabled\".",
+    verify: "Privacy & Security shows App Store & Known Developers under Allow applications from.",
     effort: "two_minutes",
     sideEffects: "none",
   },

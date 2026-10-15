@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Explanation, RuleId, ScanReport, SystemState } from "@talos/core";
 import { DEV_MACHINE, HARDENED, SECTION_KEYS } from "@talos/core";
-import { heldState, initialScanState, lastReport, reduce, replaceSection } from "./machine";
+import { explainFrom, heldState, initialScanState, lastReport, reduce, replaceSection, survivingExplanations } from "./machine";
 import type { ScanState } from "./machine";
 
 function fakeReport(id: string): ScanReport {
@@ -125,18 +125,78 @@ describe("scan reducer", () => {
     expect(state.kind).toBe("collecting");
   });
 
-  it("scan_started is ignored while collecting, evaluating or rechecking", () => {
+  it("scan_started is ignored while collecting or evaluating", () => {
     const c = collecting();
     expect(reduce(c, { type: "scan_started", startedAt: STARTED })).toBe(c);
     const e = reduce(c, { type: "collected", state: DEV_MACHINE });
     expect(reduce(e, { type: "scan_started", startedAt: STARTED })).toBe(e);
+  });
+
+  it("rechecking -> collecting on rescan, so a hung recheck cannot block a new scan", () => {
     const r = reduce(ready(), { type: "recheck_started", key: "firewall" });
-    expect(reduce(r, { type: "scan_started", startedAt: STARTED })).toBe(r);
+    const state = reduce(r, { type: "scan_started", startedAt: STARTED });
+    expect(state.kind).toBe("collecting");
+    expect(reduce(state, { type: "recheck_done", state: DEV_MACHINE, report: REPORT_B, byRule: {} })).toBe(state);
+    expect(reduce(state, { type: "recheck_failed", byRule: {}, order: null })).toBe(state);
+  });
+
+  it("a rescan remembers the ready state it interrupts, and a cancel goes back to it", () => {
+    const before = reduce(ready(), { type: "explain_ready", byRule: { "TL-MAC-001": EXPLANATION }, order: ["TL-MAC-001"] });
+    const collecting = reduce(before, { type: "scan_started", startedAt: STARTED });
+    expect(collecting.kind === "collecting" && collecting.previous).toEqual(before);
+    const back = reduce(collecting, { type: "collect_failed", error: "cancelled", last: REPORT_A });
+    expect(back).toEqual(before);
+    expect(heldState(back)).toBe(DEV_MACHINE);
+  });
+
+  it("a cancelled rescan drops an explanation that was still running", () => {
+    const running = reduce(ready(), { type: "explain_started", target: "TL-MAC-001" });
+    const collecting = reduce(running, { type: "scan_started", startedAt: STARTED });
+    const back = reduce(collecting, { type: "collect_failed", error: "cancelled", last: REPORT_A });
+    expect(back.kind === "ready" && back.explain).toEqual({ kind: "off" });
+  });
+
+  it("a rescan started during a recheck goes back to the pre-recheck report when cancelled", () => {
+    const rechecking = reduce(ready(), { type: "recheck_started", key: "firewall" });
+    const collecting = reduce(rechecking, { type: "scan_started", startedAt: STARTED });
+    const back = reduce(collecting, { type: "collect_failed", error: "cancelled", last: REPORT_A });
+    expect(back).toEqual({ kind: "ready", report: REPORT_A, state: DEV_MACHINE, explain: { kind: "off" }, lastRecheck: null });
+  });
+
+  it("only a cancel goes back; any other failure of a rescan still lands in failed", () => {
+    const collecting = reduce(ready(), { type: "scan_started", startedAt: STARTED });
+    for (const error of ["timeout", "collector_crashed", "schema_mismatch"] as const) {
+      expect(reduce(collecting, { type: "collect_failed", error, last: REPORT_A })).toEqual({ kind: "failed", error, last: REPORT_A });
+    }
+  });
+
+  it("a cancel with nothing to go back to lands in failed", () => {
+    const fromIdle = reduce({ kind: "idle", last: REPORT_A }, { type: "scan_started", startedAt: STARTED });
+    expect(fromIdle.kind === "collecting" && fromIdle.previous).toBeNull();
+    expect(reduce(fromIdle, { type: "collect_failed", error: "cancelled", last: REPORT_A })).toEqual({ kind: "failed", error: "cancelled", last: REPORT_A });
+  });
+
+  it("failed -> idle on failure_dismissed, keeping the last report; ignored elsewhere", () => {
+    const failed = reduce(collecting(), { type: "collect_failed", error: "cancelled", last: REPORT_A });
+    expect(reduce(failed, { type: "failure_dismissed" })).toEqual({ kind: "idle", last: REPORT_A });
+    const none = reduce(collecting(), { type: "collect_failed", error: "timeout", last: null });
+    expect(reduce(none, { type: "failure_dismissed" })).toEqual({ kind: "idle", last: null });
+    const r = ready();
+    expect(reduce(r, { type: "failure_dismissed" })).toBe(r);
   });
 
   it("ready -> rechecking on recheck_started, keeping report and state", () => {
     const state = reduce(ready(), { type: "recheck_started", key: "firewall" });
-    expect(state).toEqual({ kind: "rechecking", report: REPORT_A, state: DEV_MACHINE, key: "firewall" });
+    expect(state).toEqual({ kind: "rechecking", report: REPORT_A, state: DEV_MACHINE, key: "firewall", explain: { kind: "off" } });
+  });
+
+  it("recheck_started keeps an explanation on screen and drops one still running", () => {
+    const shown = reduce(ready(), { type: "explain_ready", byRule: { "TL-MAC-001": EXPLANATION }, order: null });
+    const rechecking = reduce(shown, { type: "recheck_started", key: "firewall" });
+    expect(rechecking.kind === "rechecking" && rechecking.explain).toEqual({ kind: "ready", byRule: { "TL-MAC-001": EXPLANATION }, order: null });
+    const running = reduce(ready(), { type: "explain_started", target: "TL-MAC-001" });
+    const r2 = reduce(running, { type: "recheck_started", key: "firewall" });
+    expect(r2.kind === "rechecking" && r2.explain).toEqual({ kind: "off" });
   });
 
   it("recheck_started outside ready is ignored", () => {
@@ -147,7 +207,7 @@ describe("scan reducer", () => {
   it("rechecking -> ready on recheck_done with the new state and report", () => {
     const rechecking = reduce(ready(), { type: "recheck_started", key: "firewall" });
     const next = replaceSection(DEV_MACHINE, "firewall", HARDENED.sections.firewall);
-    const state = reduce(rechecking, { type: "recheck_done", state: next, report: REPORT_B });
+    const state = reduce(rechecking, { type: "recheck_done", state: next, report: REPORT_B, byRule: {} });
     expect(state).toEqual({
       kind: "ready",
       report: REPORT_B,
@@ -159,13 +219,20 @@ describe("scan reducer", () => {
 
   it("rechecking -> ready on recheck_failed with the previous report and no recheck record", () => {
     const rechecking = reduce(ready(), { type: "recheck_started", key: "firewall" });
-    const state = reduce(rechecking, { type: "recheck_failed" });
+    const state = reduce(rechecking, { type: "recheck_failed", byRule: {}, order: null });
     expect(state).toEqual({ kind: "ready", report: REPORT_A, state: DEV_MACHINE, explain: { kind: "off" }, lastRecheck: null });
+  });
+
+  it("recheck_failed hands back the explanations and order, since the report did not change", () => {
+    const rechecking = reduce(ready(), { type: "recheck_started", key: "firewall" });
+    const order: RuleId[] = ["TL-MAC-001"];
+    const state = reduce(rechecking, { type: "recheck_failed", byRule: { "TL-MAC-001": EXPLANATION }, order });
+    expect(state.kind === "ready" && state.explain).toEqual({ kind: "ready", byRule: { "TL-MAC-001": EXPLANATION }, order });
   });
 
   it("a rescan drops the recheck record", () => {
     const rechecking = reduce(ready(), { type: "recheck_started", key: "firewall" });
-    let state = reduce(rechecking, { type: "recheck_done", state: DEV_MACHINE, report: REPORT_B });
+    let state = reduce(rechecking, { type: "recheck_done", state: DEV_MACHINE, report: REPORT_B, byRule: {} });
     expect(state.kind === "ready" && state.lastRecheck).not.toBeNull();
     state = reduce(state, { type: "scan_started", startedAt: STARTED });
     state = reduce(state, { type: "collected", state: DEV_MACHINE });
@@ -175,7 +242,7 @@ describe("scan reducer", () => {
 
   it("recheck_done outside rechecking is ignored", () => {
     const state = ready();
-    expect(reduce(state, { type: "recheck_done", state: DEV_MACHINE, report: REPORT_B })).toBe(state);
+    expect(reduce(state, { type: "recheck_done", state: DEV_MACHINE, report: REPORT_B, byRule: {} })).toBe(state);
   });
 
   it("replaceSection swaps one section and leaves the rest", () => {
@@ -233,11 +300,44 @@ describe("scan reducer", () => {
     expect(reduce(c, { type: "explain_failed", reason: "unknown", target: "prioritise", byRule: {}, order: null })).toBe(c);
   });
 
-  it("explain state is reset by a recheck", () => {
-    let state = reduce(ready(), { type: "explain_ready", byRule: { "TL-MAC-001": EXPLANATION }, order: null });
+  it("a recheck keeps the explanations the hook says survive and always drops the order", () => {
+    let state = reduce(ready(), { type: "explain_ready", byRule: { "TL-MAC-001": EXPLANATION }, order: ["TL-MAC-001"] });
     state = reduce(state, { type: "recheck_started", key: "firewall" });
-    state = reduce(state, { type: "recheck_done", state: DEV_MACHINE, report: REPORT_B });
+    state = reduce(state, { type: "recheck_done", state: DEV_MACHINE, report: REPORT_B, byRule: { "TL-MAC-001": EXPLANATION } });
+    expect(state.kind === "ready" && state.explain).toEqual({ kind: "ready", byRule: { "TL-MAC-001": EXPLANATION }, order: null });
+    state = reduce(state, { type: "recheck_started", key: "diskEncryption" });
+    state = reduce(state, { type: "recheck_done", state: DEV_MACHINE, report: REPORT_B, byRule: {} });
     expect(state.kind === "ready" && state.explain).toEqual({ kind: "off" });
+  });
+
+  it("explainFrom is off only when nothing is cached", () => {
+    expect(explainFrom({}, null)).toEqual({ kind: "off" });
+    expect(explainFrom({ "TL-MAC-001": EXPLANATION }, null)).toEqual({ kind: "ready", byRule: { "TL-MAC-001": EXPLANATION }, order: null });
+    expect(explainFrom({}, ["TL-MAC-001"])).toEqual({ kind: "ready", byRule: {}, order: ["TL-MAC-001"] });
+  });
+
+  it("survivingExplanations drops rules that depend on the rechecked section or left the report", () => {
+    const finding = (ruleId: RuleId, requires: readonly (typeof SECTION_KEYS)[number][]) => ({
+      ruleId,
+      title: "t",
+      headline: "h",
+      severity: "high" as const,
+      category: "network" as const,
+      cis: null,
+      requires,
+      status: "fail" as const,
+      evidence: [],
+      unknownReason: null,
+      points: 8,
+      explanation: "x",
+      fix: { summary: "x", settingsPath: null, settingsPane: null, commands: [], steps: [], verify: null, effort: "two_minutes" as const, sideEffects: "none" as const },
+    });
+    const report: ScanReport = { ...REPORT_A, findings: [finding("TL-MAC-001", ["diskEncryption"]), finding("TL-MAC-002", ["firewall"])] };
+    const other: Explanation = { ...EXPLANATION, ruleId: "TL-MAC-002" };
+    const gone: Explanation = { ...EXPLANATION, ruleId: "TL-MAC-004" };
+    const byRule = { "TL-MAC-001": EXPLANATION, "TL-MAC-002": other, "TL-MAC-004": gone };
+    expect(survivingExplanations(byRule, report, "firewall")).toEqual({ "TL-MAC-001": EXPLANATION });
+    expect(survivingExplanations(byRule, report, "ssh")).toEqual({ "TL-MAC-001": EXPLANATION, "TL-MAC-002": other });
   });
 
   it("lastReport and heldState read every kind", () => {

@@ -7,6 +7,7 @@ export const CIS_MIN_PASSWORD_LENGTH = 15;
 export const TL_MAC_017: Rule = {
   id: "TL-MAC-017",
   title: "Short passwords are not allowed",
+  failTitle: "Short passwords are allowed",
   severity: "info",
   category: "access_control",
   cis: "5.2.2",
@@ -17,16 +18,16 @@ export const TL_MAC_017: Rule = {
   explanation:
     "This checks the password rule set on the Mac itself, not your actual password. The security benchmark recommends requiring at least 15 characters, and your Mac does not enforce that, so a short password is allowed. A long passphrase is still the best thing you can choose, whatever the policy says.",
   fix: {
-    summary: "Use a login password of 15 or more characters; optionally set the policy with pwpolicy.",
+    summary: "Use a login password of 15 or more characters.",
     settingsPath: null,
     settingsPane: null,
     commands: [],
     steps: [
       "Choose a login password or passphrase of 15 or more characters. This is good practice even though it does not change the policy.",
-      "Advanced, optional: write the CIS password policy as a plist file, then run pwpolicy -setaccountpolicies with that file as an administrator.",
+      "Advanced, optional: an administrator can enforce the 15-character minimum from Terminal with the pwpolicy tool and a CIS policy file.",
     ],
     verify:
-      "Run pwpolicy getaccountpolicies in Terminal. The policyAttributePassword content should contain .{15,}. This check reads that policy, not your password.",
+      "Run the check-up again; the minimum password length shows 15 or more. This check reads the policy, not your password.",
     effort: "ten_minutes",
     sideEffects: "none",
   },

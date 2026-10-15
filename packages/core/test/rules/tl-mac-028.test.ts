@@ -1,9 +1,10 @@
+import { describe, expect, it } from "vitest";
 import { DEV_MACHINE } from "../../src/fixtures/dev-machine";
 import { FRESH_INSTALL } from "../../src/fixtures/fresh-install";
 import { HARDENED } from "../../src/fixtures/hardened";
 import { TL_MAC_028 } from "../../src/rules/macos/tl-mac-028";
 import type { BrowserReport } from "../../src/domain/system-state";
-import { describeRule, patchSection } from "../helpers";
+import { describeRule, patchSection, runRule } from "../helpers";
 
 const broad: BrowserReport = {
   browser: "brave",
@@ -60,3 +61,26 @@ describeRule(TL_MAC_028, [
   },
   { name: "not applicable when no browser is installed", state: FRESH_INSTALL, status: "not_applicable", keys: [] },
 ]);
+
+describe("TL-MAC-028 fix text", () => {
+  it("summarises the extension fix alone and leaves Full Disk Access to the permission card", () => {
+    expect(TL_MAC_028.fix.summary).toBe("Limit each extension to the sites it needs, or set it to run only when you click it.");
+    expect(TL_MAC_028.fix.settingsPath).toBeNull();
+    expect(TL_MAC_028.fix.settingsPane).toBeNull();
+  });
+
+  it("names Firefox alongside the Chrome family in the Full Disk Access step", () => {
+    const step = TL_MAC_028.fix.steps.find((s) => s.includes("Full Disk Access"));
+    expect(step).toBeDefined();
+    expect(step).toContain("Firefox");
+    expect(step).toContain("Chrome, Brave, Edge, Arc");
+    expect(step).toMatch(/listed as not checked/);
+  });
+
+  it("labels the count as what was found, so 0 next to an unchecked browser does not read as clean", () => {
+    const result = runRule(TL_MAC_028, DEV_MACHINE);
+    const count = result.evidence.find((entry) => entry.key === "broadAccessCount");
+    expect(count?.label).toBe("Extensions found with access to every site");
+    expect(result.evidence.some((entry) => entry.key === "uncheckedBrowser")).toBe(true);
+  });
+});

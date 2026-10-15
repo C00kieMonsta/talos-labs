@@ -1,3 +1,4 @@
+import { describe, expect, it } from "vitest";
 import { FRESH_INSTALL } from "../../src/fixtures/fresh-install";
 import { HARDENED } from "../../src/fixtures/hardened";
 import { TL_MAC_030 } from "../../src/rules/macos/tl-mac-030";
@@ -42,3 +43,18 @@ describeRule(TL_MAC_030, [
     keys: [],
   },
 ]);
+
+describe("TL-MAC-030 fix commands", () => {
+  it("carries the folder command first, then the per-key command, and no step spells either out", () => {
+    expect(TL_MAC_030.fix.commands).toEqual([
+      { program: "chmod", args: ["700", "~/.ssh"], needsAdmin: false, interactive: false, appliesTo: null },
+      { program: "chmod", args: ["600", "{path}"], needsAdmin: false, interactive: false, appliesTo: "keyPath" },
+    ]);
+    expect(TL_MAC_030.fix.steps).toHaveLength(2);
+    for (const step of TL_MAC_030.fix.steps) {
+      expect(step).not.toMatch(/\bchmod\b/);
+    }
+    expect(TL_MAC_030.fix.steps[0]).toMatch(/first command/);
+    expect(TL_MAC_030.fix.steps[1]).toMatch(/second command/);
+  });
+});

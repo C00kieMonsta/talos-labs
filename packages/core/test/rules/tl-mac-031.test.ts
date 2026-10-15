@@ -39,6 +39,7 @@ describe("TL-MAC-031 fix text is split by file kind", () => {
 
   it("does not claim that tool config files are read on every Terminal start", () => {
     expect(TL_MAC_031.explanation).not.toContain("reads on every start");
-    expect(TL_MAC_031.title).toBe("No passwords or keys sitting in plain-text config files");
+    expect(TL_MAC_031.title).toBe("No password or key is stored in a plain-text config file");
+    expect(TL_MAC_031.failTitle).toBe("A password or key is stored in a plain-text config file");
   });
 });

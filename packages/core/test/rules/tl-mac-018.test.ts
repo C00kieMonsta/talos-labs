@@ -1,3 +1,4 @@
+import { describe, expect, it } from "vitest";
 import { DEV_MACHINE } from "../../src/fixtures/dev-machine";
 import { HARDENED } from "../../src/fixtures/hardened";
 import { TL_MAC_018 } from "../../src/rules/macos/tl-mac-018";
@@ -94,3 +95,15 @@ describeRule(TL_MAC_018, [
     keys: ["exposedCount"],
   },
 ]);
+
+describe("TL-MAC-018 fix", () => {
+  it("carries the listener lookup as a Developer-mode command and keeps it out of the steps", () => {
+    expect(TL_MAC_018.fix.commands).toEqual([
+      { program: "lsof", args: ["-nP", "-iTCP", "-sTCP:LISTEN"], needsAdmin: true, interactive: false, appliesTo: null },
+    ]);
+    expect(TL_MAC_018.fix.settingsPath).not.toBeNull();
+    for (const step of TL_MAC_018.fix.steps) {
+      expect(step).not.toMatch(/\b(lsof|command|commands|terminal)\b/i);
+    }
+  });
+});

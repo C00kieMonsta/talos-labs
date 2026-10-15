@@ -1,4 +1,5 @@
 import type { Evidence, EvidenceValue } from "@talos/core";
+import { EVIDENCE_VALUE_LABELS } from "../app/labels";
 
 const UNIT_LABELS = {
   count: "",
@@ -9,14 +10,20 @@ const UNIT_LABELS = {
   chars: " characters",
 } as const;
 
-function formatValue(value: EvidenceValue): string {
+/** Plain words for an enum token the labels map does not know: "some_value" becomes "Some value". */
+function fallbackLabel(token: string): string {
+  const words = token.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+export function formatValue(value: EvidenceValue): string {
   switch (value.kind) {
     case "bool":
       return value.value ? "Yes" : "No";
     case "number":
       return value.unit === null ? String(value.value) : `${value.value}${UNIT_LABELS[value.unit]}`;
     case "enum":
-      return value.value.replace(/_/g, " ");
+      return EVIDENCE_VALUE_LABELS[value.value] ?? fallbackLabel(value.value);
     case "version":
     case "path":
     case "text":

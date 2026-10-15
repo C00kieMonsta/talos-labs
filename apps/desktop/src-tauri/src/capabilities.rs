@@ -11,11 +11,12 @@ pub struct Capabilities {
     pub full_disk_access: Option<bool>,
 }
 
-pub const PROBE_DIRS: [&str; 5] = [
+pub const PROBE_DIRS: [&str; 6] = [
     "Library/Application Support/Google/Chrome",
     "Library/Application Support/BraveSoftware/Brave-Browser",
     "Library/Application Support/Microsoft Edge",
     "Library/Application Support/Arc/User Data",
+    "Library/Application Support/Firefox",
     "Library/Safari",
 ];
 

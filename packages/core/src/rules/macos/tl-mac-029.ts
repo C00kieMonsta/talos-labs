@@ -18,6 +18,7 @@ function keyPathEvidence(key: SshKey): Evidence {
 export const TL_MAC_029: Rule = {
   id: "TL-MAC-029",
   title: "SSH keys are protected by a passphrase",
+  failTitle: "An SSH key has no passphrase",
   severity: "high",
   category: "developer",
   cis: null,
@@ -26,9 +27,9 @@ export const TL_MAC_029: Rule = {
   evidenceKeys: ["keyCount", "unprotectedCount", "unrecognisedCount", "keyPath", "pemKeyPath", "pkcs8KeyPath"],
   evidenceVocabulary: {},
   explanation:
-    "An SSH key is a file that logs you in to servers and services such as GitHub without a password. One of yours is stored with no passphrase, so anyone who copies the file, through malware, a stolen backup or a shared Mac, can use it as you straight away. Adding a passphrase means the file alone is useless to them.",
+    "An SSH key is a file that logs you in to servers and services such as GitHub without a password. At least one of yours is stored with no passphrase, so anyone who copies the file, through malware, a stolen backup or a shared Mac, can use it as you straight away. Adding a passphrase means the file alone is useless to them.",
   fix: {
-    summary: "Add a passphrase to each unprotected SSH key with ssh-keygen.",
+    summary: "Add a passphrase to each unprotected SSH key.",
     settingsPath: null,
     settingsPane: null,
     commands: [

@@ -62,7 +62,7 @@
     },
     "diskEncryption": {
       "data": {
-        "method": "filevault",
+        "method": "none",
         "systemVolumeEncrypted": false
       },
       "status": "ok"

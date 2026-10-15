@@ -4,7 +4,8 @@ import { ev, MACOS_ONLY, pass, review, section } from "../helpers";
 
 export const TL_MAC_023: Rule = {
   id: "TL-MAC-023",
-  title: "Programs that start in the background",
+  title: "No program is set to start in the background",
+  failTitle: "Some programs start in the background on their own",
   severity: "info",
   category: "persistence",
   cis: null,
@@ -37,7 +38,7 @@ export const TL_MAC_023: Rule = {
     steps: [
       "Open System Settings, then General, then Login Items & Extensions, and look under Allow in the Background.",
       "Switch off anything you do not recognise. If the app it belongs to is no longer installed, switch it off too.",
-      "Advanced: for an item that does not appear there, run the matching command shown to stop it, then delete the plist file listed in the evidence.",
+      "Advanced: an item that is not listed there can be removed by deleting the plist file shown in the evidence and restarting the Mac.",
     ],
     verify: "Run the check-up again; the item no longer appears in the evidence.",
     effort: "ten_minutes",

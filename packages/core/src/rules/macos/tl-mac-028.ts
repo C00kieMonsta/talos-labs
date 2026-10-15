@@ -7,7 +7,8 @@ export const BROWSER_VOCABULARY: readonly string[] = ["chrome", "brave", "edge",
 
 export const TL_MAC_028: Rule = {
   id: "TL-MAC-028",
-  title: "Browser extensions do not read every website",
+  title: "Browser extensions are limited to the sites they need",
+  failTitle: "A browser extension can read every website",
   severity: "low",
   category: "browser",
   cis: null,
@@ -18,14 +19,14 @@ export const TL_MAC_028: Rule = {
   explanation:
     "A browser extension on this Mac is allowed to read and change every website you visit, including your bank and your email. Extensions are sold and updated by people you have never met, and a popular one can turn bad overnight. Limiting each extension to the sites it needs, or to run only when you click it, keeps the damage small if that happens.",
   fix: {
-    summary: "Limit each extension's site access, and grant Full Disk Access so Chrome-family browsers can be checked.",
-    settingsPath: ["System Settings", "Privacy & Security", "Full Disk Access"],
-    settingsPane: "full_disk_access",
+    summary: "Limit each extension to the sites it needs, or set it to run only when you click it.",
+    settingsPath: null,
+    settingsPane: null,
     commands: [],
     steps: [
       "In the browser, open the extensions page (chrome://extensions in Chrome, Brave, Edge and Arc; about:addons in Firefox).",
       "For each extension named in the evidence, open Details and set Site access to On click, or to the specific sites it needs. Remove extensions you no longer use.",
-      "To let this app check Chrome, Brave, Edge or Arc, open System Settings, then Privacy & Security, then Full Disk Access, switch on Talos Labs, and run the check-up again.",
+      "If a browser is listed as not checked, open System Settings, then Privacy & Security, then Full Disk Access, switch on Talos Labs, and run the check-up again. Chrome, Brave, Edge, Arc and Firefox all keep their extension list behind that permission.",
     ],
     verify: "Run the check-up again; no extension is listed with access to every site.",
     effort: "ten_minutes",
@@ -55,7 +56,7 @@ export const TL_MAC_028: Rule = {
     const broadCount = hits.length / 2;
     const evidence: Evidence[] = [
       ev.number("browserCount", "Browsers installed", data.installed.length, "count"),
-      ev.number("broadAccessCount", "Extensions with access to every site", broadCount, "count"),
+      ev.number("broadAccessCount", "Extensions found with access to every site", broadCount, "count"),
       ...hits,
       ...unchecked,
     ];

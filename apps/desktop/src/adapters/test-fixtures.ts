@@ -30,6 +30,7 @@ function finding(
   return {
     ruleId,
     title: `Rule ${ruleId}`,
+    headline: status === "unknown" ? `Couldn't check rule ${ruleId}` : `Rule ${ruleId} fails`,
     severity,
     category,
     cis: null,
@@ -74,20 +75,20 @@ const SECTIONS = Object.fromEntries(
   SECTION_KEYS.map((key) => [key, { status: "ok" } satisfies SectionSummary]),
 ) as Record<SectionKey, SectionSummary>;
 
-/** A small but complete report: two failures, one review, two passes. */
+/** A small but complete report: two failures (one critical, so the score is capped), one review, two passes. */
 export const TEST_REPORT: ScanReport = {
   schemaVersion: 1,
   reportId: "01TESTREPORT",
   scannedAt: "2026-10-15T10:00:00.000Z",
   collectedAt: "2026-10-15T09:59:00.000Z",
   coreVersion: "0.1.0",
-  catalogVersion: "0.1.0",
+  catalogVersion: "0.2.0",
   cisEdition: "CIS Apple macOS 26 Tahoe Benchmark v1.0.0",
   platform: { os: "macos", osVersion: "27.0.1", osBuild: null, arch: "arm64", collectorVersion: "0.1.0" },
   sections: SECTIONS,
   score: {
-    value: 72,
-    grade: "fair",
+    value: 59,
+    grade: "poor",
     deducted: 28,
     cappedByCritical: true,
     complete: true,
@@ -102,7 +103,7 @@ export const TEST_CONTEXT: ExplainerContext = {
   os: "macos",
   osVersion: "27.0.1",
   profile: { role: "individual", technical: "low", handlesClientData: false, laptopLeavesHome: true },
-  score: 72,
+  score: 59,
   counts: TEST_REPORT.score.counts,
   findings: FINDINGS.map((f) => ({
     ruleId: f.ruleId,

@@ -4,6 +4,7 @@ import { ev, fail, MACOS_ONLY, pass, section } from "../helpers";
 export const TL_MAC_013: Rule = {
   id: "TL-MAC-013",
   title: "The screen locks itself within 20 minutes",
+  failTitle: "The screen does not lock itself within 20 minutes",
   severity: "medium",
   category: "access_control",
   cis: "2.11.1",

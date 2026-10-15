@@ -4,6 +4,7 @@ import { ev, fail, MACOS_ONLY, notApplicable, pass, section } from "../helpers";
 export const TL_MAC_005: Rule = {
   id: "TL-MAC-005",
   title: "System protection (SIP) is on",
+  failTitle: "System protection (SIP) is off",
   severity: "high",
   category: "platform",
   cis: "5.1.2",
@@ -24,7 +25,7 @@ export const TL_MAC_005: Rule = {
       "In the menu bar choose Utilities, then Terminal.",
       "Type csrutil enable and press Return, then restart the Mac from the Apple menu.",
     ],
-    verify: "After the restart, open Terminal and run csrutil status. It should print \"enabled\".",
+    verify: "After the restart, run the check-up again; this check passes.",
     effort: "half_hour",
     sideEffects: "restart",
   },

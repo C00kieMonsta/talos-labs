@@ -1,3 +1,4 @@
+import { describe, expect, it } from "vitest";
 import { DEV_MACHINE } from "../../src/fixtures/dev-machine";
 import { FRESH_INSTALL } from "../../src/fixtures/fresh-install";
 import { HARDENED } from "../../src/fixtures/hardened";
@@ -29,3 +30,10 @@ describeRule(TL_MAC_017, [
     kinds: ["bool"],
   },
 ]);
+
+describe("TL-MAC-017 fix text", () => {
+  it("keeps the tool name out of the summary every reader sees", () => {
+    expect(TL_MAC_017.fix.summary).toBe("Use a login password of 15 or more characters.");
+    expect(TL_MAC_017.fix.steps[1]).toMatch(/^Advanced, optional:/);
+  });
+});

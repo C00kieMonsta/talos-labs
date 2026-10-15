@@ -21,9 +21,9 @@ Talos Labs reads security settings and shows them with a fix. It never changes a
 | Spctl | `/usr/sbin/spctl` | Gatekeeper |
 | Csrutil | `/usr/bin/csrutil` | SIP |
 | SwVers | `/usr/bin/sw_vers` | OS version |
-| Defaults | `/usr/bin/defaults` | preference domains |
+| Defaults | `/usr/bin/defaults` | preference domains, including Time Machine `Destinations` (only `SnapshotDates` is kept) |
 | Sysadminctl | `/usr/sbin/sysadminctl` | screen lock |
-| Dscl | `/usr/bin/dscl` | admin group membership |
+| Dscl | `/usr/bin/dscl` | admin group membership, user id list (`-list /Users UniqueID`) |
 | Whoami | `/usr/bin/whoami` | current user, compared and discarded |
 | Netstat | `/usr/sbin/netstat` | listening ports |
 | Sharing | `/usr/sbin/sharing` | share points |
@@ -46,10 +46,11 @@ Talos Labs reads security settings and shows them with a fix. It never changes a
 
 ### Files the collectors open
 
-- launchd plists in `~/Library/LaunchAgents`, `/Library/LaunchAgents` and `/Library/LaunchDaemons`: label, program path (first of `Program` or `ProgramArguments`), `RunAtLoad`. Arguments are never read.
+- launchd plists in `~/Library/LaunchAgents`, `/Library/LaunchAgents` and `/Library/LaunchDaemons`: label, program path (first of `Program` or `ProgramArguments`), `RunAtLoad`; a plist with neither is skipped. Arguments are never read.
 - `~/.ssh`: directory and file modes, and the first 4 KiB of each key to classify the header. Key bytes never leave the function. `ssh-keygen` is never invoked.
 - A fixed list of dotfiles (`~/.zshrc ~/.bashrc ~/.zprofile ~/.profile ~/.env ~/.npmrc ~/.netrc ~/.aws/credentials ~/.docker/config.json`), each capped at 1 MiB, matched line by line against a `RegexSet`. A hit stores the path, the pattern name and the line number, never the matched text. `$VAR` references do not match.
-- Browser extension manifests: `name`, `version`, `permissions`, `host_permissions`, `content_scripts[].matches` and `default_locale`, plus `_locales/<locale>/messages.json` to resolve a `__MSG_key__` name. Chrome-family `Preferences` and `Secure Preferences`: only `extensions.settings.<id>.state`, to skip disabled extensions. Firefox `profiles.ini` and `extensions.json`. Chrome-family directories are TCC-protected and need Full Disk Access.
+- Browser extension manifests: `name`, `version`, `permissions`, `host_permissions`, `content_scripts[].matches` and `default_locale`, plus `_locales/<locale>/messages.json` to resolve a `__MSG_key__` name. Chrome-family `Preferences` and `Secure Preferences`: only `extensions.settings.<id>.state`, to skip disabled extensions. Firefox `profiles.ini` and `extensions.json`. Chrome-family and Firefox profile directories are TCC-protected and need Full Disk Access.
+- The app bundles of Chrome, Brave, Edge, Arc and Firefox under `/Applications` and `~/Applications`: metadata only, to decide whether a browser is installed.
 - The XProtect bundle `Info.plist`, for its version.
 - `/Library/Application Support/Apple/Remote Desktop/RemoteManagement.launchd`: existence only.
 
@@ -57,7 +58,7 @@ Never collected as values: the current user's name (read from `whoami`, compared
 
 ### Permissions
 
-No root. The app never asks for a password. Two TCC permissions are optional: Full Disk Access (Chrome-family extensions) and Automation for System Events (login items). Denying either marks the related rule `unknown`, which deducts nothing and sets `complete: false`. A denial cannot raise the score.
+No root. The app never asks for a password. Two TCC permissions are optional: Full Disk Access (Chrome-family and Firefox extensions) and Automation for System Events (login items). Denying either marks the related rule `unknown`, which deducts nothing and sets `complete: false`. A denial cannot raise the score.
 
 ## Boundary 2: the engine
 
@@ -86,6 +87,10 @@ No root. The app never asks for a password. Two TCC permissions are optional: Fu
 
 `toExplainerContext(report, catalog, profile)` is the only function that builds a request. The structure of `ExplainerContext` is the defence: there is nowhere for a free-form machine string to go.
 
+### Browser hand-off
+
+The default provider opens the user's own Claude or ChatGPT account in the browser with a plain-text prompt that `buildBrowserPrompt(context, catalog, target?)` builds from the same `ExplainerContext` plus the catalog text for the rules in it (id, title, explanation, fix summary), capped at 6000 characters. Nothing from the machine is in that prompt: no paths, process or extension names, evidence of kind `path` or `text`, report file, keys or settings, only what passed the chokepoint.
+
 ### Injection defences
 
 - Input is structural, as above. A canary test sets every display-only string in a fixture to `IGNORE PREVIOUS INSTRUCTIONS <field>`, including an evidence key, and asserts the serialised context contains no such substring.
@@ -105,13 +110,19 @@ default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://api.ant
 
 `connect-src` carries `'self' ipc: http://ipc.localhost` for Tauri's command channel plus the two explainer origins. Tauri appends its own script nonces. `style-src 'unsafe-inline'` lets Vite inject stylesheets as `<style>` elements during `tauri dev`; the UI itself sets no inline style attributes. No inline script is allowed.
 
-Capabilities (`apps/desktop/src-tauri/capabilities/default.json`): `core:default` only; app-defined commands need no capability entry. No `shell`, `fs`, `http` or `opener` permission is granted to the webview. `open_settings_pane` maps a closed `SettingsPane` enum to an `x-apple.systempreferences` URL in Rust; the frontend never passes a URL. The webview has no path to the filesystem except the commands below.
+Capabilities (`apps/desktop/src-tauri/capabilities/default.json`): `core:default` only; app-defined commands need no capability entry. No `shell`, `fs`, `http` or `opener` permission is granted to the webview. `open_settings_pane` maps a closed `SettingsPane` enum to an `x-apple.systempreferences` URL in Rust; the frontend never passes a URL. `open_assistant` takes an assistant id from a closed set (`claude`, `chatgpt`) and the prompt text; Rust rejects anything else, rejects a prompt over 6000 characters, picks the base URL (`https://claude.ai/new?q=` or `https://chatgpt.com/?q=`) and percent-encodes the prompt itself, so the frontend never passes a URL here either. The webview has no path to the filesystem except the commands below.
 
 ```
-collect_system_state, collect_section, cancel_scan, check_capabilities, open_settings_pane,
+collect_system_state, collect_section, cancel_scan, cancel_section, check_capabilities, open_settings_pane, open_assistant,
 secret_get, secret_set, secret_delete, report_save_last, report_load_last,
 license_read, license_write, license_delete
 ```
+
+## Demo build
+
+For browser-driven QA the web build can be served with fixture-backed adapters (`apps/desktop/src/adapters/demo.ts`): the collector returns a core fixture, the licence accepts only `TL1.DEMO`, secrets and reports stay in memory, and the two open-something commands record their arguments on `window.__talosDemoCalls` instead of opening anything.
+
+The switch is `import.meta.env.VITE_TALOS_DEMO === "1"` in `apps/desktop/src/app/container.ts`, and nothing else. Vite inlines that value when it builds, so it is a property of the bundle, not of the page, the URL, localStorage or any runtime flag. The URL parameters that choose a fixture are only read once that build-time branch has been taken. `apps/desktop/vite.config.ts` throws when `VITE_TALOS_DEMO=1` is set while the Tauri CLI is driving the build (`TAURI_ENV_PLATFORM` present), so neither `tauri dev` nor `tauri build` can produce a demo bundle. In a normal build the condition is a constant `false` and the demo module is dropped; `grep __talosDemoCalls apps/desktop/dist/assets/*.js` finds nothing. `.env` files are git-ignored, so the variable cannot arrive through the repository.
 
 ## Data at rest
 
@@ -120,13 +131,13 @@ license_read, license_write, license_delete
 | Anthropic API key | macOS Keychain, through the `keyring` crate | never in localStorage, component state or logs; read at call time |
 | Licence key | `<app data>/license.key` | re-verified on every launch; contains no email |
 | Last report | `<app data>/last-report.json`, mode 0600 | holds findings with display-only paths and names; never leaves the machine |
-| Settings | localStorage | provider, model ids, profile, onboarded flag; no secrets |
+| Settings | localStorage | provider, assistant, model ids, profile, developer mode, onboarded flag; no secrets |
 
 The full `SystemState` lives in memory for the session and is not persisted. `ScanReport.sections` records only which sections were collectable.
 
 ## Network
 
-Outbound only, and only when the user picks a provider: `https://api.anthropic.com` for Claude, `http://127.0.0.1:11434` for Ollama. No telemetry, no crash reporting, no update check, no licence server. The default provider is `none`, in which case the app opens no network connection at all.
+Outbound only, and only when the user picks an in-app provider: `https://api.anthropic.com` for Claude, `http://127.0.0.1:11434` for Ollama. No telemetry, no crash reporting, no update check, no licence server. The default provider is `browser`: the app itself opens no connection; when the user clicks an Explain button it hands a `claude.ai` or `chatgpt.com` URL to the default browser, which loads it under the user's own account. With `none` the app opens nothing at all.
 
 ## What the app never does
 

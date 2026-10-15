@@ -13,11 +13,23 @@ import type {
 } from "@talos/core";
 import { clampHistory, clampQuestion } from "@talos/core";
 import type { Adapters } from "../adapters";
-import { initialScanState, lastReport, reduce, replaceSection } from "./machine";
+import { explainFrom, initialScanState, lastReport, reduce, replaceSection, survivingExplanations } from "./machine";
 import type { ScanError, ScanState } from "./machine";
 
 /** The collector has its own 60 s budget; this guards against a hung invoke. */
 export const SCAN_BUDGET_MS = 60_000;
+
+/** One turn of the Ask conversation, with what the answer pointed at. */
+export interface AskMessage {
+  readonly turn: Turn;
+  readonly related?: readonly RuleId[];
+  readonly outsideScope?: boolean;
+}
+
+export const RECHECK_FAILED_NOTICE = "That section could not be read again. The earlier result still stands.";
+export const RECHECK_TIMEOUT_NOTICE = "That section took too long to read again. The earlier result still stands.";
+/** Shown when a cancelled rescan returns to the report it interrupted. */
+export const SCAN_CANCELLED_NOTICE = "You cancelled the check-up. Your earlier results are still here.";
 
 export interface ScanDeps {
   readonly adapters: Pick<Adapters, "systemState" | "reports">;
@@ -31,6 +43,8 @@ export interface ScanController {
   /** A short notice for things that failed without changing the report. */
   readonly notice: string | null;
   dismissNotice(): void;
+  /** Clears a failed scan back to idle, keeping the last report. */
+  dismissFailure(): void;
   loadLast(): Promise<void>;
   start(): Promise<void>;
   cancel(): void;
@@ -38,6 +52,12 @@ export interface ScanController {
   explain(ruleId: RuleId): Promise<void>;
   prioritise(): Promise<void>;
   ask(question: string, history: readonly Turn[]): Promise<ExplainerResult<Answer>>;
+  /** The Ask conversation for the current report. Survives navigation; cleared when the report is replaced. */
+  readonly conversation: readonly AskMessage[];
+  setConversation(messages: readonly AskMessage[]): void;
+  /** A question typed but not yet sent. */
+  readonly draft: string;
+  setDraft(draft: string): void;
 }
 
 const SCAN_ERRORS: readonly ScanError[] = ["cancelled", "timeout", "collector_crashed", "schema_mismatch"];
@@ -68,15 +88,40 @@ interface ExplainCache {
   order: RuleId[] | null;
 }
 
+class DeadlineError extends Error {}
+
+/** Rejects with DeadlineError when `promise` has not settled within `ms`. */
+function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new DeadlineError("deadline")), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 export function useScan(deps: ScanDeps): ScanController {
   const [scan, dispatch] = useReducer(reduce, initialScanState);
   const scanRef = useRef<ScanState>(scan);
   scanRef.current = scan;
   const abortRef = useRef<AbortController | null>(null);
+  const recheckAbortRef = useRef<AbortController | null>(null);
   const cacheRef = useRef<ExplainCache>({ byRule: {}, order: null });
+  // Bumped by every scan start; a recheck that began under an older value drops its result.
+  const recheckGen = useRef(0);
   const [notice, setNotice] = useState<string | null>(null);
+  const [conversation, setConversation] = useState<readonly AskMessage[]>([]);
+  const [draft, setDraft] = useState("");
 
   const dismissNotice = useCallback(() => setNotice(null), []);
+  const dismissFailure = useCallback(() => dispatch({ type: "failure_dismissed" }), []);
 
   const loadLast = useCallback(async () => {
     try {
@@ -89,7 +134,7 @@ export function useScan(deps: ScanDeps): ScanController {
 
   const start = useCallback(async () => {
     const current = scanRef.current;
-    if (current.kind === "collecting" || current.kind === "evaluating" || current.kind === "rechecking") return;
+    if (current.kind === "collecting" || current.kind === "evaluating") return;
     const last = lastReport(current);
     const controller = new AbortController();
     abortRef.current = controller;
@@ -98,7 +143,8 @@ export function useScan(deps: ScanDeps): ScanController {
       timedOut = true;
       controller.abort();
     }, SCAN_BUDGET_MS);
-    cacheRef.current = { byRule: {}, order: null };
+    recheckGen.current += 1;
+    recheckAbortRef.current?.abort();
     dispatch({ type: "scan_started", startedAt: new Date().toISOString() });
     try {
       const state = await deps.adapters.systemState.collect({
@@ -106,6 +152,10 @@ export function useScan(deps: ScanDeps): ScanController {
         onProgress: (progress) => dispatch({ type: "section_progress", key: progress.key, status: progress.status }),
       });
       clearTimeout(timer);
+      // Only a new state replaces the report, so a cancelled rescan keeps the explanations and the conversation.
+      cacheRef.current = { byRule: {}, order: null };
+      setConversation([]);
+      setDraft("");
       dispatch({ type: "collected", state });
       const report = deps.engine(state);
       dispatch({ type: "evaluated", report });
@@ -116,7 +166,10 @@ export function useScan(deps: ScanDeps): ScanController {
       }
     } catch (error) {
       clearTimeout(timer);
-      dispatch({ type: "collect_failed", error: classifyScanError(error, timedOut, controller.signal.aborted), last });
+      const kind = classifyScanError(error, timedOut, controller.signal.aborted);
+      dispatch({ type: "collect_failed", error: kind, last });
+      // The machine goes back to the interrupted report; the banner for a failed scan does not show, so say it here.
+      if (kind === "cancelled" && (current.kind === "ready" || current.kind === "rechecking")) setNotice(SCAN_CANCELLED_NOTICE);
     } finally {
       abortRef.current = null;
     }
@@ -131,23 +184,37 @@ export function useScan(deps: ScanDeps): ScanController {
       for (const key of keys) {
         const current = scanRef.current;
         if (current.kind !== "ready") return;
-        cacheRef.current = { ...cacheRef.current, order: null };
+        const gen = recheckGen.current;
+        const controller = new AbortController();
+        recheckAbortRef.current = controller;
         dispatch({ type: "recheck_started", key });
         try {
-          const section = await deps.adapters.systemState.collectSection(key);
+          // The deadline hands control back if the collector hangs; the signal tells it to stop.
+          const section = await withDeadline(
+            deps.adapters.systemState.collectSection(key, { signal: controller.signal }),
+            SCAN_BUDGET_MS,
+          );
+          if (recheckGen.current !== gen) return;
           const state = replaceSection(current.state, key, section);
           const report = deps.engine(state);
-          dispatch({ type: "recheck_done", state, report });
-          scanRef.current = { kind: "ready", report, state, explain: { kind: "off" }, lastRecheck: { key, at: report.scannedAt } };
+          // The order was made for the old report; explanations that do not depend on this section still hold.
+          const byRule = survivingExplanations(cacheRef.current.byRule, report, key);
+          cacheRef.current = { byRule, order: null };
+          dispatch({ type: "recheck_done", state, report, byRule });
+          scanRef.current = { kind: "ready", report, state, explain: explainFrom(byRule, null), lastRecheck: { key, at: report.scannedAt } };
           try {
             await deps.adapters.reports.saveLast(report);
           } catch {
             setNotice("The report could not be saved for next time.");
           }
-        } catch {
-          dispatch({ type: "recheck_failed" });
-          setNotice("That section could not be read again. The earlier result still stands.");
+        } catch (error) {
+          if (error instanceof DeadlineError) controller.abort();
+          if (recheckGen.current !== gen) return;
+          dispatch({ type: "recheck_failed", ...cacheRef.current });
+          setNotice(error instanceof DeadlineError ? RECHECK_TIMEOUT_NOTICE : RECHECK_FAILED_NOTICE);
           return;
+        } finally {
+          if (recheckAbortRef.current === controller) recheckAbortRef.current = null;
         }
       }
     },
@@ -221,5 +288,21 @@ export function useScan(deps: ScanDeps): ScanController {
     [deps],
   );
 
-  return { scan, notice, dismissNotice, loadLast, start, cancel, recheck, explain, prioritise, ask };
+  return {
+    scan,
+    notice,
+    dismissNotice,
+    dismissFailure,
+    loadLast,
+    start,
+    cancel,
+    recheck,
+    explain,
+    prioritise,
+    ask,
+    conversation,
+    setConversation,
+    draft,
+    setDraft,
+  };
 }

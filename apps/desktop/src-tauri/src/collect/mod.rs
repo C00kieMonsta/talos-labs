@@ -271,9 +271,14 @@ fn guarded(key: SectionKey, collect: impl FnOnce() -> AnySection) -> AnySection 
 }
 
 /// Collects one section on the calling thread, for "I've done this, check again".
-pub fn collect_section(key: SectionKey, cancel: Arc<AtomicBool>) -> AnySection {
+/// A set cancel flag is an error, not a section, so a cancelled recheck never replaces a good result.
+pub fn collect_section(key: SectionKey, cancel: Arc<AtomicBool>) -> Result<AnySection, CollectError> {
     let shared = Shared::new(cancel);
-    guarded(key, || collect_one(key, &shared))
+    let section = guarded(key, || collect_one(key, &shared));
+    if shared.cancelled() {
+        return Err(CollectError::Cancelled);
+    }
+    Ok(section)
 }
 
 /// Collects every section in parallel. Sections still pending at the deadline become `timeout`.
@@ -378,6 +383,12 @@ mod tests {
         assert_eq!(json["detail"], "panic");
         let ok = guarded(SectionKey::Ssh, || AnySection::Ssh(Section::ok(Ssh { dir_exists: false, dir_mode: None, keys: vec![] })));
         assert!(ok.is_ok());
+    }
+
+    #[test]
+    fn a_cancelled_recheck_is_an_error_not_a_section() {
+        let cancel = Arc::new(AtomicBool::new(true));
+        assert!(matches!(collect_section(SectionKey::Accounts, cancel), Err(CollectError::Cancelled)));
     }
 
     #[test]

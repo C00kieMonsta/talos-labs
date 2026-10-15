@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import type { CollectOptions, ScanReport, SystemState } from "@talos/core";
-import { DEV_MACHINE, HARDENED, SECTION_KEYS } from "@talos/core";
-import { classifyScanError, useScan } from "./useScan";
+import type { CollectOptions, CollectSectionOptions, Explanation, ScanReport, SystemState } from "@talos/core";
+import { DEV_MACHINE, HARDENED, MACOS_CATALOG, SECTION_KEYS, evaluate } from "@talos/core";
+import { RECHECK_TIMEOUT_NOTICE, SCAN_BUDGET_MS, SCAN_CANCELLED_NOTICE, classifyScanError, useScan } from "./useScan";
 import type { ScanDeps } from "./useScan";
 import { fakeAdapters, fakeSystemState, noExplainer } from "../app/testing";
 
@@ -118,7 +118,7 @@ describe("useScan", () => {
     await act(async () => {
       await result.current.recheck(["diskEncryption"]);
     });
-    expect(collectSection).toHaveBeenCalledWith("diskEncryption");
+    expect(collectSection).toHaveBeenCalledWith("diskEncryption", { signal: expect.any(AbortSignal) });
     expect(result.current.scan.kind).toBe("ready");
     if (result.current.scan.kind !== "ready") return;
     expect(result.current.scan.report.reportId).toBe("encrypted");
@@ -185,6 +185,226 @@ describe("useScan", () => {
     expect(result.current.scan.kind).toBe("ready");
     expect(result.current.scan.kind === "ready" && result.current.scan.report.reportId).toBe("unencrypted");
     expect(result.current.notice).not.toBeNull();
+  });
+
+  it("dismissFailure returns a failed scan to idle and keeps the last report", async () => {
+    const previous = fakeEngine(HARDENED);
+    const collect = (options?: CollectOptions) =>
+      new Promise<SystemState>((_, reject) => {
+        options?.signal?.addEventListener("abort", () => reject("cancelled"));
+      });
+    const d = deps({
+      systemState: fakeSystemState(DEV_MACHINE, { collect }),
+      reports: { saveLast: vi.fn(async () => undefined), loadLast: vi.fn(async () => previous) },
+    });
+    const { result } = renderHook(() => useScan(d));
+    await act(async () => {
+      await result.current.loadLast();
+    });
+    act(() => {
+      void result.current.start();
+    });
+    await waitFor(() => expect(result.current.scan.kind).toBe("collecting"));
+    act(() => {
+      result.current.cancel();
+    });
+    await waitFor(() => expect(result.current.scan.kind).toBe("failed"));
+    act(() => {
+      result.current.dismissFailure();
+    });
+    expect(result.current.scan).toEqual({ kind: "idle", last: previous });
+  });
+
+  it("a recheck that never answers gives up after the scan budget with a notice and aborts its signal", async () => {
+    vi.useFakeTimers();
+    try {
+      let signal: AbortSignal | undefined;
+      const collectSection = vi.fn((_key: string, options?: CollectSectionOptions) => {
+        signal = options?.signal as AbortSignal | undefined;
+        return new Promise<never>(() => undefined);
+      });
+      const d = deps({ systemState: fakeSystemState(DEV_MACHINE, { collectSection: collectSection as never }) });
+      const { result } = renderHook(() => useScan(d));
+      await act(async () => {
+        await result.current.start();
+      });
+      act(() => {
+        void result.current.recheck(["ssh"]);
+      });
+      expect(result.current.scan.kind).toBe("rechecking");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(SCAN_BUDGET_MS);
+      });
+      expect(result.current.scan.kind).toBe("ready");
+      expect(result.current.scan.kind === "ready" && result.current.scan.report.reportId).toBe("unencrypted");
+      expect(result.current.notice).toBe(RECHECK_TIMEOUT_NOTICE);
+      expect(signal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a rescan during a recheck aborts the recheck's signal", async () => {
+    let signal: AbortSignal | undefined;
+    const collectSection = vi.fn((_key: string, options?: CollectSectionOptions) => {
+      signal = options?.signal as AbortSignal | undefined;
+      return new Promise<never>(() => undefined);
+    });
+    const d = deps({ systemState: fakeSystemState(DEV_MACHINE, { collectSection: collectSection as never }) });
+    const { result } = renderHook(() => useScan(d));
+    await act(async () => {
+      await result.current.start();
+    });
+    act(() => {
+      void result.current.recheck(["ssh"]);
+    });
+    expect(signal?.aborted).toBe(false);
+    await act(async () => {
+      await result.current.start();
+    });
+    expect(signal?.aborted).toBe(true);
+    expect(result.current.scan.kind).toBe("ready");
+  });
+
+  it("a rescan can start during a recheck, and the recheck's late result is dropped", async () => {
+    let finishRecheck: () => void = () => undefined;
+    const collectSection = vi.fn(
+      () =>
+        new Promise<never>((resolve) => {
+          finishRecheck = () => resolve(HARDENED.sections.diskEncryption as never);
+        }),
+    );
+    const d = deps({ systemState: fakeSystemState(DEV_MACHINE, { collectSection }) });
+    const { result } = renderHook(() => useScan(d));
+    await act(async () => {
+      await result.current.start();
+    });
+    act(() => {
+      void result.current.recheck(["diskEncryption"]);
+    });
+    expect(result.current.scan.kind).toBe("rechecking");
+    await act(async () => {
+      await result.current.start();
+    });
+    expect(result.current.scan.kind).toBe("ready");
+    expect(result.current.scan.kind === "ready" && result.current.scan.report.reportId).toBe("unencrypted");
+    await act(async () => {
+      finishRecheck();
+    });
+    expect(result.current.scan.kind === "ready" && result.current.scan.report.reportId).toBe("unencrypted");
+    expect(result.current.scan.kind === "ready" && result.current.scan.lastRecheck).toBeNull();
+    expect(result.current.notice).toBeNull();
+  });
+
+  it("cancelling a rescan goes back to the report it interrupted, with a notice, and keeps the conversation", async () => {
+    let calls = 0;
+    const collect = (options?: CollectOptions) =>
+      new Promise<SystemState>((resolve, reject) => {
+        calls += 1;
+        if (calls === 1) resolve(DEV_MACHINE);
+        else options?.signal?.addEventListener("abort", () => reject("cancelled"));
+      });
+    const d = deps({ systemState: fakeSystemState(DEV_MACHINE, { collect }) });
+    const { result } = renderHook(() => useScan(d));
+    await act(async () => {
+      await result.current.start();
+    });
+    const before = result.current.scan;
+    expect(before.kind).toBe("ready");
+    act(() => {
+      result.current.setConversation([{ turn: { role: "user", text: "Which first?" } }]);
+    });
+    act(() => {
+      void result.current.start();
+    });
+    await waitFor(() => expect(result.current.scan.kind).toBe("collecting"));
+    act(() => {
+      result.current.cancel();
+    });
+    await waitFor(() => expect(result.current.scan.kind).toBe("ready"));
+    expect(result.current.scan).toEqual(before);
+    expect(result.current.notice).toBe(SCAN_CANCELLED_NOTICE);
+    expect(result.current.conversation).toHaveLength(1);
+  });
+
+  it("a recheck keeps explanations for unrelated findings and asks the model again for the rechecked one", async () => {
+    const explanation = (ruleId: Explanation["ruleId"]): Explanation => ({ ruleId, whyItMattersForYou: "why", whatCouldHappen: "what", urgency: "today" });
+    const explain = vi.fn(async ({ ruleId }: { ruleId: Explanation["ruleId"] }) => ({ ok: true as const, value: explanation(ruleId) }));
+    const d: ScanDeps = {
+      ...deps({ systemState: fakeSystemState(DEV_MACHINE, {}, DEV_MACHINE) }),
+      engine: (state) => evaluate(state, MACOS_CATALOG, { now: "2026-10-15T10:00:00.000Z", os: "macos" }),
+      createExplainer: async () => ({ ...noExplainer, explain }),
+    };
+    const { result } = renderHook(() => useScan(d));
+    await act(async () => {
+      await result.current.start();
+    });
+    await act(async () => {
+      await result.current.explain("TL-MAC-001");
+      await result.current.explain("TL-MAC-002");
+      await result.current.prioritise();
+    });
+    expect(explain).toHaveBeenCalledTimes(2);
+    // TL-MAC-002 reads the firewall; TL-MAC-001 reads disk encryption and is untouched by this recheck.
+    await act(async () => {
+      await result.current.recheck(["firewall"]);
+    });
+    expect(result.current.scan.kind === "ready" && result.current.scan.explain).toEqual({
+      kind: "ready",
+      byRule: { "TL-MAC-001": explanation("TL-MAC-001") },
+      order: null,
+    });
+    await act(async () => {
+      await result.current.explain("TL-MAC-001");
+    });
+    expect(explain).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await result.current.explain("TL-MAC-002");
+    });
+    expect(explain).toHaveBeenCalledTimes(3);
+  });
+
+  it("a failed recheck hands the cached explanations back", async () => {
+    const explanation: Explanation = { ruleId: "TL-MAC-001", whyItMattersForYou: "why", whatCouldHappen: "what", urgency: "today" };
+    const collectSection = async () => {
+      throw new Error("boom");
+    };
+    const d: ScanDeps = {
+      ...deps({ systemState: fakeSystemState(DEV_MACHINE, { collectSection }) }),
+      createExplainer: async () => ({ ...noExplainer, explain: async () => ({ ok: true as const, value: explanation }) }),
+    };
+    const { result } = renderHook(() => useScan(d));
+    await act(async () => {
+      await result.current.start();
+    });
+    await act(async () => {
+      await result.current.explain("TL-MAC-001");
+    });
+    await act(async () => {
+      await result.current.recheck(["ssh"]);
+    });
+    expect(result.current.scan.kind === "ready" && result.current.scan.explain).toEqual({ kind: "ready", byRule: { "TL-MAC-001": explanation }, order: null });
+    expect(result.current.notice).not.toBeNull();
+  });
+
+  it("keeps the Ask conversation and draft until a new scan starts", async () => {
+    const d = deps();
+    const { result } = renderHook(() => useScan(d));
+    act(() => {
+      result.current.setConversation([{ turn: { role: "user", text: "Which first?" } }]);
+      result.current.setDraft("and then");
+    });
+    expect(result.current.conversation).toHaveLength(1);
+    expect(result.current.draft).toBe("and then");
+    await act(async () => {
+      await result.current.loadLast();
+    });
+    expect(result.current.conversation).toHaveLength(1);
+    await act(async () => {
+      await result.current.start();
+    });
+    expect(result.current.conversation).toEqual([]);
+    expect(result.current.draft).toBe("");
   });
 
   it("maps collector errors", () => {

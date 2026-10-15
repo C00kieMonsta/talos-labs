@@ -8,9 +8,10 @@ export function About() {
     <main className="screen about">
       <h1>About</h1>
       <p className="lead">
-        Talos Labs reads your Mac's security settings and compares them with the CIS Apple macOS Benchmark. It
-        never changes anything and never sends anything from your Mac anywhere, apart from the optional AI
-        explanations you set up yourself.
+        Talos Labs reads your Mac's security settings and compares them with the CIS Apple macOS Benchmark. It never
+        changes anything and never sends anything from your Mac anywhere on its own. The Explain buttons open your own
+        Claude or ChatGPT account in the browser with your check-up results; only the results go, never file names,
+        paths or passwords.
       </p>
       <dl className="meta">
         <div>

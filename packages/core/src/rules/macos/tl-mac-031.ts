@@ -17,7 +17,8 @@ export const SECRET_PATTERN_VOCABULARY: readonly string[] = [
 
 export const TL_MAC_031: Rule = {
   id: "TL-MAC-031",
-  title: "No passwords or keys sitting in plain-text config files",
+  title: "No password or key is stored in a plain-text config file",
+  failTitle: "A password or key is stored in a plain-text config file",
   severity: "high",
   category: "developer",
   cis: null,

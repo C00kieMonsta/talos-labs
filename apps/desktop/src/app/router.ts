@@ -1,9 +1,13 @@
 import { useCallback, useState } from "react";
-import type { RuleId } from "@talos/core";
+import type { Category, RuleId, Severity } from "@talos/core";
+
+export type SeverityFilter = Severity | "all";
+export type CategoryFilter = Category | "all";
 
 export type Route =
   | { name: "overview" }
-  | { name: "findings" }
+  /** The filters ride on the route so Back from a finding restores them. A fresh visit starts unfiltered. */
+  | { name: "findings"; severity?: SeverityFilter; category?: CategoryFilter }
   | { name: "finding"; ruleId: RuleId }
   | { name: "ask" }
   | { name: "settings" }
@@ -11,22 +15,36 @@ export type Route =
 
 export type RouteName = Route["name"];
 
+/** How the current route was reached. */
+export type RouteMove = "navigate" | "back" | "replace";
+
 export interface Router {
   readonly route: Route;
+  readonly lastMove: RouteMove;
   navigate(route: Route): void;
   back(): void;
+  /** Swaps the current route without growing the stack, e.g. to record a filter change. */
+  replace(route: Route): void;
 }
 
 export const HOME: Route = { name: "overview" };
 
+interface RouterState {
+  readonly stack: readonly Route[];
+  readonly lastMove: RouteMove;
+}
+
 export function useRouter(initial: Route = HOME): Router {
-  const [stack, setStack] = useState<readonly Route[]>([initial]);
+  const [state, setState] = useState<RouterState>({ stack: [initial], lastMove: "navigate" });
   const navigate = useCallback((route: Route) => {
-    setStack((prev) => [...prev, route]);
+    setState((prev) => ({ stack: [...prev.stack, route], lastMove: "navigate" }));
   }, []);
   const back = useCallback(() => {
-    setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev));
+    setState((prev) => (prev.stack.length > 1 ? { stack: prev.stack.slice(0, -1), lastMove: "back" } : prev));
   }, []);
-  const route = stack[stack.length - 1] ?? initial;
-  return { route, navigate, back };
+  const replace = useCallback((route: Route) => {
+    setState((prev) => ({ stack: [...prev.stack.slice(0, -1), route], lastMove: "replace" }));
+  }, []);
+  const route = state.stack[state.stack.length - 1] ?? initial;
+  return { route, lastMove: state.lastMove, navigate, back, replace };
 }

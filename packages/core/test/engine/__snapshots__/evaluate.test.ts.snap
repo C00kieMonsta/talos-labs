@@ -14,14 +14,6 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
           "value": false,
         },
       },
-      {
-        "key": "method",
-        "label": "Encryption method",
-        "value": {
-          "kind": "enum",
-          "value": "filevault",
-        },
-      },
     ],
     "explanation": "FileVault scrambles everything on your disk so it can only be read with your password. Without it, anyone who takes the Mac, or just its drive, can read your files by plugging it into another computer. It is the single most important setting on a laptop that ever leaves the house.",
     "fix": {
@@ -41,8 +33,9 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
         "Leave the Mac plugged in; encryption finishes in the background and may ask for a restart.",
       ],
       "summary": "Turn on FileVault in System Settings and keep the recovery key somewhere safe.",
-      "verify": "Open Terminal and run fdesetup status. It should print "FileVault is On."",
+      "verify": "Privacy & Security > FileVault shows FileVault as on. Run the check-up again; this check passes.",
     },
+    "headline": "Your disk is not encrypted",
     "points": 20,
     "requires": [
       "diskEncryption",
@@ -93,8 +86,9 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
         "Switch Firewall on.",
       ],
       "summary": "Turn the firewall on in System Settings.",
-      "verify": "Network > Firewall shows the switch on, or socketfilterfw --getglobalstate prints "enabled".",
+      "verify": "Network > Firewall shows the switch on.",
     },
+    "headline": "The firewall is off",
     "points": 8,
     "requires": [
       "firewall",
@@ -146,8 +140,9 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
         "Switch on Enable stealth mode and click OK.",
       ],
       "summary": "Enable stealth mode in the firewall options.",
-      "verify": "socketfilterfw --getstealthmode prints "Stealth mode enabled".",
+      "verify": "Network > Firewall > Options shows Enable stealth mode switched on.",
     },
+    "headline": "Your Mac answers network probes",
     "points": 2,
     "requires": [
       "firewall",
@@ -201,6 +196,7 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
       "summary": "Install the waiting update from Software Update.",
       "verify": "Software Update says your Mac is up to date.",
     },
+    "headline": "An update is waiting to be installed",
     "points": 8,
     "requires": [
       "updates",
@@ -257,6 +253,7 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
       "summary": "Turn on Automatic Updates in the App Store settings.",
       "verify": "App Store > Settings shows Automatic Updates ticked.",
     },
+    "headline": "App Store apps do not update automatically",
     "points": 2,
     "requires": [
       "updates",
@@ -308,6 +305,7 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
       "summary": "Create a separate administrator account and make your daily account a standard user.",
       "verify": "Users & Groups lists your daily account as Standard.",
     },
+    "headline": "Your everyday account is an administrator",
     "points": 2,
     "requires": [
       "accounts",
@@ -349,11 +347,12 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
       "sideEffects": "none",
       "steps": [
         "Choose a login password or passphrase of 15 or more characters. This is good practice even though it does not change the policy.",
-        "Advanced, optional: write the CIS password policy as a plist file, then run pwpolicy -setaccountpolicies with that file as an administrator.",
+        "Advanced, optional: an administrator can enforce the 15-character minimum from Terminal with the pwpolicy tool and a CIS policy file.",
       ],
-      "summary": "Use a login password of 15 or more characters; optionally set the policy with pwpolicy.",
-      "verify": "Run pwpolicy getaccountpolicies in Terminal. The policyAttributePassword content should contain .{15,}. This check reads that policy, not your password.",
+      "summary": "Use a login password of 15 or more characters.",
+      "verify": "Run the check-up again; the minimum password length shows 15 or more. This check reads the policy, not your password.",
     },
+    "headline": "Short passwords are allowed",
     "points": 0,
     "requires": [
       "passwordPolicy",
@@ -423,6 +422,7 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
       "summary": "Set Everyone to No Access on the shared folder, or turn File Sharing off.",
       "verify": "Run the check-up again; the count of folders open to Everyone is 0, or File Sharing is off.",
     },
+    "headline": "A shared folder is open to Everyone",
     "points": 8,
     "requires": [
       "fileSharing",
@@ -517,11 +517,12 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
       "steps": [
         "Open System Settings, then General, then Login Items & Extensions, and look under Allow in the Background.",
         "Switch off anything you do not recognise. If the app it belongs to is no longer installed, switch it off too.",
-        "Advanced: for an item that does not appear there, run the matching command shown to stop it, then delete the plist file listed in the evidence.",
+        "Advanced: an item that is not listed there can be removed by deleting the plist file shown in the evidence and restarting the Mac.",
       ],
       "summary": "Review the background items and remove any you do not recognise.",
       "verify": "Run the check-up again; the item no longer appears in the evidence.",
     },
+    "headline": "Some programs start in the background on their own",
     "points": 0,
     "requires": [
       "persistence",
@@ -529,7 +530,7 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
     "ruleId": "TL-MAC-023",
     "severity": "info",
     "status": "review",
-    "title": "Programs that start in the background",
+    "title": "No program is set to start in the background",
     "unknownReason": null,
   },
   {
@@ -581,6 +582,7 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
       "summary": "Remove login items you do not need from Login Items & Extensions.",
       "verify": "Open at Login lists only the apps you want.",
     },
+    "headline": "Some apps open at login",
     "points": 0,
     "requires": [
       "loginItems",
@@ -588,7 +590,7 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
     "ruleId": "TL-MAC-025",
     "severity": "info",
     "status": "review",
-    "title": "Apps that open at login",
+    "title": "No app opens at login",
     "unknownReason": null,
   },
   {
@@ -640,6 +642,7 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
       "summary": "Add a backup disk in Time Machine.",
       "verify": "Time Machine lists the disk and shows a time for the latest backup after the first run.",
     },
+    "headline": "No backup is set up",
     "points": 4,
     "requires": [
       "backup",
@@ -665,7 +668,7 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
       },
       {
         "key": "broadAccessCount",
-        "label": "Extensions with access to every site",
+        "label": "Extensions found with access to every site",
         "value": {
           "kind": "number",
           "unit": "count",
@@ -685,21 +688,18 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
     "fix": {
       "commands": [],
       "effort": "ten_minutes",
-      "settingsPane": "full_disk_access",
-      "settingsPath": [
-        "System Settings",
-        "Privacy & Security",
-        "Full Disk Access",
-      ],
+      "settingsPane": null,
+      "settingsPath": null,
       "sideEffects": "workflow",
       "steps": [
         "In the browser, open the extensions page (chrome://extensions in Chrome, Brave, Edge and Arc; about:addons in Firefox).",
         "For each extension named in the evidence, open Details and set Site access to On click, or to the specific sites it needs. Remove extensions you no longer use.",
-        "To let this app check Chrome, Brave, Edge or Arc, open System Settings, then Privacy & Security, then Full Disk Access, switch on Talos Labs, and run the check-up again.",
+        "If a browser is listed as not checked, open System Settings, then Privacy & Security, then Full Disk Access, switch on Talos Labs, and run the check-up again. Chrome, Brave, Edge, Arc and Firefox all keep their extension list behind that permission.",
       ],
-      "summary": "Limit each extension's site access, and grant Full Disk Access so Chrome-family browsers can be checked.",
+      "summary": "Limit each extension to the sites it needs, or set it to run only when you click it.",
       "verify": "Run the check-up again; no extension is listed with access to every site.",
     },
+    "headline": "Couldn't check whether browser extensions are limited to the sites they need",
     "points": 0,
     "requires": [
       "browsers",
@@ -707,7 +707,7 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
     "ruleId": "TL-MAC-028",
     "severity": "low",
     "status": "unknown",
-    "title": "Browser extensions do not read every website",
+    "title": "Browser extensions are limited to the sites they need",
     "unknownReason": "needs_full_disk_access",
   },
   {
@@ -758,7 +758,7 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
         },
       },
     ],
-    "explanation": "An SSH key is a file that logs you in to servers and services such as GitHub without a password. One of yours is stored with no passphrase, so anyone who copies the file, through malware, a stolen backup or a shared Mac, can use it as you straight away. Adding a passphrase means the file alone is useless to them.",
+    "explanation": "An SSH key is a file that logs you in to servers and services such as GitHub without a password. At least one of yours is stored with no passphrase, so anyone who copies the file, through malware, a stolen backup or a shared Mac, can use it as you straight away. Adding a passphrase means the file alone is useless to them.",
     "fix": {
       "commands": [
         {
@@ -809,9 +809,10 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
         "Choose a passphrase you can remember; a few unrelated words works well.",
         "To avoid typing it every time, run ssh-add --apple-use-keychain with the key path once, and the Mac keychain will supply it.",
       ],
-      "summary": "Add a passphrase to each unprotected SSH key with ssh-keygen.",
+      "summary": "Add a passphrase to each unprotected SSH key.",
       "verify": "Run the check-up again; the unprotected key count is 0.",
     },
+    "headline": "An SSH key has no passphrase",
     "points": 8,
     "requires": [
       "ssh",

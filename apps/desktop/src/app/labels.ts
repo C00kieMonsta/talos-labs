@@ -11,6 +11,12 @@ import type {
   UnknownReason,
 } from "@talos/core";
 import type { ScanError } from "../scan/machine";
+import type { Assistant } from "../settings";
+
+export const ASSISTANT_LABELS: Readonly<Record<Assistant, string>> = {
+  claude: "Claude",
+  chatgpt: "ChatGPT",
+};
 
 /** Shown while a section is being read. */
 export const SECTION_PROGRESS_LABELS: Readonly<Record<SectionKey, string>> = {
@@ -142,6 +148,41 @@ export const PERMISSION_COPY: Readonly<Record<"full_disk_access" | "automation",
     title: "Automation",
     body: "Talos Labs needs permission to ask System Events for your login items. Open Privacy & Security, choose Automation, and allow Talos Labs to control System Events. Then run the check-up again.",
   },
+};
+
+/**
+ * Plain words for enum evidence values. Keyed by value only: "none" and "unknown" mean the same
+ * under every key. Tri settings ("true", "false", "unset") read as Yes and No to match bool rows;
+ * "unset" means macOS is on its default, which for these settings is the protective state.
+ */
+export const EVIDENCE_VALUE_LABELS: Readonly<Record<string, string>> = {
+  true: "Yes",
+  false: "No",
+  unset: "Not set (macOS default)",
+  none: "None",
+  unknown: "Unknown",
+  filevault: "FileVault",
+  bitlocker: "BitLocker",
+  luks: "LUKS",
+  xprotect: "XProtect",
+  defender: "Microsoft Defender",
+  time_machine: "Time Machine",
+  windows_backup: "Windows Backup",
+  chrome: "Chrome",
+  brave: "Brave",
+  edge: "Edge",
+  arc: "Arc",
+  firefox: "Firefox",
+  aws_access_key_id: "AWS access key id",
+  aws_secret_access_key: "AWS secret access key",
+  github_token: "GitHub token",
+  npm_token: "npm token",
+  netrc_password: ".netrc password",
+  private_key_block: "Private key block",
+  llm_api_key: "AI API key",
+  slack_token: "Slack token",
+  docker_auth: "Docker login",
+  generic_secret_assignment: "Secret assignment",
 };
 
 export const EFFORT_LABELS: Readonly<Record<FixEffort, string>> = {

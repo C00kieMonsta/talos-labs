@@ -4,8 +4,10 @@ import {
   ALL_UNAVAILABLE,
   SECTION_KEYS,
   assertSystemState,
+  type AbortSignalLike,
   type Capabilities,
   type CollectOptions,
+  type CollectSectionOptions,
   type SectionKey,
   type SectionProgress,
   type SystemState,
@@ -58,6 +60,26 @@ function isCapabilities(value: unknown): value is Capabilities {
   return fda === null || typeof fda === "boolean";
 }
 
+function cancelledError(): ScanError {
+  return new ScanError("cancelled", "cancelled");
+}
+
+/**
+ * Settles with `pending`, or rejects with cancelled the moment `signal` aborts.
+ * The abort is forwarded to cancel_section, which leaves a scan started alongside it alone; a late answer from the command is dropped.
+ */
+function untilAbort<T>(pending: Promise<T>, signal: AbortSignalLike | undefined): Promise<T> {
+  if (signal === undefined) return pending;
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      void invoke("cancel_section").catch(() => undefined);
+      reject(cancelledError());
+    };
+    signal.addEventListener("abort", onAbort);
+    void pending.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
 /** A failed subscription only loses progress updates; the scan itself still runs. */
 async function subscribeProgress(onProgress: (progress: SectionProgress) => void): Promise<UnlistenFn | null> {
   try {
@@ -74,7 +96,7 @@ export class TauriSystemStateAdapter implements SystemStatePort {
   async collect(options?: CollectOptions): Promise<SystemState> {
     const signal = options?.signal;
     const onProgress = options?.onProgress;
-    if (signal?.aborted) throw new ScanError("cancelled", "cancelled");
+    if (signal?.aborted) throw cancelledError();
 
     const unlisten = onProgress ? await subscribeProgress(onProgress) : null;
 
@@ -102,10 +124,12 @@ export class TauriSystemStateAdapter implements SystemStatePort {
     }
   }
 
-  async collectSection<K extends SectionKey>(key: K): Promise<SystemStateSections[K]> {
+  async collectSection<K extends SectionKey>(key: K, options?: CollectSectionOptions): Promise<SystemStateSections[K]> {
+    const signal = options?.signal;
+    if (signal?.aborted) throw cancelledError();
     let raw: unknown;
     try {
-      raw = await invoke<unknown>("collect_section", { key });
+      raw = await untilAbort(invoke<unknown>("collect_section", { key }), signal);
     } catch (error) {
       throw toScanError(error);
     }

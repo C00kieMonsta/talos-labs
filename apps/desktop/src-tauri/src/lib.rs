@@ -1,6 +1,7 @@
 //! Talos Labs desktop: read-only collectors behind a small Tauri command surface.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing))]
 
+pub mod assistant;
 pub mod capabilities;
 pub mod collect;
 pub mod commands;
@@ -20,8 +21,10 @@ pub fn run() {
             commands::collect_system_state,
             commands::cancel_scan,
             commands::collect_section,
+            commands::cancel_section,
             commands::check_capabilities,
             commands::open_settings_pane,
+            commands::open_assistant,
             commands::secret_get,
             commands::secret_set,
             commands::secret_delete,

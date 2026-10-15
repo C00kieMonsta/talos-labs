@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 
-export function CopyButton({ text, label = "Copy command" }: { text: string; label?: string }) {
+/**
+ * Copies `text` to the clipboard. The accessible name always starts with the visible text
+ * ("Copy command", then "Copied"), and a sibling status region announces the confirmation.
+ */
+export function CopyButton({ text, subject = "command" }: { text: string; subject?: string }) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<number | null>(null);
 
@@ -22,8 +26,13 @@ export function CopyButton({ text, label = "Copy command" }: { text: string; lab
   }
 
   return (
-    <button type="button" className="button button-small" onClick={copy} aria-label={label} aria-live="polite">
-      {copied ? "Copied" : "Copy"}
-    </button>
+    <>
+      <button type="button" className="button button-small" onClick={copy} aria-label={copied ? "Copied" : `Copy ${subject}`}>
+        {copied ? "Copied" : "Copy"}
+      </button>
+      <span role="status" className="visually-hidden">
+        {copied ? "Copied" : ""}
+      </span>
+    </>
   );
 }

@@ -8,6 +8,11 @@ const host = process.env.TAURI_DEV_HOST;
 // Compile-time date compared against a licence's updatesUntil.
 const buildDate = new Date().toISOString().slice(0, 10);
 
+// The Tauri CLI sets TAURI_ENV_PLATFORM for tauri dev and tauri build. The demo never ships in either.
+if (process.env.VITE_TALOS_DEMO === "1" && process.env.TAURI_ENV_PLATFORM !== undefined) {
+  throw new Error("VITE_TALOS_DEMO=1 is for the browser-only demo. Unset it before tauri dev or tauri build.");
+}
+
 // https://vite.dev/config/
 export default defineConfig(() => ({
   plugins: [react()],

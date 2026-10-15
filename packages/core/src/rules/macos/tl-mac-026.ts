@@ -6,6 +6,7 @@ export const BACKUP_METHOD_VOCABULARY: readonly string[] = ["time_machine", "win
 export const TL_MAC_026: Rule = {
   id: "TL-MAC-026",
   title: "Backups are set up",
+  failTitle: "No backup is set up",
   severity: "medium",
   category: "backup",
   cis: "2.3.4.1",

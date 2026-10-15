@@ -5,6 +5,7 @@ import { ev, fail, MACOS_ONLY, notApplicable, pass, section, unknown } from "../
 export const TL_MAC_021: Rule = {
   id: "TL-MAC-021",
   title: "Remote Management is off",
+  failTitle: "Remote Management is on",
   severity: "high",
   category: "remote_access",
   cis: "2.3.3.5",

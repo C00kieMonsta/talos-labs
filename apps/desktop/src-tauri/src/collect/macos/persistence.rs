@@ -50,12 +50,14 @@ fn item_for(path: &Path, scope: LaunchItemScope) -> Option<LaunchItem> {
     match std::fs::read(path) {
         Ok(bytes) => {
             let parsed = parse_launch_plist(&bytes)?;
-            let program_exists = parsed.program.as_deref().map(program_exists);
+            // launchd refuses a plist with no program; nothing starts from it.
+            let program = parsed.program?;
+            let program_exists = Some(program_exists(&program));
             Some(LaunchItem {
                 scope,
                 plist_path,
                 label: parsed.label.unwrap_or(stem),
-                program: parsed.program,
+                program: Some(program),
                 program_exists,
                 run_at_load: parsed.run_at_load,
             })
@@ -154,5 +156,54 @@ mod tests {
         let mut items = Vec::new();
         scan_dir(Path::new("/nonexistent/talos-dir"), LaunchItemScope::SystemDaemon, "x", &mut items).unwrap();
         assert!(items.is_empty());
+    }
+
+    const EMPTY_DICT: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\">\n<dict/>\n</plist>\n";
+    const LABEL_ONLY: &str = "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>Label</key><string>session-manager-plugin</string></dict></plist>";
+
+    fn scratch_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("talos-persistence-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn empty_and_label_only_plists_parse_with_no_program() {
+        let parsed = parse_launch_plist(EMPTY_DICT.as_bytes()).unwrap();
+        assert_eq!(parsed, ParsedPlist::default());
+        let parsed = parse_launch_plist(LABEL_ONLY.as_bytes()).unwrap();
+        assert_eq!(parsed.label.as_deref(), Some("session-manager-plugin"));
+        assert_eq!(parsed.program, None);
+    }
+
+    #[test]
+    fn plists_launchd_cannot_load_are_skipped() {
+        let dir = scratch_dir("skip");
+        std::fs::write(dir.join("com.google.keystone.agent.plist"), EMPTY_DICT).unwrap();
+        std::fs::write(dir.join("SessionManagerPlugin.plist"), LABEL_ONLY).unwrap();
+        std::fs::write(dir.join("notes.txt"), "not a plist").unwrap();
+        let mut items = Vec::new();
+        scan_dir(&dir, LaunchItemScope::UserAgent, "x", &mut items).unwrap();
+        assert!(items.is_empty(), "{items:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_plist_with_a_program_is_one_item() {
+        let dir = scratch_dir("keep");
+        std::fs::write(dir.join("com.example.agent.plist"), XML).unwrap();
+        std::fs::write(dir.join("com.google.keystone.agent.plist"), EMPTY_DICT).unwrap();
+        let mut items = Vec::new();
+        scan_dir(&dir, LaunchItemScope::SystemDaemon, "x", &mut items).unwrap();
+        assert_eq!(items.len(), 1);
+        let item = &items[0];
+        assert_eq!(item.scope, LaunchItemScope::SystemDaemon);
+        assert_eq!(item.label, "com.example.agent");
+        assert_eq!(item.program.as_deref(), Some("/usr/bin/true"));
+        assert_eq!(item.program_exists, Some(true));
+        assert!(item.run_at_load);
+        assert!(item.plist_path.ends_with("com.example.agent.plist"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

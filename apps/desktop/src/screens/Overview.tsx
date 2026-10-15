@@ -1,4 +1,6 @@
 import type { Finding, ScanReport, Severity, SettingsPane, UnknownReason } from "@talos/core";
+import { buildBrowserPrompt, toExplainerContext } from "@talos/core";
+import { AssistantCard } from "../components/AssistantCard";
 import { ScoreRing } from "../components/ScoreRing";
 import { FindingCard } from "../components/FindingCard";
 import { PermissionCard } from "../components/PermissionCard";
@@ -6,6 +8,7 @@ import { GRADE_SUMMARY, SEVERITY_LABELS, SOCKET_TABLE_COPY, UNKNOWN_REASON_LABEL
 import { useApp } from "../app/context";
 import { hiddenBySocketTable } from "../app/network-checks";
 import { lastReport } from "../scan/machine";
+import type { Assistant } from "../settings";
 
 const COUNTED: readonly Severity[] = ["critical", "high", "medium", "low"];
 
@@ -22,20 +25,28 @@ function groupByPermission(findings: readonly Finding[]): Map<"full_disk_access"
   return groups;
 }
 
+/** One entry per reason, in first-seen order, so the Overview stays a summary however many checks failed to run. */
+function groupByReason(findings: readonly Finding[]): { reason: UnknownReason | null; findings: Finding[] }[] {
+  const groups: { reason: UnknownReason | null; findings: Finding[] }[] = [];
+  for (const finding of findings) {
+    const group = groups.find((g) => g.reason === finding.unknownReason);
+    if (group === undefined) groups.push({ reason: finding.unknownReason, findings: [finding] });
+    else group.findings.push(finding);
+  }
+  return groups;
+}
+
+const NO_REASON_LABEL = "Could not be checked";
+
 export function Overview() {
-  const { scan, router, gate, adapters } = useApp();
+  const { scan, router, gate, adapters, settings, updateSettings, catalog } = useApp();
   const report = lastReport(scan.scan);
-  const busy = scan.scan.kind === "rechecking";
 
   if (report === null) {
     return (
       <main className="screen overview">
         <h1>Overview</h1>
-        {scan.scan.kind === "failed" ? (
-          <p className="notice">The last check-up did not finish. Try again when you are ready.</p>
-        ) : (
-          <p className="lead">Run a check-up to see how your Mac is doing.</p>
-        )}
+        <p className="lead">Run a check-up to see how your Mac is doing.</p>
         <button type="button" className="button button-primary" onClick={() => void scan.start()}>
           Run check-up
         </button>
@@ -43,31 +54,57 @@ export function Overview() {
     );
   }
 
-  return <OverviewBody report={report} busy={busy} onRescan={() => void scan.start()} onOpenPane={(pane) => void adapters.openSettingsPane(pane)} onOpenFinding={(ruleId) => router.navigate({ name: "finding", ruleId })} onAll={() => router.navigate({ name: "findings" })} freeFixes={gate.freeFixes} />;
+  const { provider, assistant } = settings.explainer;
+  // async so a throw while building the prompt surfaces as a rejection the card can show.
+  const explainAll = async () => {
+    const context = toExplainerContext(report, catalog, settings.profile);
+    await adapters.openAssistant(assistant, buildBrowserPrompt(context, catalog));
+  };
+
+  return (
+    <OverviewBody
+      report={report}
+      freeFixes={gate.freeFixes}
+      assistant={provider === "browser" ? assistant : null}
+      onRescan={() => void scan.start()}
+      onOpenPane={(pane) => void adapters.openSettingsPane(pane)}
+      onOpenFinding={(ruleId) => router.navigate({ name: "finding", ruleId })}
+      onAll={() => router.navigate({ name: "findings" })}
+      onExplainAll={explainAll}
+      onSwitchAssistant={(next) => updateSettings({ explainer: { ...settings.explainer, assistant: next } })}
+    />
+  );
 }
 
 function OverviewBody({
   report,
-  busy,
   freeFixes,
+  assistant,
   onRescan,
   onOpenPane,
   onOpenFinding,
   onAll,
+  onExplainAll,
+  onSwitchAssistant,
 }: {
   report: ScanReport;
-  busy: boolean;
   freeFixes: readonly string[];
+  /** null when the browser hand-off is not the chosen provider. */
+  assistant: Assistant | null;
   onRescan(): void;
   onOpenPane(pane: SettingsPane): void;
   onOpenFinding(ruleId: Finding["ruleId"]): void;
   onAll(): void;
+  onExplainAll(): Promise<void>;
+  onSwitchAssistant(assistant: Assistant): void;
 }) {
   const failing = report.findings.filter((f) => f.status === "fail");
   const unknown = report.findings.filter((f) => f.status === "unknown");
   const permissions = groupByPermission(unknown);
   const networkHidden = unknown.filter((f) => hiddenBySocketTable(report, f));
-  const otherUnknown = unknown.filter((f) => paneForReason(f.unknownReason) === null && !hiddenBySocketTable(report, f));
+  const otherUnknown = groupByReason(
+    unknown.filter((f) => paneForReason(f.unknownReason) === null && !hiddenBySocketTable(report, f)),
+  );
   const nextThree = freeFixes
     .map((id) => failing.find((f) => f.ruleId === id))
     .filter((f): f is Finding => f !== undefined);
@@ -84,7 +121,7 @@ function OverviewBody({
           <h1>Overview</h1>
           <p className="muted">Last check-up {formatDateTime(report.scannedAt)}</p>
         </div>
-        <button type="button" className="button" onClick={onRescan} disabled={busy}>
+        <button type="button" className="button" onClick={onRescan}>
           Rescan
         </button>
       </header>
@@ -93,8 +130,8 @@ function OverviewBody({
         <section className="card" aria-labelledby="no-score">
           <h2 id="no-score">Nothing could be checked</h2>
           <p>
-            Every area was out of reach, so there is no score yet. Grant the permissions below and run the check-up
-            again.
+            Every area was out of reach, so there is no score yet. Grant any permissions listed below, then run the
+            check-up again.
           </p>
         </section>
       ) : (
@@ -121,6 +158,10 @@ function OverviewBody({
             </ul>
           </div>
         </section>
+      )}
+
+      {assistant !== null && score.value !== null && (
+        <AssistantCard assistant={assistant} target="results" onOpen={onExplainAll} onSwitch={onSwitchAssistant} />
       )}
 
       {nextThree.length > 0 && (
@@ -165,12 +206,22 @@ function OverviewBody({
                 <p className="muted">Affects: {networkHidden.map((f) => f.title).join(", ")}</p>
               </section>
             )}
-            {otherUnknown.map((finding) => (
-              <div key={finding.ruleId} className="card card-muted">
-                <h3>{finding.title}</h3>
-                <p className="muted">{UNKNOWN_REASON_LABELS[finding.unknownReason as UnknownReason]}</p>
-              </div>
-            ))}
+            {otherUnknown.map((group) => {
+              const label = group.reason === null ? NO_REASON_LABEL : UNKNOWN_REASON_LABELS[group.reason];
+              const id = `reason-${group.reason ?? "none"}`;
+              const count = group.findings.length;
+              return (
+                <section key={id} className="card card-muted" aria-labelledby={id}>
+                  <h3 id={id}>{label}</h3>
+                  <p className="muted">
+                    Affects {count} {count === 1 ? "check" : "checks"}: {group.findings.map((f) => f.title).join(", ")}
+                  </p>
+                  <button type="button" className="button button-ghost" onClick={onAll}>
+                    See in Findings
+                  </button>
+                </section>
+              );
+            })}
           </div>
         </section>
       )}

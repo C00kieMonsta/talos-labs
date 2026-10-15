@@ -7,6 +7,7 @@ export const BACKUP_MAX_AGE_HOURS = 168;
 export const TL_MAC_027: Rule = {
   id: "TL-MAC-027",
   title: "A backup ran in the last 7 days",
+  failTitle: "No backup has run in the last 7 days",
   severity: "low",
   category: "backup",
   cis: null,
@@ -15,7 +16,7 @@ export const TL_MAC_027: Rule = {
   evidenceKeys: ["hasBackup", "hoursSinceBackup", "destinationReachable"],
   evidenceVocabulary: {},
   explanation:
-    "Backups are set up, but the most recent one is more than a week old, or none has completed yet. A backup only protects the work you had done when it ran, so a long gap means days of files, photos and settings that could be lost. When the backup disk is unplugged or the network drive is out of reach, the Mac cannot say when the last backup ran, and this check reports that it could not tell instead of failing.",
+    "Backups are set up, but the most recent one is more than a week old, or none has completed yet. A backup only protects the work you had done when it ran, so a long gap means days of files, photos and settings that could be lost. Plugging the backup disk in and running a backup now closes that gap.",
   fix: {
     summary: "Connect the backup disk and run a backup now.",
     settingsPath: ["System Settings", "General", "Time Machine"],

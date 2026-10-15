@@ -4,6 +4,7 @@ import { ev, fail, MACOS_ONLY, pass, section } from "../helpers";
 export const TL_MAC_001: Rule = {
   id: "TL-MAC-001",
   title: "Your disk is encrypted",
+  failTitle: "Your disk is not encrypted",
   severity: "critical",
   category: "encryption",
   cis: "2.6.6",
@@ -24,16 +25,17 @@ export const TL_MAC_001: Rule = {
       "Choose how to keep the recovery key. Writing it down and storing it away from the Mac is the simplest option.",
       "Leave the Mac plugged in; encryption finishes in the background and may ask for a restart.",
     ],
-    verify: "Open Terminal and run fdesetup status. It should print \"FileVault is On.\"",
+    verify: "Privacy & Security > FileVault shows FileVault as on. Run the check-up again; this check passes.",
     effort: "ten_minutes",
     sideEffects: "restart",
   },
   evaluate(state) {
     const data = section(state, "diskEncryption");
-    const evidence = [
-      ev.bool("systemVolumeEncrypted", "System disk encrypted", data.systemVolumeEncrypted),
-      ev.enum("method", "Encryption method", data.method),
-    ];
-    return data.systemVolumeEncrypted ? pass(evidence) : fail(evidence);
+    const evidence = [ev.bool("systemVolumeEncrypted", "System disk encrypted", data.systemVolumeEncrypted)];
+    if (!data.systemVolumeEncrypted) {
+      return fail(evidence);
+    }
+    // The method row only makes sense once the disk is encrypted.
+    return pass([...evidence, ev.enum("method", "Encryption method", data.method)]);
   },
 };

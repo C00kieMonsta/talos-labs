@@ -19,6 +19,7 @@ export function remoteServiceOutcome(service: ServiceState) {
 export const TL_MAC_019: Rule = {
   id: "TL-MAC-019",
   title: "Remote Login (SSH) is off",
+  failTitle: "Remote Login (SSH) is on",
   severity: "high",
   category: "remote_access",
   cis: "2.3.3.4",

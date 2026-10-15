@@ -3,6 +3,7 @@ import type { Evidence, Finding, RuleResult } from "../domain/finding";
 import type { ScanReport, SectionSummary } from "../domain/report";
 import type { Rule, RuleCatalog, RuleContext, RuleOutcome } from "../domain/rule";
 import { SECTION_KEYS, type SectionKey, type SystemState } from "../domain/system-state";
+import { headlineFor } from "./headline";
 import { reportIdFor } from "./report-id";
 import { computeScore, pointsFor } from "./score";
 
@@ -60,6 +61,7 @@ function toFinding(rule: Rule, result: RuleResult, status: Finding["status"]): F
   return {
     ruleId: rule.id,
     title: rule.title,
+    headline: headlineFor(rule, status),
     severity: rule.severity,
     category: rule.category,
     cis: rule.cis,

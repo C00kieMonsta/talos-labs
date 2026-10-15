@@ -4,7 +4,8 @@ import { ev, MACOS_ONLY, pass, review, section } from "../helpers";
 
 export const TL_MAC_025: Rule = {
   id: "TL-MAC-025",
-  title: "Apps that open at login",
+  title: "No app opens at login",
+  failTitle: "Some apps open at login",
   severity: "info",
   category: "persistence",
   cis: null,

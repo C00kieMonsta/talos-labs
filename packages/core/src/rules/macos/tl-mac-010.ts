@@ -4,6 +4,7 @@ import { ev, fail, MACOS_ONLY, pass, section, unknown } from "../helpers";
 export const TL_MAC_010: Rule = {
   id: "TL-MAC-010",
   title: "No update is waiting",
+  failTitle: "An update is waiting to be installed",
   severity: "high",
   category: "updates",
   cis: "1.1",

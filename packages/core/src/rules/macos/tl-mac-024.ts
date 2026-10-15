@@ -5,6 +5,7 @@ import { ev, fail, MACOS_ONLY, pass, section } from "../helpers";
 export const TL_MAC_024: Rule = {
   id: "TL-MAC-024",
   title: "No background program points at a missing file",
+  failTitle: "A background program points at a missing file",
   severity: "medium",
   category: "persistence",
   cis: null,

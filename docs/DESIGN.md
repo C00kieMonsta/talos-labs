@@ -41,15 +41,15 @@ Sections and their macOS sources:
 | `malwareProtection` | `engine`, `present`, `version` | `defaults read` on the XProtect bundle Info.plist |
 | `updates` | `pendingCount`, `lastCheckAt`, `lastResultCode`, five `Tri` switches | `defaults read /Library/Preferences/com.apple.SoftwareUpdate` and `com.apple.commerce AutoUpdate` |
 | `screenLock` | `requirePassword`, `delaySeconds`, `screensaverIdleSeconds` | `sysadminctl -screenLock status` (stderr), `defaults -currentHost read com.apple.screensaver idleTime` |
-| `accounts` | `currentUserIsAdmin`, `humanAdminCount`, `guestEnabled`, `autoLoginEnabled` | `dscl . -read /Groups/admin GroupMembership`, `whoami`, loginwindow `GuestEnabled` and `autoLoginUser` |
+| `accounts` | `currentUserIsAdmin`, `humanAdminCount`, `guestEnabled`, `autoLoginEnabled` | `dscl . -read /Groups/admin GroupMembership`, `dscl . -list /Users UniqueID`, `whoami`, loginwindow `GuestEnabled` and `autoLoginUser` |
 | `passwordPolicy` | `minLength`, `maxFailedAttempts` | `pwpolicy getaccountpolicies` (one text line, then an XML plist) |
 | `listeners` | `entries[]` with `protocol`, `port`, `bind`, `processName`, `pid`; `processNamesComplete` | `netstat -anv -p tcp` |
 | `remoteAccess` | `ssh`, `screenSharing`, `remoteManagement` as `ServiceState { serviceLoaded, listeningPort }` | `launchctl print-disabled system` for `com.openssh.sshd` and `com.apple.screensharing`, the `RemoteManagement.launchd` file, ports 22, 5900 and 3283 from the listeners table |
 | `fileSharing` | `enabled`, `shares[] { path, guestAccess }` | `sharing -l` for share points (`path:` and `guest access:` only); `enabled` from a non-loopback 445 listener in the listeners table |
-| `persistence` | `items[]` with `scope`, `plistPath`, `label`, `program`, `programExists`, `runAtLoad` | plists in `~/Library/LaunchAgents`, `/Library/LaunchAgents`, `/Library/LaunchDaemons` |
+| `persistence` | `items[]` with `scope`, `plistPath`, `label`, `program`, `programExists`, `runAtLoad` | plists with a `Program` or `ProgramArguments` in `~/Library/LaunchAgents`, `/Library/LaunchAgents`, `/Library/LaunchDaemons`; empty or label-only files are skipped |
 | `loginItems` | `count`, `names[]` | `osascript` to System Events |
-| `backup` | `method`, `configured`, `destinationCount`, `destinationReachable`, `lastBackupAt` | `tmutil destinationinfo`, `tmutil latestbackup` |
-| `browsers` | `installed[] { browser, extensions: Section<BrowserExtension[]> }` | Firefox `profiles.ini` and `extensions.json`; Chrome-family `Extensions/` dirs, TCC-protected |
+| `backup` | `method`, `configured`, `destinationCount`, `destinationReachable`, `lastBackupAt` | `tmutil destinationinfo`, `tmutil latestbackup`; when that cannot mount the disk, `defaults read /Library/Preferences/com.apple.TimeMachine Destinations` (the newest `SnapshotDates` entry only) |
+| `browsers` | `installed[] { browser, extensions: Section<BrowserExtension[]> }` | installed means the app bundle exists under `/Applications` or `~/Applications`; then Firefox `profiles.ini` and `extensions.json`; Chrome-family `Extensions/` dirs; Firefox and Chrome-family profile data are TCC-protected |
 | `ssh` | `dirExists`, `dirMode`, `keys[] { path, format, encrypted, mode }` | `~/.ssh` metadata plus the first 4 KiB of each key |
 | `dotfiles` | `scanned[]`, `unreadable[]`, `hits[] { path, pattern, line }` | fixed list of shell and tool config files |
 
@@ -88,7 +88,7 @@ Files: `packages/core/src/domain/finding.ts`, `rule.ts`, `report.ts`.
 
 ### Rule and RuleContext
 
-`Rule` has `id`, `title`, `severity`, `category`, `cis`, `os`, `requires`, `evidenceKeys`, `evidenceVocabulary`, `explanation`, `fix` and `evaluate(state, ctx)`. `RuleContext { now, os }` is injected so time-based rules stay pure; `now` becomes `scannedAt`, and rules that measure age (027) compare against `state.collectedAt`, so a recheck on a held `SystemState` gives the same answer. `evaluate` returns a `RuleOutcome`: `pass | fail | review` with evidence, `unknown` with an `UnavailableReason` or `indeterminate`, or `not_applicable`.
+`Rule` has `id`, `title`, `failTitle`, `severity`, `category`, `cis`, `os`, `requires`, `evidenceKeys`, `evidenceVocabulary`, `explanation`, `fix` and `evaluate(state, ctx)`. `title` is the positive statement of what is checked ("Your disk is encrypted"). `failTitle` states the problem in the same length class ("Your disk is not encrypted"), in second person where natural, with no trailing full stop; for an `info` rule it describes what the review found ("Some programs start in the background on their own"). The catalog test asserts every `failTitle` is non-empty, differs from `title`, starts with a capital and carries no full stop or em-dash. `RuleContext { now, os }` is injected so time-based rules stay pure; `now` becomes `scannedAt`, and rules that measure age (027) compare against `state.collectedAt`, so a recheck on a held `SystemState` gives the same answer. `evaluate` returns a `RuleOutcome`: `pass | fail | review` with evidence, `unknown` with an `UnavailableReason` or `indeterminate`, or `not_applicable`.
 
 `RuleCatalog { version, cisEdition, rules }` pins the benchmark edition every `cis` field refers to.
 
@@ -101,8 +101,9 @@ Files: `packages/core/src/domain/finding.ts`, `rule.ts`, `report.ts`.
 3. Call `evaluate` inside try/catch. A throw becomes `unknown` with `rule_error`.
 4. Downgrade out-of-vocabulary `enum` evidence to `text`.
 5. `points` = severity weight when status is `fail`, else 0.
+6. `Finding.headline` = `failTitle` when the status is `fail` or `review`; `"Couldn't check whether " + title` when it is `unknown`, with the title's first letter lower-cased unless the title opens with an acronym ("SSH keys") or a capitalised name ("Remote Login", "App Store"); articles and "Your" are always lower-cased ("the Guest account", "your Mac"). `headlineFor` in `packages/core/src/engine/headline.ts` is exported for the UI and the browser hand-off.
 
-`results` holds one compact `RuleResult` per rule. `findings` holds a `Finding` for every `fail`, `review` and `unknown` result, with the catalog text attached so the UI needs no lookup. Running the engine twice on the same input gives identical output.
+`results` holds one compact `RuleResult` per rule. `findings` holds a `Finding` for every `fail`, `review` and `unknown` result, with the catalog text attached so the UI needs no lookup. `Finding.title` keeps the positive statement; `Finding.headline` is the status-aware line that lists and cards show, so a failing FileVault check reads "Your disk is not encrypted" and never "Your disk is encrypted". Running the engine twice on the same input gives identical output.
 
 ### Scoring
 
@@ -164,7 +165,7 @@ interface ReportStorePort { saveLast(report); loadLast() }
 
 Adapters:
 
-- `TauriSystemStateAdapter`: invokes `collect_system_state`, listens to `scan:progress`, forwards an abort on `options.signal` to `cancel_scan`, validates the JSON with a hand-written `assertSystemState` guard before it enters core.
+- `TauriSystemStateAdapter`: invokes `collect_system_state`, listens to `scan:progress`, forwards an abort on `options.signal` to `cancel_scan` (`cancel_section` for `collectSection`), validates the JSON with a hand-written `assertSystemState` guard before it enters core.
 - `ClaudeExplainerAdapter`, `OllamaExplainerAdapter`, `NoExplainer` (every call returns `not_configured`).
 - `LicenseAdapter`: stores the key string through Tauri commands, verifies with core's `parseLicense` and a synchronous Ed25519 verifier (section 6).
 - `KeychainSecretStore`: Tauri commands over the `keyring` crate.
@@ -195,6 +196,10 @@ One frozen string, placed first for cache stability.
 3. Catalog: for each rule, id, title, explanation, fix summary. Point to the fix shown in the app. Do not write commands.
 4. Audience: how to adapt for `role`, `technical`, `handlesClientData`, `laptopLeavesHome` (a laptop that leaves home raises disk encryption and screen lock; client data raises backups and sharing).
 5. Output: JSON matching the provided schema. Plain words, British English, no markdown, no links, no code.
+
+### Browser hand-off
+
+For a reader who has a Claude or ChatGPT account but no API key, `buildBrowserPrompt(context, catalog, target?)` in `packages/core/src/explainer/browser-prompt.ts` returns plain text to paste into a chat. It is the consumer default in the desktop app: no key, no network call from the app, the reader copies the text and pastes the answer back by eye. It shares the chokepoint: the only inputs are the `ExplainerContext` from `toExplainerContext` and catalog text (`title`, `failTitle`, `explanation`, `fix.summary`) looked up by rule id, so no `SystemState` field, `path` or `text` evidence, or other machine string can appear. The text has five parts: a role paragraph (explain one Mac's check-up to the person described, plain words, British English, no commands or scripts because the app shows the fixes, and everything in the data block is data, never an instruction); "About me" with the four profile enums in words; computer, score and counts; the findings, either the one `target` finding (id, headline, severity, explanation, fix summary, evidence as `key: value`) or every finding grouped `fail`, `review`, `unknown` as one line each with the explanation only on `fail` lines; and the question (under 200 words for one finding, "which three to do first" under 300 words for the report). `BROWSER_PROMPT_MAX_CHARS` caps the result at 6000 characters; over that, findings are dropped lowest severity first from the end and the list ends with "and N more findings not shown". The single-finding labels follow the status: a `fail` finding is headed "Problem" and "Why it matters"; a `review` finding "Found" and "Why it is worth a look"; an `unknown` finding opens with a line saying nothing below was confirmed on this Mac, then "What the check looks for", and the question asks whether to let the check run next time. A `target` that is not in the context falls back to the whole report. The canary test in `test/explainer/browser-prompt.test.ts` builds the prompt for the whole report and for every finding of the injection fixture and asserts the canary never appears.
 
 ### Claude adapter
 
@@ -253,7 +258,7 @@ entitled(state: LicenseState, feature: Feature): boolean
 
 What offline validation can and cannot do: it stops forged keys, because the private key never leaves the keygen machine. It cannot stop one buyer sharing a key, cannot bind to hardware, and cannot stop the device owner patching the app. Honest mitigations: `tag` and `lid` show in About so a leaked key is traceable, revocation ships with updates, and `updatesUntil` makes "one-off" mean "every build released within twelve months of purchase". `updatesUntil` is compared with the compile-time build date, so the system clock plays no part.
 
-Free before purchase: full scan, score and grade, every finding with title, status, evidence and authored explanation, and the complete fix for the three highest-point failing findings, ties broken by catalog order. Fixes of `review` findings are always free. FileVault is the only critical rule and always lands in the top three when it fails, so nobody is left unencrypted because they did not pay. Paid (`Feature`): `all_fixes`, `recheck` (single-section re-collection, paid for every finding including the three free ones), `explainer`. The gate is a UI check in `apps/desktop`; core always produces the full report.
+Free before purchase: full scan, score and grade, every finding with title, status, evidence and authored explanation, and the complete fix for the three highest-point failing findings, ties broken by catalog order. Fixes of `review` findings are always free. FileVault is the only critical rule and always lands in the top three when it fails, so nobody is left unencrypted because they did not pay. Paid (`Feature`): `all_fixes`, `recheck` (single-section re-collection, paid for every finding including the three free ones), `explainer`. The gate is a UI check in `apps/desktop`; core always produces the full report. An `unknown` finding shows neither a fix nor a lock, only a Check again button.
 
 Keygen: `scripts/keygen/keygen.ts`, outside any workspace package, run with `node --experimental-strip-types`. It uses `node:crypto` Ed25519 and needs no dependency.
 
@@ -272,7 +277,7 @@ Screens in `apps/desktop/src/screens/`:
 1. Welcome: what the app reads, what it never reads, then three radio questions and one toggle that produce `ExplainerProfile`. Skippable with defaults. Start Check-up.
 2. Scanning: per-section progress with plain labels ("Checking your firewall"), Cancel.
 3. Overview: score ring with grade, "incomplete" badge, counts by severity, "Next three fixes" cards with points, a "Couldn't check" group with one Open button per missing permission (Full Disk Access, Automation), last scan time, Rescan.
-4. Findings: grouped Needs fixing / Worth a look / Couldn't check / Passed, filterable by severity and category. When a prioritisation exists, its order is shown beside the severity order.
+4. Findings: grouped Needs fixing / Worth a look / Couldn't check / Passed, filterable by severity and category. When a prioritisation exists, its order is shown beside the severity order. The filters ride on the route, so Back from a finding restores them; a nav click starts at all/all.
 5. Finding detail: status, evidence table, authored explanation, AI card when available, fix card (settings path with Open button, command with Copy, steps, verify), effort and side effects, "+N points when fixed", "I've done this, check again", lock overlay when unlicensed.
 6. Ask: follow-up chat scoped to the current report. Hidden when the explainer is `none`.
 7. Settings: explainer provider, API key field backed by Keychain, model id, Full Disk Access status with instructions and Open button, license key entry and state.
@@ -303,7 +308,7 @@ type ExplainState =
   | { kind: "failed"; reason: ExplainerFailure; target: ExplainTarget; byRule: Record<string, Explanation>; order: RuleId[] | null };
 ```
 
-Transitions: idle to collecting on Scan; collecting to evaluating when the invoke resolves and the guard passes (60 s budget); collecting to failed on invoke error or guard failure; Cancel aborts the `signal`, the adapter invokes `cancel_scan`, the invoke rejects with `cancelled` and the machine goes to failed; evaluating to ready (the engine is synchronous and cannot fail; unknowns are data), then `ReportStorePort.saveLast`; ready to rechecking on "check again", which calls `collectSection`, replaces that section in the held `SystemState`, re-runs the engine and returns to ready with `lastRecheck` set to the section key and the new report's `scannedAt`; a recheck that fails returns to ready with the previous report and `lastRecheck: null`; ready or failed to collecting on Rescan. `explain` is a sub-state of ready and never blocks the report. A failed explanation keeps the `byRule` map and `order` already shown and records the `target` that failed, so the UI can retry one thing. A section that could not be read never reaches `failed`; it renders as a grey "Couldn't check" card with the reason and the permission to grant.
+Transitions: idle to collecting on Scan; collecting to evaluating when the invoke resolves and the guard passes (60 s budget); collecting to failed on invoke error or guard failure; Cancel aborts the `signal`, the adapter invokes `cancel_scan` and the invoke rejects with `cancelled`; a cancelled Rescan returns to the ready state it interrupted (`collecting.previous`) and keeps the explanations and the Ask conversation, any other cancel goes to failed; failed to idle on Dismiss, keeping `last`; evaluating to ready (the engine is synchronous and cannot fail; unknowns are data), then `ReportStorePort.saveLast`; ready to rechecking on "check again", which calls `collectSection(key, { signal })` (raced in `useScan` against the same 60 s budget; the deadline aborts the signal, the adapter invokes `cancel_section`, and a late result is dropped), replaces that section in the held `SystemState`, re-runs the engine and returns to ready with `lastRecheck` set to the section key and the new report's `scannedAt`, keeping the explanations of findings that do not read the rechecked section and dropping the rechecked one and the order; a recheck that fails returns to ready with the previous report and `lastRecheck: null`; ready, failed or rechecking to collecting on Rescan. `explain` is a sub-state of ready and rechecking and never blocks the report. A failed explanation keeps the `byRule` map and `order` already shown and records the `target` that failed, so the UI can retry one thing. A section that could not be read never reaches `failed`; it renders as a grey "Couldn't check" card with the reason and the permission to grant.
 
 ## 8. Rust collector layout
 
@@ -319,7 +324,7 @@ apps/desktop/src-tauri/
     settings_pane.rs         SettingsPane enum -> x-apple.systempreferences URL
     license_store.rs         read/write license.key in app data
     secret.rs                keyring wrapper
-    report_store.rs          last-report.json, mode 0600
+    report_store.rs          last-report.json, mode 0600, written to a temp file in the same directory and renamed over the target
     collect/
       mod.rs                 collect_all(), collect_section(); one thread per section, 60 s budget, cancel flag; netstat parsed once and shared by listeners, remoteAccess and fileSharing
       macos/
@@ -367,7 +372,7 @@ The release profile does not set `panic = "abort"`, so panics unwind. `collect::
 | binary missing | `tool_missing` |
 | killed on timeout | `timeout` (for `osascript` the `detail` is `osascript: no answer to the Automation prompt`) |
 | `EPERM` or `EACCES` from a read | `permission_denied` |
-| `EPERM` or `EACCES` under `~/Library/Application Support/{Google,BraveSoftware,Microsoft Edge,Arc,Firefox}` | `needs_full_disk_access` (`ENOENT` there means not installed) |
+| `EPERM` or `EACCES` under `~/Library/Application Support/{Google,BraveSoftware,Microsoft Edge,Arc,Firefox}` | `needs_full_disk_access` (`ENOENT` there means no profile yet; whether a browser is installed is decided by its bundle under `/Applications` or `~/Applications`) |
 | collector panic, caught by `collect::guarded` | `collector_error`, `detail` = `panic` |
 | `osascript` error -1743 | `needs_automation_permission` |
 | parser `Err` | `parse_error`, `detail` = parser name |
@@ -390,19 +395,20 @@ Known non-error outputs are values, not errors: a label absent from `launchctl p
 - `pwpolicy getaccountpolicies`: the output is two parts, the line `Getting global account policies` and then the XML plist. Skip lines until one starts with `<?xml`; the `plist` crate rejects the stream otherwise. `minLength` is N from the first `policyContent` string under `policyCategoryPasswordContent` matching `\.\{(\d+),\}` (the stock policy on this machine is `policyAttributePassword matches '^$|.{4,}+'`, giving 4); `maxFailedAttempts` is N from `policyAttributeFailedAuthentications < N` under `policyCategoryAuthentication`. Either is null when no such string exists. `tests/fixtures/pwpolicy.txt` holds the real two-part output.
 - `sharing -l`: each share point prints `name:`, `path:` and an `smb: { ... guest access: 0|1 ... }` block. Keep `path:` and `guest access:` only; `name:` is a user-authored string and is never collected. `sharing -l` lists share points whether or not File Sharing is on, and on this machine `com.apple.smbd` is absent from the launchd override list while `com.apple.smb.server` has no `enabled` key, so `enabled` is true when the shared listeners table has a non-loopback TCP listener on 445. Rule 022 passes when `enabled` is false, so "turn File Sharing off" is a fix the recheck can confirm.
 - `updates`: `autoInstallSecurityResponses` folds `ConfigDataInstall` and `CriticalUpdateInstall`: any key false gives `false`; both keys missing gives `"unset"`; otherwise `true`.
-- `accounts`: `humanAdminCount` excludes `root` and `_`-prefixed names; the current user's name is compared and discarded, never stored.
+- `accounts`: `humanAdminCount` counts admin group members that resolve in `dscl . -list /Users UniqueID` to a uid of 500 or more, so a deleted account left in `GroupMembership` is not counted; if that listing fails it falls back to excluding `root` and `_`-prefixed names. The current user's name is compared and discarded, never stored.
 - SSH keys: read the first 4 KiB. For `-----BEGIN OPENSSH PRIVATE KEY-----`, base64-decode the body and read the `ciphername` length-prefixed string after the `openssh-key-v1\0` magic: `none` means unencrypted, `aes256-ctr` (with `bcrypt` kdf) means encrypted. For PEM, `Proc-Type: 4,ENCRYPTED` or `BEGIN ENCRYPTED PRIVATE KEY` means encrypted; a plain `BEGIN RSA PRIVATE KEY` or `BEGIN EC PRIVATE KEY` without `Proc-Type` means unencrypted. Unrecognised headers give `encrypted: null`. `ssh-keygen` is never invoked. Key bytes never leave the function.
 - Dotfiles: the fixed list is `~/.zshrc ~/.bashrc ~/.zprofile ~/.profile ~/.env ~/.npmrc ~/.netrc ~/.aws/credentials ~/.docker/config.json`, each capped at 1 MiB, read line by line through a `RegexSet`. The struct holds path, pattern name and line number, never the match. `$VAR` references do not match.
 - Browsers: Firefox reads `profiles.ini` then each profile's `extensions.json`, keeping `type: "extension"` add-ons that are not built in (`app-system-defaults`, `app-builtin`, `app-system-addons`, `app-system-share`), not hidden and not disabled (`active: false` or `userDisabled: true`); `broadHostAccess` comes from `userPermissions.origins`. Chrome-family walks every `Default` and `Profile N` directory, reads `<profile>/Extensions/<id>/<version>/manifest.json` from the version directory with the highest numeric version (`1.10_0` beats `1.9_0`), and skips ids whose `extensions.settings.<id>.state` is 0 in the profile's `Preferences` or `Secure Preferences`. It keeps `name`, `version`, `permissions`, `host_permissions` and `content_scripts[].matches`; a `__MSG_key__` name is resolved from `_locales/<default_locale>/messages.json` and falls back to the id. `broadHostAccess` is true when `permissions`, `host_permissions` or any content script `matches` entry is `<all_urls>` or a wildcard host pattern such as `*://*/*`, `http://*/*` or `https://*/*`; `optional_host_permissions` are not granted at install and do not count.
-- Full Disk Access probe: `read_dir` on the first existing Chrome-family directory, falling back to `~/Library/Safari`. `stat` succeeds on TCC-protected directories; only listing or opening fails, with `EPERM`. If no probe directory exists, `fullDiskAccess` is `null`.
+- Full Disk Access probe: `read_dir` on the first existing Chrome-family or Firefox directory, falling back to `~/Library/Safari`. `stat` succeeds on TCC-protected directories; only listing or opening fails, with `EPERM`. If no probe directory exists, `fullDiskAccess` is `null`.
 - Login items: `osascript -e 'tell application "System Events" to get the name of every login item'`. The app needs `NSAppleEventsUsageDescription` in its Info.plist or macOS denies without prompting. `sfltool dumpbtm` hangs without root and is not used.
 
 ### Tauri command surface
 
 ```
 collect_system_state() -> SystemState            emits "scan:progress" { key, status } per section; rejects with "cancelled"
-cancel_scan()                                    sets the cancel flag for the running scan
-collect_section(key: SectionKey) -> Section      one section, for "check again"
+cancel_scan()                                    sets the cancel flags for the running scan and recheck
+collect_section(key: SectionKey) -> Section      one section, for "check again"; rejects with "cancelled"
+cancel_section()                                 sets the cancel flag for the running recheck only
 check_capabilities() -> Capabilities
 open_settings_pane(pane: SettingsPane)           enum mapped to x-apple.systempreferences URLs; opened from Rust
 secret_get(name) / secret_set(name, value) / secret_delete(name)
@@ -410,7 +416,7 @@ report_save_last(report) / report_load_last()
 license_read() / license_write(key) / license_delete()
 ```
 
-`cancel_scan` sets an `AtomicBool` held in Tauri state and reset at the start of every scan. `exec::run` checks it before spawning a child and polls it every 200 ms while the child runs, killing the child and returning `Err(Cancelled)`; each section also checks it before each command. A cancelled scan therefore ends within a fraction of a second, even during the 45 s `osascript` wait, and `collect_system_state` rejects with `cancelled`.
+`cancel_scan` sets two `AtomicBool`s held in Tauri state, one for the scan and one for the recheck; `cancel_section` sets only the recheck one, so aborting a recheck cannot stop a Rescan started alongside it. Each flag is reset at the start of the collection it guards. `exec::run` checks it before spawning a child and polls it every 200 ms while the child runs, killing the child and returning `Err(Cancelled)`; each section also checks it before each command. A cancelled scan therefore ends within a fraction of a second, even during the 45 s `osascript` wait, and `collect_system_state` or `collect_section` rejects with `cancelled`.
 
 `capabilities/default.json` grants `core:default` only; app-defined commands need no capability entry. No `shell`, `fs`, `http` or `opener` permission is granted to the webview. `tauri-plugin-opener` stays in `Cargo.toml` and `lib.rs` because `open_settings_pane` uses it from Rust: `app.opener().open_url(url, None::<&str>)` through `tauri_plugin_opener::OpenerExt`, where `url` comes from the `SettingsPane` match in `settings_pane.rs`, so the frontend never passes a URL. The scaffold's `opener:default` capability and the `@tauri-apps/plugin-opener` JS dependency are removed. The webview has no path to the filesystem except these commands.
 
@@ -448,7 +454,7 @@ CI: GitHub Actions on `macos-latest` (`.github/workflows/ci.yml`) runs `pnpm -r 
 - Windows and Linux collectors. The schema, ports and `windows-minimal` fixture are ready; the adapters are not.
 - Executing any fix, generating fix scripts, or any elevation of privilege. Instructions only.
 - Payment provider, checkout, key delivery email, web account, license server, hardware binding, seat enforcement.
-- Chrome-family extension reading without Full Disk Access. Safari extensions.
+- Chrome-family and Firefox extension reading without Full Disk Access. Safari extensions.
 - Code-signing inspection of launch items.
 - Scan history beyond the last report, PDF or CSV export, team reports, Cyber Essentials mapping.
 - App self-update (Tauri updater). Signing and notarisation pipeline; the `bundle` config stays open for it.

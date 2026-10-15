@@ -3,10 +3,21 @@ import { evaluate, MACOS_CATALOG, toExplainerContext } from "@talos/core";
 import { createAdapters } from "../adapters";
 import type { Adapters } from "../adapters";
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from "../settings";
+import { bootDemo } from "./demo-boot";
 
 export const APP_VERSION = "0.1.0";
 
-export const adapters: Adapters = createAdapters();
+function storage(): Storage | null {
+  try {
+    return typeof localStorage === "undefined" ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+
+// Demo mode is a build-time choice. VITE_TALOS_DEMO is inlined by Vite; no runtime flag can turn it on.
+export const adapters: Adapters =
+  import.meta.env.VITE_TALOS_DEMO === "1" ? bootDemo(window.location.search, storage()) : createAdapters();
 
 export const catalog = MACOS_CATALOG;
 

@@ -5,13 +5,15 @@ import type { AppContextValue } from "./app/context";
 import { adapters, buildContext, catalog, loadSettings, runEngine, saveSettings } from "./app/container";
 import { buildGate } from "./app/gate";
 import { useRouter } from "./app/router";
-import type { Route, RouteName } from "./app/router";
+import type { Route, RouteMove, RouteName } from "./app/router";
 import { SCAN_ERROR_LABELS } from "./app/labels";
 import { useScan } from "./scan/useScan";
 import { lastReport } from "./scan/machine";
+import { isInAppProvider } from "./settings";
 import type { AppSettings } from "./settings";
 import { Nav } from "./components/Nav";
 import type { NavItem } from "./components/Nav";
+import { ScreenErrorBoundary } from "./components/ScreenErrorBoundary";
 import { Welcome } from "./screens/Welcome";
 import { Scanning } from "./screens/Scanning";
 import { Overview } from "./screens/Overview";
@@ -65,6 +67,15 @@ export default function App() {
   const report = lastReport(scan.scan);
   const gate = useMemo(() => buildGate(report, license), [report, license]);
 
+  const showShell =
+    settings.onboarded && scan.scan.kind !== "collecting" && scan.scan.kind !== "evaluating";
+  // Skip the focus on the screen a launch lands on; keyed on the route so a repeated effect run (StrictMode) skips too.
+  const launchKey = useRef<string | null | undefined>(undefined);
+  if (launchKey.current === undefined) launchKey.current = showShell ? routeKey(router.route) : null;
+  useEffect(() => {
+    if (!showShell) launchKey.current = null;
+  }, [showShell]);
+
   const value: AppContextValue = useMemo(
     () => ({ adapters, catalog, settings, updateSettings, license, setLicense, gate, scan, router }),
     [settings, updateSettings, license, gate, scan, router],
@@ -85,7 +96,7 @@ export default function App() {
     );
   }
 
-  if (scan.scan.kind === "collecting" || scan.scan.kind === "evaluating") {
+  if (!showShell) {
     return (
       <AppContext.Provider value={value}>
         <Scanning sections={scan.scan.kind === "collecting" ? scan.scan.sections : null} onCancel={scan.cancel} />
@@ -93,7 +104,8 @@ export default function App() {
     );
   }
 
-  const aiOn = settings.explainer.provider !== "none";
+  // Ask needs an explainer that answers inside the app.
+  const aiOn = isInAppProvider(settings.explainer.provider);
   const items: NavItem[] = [
     { name: "overview", label: "Overview" },
     { name: "findings", label: "Findings" },
@@ -119,6 +131,9 @@ export default function App() {
               {SCAN_ERROR_LABELS[scan.scan.error]}{" "}
               <button type="button" className="link-button" onClick={() => void scan.start()}>
                 Try again
+              </button>{" "}
+              <button type="button" className="link-button" onClick={scan.dismissFailure} aria-label="Dismiss this message">
+                Dismiss
               </button>
             </div>
           )}
@@ -130,7 +145,13 @@ export default function App() {
               </button>
             </div>
           )}
-          <Screen />
+          <ScreenErrorBoundary
+            resetKey={routeKey(router.route)}
+            onRescan={() => void scan.start()}
+            onSettings={() => router.navigate({ name: "settings" })}
+          >
+            <Screen launchKey={launchKey} />
+          </ScreenErrorBoundary>
         </div>
       </div>
     </AppContext.Provider>
@@ -141,18 +162,33 @@ function routeKey(route: Route): string {
   return route.name === "finding" ? `finding:${route.ruleId}` : route.name;
 }
 
-function Screen() {
-  const { route } = useApp().router;
+function Screen({ launchKey }: { launchKey: { current: string | null | undefined } }) {
+  const { route, lastMove } = useApp().router;
   const host = useRef<HTMLDivElement>(null);
   const key = routeKey(route);
+  // Read inside the effect without re-running it on every render.
+  const moveRef = useRef<{ route: Route; lastMove: RouteMove }>({ route, lastMove });
+  moveRef.current = { route, lastMove };
+  const previous = useRef<Route>(route);
 
-  // Move focus to the new screen's heading so keyboard and screen-reader users land on it.
+  // Focus the new screen's heading, or on Back from a finding the card it was opened from if it is still shown.
   useEffect(() => {
+    const from = previous.current;
+    previous.current = moveRef.current.route;
+    if (key === launchKey.current) return;
+    launchKey.current = null;
+    if (moveRef.current.lastMove === "back" && from.name === "finding") {
+      const card = host.current?.querySelector(`[data-rule-id="${from.ruleId}"]`);
+      if (card instanceof HTMLElement) {
+        card.focus();
+        return;
+      }
+    }
     const heading = host.current?.querySelector("h1");
     if (heading === null || heading === undefined) return;
     heading.tabIndex = -1;
     heading.focus();
-  }, [key]);
+  }, [key, launchKey]);
 
   return (
     <div ref={host} className="screen-host">

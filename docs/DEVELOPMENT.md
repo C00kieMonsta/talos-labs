@@ -36,6 +36,7 @@ Run from the repo root unless noted.
 | `pnpm --filter @talos/core fixtures:emit` | writes every TypeScript fixture to `packages/core/fixtures/*.json` for the Rust contract test |
 | `pnpm desktop` | `tauri dev`: Vite on port 1420 plus a debug Rust build with hot reload |
 | `pnpm --filter @talos/desktop build` | web assets only, into `apps/desktop/dist` |
+| `pnpm --filter @talos/desktop dev:demo` | the web build in demo mode on port 1430: fixture-backed adapters, runs in a plain browser. See below |
 | `pnpm desktop:build` | `tauri build`: release binary and bundles. See `docs/SIGNING.md` |
 | `pnpm scan` | runs `talos-collect` (building it when missing), evaluates the result and prints a summary. `pnpm scan --json` prints the `ScanReport`; `pnpm scan <state.json>` evaluates a saved `SystemState` instead of running the collector |
 | `cargo test` (in `apps/desktop/src-tauri`) | parser, exec and serde round-trip tests |
@@ -55,6 +56,19 @@ pnpm scan --json   # the full ScanReport
 
 The script runs `apps/desktop/src-tauri/target/debug/talos-collect` and builds it with `cargo build --bin talos-collect` when it is missing (`--build` forces a rebuild). Pass a file path to evaluate a saved `SystemState` JSON instead.
 
+## Demo mode and QA harness
+
+The web build can run in a plain browser with every port backed by a core fixture, so the UI can be driven by a script without the Tauri window. `apps/desktop/src/adapters/demo.ts` holds the adapters; `apps/desktop/src/app/demo-boot.ts` reads the options from the page URL (`fixture`, `delay`, `explainer`, `reset`, `provider`, `dev`, `onboarded`, `licensed`).
+
+```sh
+cd apps/desktop
+pnpm dev:demo                                                   # http://localhost:1430/?reset=1
+pnpm exec tsx qa/snap.ts --port 1430 --out qa/screenshots/mine  # screenshots, light and dark, two sizes
+pnpm exec tsx qa/axe.ts --port 1430                             # axe-core, exits 1 on serious or critical
+```
+
+Both scripts start the server when nothing answers on the port and stop it afterwards. Demo mode is only reachable when Vite runs with `VITE_TALOS_DEMO=1`; `tauri dev` and `tauri build` refuse that variable (`apps/desktop/vite.config.ts`), and the production bundle carries no demo code. Details and the URL parameters are in `apps/desktop/qa/README.md`; the security note is in `docs/SECURITY-MODEL.md`.
+
 ## Layout
 
 ```
@@ -73,6 +87,7 @@ apps/desktop/src/
   license/       public-key.ts, revoked.ts
   scan/          the scan state machine
   screens/       Welcome, Scanning, Overview, Findings, Finding detail, Ask, Settings, About
+apps/desktop/qa/    snap.ts and axe.ts, browser QA against the demo build (see above)
 apps/desktop/src-tauri/src/
   commands.rs    Tauri command surface
   exec.rs        enum Bin and run(bin, args, timeout, cancel)
@@ -125,8 +140,9 @@ Tauri commands. The Rust side defines them, the TypeScript side calls them with 
 
 ```
 collect_system_state() -> SystemState        emits "scan:progress" { key, status: "started" | "ok" | "unavailable" }
-collect_section({ key }) -> Section
-cancel_scan() -> void                        the running scan rejects with "cancelled"
+collect_section({ key }) -> Section          rejects with "cancelled"
+cancel_scan() -> void                        the running scan and recheck reject with "cancelled"
+cancel_section() -> void                     the running recheck rejects with "cancelled"; the scan goes on
 check_capabilities() -> { fullDiskAccess: boolean | null }
 open_settings_pane({ pane }) -> void         pane is a SettingsPane string; Rust maps it to a URL
 secret_get({ name }) / secret_set({ name, value }) / secret_delete({ name })
@@ -140,7 +156,7 @@ Errors are strings.
 
 Two optional permissions. Denying either marks the related rule `unknown`; it never raises the score.
 
-Full Disk Access. Needed to list Chrome, Brave, Edge and Arc extension directories (and for the capability probe). macOS attributes a command-line process to the app that launched it, so for `cargo run --bin talos-collect` and `pnpm desktop` grant Full Disk Access to the terminal you run them from (Terminal, iTerm2, or your editor) under System Settings > Privacy & Security > Full Disk Access. For a built `.app`, grant it to the app itself. Without it, the `browsers` section reports `needs_full_disk_access` for Chrome-family browsers and rule 028 is `unknown`. That is the expected dev-machine fixture outcome.
+Full Disk Access. Needed to list Chrome, Brave, Edge, Arc and Firefox extension directories (and for the capability probe). macOS attributes a command-line process to the app that launched it, so for `cargo run --bin talos-collect` and `pnpm desktop` grant Full Disk Access to the terminal you run them from (Terminal, iTerm2, or your editor) under System Settings > Privacy & Security > Full Disk Access. For a built `.app`, grant it to the app itself. Without it, the `browsers` section reports `needs_full_disk_access` for Chrome-family browsers and Firefox, and rule 028 is `unknown`. That is the expected dev-machine fixture outcome.
 
 Automation. The login-items collector asks System Events for the list of login items through `osascript`. The first run prompts "Terminal would like to control System Events". Approve it. A denial gives error -1743, which the collector maps to `needs_automation_permission`. If the prompt is left unanswered, `osascript` is killed after 45 s and the section is `timeout` with detail `osascript: no answer to the Automation prompt`. Manage it under Privacy & Security > Automation. The built app needs `NSAppleEventsUsageDescription` in its `Info.plist` (`apps/desktop/src-tauri/Info.plist`), otherwise macOS denies without prompting.
 

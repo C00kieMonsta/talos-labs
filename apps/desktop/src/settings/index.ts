@@ -1,7 +1,14 @@
 import type { ExplainerProfile } from "@talos/core";
 
+/** Where AI help comes from. "browser" opens the user's own Claude or ChatGPT account; no key is involved. */
+export type ExplainerProvider = "browser" | "none" | "claude" | "ollama";
+
+/** The account the browser hand-off opens. */
+export type Assistant = "claude" | "chatgpt";
+
 export interface ExplainerSettings {
-  provider: "none" | "claude" | "ollama";
+  provider: ExplainerProvider;
+  assistant: Assistant;
   claudeModel: string;
   ollamaModel: string;
 }
@@ -10,13 +17,19 @@ export interface AppSettings {
   explainer: ExplainerSettings;
   profile: ExplainerProfile;
   onboarded: boolean;
+  /** Shows Terminal commands next to fixes and unlocks the API-key and local-model providers. */
+  developerMode: boolean;
 }
 
 export const SETTINGS_STORAGE_KEY = "talos.settings";
 
+/** Longest model id accepted; a longer stored value falls back to the default. */
+export const MAX_MODEL_ID_LENGTH = 64;
+
 export const DEFAULT_SETTINGS: AppSettings = {
   explainer: {
-    provider: "none",
+    provider: "browser",
+    assistant: "claude",
     claudeModel: "claude-opus-5",
     ollamaModel: "llama3.1",
   },
@@ -27,11 +40,18 @@ export const DEFAULT_SETTINGS: AppSettings = {
     laptopLeavesHome: true,
   },
   onboarded: false,
+  developerMode: false,
 };
 
-const PROVIDERS: readonly ExplainerSettings["provider"][] = ["none", "claude", "ollama"];
+export const PROVIDERS: readonly ExplainerProvider[] = ["browser", "none", "claude", "ollama"];
+export const ASSISTANTS: readonly Assistant[] = ["claude", "chatgpt"];
 const ROLES: readonly ExplainerProfile["role"][] = ["individual", "freelancer", "small_business"];
 const TECHNICAL: readonly ExplainerProfile["technical"][] = ["low", "medium", "high"];
+
+/** Providers that run inside the app and need Developer mode. */
+export function isInAppProvider(provider: ExplainerProvider): provider is "claude" | "ollama" {
+  return provider === "claude" || provider === "ollama";
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -45,6 +65,11 @@ function pickString(value: unknown, fallback: string): string {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : fallback;
 }
 
+function pickModelId(value: unknown, fallback: string): string {
+  const id = pickString(value, fallback);
+  return id.length <= MAX_MODEL_ID_LENGTH ? id : fallback;
+}
+
 function pickBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
@@ -55,11 +80,15 @@ export function parseSettings(raw: unknown): AppSettings {
   const explainer = isRecord(root["explainer"]) ? root["explainer"] : {};
   const profile = isRecord(root["profile"]) ? root["profile"] : {};
   const d = DEFAULT_SETTINGS;
+  const developerMode = pickBoolean(root["developerMode"], d.developerMode);
+  const provider = pickEnum(explainer["provider"], PROVIDERS, d.explainer.provider);
   return {
     explainer: {
-      provider: pickEnum(explainer["provider"], PROVIDERS, d.explainer.provider),
-      claudeModel: pickString(explainer["claudeModel"], d.explainer.claudeModel),
-      ollamaModel: pickString(explainer["ollamaModel"], d.explainer.ollamaModel),
+      // An in-app provider is only offered in Developer mode; without it the browser hand-off applies.
+      provider: !developerMode && isInAppProvider(provider) ? "browser" : provider,
+      assistant: pickEnum(explainer["assistant"], ASSISTANTS, d.explainer.assistant),
+      claudeModel: pickModelId(explainer["claudeModel"], d.explainer.claudeModel),
+      ollamaModel: pickModelId(explainer["ollamaModel"], d.explainer.ollamaModel),
     },
     profile: {
       role: pickEnum(profile["role"], ROLES, d.profile.role),
@@ -68,6 +97,7 @@ export function parseSettings(raw: unknown): AppSettings {
       laptopLeavesHome: pickBoolean(profile["laptopLeavesHome"], d.profile.laptopLeavesHome),
     },
     onboarded: pickBoolean(root["onboarded"], d.onboarded),
+    developerMode,
   };
 }
 

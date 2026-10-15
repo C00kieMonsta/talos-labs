@@ -70,3 +70,10 @@ describe("TL-MAC-027 measures against collectedAt, not ctx.now", () => {
     expect(later.evidence).toEqual(first.evidence);
   });
 });
+
+describe("TL-MAC-027 explanation", () => {
+  it("gives the reason a stale backup matters and says nothing about the check's own mechanics", () => {
+    expect(TL_MAC_027.explanation).not.toMatch(/\b(this check|the check|could not tell|Time Machine's own records)\b/i);
+    expect(TL_MAC_027.explanation).toMatch(/closes that gap\.$/);
+  });
+});

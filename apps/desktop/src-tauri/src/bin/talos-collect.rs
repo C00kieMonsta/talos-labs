@@ -46,7 +46,13 @@ fn main() {
         }
         [flag, key] if flag == "--section" => {
             let Some(key) = SectionKey::parse(key) else { usage() };
-            print_json(&collect::collect_section(key, cancel));
+            match collect::collect_section(key, cancel) {
+                Ok(section) => print_json(&section),
+                Err(err) => {
+                    eprintln!("{err}");
+                    std::process::exit(1);
+                }
+            }
         }
         _ => usage(),
     }

@@ -126,7 +126,13 @@ export interface RuleResult {
 /** A result that needs attention, with the catalog text attached for display. */
 export interface Finding {
   readonly ruleId: RuleId;
+  /** The positive statement of what is checked, from the rule. */
   readonly title: string;
+  /**
+   * Status-aware one-line headline for lists and cards. fail and review carry the
+   * rule's failTitle; unknown carries "Couldn't check whether " plus the title.
+   */
+  readonly headline: string;
   readonly severity: Severity;
   readonly category: Category;
   readonly cis: string | null;

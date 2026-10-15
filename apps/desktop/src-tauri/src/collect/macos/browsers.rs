@@ -1,4 +1,6 @@
-//! Installed browsers and their extensions. Chrome-family data is TCC-protected.
+//! Installed browsers and their extensions. The application bundle decides whether a browser is
+//! installed; the data directory under `~/Library/Application Support` only decides which profiles
+//! to read. Chrome-family and Firefox profile data are TCC-protected.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -8,15 +10,20 @@ use super::{check_cancel, home, is_not_found, is_permission_error};
 use crate::collect::{to_section, Fail};
 use crate::state::{BrowserExtension, BrowserId, BrowserReport, Browsers, Section, UnavailableReason};
 
-/// Chrome-family user data directories under `~/Library/Application Support`.
-pub const CHROME_FAMILY: [(BrowserId, &str); 4] = [
-    (BrowserId::Chrome, "Google/Chrome"),
-    (BrowserId::Brave, "BraveSoftware/Brave-Browser"),
-    (BrowserId::Edge, "Microsoft Edge"),
-    (BrowserId::Arc, "Arc/User Data"),
+/// Chrome-family browsers: bundle name in an applications folder, user data directory under
+/// `~/Library/Application Support`.
+pub const CHROME_FAMILY: [(BrowserId, &str, &str); 4] = [
+    (BrowserId::Chrome, "Google Chrome.app", "Google/Chrome"),
+    (BrowserId::Brave, "Brave Browser.app", "BraveSoftware/Brave-Browser"),
+    (BrowserId::Edge, "Microsoft Edge.app", "Microsoft Edge"),
+    (BrowserId::Arc, "Arc.app", "Arc/User Data"),
 ];
 
+pub const FIREFOX_BUNDLE: &str = "Firefox.app";
 pub const FIREFOX_DIR: &str = "Firefox";
+
+/// Bundles are looked up here and in `~/Applications`. Reading a bundle's metadata needs no TCC grant.
+pub const APPLICATIONS_DIR: &str = "/Applications";
 
 /// true for `<all_urls>` or a wildcard host pattern such as `*://*/*`.
 pub fn is_broad_host_pattern(pattern: &str) -> bool {
@@ -176,8 +183,13 @@ fn fda_fail(err: &std::io::Error, label: &str) -> Fail {
     }
 }
 
+/// `Default` and `Profile N` directories. A missing user data directory means no profile yet.
 fn chrome_profile_dirs(user_data: &Path, label: &str) -> Result<Vec<PathBuf>, Fail> {
-    let entries = std::fs::read_dir(user_data).map_err(|err| fda_fail(&err, &format!("read_dir: Application Support/{label}")))?;
+    let entries = match std::fs::read_dir(user_data) {
+        Ok(entries) => entries,
+        Err(err) if is_not_found(&err) => return Ok(Vec::new()),
+        Err(err) => return Err(fda_fail(&err, &format!("read_dir: Application Support/{label}"))),
+    };
     let mut dirs: Vec<PathBuf> = entries
         .flatten()
         .map(|e| e.path())
@@ -251,9 +263,13 @@ pub fn chrome_extensions(user_data: &Path, label: &str) -> Result<Option<Vec<Bro
     Ok(Some(found))
 }
 
+/// User-installed extensions across every profile in `profiles.ini`. No `profiles.ini` means no profile yet.
 pub fn firefox_extensions(base: &Path) -> Result<Vec<BrowserExtension>, Fail> {
-    let ini = std::fs::read_to_string(base.join("profiles.ini"))
-        .map_err(|err| fda_fail(&err, "read: Application Support/Firefox/profiles.ini"))?;
+    let ini = match std::fs::read_to_string(base.join("profiles.ini")) {
+        Ok(ini) => ini,
+        Err(err) if is_not_found(&err) => return Ok(Vec::new()),
+        Err(err) => return Err(fda_fail(&err, "read: Application Support/Firefox/profiles.ini")),
+    };
     let mut found: Vec<BrowserExtension> = Vec::new();
     for (path, relative) in parse_profiles_ini(&ini) {
         let profile = if relative { base.join(path) } else { PathBuf::from(path) };
@@ -268,30 +284,65 @@ pub fn firefox_extensions(base: &Path) -> Result<Vec<BrowserExtension>, Fail> {
     Ok(found)
 }
 
-/// Installed when the directory can be stat'ed. ENOENT means not installed.
-fn installed(dir: &Path) -> bool {
+/// Whether an application bundle exists in any of the applications folders.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Presence {
+    Present,
+    Absent,
+    /// No folder answered ENOENT or found it, so the bundle may still be there.
+    Unknown,
+}
+
+fn bundle_presence(app_dirs: &[PathBuf], bundle: &str) -> Presence {
+    let mut unknown = false;
+    for dir in app_dirs {
+        match std::fs::metadata(dir.join(bundle)) {
+            Ok(_) => return Presence::Present,
+            Err(err) if is_not_found(&err) => {}
+            Err(_) => unknown = true,
+        }
+    }
+    if unknown { Presence::Unknown } else { Presence::Absent }
+}
+
+/// Data directory that can be stat'ed. ENOENT means none; a leftover directory from a deleted app still counts.
+fn has_data_dir(dir: &Path) -> bool {
     match std::fs::metadata(dir) {
         Ok(_) => true,
         Err(err) => !is_not_found(&err),
     }
 }
 
-pub fn scan(app_support: &Path) -> Browsers {
+/// The bundle decides. Only when no applications folder could be checked does the data directory decide.
+fn is_installed(presence: Presence, user_data: &Path) -> bool {
+    match presence {
+        Presence::Present => true,
+        Presence::Absent => false,
+        Presence::Unknown => has_data_dir(user_data),
+    }
+}
+
+/// `app_dirs` are the applications folders searched for bundles, normally `/Applications` and `~/Applications`.
+pub fn scan(app_support: &Path, app_dirs: &[PathBuf]) -> Browsers {
     let mut installed_browsers = Vec::new();
-    for (browser, rel) in CHROME_FAMILY {
+    for (browser, bundle, rel) in CHROME_FAMILY {
         let user_data = app_support.join(rel);
-        if !installed(&user_data) {
+        let presence = bundle_presence(app_dirs, bundle);
+        if !is_installed(presence, &user_data) {
             continue;
         }
         let extensions = match chrome_extensions(&user_data, rel) {
             Ok(Some(list)) => Section::ok(list),
+            // The bundle is there but the browser has not made a profile yet: nothing to list.
+            Ok(None) if presence == Presence::Present => Section::ok(Vec::new()),
+            // A data directory without a profile and no bundle to vouch for it is a leftover.
             Ok(None) => continue,
             Err(fail) => fail.into_section(),
         };
         installed_browsers.push(BrowserReport { browser, extensions });
     }
     let firefox = app_support.join(FIREFOX_DIR);
-    if installed(&firefox) {
+    if is_installed(bundle_presence(app_dirs, FIREFOX_BUNDLE), &firefox) {
         installed_browsers.push(BrowserReport { browser: BrowserId::Firefox, extensions: to_section(firefox_extensions(&firefox)) });
     }
     Browsers { installed: installed_browsers }
@@ -299,7 +350,9 @@ pub fn scan(app_support: &Path) -> Browsers {
 
 fn inner(cancel: &AtomicBool) -> Result<Browsers, Fail> {
     check_cancel(cancel)?;
-    Ok(scan(&home()?.join("Library/Application Support")))
+    let home = home()?;
+    let app_dirs = [PathBuf::from(APPLICATIONS_DIR), home.join("Applications")];
+    Ok(scan(&home.join("Library/Application Support"), &app_dirs))
 }
 
 pub fn collect(cancel: &AtomicBool) -> Section<Browsers> {
@@ -408,10 +461,23 @@ mod tests {
         assert!(parse_firefox_extensions("{}").is_empty());
     }
 
+    /// A temp tree with `support/` for Application Support and `apps/` holding the named bundles.
+    fn fake_tree(name: &str, bundles: &[&str]) -> (PathBuf, PathBuf, Vec<PathBuf>) {
+        let root = std::env::temp_dir().join(format!("talos-browsers-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let support = root.join("support");
+        let apps = root.join("apps");
+        std::fs::create_dir_all(&support).unwrap();
+        std::fs::create_dir_all(&apps).unwrap();
+        for bundle in bundles {
+            std::fs::create_dir_all(apps.join(bundle).join("Contents")).unwrap();
+        }
+        (root, support, vec![apps])
+    }
+
     #[test]
     fn scan_on_a_fake_application_support_tree() {
-        let dir = std::env::temp_dir().join(format!("talos-browsers-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let (root, dir, apps) = fake_tree("tree", &["Google Chrome.app", "Firefox.app"]);
         let ext_dir = dir.join("Google/Chrome/Default/Extensions/abcdefghijklmnop/1.0_0");
         std::fs::create_dir_all(&ext_dir).unwrap();
         std::fs::write(ext_dir.join("manifest.json"), r#"{"name":"X","version":"1.0","host_permissions":["*://*/*"]}"#).unwrap();
@@ -432,8 +498,12 @@ mod tests {
         std::fs::create_dir_all(&ff).unwrap();
         std::fs::write(dir.join("Firefox/profiles.ini"), "[Profile0]\nName=d\nIsRelative=1\nPath=Profiles/a.default\n").unwrap();
         std::fs::write(ff.join("extensions.json"), r#"{"addons":[{"id":"a@b","type":"extension","location":"app-profile","version":"1","defaultLocale":{"name":"A"},"userPermissions":{"permissions":[],"origins":[]}}]}"#).unwrap();
-        let browsers = scan(&dir);
-        assert_eq!(browsers.installed.len(), 2);
+        // Leftover data from a deleted Brave, with a profile and an extension still on disk.
+        let brave_dir = dir.join("BraveSoftware/Brave-Browser/Default/Extensions/dddddddddddddddd/1.0_0");
+        std::fs::create_dir_all(&brave_dir).unwrap();
+        std::fs::write(brave_dir.join("manifest.json"), r#"{"name":"Gone","version":"1.0","host_permissions":["<all_urls>"]}"#).unwrap();
+        let browsers = scan(&dir, &apps);
+        assert_eq!(browsers.installed.len(), 2, "Brave has data but no bundle, so it is not installed");
         assert_eq!(browsers.installed[0].browser, BrowserId::Chrome);
         let chrome = browsers.installed[0].extensions.as_ok().unwrap();
         assert_eq!(chrome.len(), 2, "the disabled extension is skipped");
@@ -444,16 +514,59 @@ mod tests {
         assert_eq!(chrome[1].name, "Localised");
         assert_eq!(browsers.installed[1].browser, BrowserId::Firefox);
         assert_eq!(browsers.installed[1].extensions.as_ok().unwrap()[0].name, "A");
-        let _ = std::fs::remove_dir_all(&dir);
-        assert!(scan(Path::new("/nonexistent/talos")).installed.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(scan(Path::new("/nonexistent/talos"), &[PathBuf::from("/nonexistent/talos-apps")]).installed.is_empty());
     }
 
     #[test]
-    fn user_data_without_profiles_is_not_installed() {
-        let dir = std::env::temp_dir().join(format!("talos-browsers-leftover-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+    fn leftover_data_dirs_without_a_bundle_are_not_installed() {
+        let (root, dir, apps) = fake_tree("leftover", &[]);
+        std::fs::create_dir_all(dir.join("BraveSoftware/Brave-Browser/Default/Extensions")).unwrap();
+        std::fs::create_dir_all(dir.join("Microsoft Edge/Default")).unwrap();
         std::fs::create_dir_all(dir.join("Arc/User Data/NativeMessagingHosts")).unwrap();
-        assert!(scan(&dir).installed.is_empty());
-        let _ = std::fs::remove_dir_all(&dir);
+        let ff = dir.join("Firefox/Profiles/a.default");
+        std::fs::create_dir_all(&ff).unwrap();
+        std::fs::write(dir.join("Firefox/profiles.ini"), "[Profile0]\nName=d\nIsRelative=1\nPath=Profiles/a.default\n").unwrap();
+        assert!(scan(&dir, &apps).installed.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn bundle_without_a_profile_is_installed_with_nothing_to_list() {
+        let (root, dir, apps) = fake_tree("fresh", &["Microsoft Edge.app", "Firefox.app"]);
+        let browsers = scan(&dir, &apps);
+        assert_eq!(browsers.installed.len(), 2);
+        assert_eq!(browsers.installed[0].browser, BrowserId::Edge);
+        assert!(browsers.installed[0].extensions.as_ok().unwrap().is_empty(), "never launched: no profile, no extensions");
+        assert_eq!(browsers.installed[1].browser, BrowserId::Firefox);
+        assert!(browsers.installed[1].extensions.as_ok().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn unreadable_applications_folder_falls_back_to_the_data_dir() {
+        use std::os::unix::fs::PermissionsExt;
+        let (root, dir, apps) = fake_tree("unreadable", &[]);
+        std::fs::create_dir_all(dir.join("Arc/User Data/NativeMessagingHosts")).unwrap();
+        std::fs::create_dir_all(dir.join("Google/Chrome/Default")).unwrap();
+        std::fs::set_permissions(&apps[0], std::fs::Permissions::from_mode(0o000)).unwrap();
+        assert_eq!(bundle_presence(&apps, "Arc.app"), Presence::Unknown);
+        let browsers = scan(&dir, &apps);
+        std::fs::set_permissions(&apps[0], std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(browsers.installed.len(), 1, "Arc has no profile and no bundle answer; Chrome has a profile");
+        assert_eq!(browsers.installed[0].browser, BrowserId::Chrome);
+        assert!(browsers.installed[0].extensions.as_ok().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn bundle_presence_prefers_a_hit_over_an_unreadable_folder() {
+        let (root, _, mut apps) = fake_tree("presence", &["Arc.app"]);
+        assert_eq!(bundle_presence(&apps, "Arc.app"), Presence::Present);
+        assert_eq!(bundle_presence(&apps, "Firefox.app"), Presence::Absent);
+        apps.insert(0, PathBuf::from("/nonexistent/talos-apps"));
+        assert_eq!(bundle_presence(&apps, "Arc.app"), Presence::Present, "a missing folder does not hide a hit elsewhere");
+        assert_eq!(bundle_presence(&[], "Arc.app"), Presence::Absent);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

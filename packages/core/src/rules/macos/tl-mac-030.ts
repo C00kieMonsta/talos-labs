@@ -8,6 +8,7 @@ export const PRIVATE_KEY_MODES: readonly string[] = ["600", "400"];
 export const TL_MAC_030: Rule = {
   id: "TL-MAC-030",
   title: "Your SSH folder is private",
+  failTitle: "Your SSH folder is not private",
   severity: "medium",
   category: "developer",
   cis: null,
@@ -24,6 +25,13 @@ export const TL_MAC_030: Rule = {
     commands: [
       {
         program: "chmod",
+        args: ["700", "~/.ssh"],
+        needsAdmin: false,
+        interactive: false,
+        appliesTo: null,
+      },
+      {
+        program: "chmod",
         args: ["600", "{path}"],
         needsAdmin: false,
         interactive: false,
@@ -31,10 +39,10 @@ export const TL_MAC_030: Rule = {
       },
     ],
     steps: [
-      "Open Terminal and run chmod 700 ~/.ssh so only your account can open the folder.",
-      "Run the command shown for each key listed in the evidence so only your account can read it.",
+      "Make the folder itself private with the first command, so only your account can open it.",
+      "Run the second command for each key listed in the evidence, so only your account can read it.",
     ],
-    verify: "Run ls -la ~/.ssh in Terminal. The folder shows drwx------ and each private key shows -rw------- or -r--------.",
+    verify: "Run the check-up again; the folder shows as readable by you only and no key is listed.",
     effort: "two_minutes",
     sideEffects: "none",
   },

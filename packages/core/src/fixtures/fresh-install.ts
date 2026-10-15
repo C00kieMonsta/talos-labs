@@ -23,7 +23,7 @@ export const FRESH_INSTALL: SystemState = {
   sections: {
     diskEncryption: {
       status: "ok",
-      data: { systemVolumeEncrypted: false, method: "filevault" },
+      data: { systemVolumeEncrypted: false, method: "none" },
     },
     firewall: {
       status: "ok",

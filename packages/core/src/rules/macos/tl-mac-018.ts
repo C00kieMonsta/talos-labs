@@ -25,6 +25,7 @@ function smbOwnedByRule022(state: SystemState): boolean {
 export const TL_MAC_018: Rule = {
   id: "TL-MAC-018",
   title: "No program is listening for connections from the network",
+  failTitle: "A program is listening for connections from the network",
   severity: "medium",
   category: "network",
   cis: null,
@@ -38,9 +39,17 @@ export const TL_MAC_018: Rule = {
     summary: "Quit or reconfigure the listening program, or block all incoming connections in the firewall.",
     settingsPath: ["System Settings", "Network", "Firewall", "Options"],
     settingsPane: "firewall",
-    commands: [],
+    commands: [
+      {
+        program: "lsof",
+        args: ["-nP", "-iTCP", "-sTCP:LISTEN"],
+        needsAdmin: true,
+        interactive: false,
+        appliesTo: null,
+      },
+    ],
     steps: [
-      "Find the program named in the evidence. If no name is shown, run lsof -nP -iTCP:<port> in Terminal with the port from the evidence to find it. If you do not use it, quit it or uninstall it.",
+      "Find the program named in the evidence. If no name is shown, the port number is the clue: check any development servers, databases or media tools you have running. If you do not use it, quit it or uninstall it.",
       "Port 445 is File Sharing, shown as launchd or smbd. If you do not share files from this Mac, switch File Sharing off under General, then Sharing.",
       "If you need it, set it to listen on 127.0.0.1 only; most tools have a setting or flag for this.",
       "For a stronger default, open System Settings, then Network, then Firewall, click Options and switch on Block all incoming connections.",

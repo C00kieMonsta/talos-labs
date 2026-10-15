@@ -4,6 +4,7 @@ import { ev, fail, MACOS_ONLY, pass, section, TRI_VOCABULARY } from "../helpers"
 export const TL_MAC_015: Rule = {
   id: "TL-MAC-015",
   title: "The Guest account is off",
+  failTitle: "The Guest account is on",
   severity: "medium",
   category: "access_control",
   cis: "2.13.1",

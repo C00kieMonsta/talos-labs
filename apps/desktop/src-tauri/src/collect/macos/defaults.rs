@@ -38,7 +38,44 @@ pub fn parse_dump(text: &str) -> BTreeMap<String, String> {
     map
 }
 
-fn unquote(text: &str) -> String {
+/// Number of entries in a top-level array key of a `defaults read` dump, or None when the key is absent
+/// or is not an array. An entry is a scalar line, a nested `{` dictionary or a nested `(` array.
+pub fn array_len(text: &str, key: &str) -> Option<usize> {
+    let mut depth: i32 = 0;
+    let mut count: Option<usize> = None;
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if line == "{" || line == "(" {
+            if depth == 2 && let Some(n) = count.as_mut() {
+                *n += 1;
+            }
+            depth += 1;
+            continue;
+        }
+        if line.starts_with('}') || line.starts_with(')') {
+            depth -= 1;
+            if depth == 1 && count.is_some() {
+                return count;
+            }
+            continue;
+        }
+        let opens = line.ends_with('{') || line.ends_with('(');
+        if depth == 1 && line.ends_with('(') && let Some((k, _)) = line.split_once('=') && unquote(k.trim()) == key {
+            count = Some(0);
+        } else if depth == 2 && !opens && let Some(n) = count.as_mut() {
+            *n += 1;
+        }
+        if opens {
+            depth += 1;
+        }
+    }
+    None
+}
+
+pub fn unquote(text: &str) -> String {
     text.strip_prefix('"')
         .and_then(|t| t.strip_suffix('"'))
         .unwrap_or(text)
@@ -136,6 +173,20 @@ mod tests {
         assert!(!map.contains_key("MSU_UPDATE_24E263_patch_15.4.1_minor"));
         assert!(!map.contains_key("en"));
         assert_eq!(map.get("AutoInstallProductKeys"), None);
+    }
+
+    #[test]
+    fn counts_top_level_array_entries() {
+        assert_eq!(array_len(DUMP, "AutoInstallProductKeys"), Some(0));
+        assert_eq!(array_len(DUMP, "PrimaryLanguages"), Some(2));
+        assert_eq!(array_len(DUMP, "FirstInstallTonightDateDictionary"), None, "a dictionary is not an array");
+        assert_eq!(array_len(DUMP, "SplatEnabled"), None, "a scalar is not an array");
+        assert_eq!(array_len(DUMP, "Missing"), None);
+        assert_eq!(array_len("", "Missing"), None);
+        let dicts = "{\n    Other =     (\n        {\n            A = 1;\n        }\n    );\n    \"Quoted Key\" =     (\n                {\n            \"Display Name\" = \"macOS 27.1\";\n            Nested =             (\n                x\n            );\n        },\n                {\n            \"Display Name\" = \"Safari 27.1\";\n        }\n    );\n    After = 1;\n}\n";
+        assert_eq!(array_len(dicts, "Quoted Key"), Some(2), "each dictionary is one entry");
+        assert_eq!(array_len(dicts, "Other"), Some(1));
+        assert_eq!(array_len(dicts, "After"), None);
     }
 
     #[test]

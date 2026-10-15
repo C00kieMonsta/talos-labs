@@ -9,6 +9,7 @@ import type { AppContextValue } from "./context";
 import { FindingDetail } from "../screens/FindingDetail";
 import { Overview } from "../screens/Overview";
 import { fakeAdapters, fakeContextValue } from "./testing";
+import { DEFAULT_SETTINGS } from "../settings";
 
 afterEach(cleanup);
 
@@ -65,12 +66,13 @@ describe("license gate on DEV_MACHINE", () => {
   });
 });
 
-function renderDetail(ruleId: RuleId, license: LicenseState) {
+function renderDetail(ruleId: RuleId, license: LicenseState, developerMode = false) {
   const report = devReport();
   const value: AppContextValue = fakeContextValue({
     adapters: fakeAdapters(),
     license,
     gate: buildGate(report, license),
+    settings: { ...DEFAULT_SETTINGS, onboarded: true, developerMode },
     scanState: { kind: "ready", report, state: DEV_MACHINE, explain: { kind: "off" }, lastRecheck: null },
   });
   return render(createElement(AppContext.Provider, { value }, createElement(FindingDetail, { ruleId })));
@@ -101,8 +103,8 @@ describe("FindingDetail lock overlay", () => {
     expect(screen.getByRole("button", { name: "I've done this, check again" })).toBeTruthy();
   });
 
-  it("fills {path} in the rendered commands from path evidence", () => {
-    renderDetail("TL-MAC-029", VALID);
+  it("fills {path} in the rendered commands from path evidence in Developer mode", () => {
+    renderDetail("TL-MAC-029", VALID, true);
     const commands = Array.from(document.querySelectorAll(".command code")).map((c) => c.textContent);
     expect(commands.length).toBeGreaterThan(0);
     expect(commands.every((c) => c !== null && !c.includes("{path}"))).toBe(true);
@@ -123,7 +125,7 @@ describe("Overview next three fixes", () => {
     const section = screen.getByRole("heading", { name: "Next three fixes" }).closest("section");
     expect(section).not.toBeNull();
     const titles = Array.from(section?.querySelectorAll(".finding-card-title") ?? []).map((n) => n.textContent);
-    const expected = EXPECTED_FREE.map((id) => report.findings.find((f) => f.ruleId === id)?.title);
+    const expected = EXPECTED_FREE.map((id) => report.findings.find((f) => f.ruleId === id)?.headline);
     expect(titles).toEqual(expected);
     expect(screen.getByText("Incomplete")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open Full Disk Access settings" })).toBeTruthy();

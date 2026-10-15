@@ -20,6 +20,7 @@
   --fg: #1c2127;
   --fg-muted: #5b6672;
   --border: #d9dee4;
+  --border-strong: #8893a0;
   --accent: #1f5fa8;
   --accent-fg: #ffffff;
   --focus: #2f7ddb;
@@ -54,6 +55,7 @@
     --fg: #e8ecf0;
     --fg-muted: #a3adb8;
     --border: #343b44;
+    --border-strong: #6b7582;
     --accent: #7fb3f0;
     --accent-fg: #0d1a2b;
     --focus: #8fc0ff;

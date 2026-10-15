@@ -130,7 +130,7 @@ function formatEvidence(entry: Evidence): string {
 function findingLines(finding: Finding): string[] {
   const points = finding.status === "fail" ? `  (+${finding.points} points when fixed)` : "";
   const reason = finding.status === "unknown" ? `  [${finding.unknownReason ?? "unknown"}]` : "";
-  const lines = [`  ${finding.ruleId}  ${finding.severity.padEnd(8)} ${finding.title}${points}${reason}`];
+  const lines = [`  ${finding.ruleId}  ${finding.severity.padEnd(8)} ${finding.headline}${points}${reason}`];
   for (const entry of finding.evidence) {
     lines.push(`      ${formatEvidence(entry)}`);
   }
