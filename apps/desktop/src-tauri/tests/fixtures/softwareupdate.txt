@@ -1,0 +1,88 @@
+{
+    AutoInstallProductKeys =     (
+    );
+    AutomaticDownload = 1;
+    AutomaticallyInstallMacOSUpdates = 1;
+    ConfigDataInstall = 1;
+    CriticalUpdateInstall = 1;
+    DDMPersistedErrorKey =     {
+    };
+    FirstInstallTonightDateDictionary =     {
+        "MSU_UPDATE_24E263_patch_15.4.1_minor" = "2025-04-17 08:47:28 +0000";
+        "MSU_UPDATE_24F74_patch_15.5_minor" = "2025-05-20 08:31:32 +0000";
+        "MSU_UPDATE_24G84_patch_15.6_minor" = "2025-08-11 08:25:41 +0000";
+        "MSU_UPDATE_25A362_patch_26.0.1_minor" = "2025-10-01 09:02:49 +0000";
+        "MSU_UPDATE_25B78_patch_26.1_minor" = "2025-11-11 21:12:52 +0000";
+        "MSU_UPDATE_25D2128_patch_26.3.1_minor" = "2026-03-05 23:10:21 +0000";
+        "MSU_UPDATE_25D771280a_patch_26.3.1_rsr" = "2026-03-20 10:02:27 +0000";
+        "MSU_UPDATE_25E253_patch_26.4.1_minor" = "2026-04-11 21:55:57 +0000";
+        "MSU_UPDATE_25F71_patch_26.5_minor" = "2026-05-20 08:25:54 +0000";
+        "MSU_UPDATE_25F80_patch_26.5.1_minor" = "2026-06-22 23:10:28 +0000";
+        "MSU_UPDATE_25F84_patch_26.5.2_minor" = "2026-07-08 21:28:18 +0000";
+        "MSU_UPDATE_25G83_patch_26.6.2_minor" = "2026-08-26 14:34:14 +0000";
+    };
+    FirstOfferDateDictionary =     {
+        "MSU_UPDATE_24E263_patch_15.4.1_minor" = "2025-04-17 05:20:12 +0000";
+        "MSU_UPDATE_24F74_patch_15.5_minor" = "2025-05-12 19:51:41 +0000";
+        "MSU_UPDATE_24G222_patch_15.7_minor" = "2025-09-15 17:14:06 +0000";
+        "MSU_UPDATE_24G84_patch_15.6_minor" = "2025-07-30 01:19:14 +0000";
+        "MSU_UPDATE_24G90_patch_15.6.1_minor" = "2025-08-20 19:39:06 +0000";
+        "MSU_UPDATE_25A354_patch_26.0_major" = "2025-09-15 20:17:33 +0000";
+        "MSU_UPDATE_25A362_patch_26.0.1_minor" = "2025-09-29 18:09:50 +0000";
+        "MSU_UPDATE_25B78_patch_26.1_minor" = "2025-11-04 09:02:20 +0000";
+        "MSU_UPDATE_25C56_patch_26.2_minor" = "2025-12-13 14:11:15 +0000";
+        "MSU_UPDATE_25D125_patch_26.3_minor" = "2026-02-11 21:56:27 +0000";
+        "MSU_UPDATE_25D2128_patch_26.3.1_minor" = "2026-03-04 20:35:11 +0000";
+        "MSU_UPDATE_25D771280a_full_26.3.1_rsr" = "2026-03-20 15:12:57 +0000";
+        "MSU_UPDATE_25D771280a_patch_26.3.1_rsr" = "2026-03-17 20:18:14 +0000";
+        "MSU_UPDATE_25E246_patch_26.4_minor" = "2026-03-24 21:26:39 +0000";
+        "MSU_UPDATE_25E253_patch_26.4.1_minor" = "2026-04-10 08:23:59 +0000";
+        "MSU_UPDATE_25F71_patch_26.5_minor" = "2026-05-11 18:17:05 +0000";
+        "MSU_UPDATE_25F80_patch_26.5.1_minor" = "2026-06-03 16:36:44 +0000";
+        "MSU_UPDATE_25F84_patch_26.5.2_minor" = "2026-06-29 20:16:42 +0000";
+        "MSU_UPDATE_25G229_patch_26.7_minor" = "2026-09-14 17:07:20 +0000";
+        "MSU_UPDATE_25G241_patch_26.7.1_minor" = "2026-09-28 18:13:23 +0000";
+        "MSU_UPDATE_25G72_patch_26.6_minor" = "2026-07-27 18:58:22 +0000";
+        "MSU_UPDATE_25G76_patch_26.6.1_minor" = "2026-08-06 19:31:49 +0000";
+        "MSU_UPDATE_25G83_patch_26.6.2_minor" = "2026-08-17 19:54:22 +0000";
+        "MSU_UPDATE_26A428_patch_27.0_major" = "2026-09-14 17:07:20 +0000";
+        "MSU_UPDATE_26A434_patch_27.0.1_major" = "2026-09-28 18:13:23 +0000";
+    };
+    InstallDateDictionary =     {
+        25C56 = "2025-12-17 08:22:13 +0000";
+        25D125 = "2026-02-17 12:20:38 +0000";
+        25D2128 = "2026-03-06 08:52:42 +0000";
+        25D771280a = "2026-03-20 13:00:30 +0000";
+        25E246 = "2026-03-31 16:47:37 +0000";
+        25E253 = "2026-04-12 00:00:50 +0000";
+        25F80 = "2026-06-26 22:18:12 +0000";
+        25F84 = "2026-07-09 15:21:07 +0000";
+        25G83 = "2026-09-13 22:46:13 +0000";
+        26A434 = "2026-10-08 10:50:32 +0000";
+    };
+    LastAttemptBuildVersion = "27.0.1 (26A434)";
+    LastAttemptSystemVersion = "27.0.1 (26A434)";
+    LastBackgroundSuccessfulDate = "2026-10-14 23:17:49 +0000";
+    LastBootBaseBuildVersion = 26A434;
+    LastCollectedLoginCredentialDate = "2026-10-08 09:27:33 +0000";
+    LastExecutedMSUBackgroundActionDate = "2026-10-15 09:15:36 +0000";
+    LastFullSuccessfulDate = "2026-10-15 08:56:56 +0000";
+    LastLoginWindowHarvestDate = "2026-09-13 13:41:39 +0000";
+    LastLoginWindowHarvestMethod = ReqAuto;
+    LastRecommendedMajorOSBundleIdentifier = "";
+    LastRecommendedUpdatesAvailable = 1;
+    LastResultCode = 2;
+    LastSessionSuccessful = 1;
+    LastSuccessfulBackgroundMSUScanDate = "2026-10-07 21:09:04 +0000";
+    LastSuccessfulDate = "2026-10-15 08:56:56 +0000";
+    LastSuccessfulMSUScanDate = "2026-10-15 09:15:36 +0000";
+    LastUpdatesAvailable = 1;
+    PostSuccessfulMinorUpdatePostLogOutNotification = 0;
+    PrimaryLanguages =     (
+        "en-US",
+        en
+    );
+    RecommendedUpdates =     (
+    );
+    SplatEnabled = 1;
+}

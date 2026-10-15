@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# TypeScript build info from the composite node config
+*.tsbuildinfo

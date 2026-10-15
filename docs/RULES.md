@@ -1,0 +1,72 @@
+# Talos Labs rules catalog (macOS, v0.1)
+
+Catalog version `0.1.0`. 31 rules. Every rule has a stable id, a reader-facing title, a severity, a category, a CIS reference where one exists, the state fields it reads, a pass condition, and a fix.
+
+## Benchmark edition
+
+`cisEdition` is pinned to **CIS Apple macOS 26 Tahoe Benchmark v1.0.0**. Every number in the CIS column refers to that edition. `docs/CIS-MAP.md` is the source of truth for the numbers; it was verified against the NIST mSCP `tahoe` branch on 2026-10-15. The Sequoia (macOS 15) edition uses the same numbers for every control the catalog cites. Sonoma and earlier number some sections differently (Gatekeeper 2.6.4, Lock Screen 2.10.x, Users & Groups 2.12.x); do not use those.
+
+## Conventions
+
+- `S.` means `state.sections.`. A rule whose `requires` section is unavailable returns `unknown` with that section's reason before `evaluate` runs. A rule may also return `unknown` itself: with a nested section's `UnavailableReason` (028 forwards `BrowserReport.extensions.reason`, which the `requires` check cannot see) or with `indeterminate` when the data is present but inconclusive. `rule_error` is set by the engine only.
+- Rules that measure age (027) compare against `state.collectedAt`, not `ctx.now`, so a recheck on a held state gives the same answer.
+- `n/a` means `not_applicable`.
+- `Tri` fields: `"unset"` means the OS default. "not false" passes for `true` and `"unset"`.
+- Commands are displayed with a copy button. The app never runs them. `fix.commands` is a list in display order. `(admin)` is rendered with a `sudo` prefix. `(interactive)` means the command prompts in Terminal. A command's `{path}` placeholder is filled from the path-kind evidence entries of the same finding whose key equals the command's `appliesTo`, one rendered command per entry, never from model output. A command with `appliesTo: null` has no placeholder and renders once.
+- Settings paths are macOS 26/27 System Settings labels.
+- Effort: `two_minutes`, `ten_minutes`, `half_hour`. Side effects: `none`, `restart`, `reauth`, `workflow`.
+
+## Catalog
+
+| id | title | sev | cat | CIS | state fields | pass when | fix | effort | side effects |
+|---|---|---|---|---|---|---|---|---|---|
+| TL-MAC-001 | Your disk is encrypted | critical | encryption | 2.6.6 | S.diskEncryption.systemVolumeEncrypted | true | System Settings > Privacy & Security > FileVault > Turn On. No command: the Settings flow stores the recovery key. Verify: `fdesetup status` prints "FileVault is On." | ten_minutes | restart |
+| TL-MAC-002 | The firewall is on | high | network | 2.2.1 | S.firewall.enabled | true | System Settings > Network > Firewall > on. `/usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on` (admin) | two_minutes | none |
+| TL-MAC-003 | Your Mac stays quiet to network probes | low | network | 2.2.2 | S.firewall.stealthMode | true; n/a when null | Network > Firewall > Options > Enable stealth mode. `/usr/libexec/ApplicationFirewall/socketfilterfw --setstealthmode on` (admin) | two_minutes | none |
+| TL-MAC-004 | Only checked apps can open | high | platform | 2.6.5 | S.platformIntegrity.execPolicyEnabled | true; n/a when null | Privacy & Security > Security > Allow applications from: App Store & Known Developers. No command: `spctl --global-enable` is unsupported since macOS 15. | two_minutes | none |
+| TL-MAC-005 | System protection (SIP) is on | high | platform | 5.1.2 | S.platformIntegrity.systemProtectionEnabled | true; n/a when null | Steps: shut down, hold the power button to open Recovery, Utilities > Terminal, run `csrutil enable`, restart. | half_hour | restart |
+| TL-MAC-006 | Built-in malware protection is present | medium | platform | 5.10 | S.malwareProtection.present, version | present and version not null | General > Software Update > Update Now | ten_minutes | none |
+| TL-MAC-007 | Updates are checked and downloaded automatically | medium | updates | 1.2 | S.updates.automaticCheck, automaticDownload | both not false | General > Software Update > (i) > Check for updates, Download new updates when available. `defaults write /Library/Preferences/com.apple.SoftwareUpdate AutomaticDownload -bool true` (admin). Step: same command with `AutomaticCheckEnabled`. | two_minutes | none |
+| TL-MAC-008 | macOS updates install automatically | medium | updates | 1.3 | S.updates.autoInstallOs | not false | Same pane > Install macOS updates. `defaults write /Library/Preferences/com.apple.SoftwareUpdate AutomaticallyInstallMacOSUpdates -bool true` (admin) | two_minutes | none |
+| TL-MAC-009 | Security fixes install automatically | high | updates | 1.5 | S.updates.autoInstallSecurityResponses | not false | Same pane > Install Security Responses and system files. `defaults write /Library/Preferences/com.apple.SoftwareUpdate ConfigDataInstall -bool true` (admin). Step: same command with `CriticalUpdateInstall`. | two_minutes | none |
+| TL-MAC-010 | No update is waiting | high | updates | 1.1 | S.updates.pendingCount | 0; unknown (indeterminate) when null | General > Software Update > Update Now. `softwareupdate -ia` (admin) | half_hour | restart |
+| TL-MAC-011 | App Store apps update automatically | low | updates | 1.4 | S.updates.appStoreAutoUpdate | not false | App Store > Settings > Automatic Updates. `defaults write /Library/Preferences/com.apple.commerce AutoUpdate -bool true` (admin) | two_minutes | none |
+| TL-MAC-012 | A password is needed right after the screen locks | high | access_control | 2.11.2 | S.screenLock.requirePassword, delaySeconds | requirePassword and delaySeconds <= 5 | Lock Screen > Require password after screen saver begins or display is turned off > Immediately. `sysadminctl -screenLock immediate -password -` (user, interactive) | two_minutes | none |
+| TL-MAC-013 | The screen locks itself within 20 minutes | medium | access_control | 2.11.1 | S.screenLock.screensaverIdleSeconds | "unset" or 1 to 1200 | Lock Screen > Start Screen Saver when inactive > 20 minutes or less. `defaults -currentHost write com.apple.screensaver idleTime -int 1200` (user) | two_minutes | none |
+| TL-MAC-014 | Your everyday account is not an administrator | low | access_control | none | S.accounts.currentUserIsAdmin, humanAdminCount | currentUserIsAdmin false | Steps: Users & Groups > Add Account > Administrator; log in as the new account; open the daily account and untick "Allow this user to administer this computer". | half_hour | workflow |
+| TL-MAC-015 | The Guest account is off | medium | access_control | 2.13.1 | S.accounts.guestEnabled | not true | Users & Groups > Guest User > Allow guests to log in to this computer: off. `sysadminctl -guestAccount off` (admin) | two_minutes | none |
+| TL-MAC-016 | Nobody is logged in automatically | high | access_control | 2.13.3 | S.accounts.autoLoginEnabled | false | Users & Groups > Automatically log in as: Off. `defaults delete /Library/Preferences/com.apple.loginwindow autoLoginUser` (admin) | two_minutes | reauth |
+| TL-MAC-017 | Short passwords are not allowed | info | access_control | 5.2.2 | S.passwordPolicy.minLength | pass when not null and >= 15 (CIS value); review otherwise. Reads the policy, not the password. | Steps: choose a login password of 15 or more characters (good practice; it does not change the policy). Advanced: write the CIS policy plist, then `pwpolicy -setaccountpolicies <plist>` (admin). No command field because it needs a file. Verify: `pwpolicy getaccountpolicies` prints a `policyAttributePassword` content containing `.{15,}`; this rule reads that policy, not your password. | ten_minutes | none |
+| TL-MAC-018 | No program is listening for connections from the network | medium | network | none | S.listeners.entries | no entry with bind other than loopback, after removing processes in the Apple allow-list by full name (ControlCenter, rapportd, sharingd, AirPlayXPCHelper) and ports owned by rules 019 to 022 (22, 445, 5900, 3283). Evidence: count and port numbers. | Steps: find the program named in the evidence, quit or uninstall it, or set it to listen on 127.0.0.1 only. Network > Firewall > Options > Block all incoming connections. | ten_minutes | workflow |
+| TL-MAC-019 | Remote Login (SSH) is off | high | remote_access | 2.3.3.4 | S.remoteAccess.ssh | serviceLoaded not true and listeningPort null. serviceLoaded null means the launchctl output did not parse; the port then decides alone. | General > Sharing > Remote Login: off. No command: `systemsetup` needs root. | two_minutes | none |
+| TL-MAC-020 | Screen Sharing is off | high | remote_access | 2.3.3.1 | S.remoteAccess.screenSharing | serviceLoaded not true and listeningPort null; null handled as in 019 | General > Sharing > Screen Sharing: off | two_minutes | none |
+| TL-MAC-021 | Remote Management is off | high | remote_access | 2.3.3.5 | S.remoteAccess.remoteManagement | serviceLoaded false; n/a when null | General > Sharing > Remote Management: off. `/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -deactivate -configure -access -off` (admin) | two_minutes | none |
+| TL-MAC-022 | Shared folders are not open to guests | high | sharing | 2.13.2, 2.3.3.2 | S.fileSharing.enabled, shares[].guestAccess | enabled false, or every share guestAccess false. enabled means a non-loopback listener on 445 exists; `sharing -l` lists share points whether or not File Sharing is on. | Users & Groups > Guest User > Allow guest users to connect to shared folders: off. Or General > Sharing > File Sharing > (i) > Everyone: No Access. Or General > Sharing > File Sharing: off. | two_minutes | workflow |
+| TL-MAC-023 | Programs that start in the background | info | persistence | none | S.persistence.items | pass when empty, review otherwise. Evidence: `agentPlist` (path) per user_agent or system_agent item, `daemonPlist` (path) per system_daemon item. | General > Login Items & Extensions > Allow in the Background. Advanced, two commands: `launchctl bootout gui/$UID {path}` (user, appliesTo agentPlist) and `launchctl bootout system {path}` (admin, appliesTo daemonPlist), then delete the plist. | ten_minutes | workflow |
+| TL-MAC-024 | No background program points at a missing file | medium | persistence | none | S.persistence.items[].programExists | no item false | Steps: delete the orphan plist shown in the evidence. An attacker can later drop a program at that path. | two_minutes | none |
+| TL-MAC-025 | Apps that open at login | info | persistence | none | S.loginItems.count | pass when 0, review otherwise | General > Login Items & Extensions > Open at Login > select the item > minus | two_minutes | none |
+| TL-MAC-026 | Backups are set up | medium | backup | 2.3.4.1 (Level 2, partial: CIS asks for automatic backup only if Time Machine is on) | S.backup.configured, destinationCount | configured and destinationCount > 0 | General > Time Machine > Add Backup Disk | ten_minutes | none |
+| TL-MAC-027 | A backup ran in the last 7 days | low | backup | none | S.backup.lastBackupAt | within the 168 hours before state.collectedAt; n/a when not configured | Steps: connect the backup disk; Time Machine menu > Back Up Now. `tmutil startbackup` (user) | ten_minutes | none |
+| TL-MAC-028 | Browser extensions do not read every website | low | browser | none | S.browsers.installed[].extensions | no extension with broadHostAccess; unknown with the nested `extensions` section's own reason (needs_full_disk_access for a TCC-blocked Chrome-family browser) when any installed browser's extensions are unavailable and no hit was found; n/a when no browser is installed | Steps per browser: chrome://extensions > Details > Site access > On click. To check Chrome, Brave, Edge or Arc: Privacy & Security > Full Disk Access > Talos Labs, then rescan. | ten_minutes | workflow |
+| TL-MAC-029 | SSH keys are protected by a passphrase | high | developer | none | S.ssh.keys[].encrypted | no key with encrypted false; n/a when no keys | `ssh-keygen -p -f {path}` (user, interactive, appliesTo keyPath), one rendered command per key | two_minutes | workflow |
+| TL-MAC-030 | Your SSH folder is private | medium | developer | none | S.ssh.dirMode, keys[].mode | dirMode 700 and every key mode 600 or 400; n/a when the folder is absent | `chmod 600 {path}` (user, appliesTo keyPath), one per key. Step: `chmod 700 ~/.ssh`. | two_minutes | none |
+| TL-MAC-031 | No passwords or keys in shell config files | high | developer | none | S.dotfiles.hits | empty | Steps: open the file at the listed line, move the value to the Keychain or a password manager, rotate the credential, delete the line. | ten_minutes | workflow |
+
+## Rules that apply to other platforms
+
+Every rule above declares `os: ["macos"]`. On another host the engine returns `not_applicable` without calling `evaluate`. Windows and Linux rules get their own ids (`TL-WIN-`, `TL-LNX-`) and read the same `SystemState` shape.
+
+## Expected results on the fixtures
+
+`packages/core/src/fixtures/dev-machine.ts`:
+
+- fail: 001, 002, 003, 010, 011, 014, 022, 026, 029
+- review: 017, 023, 025
+- unknown: 028 (Chrome needs Full Disk Access; `unknownReason` is `needs_full_disk_access`)
+- not applicable: 027
+- pass: the other 17
+- deducted 62 (20 + 8 + 2 + 8 + 2 + 2 + 8 + 4 + 8), score 38, grade `at_risk`, `cappedByCritical` false (the cap at 59 did not bind), `complete` false
+
+`packages/core/src/fixtures/hardened.ts`: 31 pass, score 100, grade `good`, `complete` true.
+
+`packages/core/src/fixtures/all-unavailable.ts`: 31 unknown, each with the reason of the rule's first `requires` section, score `null`, grade `null`, deducted 0, `complete` false.

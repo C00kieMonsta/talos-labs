@@ -1,0 +1,206 @@
+{
+  "collectedAt": "2026-10-15T09:30:00.000Z",
+  "host": {
+    "arch": "arm64",
+    "collectorVersion": "0.1.0",
+    "os": "macos",
+    "osBuild": "26A434",
+    "osVersion": "27.0.1"
+  },
+  "schemaVersion": 1,
+  "sections": {
+    "accounts": {
+      "data": {
+        "autoLoginEnabled": false,
+        "currentUserIsAdmin": false,
+        "guestEnabled": false,
+        "humanAdminCount": 1
+      },
+      "status": "ok"
+    },
+    "backup": {
+      "data": {
+        "configured": true,
+        "destinationCount": 1,
+        "destinationReachable": true,
+        "lastBackupAt": "2026-10-15T07:30:00.000Z",
+        "method": "time_machine"
+      },
+      "status": "ok"
+    },
+    "browsers": {
+      "data": {
+        "installed": [
+          {
+            "browser": "firefox",
+            "extensions": {
+              "data": [
+                {
+                  "broadHostAccess": false,
+                  "id": "{762f9885-5a13-4abd-9c77-433dcd38b8fd}",
+                  "name": "Return YouTube Dislike",
+                  "permissions": [
+                    "storage"
+                  ],
+                  "version": "3.0.0.18"
+                }
+              ],
+              "status": "ok"
+            }
+          }
+        ]
+      },
+      "status": "ok"
+    },
+    "diskEncryption": {
+      "data": {
+        "method": "filevault",
+        "systemVolumeEncrypted": true
+      },
+      "status": "ok"
+    },
+    "dotfiles": {
+      "data": {
+        "hits": [],
+        "scanned": [
+          "/Users/sam/.zshrc",
+          "/Users/sam/.zprofile"
+        ],
+        "unreadable": []
+      },
+      "status": "ok"
+    },
+    "fileSharing": {
+      "data": {
+        "enabled": false,
+        "shares": []
+      },
+      "status": "ok"
+    },
+    "firewall": {
+      "data": {
+        "blockAllIncoming": false,
+        "enabled": true,
+        "stealthMode": true
+      },
+      "status": "ok"
+    },
+    "listeners": {
+      "data": {
+        "entries": [
+          {
+            "bind": "all",
+            "pid": 498,
+            "port": 5000,
+            "processName": "ControlCenter",
+            "protocol": "tcp"
+          },
+          {
+            "bind": "all",
+            "pid": 498,
+            "port": 7000,
+            "processName": "ControlCenter",
+            "protocol": "tcp"
+          },
+          {
+            "bind": "all",
+            "pid": 601,
+            "port": 49312,
+            "processName": "rapportd",
+            "protocol": "tcp"
+          }
+        ],
+        "processNamesComplete": true
+      },
+      "status": "ok"
+    },
+    "loginItems": {
+      "data": {
+        "count": 0,
+        "names": []
+      },
+      "status": "ok"
+    },
+    "malwareProtection": {
+      "data": {
+        "engine": "xprotect",
+        "present": true,
+        "version": "5311"
+      },
+      "status": "ok"
+    },
+    "passwordPolicy": {
+      "data": {
+        "maxFailedAttempts": 10,
+        "minLength": 15
+      },
+      "status": "ok"
+    },
+    "persistence": {
+      "data": {
+        "items": []
+      },
+      "status": "ok"
+    },
+    "platformIntegrity": {
+      "data": {
+        "execPolicyEnabled": true,
+        "systemProtectionEnabled": true
+      },
+      "status": "ok"
+    },
+    "remoteAccess": {
+      "data": {
+        "remoteManagement": {
+          "listeningPort": null,
+          "serviceLoaded": false
+        },
+        "screenSharing": {
+          "listeningPort": null,
+          "serviceLoaded": false
+        },
+        "ssh": {
+          "listeningPort": null,
+          "serviceLoaded": false
+        }
+      },
+      "status": "ok"
+    },
+    "screenLock": {
+      "data": {
+        "delaySeconds": 0,
+        "requirePassword": true,
+        "screensaverIdleSeconds": 600
+      },
+      "status": "ok"
+    },
+    "ssh": {
+      "data": {
+        "dirExists": true,
+        "dirMode": "700",
+        "keys": [
+          {
+            "encrypted": true,
+            "format": "openssh",
+            "mode": "600",
+            "path": "/Users/sam/.ssh/id_ed25519"
+          }
+        ]
+      },
+      "status": "ok"
+    },
+    "updates": {
+      "data": {
+        "appStoreAutoUpdate": true,
+        "autoInstallOs": true,
+        "autoInstallSecurityResponses": true,
+        "automaticCheck": true,
+        "automaticDownload": true,
+        "lastCheckAt": "2026-10-15T06:00:00.000Z",
+        "lastResultCode": 2,
+        "pendingCount": 0
+      },
+      "status": "ok"
+    }
+  }
+}

@@ -1,0 +1,178 @@
+{
+  "collectedAt": "2026-10-15T09:30:00.000Z",
+  "host": {
+    "arch": "arm64",
+    "collectorVersion": "0.1.0",
+    "os": "macos",
+    "osBuild": "26A434",
+    "osVersion": "27.0.1"
+  },
+  "schemaVersion": 1,
+  "sections": {
+    "accounts": {
+      "data": {
+        "autoLoginEnabled": false,
+        "currentUserIsAdmin": true,
+        "guestEnabled": "unset",
+        "humanAdminCount": 1
+      },
+      "status": "ok"
+    },
+    "backup": {
+      "data": {
+        "configured": false,
+        "destinationCount": 0,
+        "destinationReachable": null,
+        "lastBackupAt": null,
+        "method": "time_machine"
+      },
+      "status": "ok"
+    },
+    "browsers": {
+      "data": {
+        "installed": []
+      },
+      "status": "ok"
+    },
+    "diskEncryption": {
+      "data": {
+        "method": "filevault",
+        "systemVolumeEncrypted": false
+      },
+      "status": "ok"
+    },
+    "dotfiles": {
+      "data": {
+        "hits": [],
+        "scanned": [],
+        "unreadable": []
+      },
+      "status": "ok"
+    },
+    "fileSharing": {
+      "data": {
+        "enabled": false,
+        "shares": []
+      },
+      "status": "ok"
+    },
+    "firewall": {
+      "data": {
+        "blockAllIncoming": false,
+        "enabled": false,
+        "stealthMode": false
+      },
+      "status": "ok"
+    },
+    "listeners": {
+      "data": {
+        "entries": [
+          {
+            "bind": "all",
+            "pid": 410,
+            "port": 5000,
+            "processName": "ControlCenter",
+            "protocol": "tcp"
+          },
+          {
+            "bind": "all",
+            "pid": 410,
+            "port": 7000,
+            "processName": "ControlCenter",
+            "protocol": "tcp"
+          },
+          {
+            "bind": "all",
+            "pid": 522,
+            "port": 49200,
+            "processName": "rapportd",
+            "protocol": "tcp"
+          }
+        ],
+        "processNamesComplete": true
+      },
+      "status": "ok"
+    },
+    "loginItems": {
+      "data": {
+        "count": 0,
+        "names": []
+      },
+      "status": "ok"
+    },
+    "malwareProtection": {
+      "data": {
+        "engine": "xprotect",
+        "present": true,
+        "version": "5311"
+      },
+      "status": "ok"
+    },
+    "passwordPolicy": {
+      "data": {
+        "maxFailedAttempts": null,
+        "minLength": null
+      },
+      "status": "ok"
+    },
+    "persistence": {
+      "data": {
+        "items": []
+      },
+      "status": "ok"
+    },
+    "platformIntegrity": {
+      "data": {
+        "execPolicyEnabled": true,
+        "systemProtectionEnabled": true
+      },
+      "status": "ok"
+    },
+    "remoteAccess": {
+      "data": {
+        "remoteManagement": {
+          "listeningPort": null,
+          "serviceLoaded": false
+        },
+        "screenSharing": {
+          "listeningPort": null,
+          "serviceLoaded": false
+        },
+        "ssh": {
+          "listeningPort": null,
+          "serviceLoaded": false
+        }
+      },
+      "status": "ok"
+    },
+    "screenLock": {
+      "data": {
+        "delaySeconds": 0,
+        "requirePassword": true,
+        "screensaverIdleSeconds": "unset"
+      },
+      "status": "ok"
+    },
+    "ssh": {
+      "data": {
+        "dirExists": false,
+        "dirMode": null,
+        "keys": []
+      },
+      "status": "ok"
+    },
+    "updates": {
+      "data": {
+        "appStoreAutoUpdate": "unset",
+        "autoInstallOs": "unset",
+        "autoInstallSecurityResponses": "unset",
+        "automaticCheck": "unset",
+        "automaticDownload": "unset",
+        "lastCheckAt": null,
+        "lastResultCode": null,
+        "pendingCount": null
+      },
+      "status": "ok"
+    }
+  }
+}

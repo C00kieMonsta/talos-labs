@@ -1,7 +1,5 @@
-# Tauri + React + Typescript
+# @talos/desktop
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
-
-## Recommended IDE Setup
-
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+Tauri 2 app: React UI and port adapters in `src/`, Rust collectors and commands in `src-tauri/`. Start with the root [README](../../README.md) for what the app does.
+Commands, TCC permissions and how to add a rule or a collector are in [docs/DEVELOPMENT.md](../../docs/DEVELOPMENT.md).
+Run `pnpm desktop` from the repo root to start it.

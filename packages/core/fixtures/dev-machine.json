@@ -1,0 +1,269 @@
+{
+  "collectedAt": "2026-10-15T09:30:00.000Z",
+  "host": {
+    "arch": "arm64",
+    "collectorVersion": "0.1.0",
+    "os": "macos",
+    "osBuild": "26A434",
+    "osVersion": "27.0.1"
+  },
+  "schemaVersion": 1,
+  "sections": {
+    "accounts": {
+      "data": {
+        "autoLoginEnabled": false,
+        "currentUserIsAdmin": true,
+        "guestEnabled": false,
+        "humanAdminCount": 2
+      },
+      "status": "ok"
+    },
+    "backup": {
+      "data": {
+        "configured": false,
+        "destinationCount": 0,
+        "destinationReachable": null,
+        "lastBackupAt": null,
+        "method": "time_machine"
+      },
+      "status": "ok"
+    },
+    "browsers": {
+      "data": {
+        "installed": [
+          {
+            "browser": "chrome",
+            "extensions": {
+              "detail": "read_dir: Application Support/Google/Chrome",
+              "reason": "needs_full_disk_access",
+              "status": "unavailable"
+            }
+          },
+          {
+            "browser": "firefox",
+            "extensions": {
+              "data": [
+                {
+                  "broadHostAccess": false,
+                  "id": "{762f9885-5a13-4abd-9c77-433dcd38b8fd}",
+                  "name": "Return YouTube Dislike",
+                  "permissions": [
+                    "storage"
+                  ],
+                  "version": "3.0.0.18"
+                }
+              ],
+              "status": "ok"
+            }
+          }
+        ]
+      },
+      "status": "ok"
+    },
+    "diskEncryption": {
+      "data": {
+        "method": "filevault",
+        "systemVolumeEncrypted": false
+      },
+      "status": "ok"
+    },
+    "dotfiles": {
+      "data": {
+        "hits": [],
+        "scanned": [
+          "/Users/antoine/.zshrc",
+          "/Users/antoine/.zprofile",
+          "/Users/antoine/.npmrc",
+          "/Users/antoine/.aws/credentials",
+          "/Users/antoine/.docker/config.json"
+        ],
+        "unreadable": []
+      },
+      "status": "ok"
+    },
+    "fileSharing": {
+      "data": {
+        "enabled": true,
+        "shares": [
+          {
+            "guestAccess": true,
+            "path": "/Users/antoine/Public"
+          }
+        ]
+      },
+      "status": "ok"
+    },
+    "firewall": {
+      "data": {
+        "blockAllIncoming": false,
+        "enabled": false,
+        "stealthMode": false
+      },
+      "status": "ok"
+    },
+    "listeners": {
+      "data": {
+        "entries": [
+          {
+            "bind": "all",
+            "pid": 515,
+            "port": 5000,
+            "processName": "ControlCenter",
+            "protocol": "tcp"
+          },
+          {
+            "bind": "all",
+            "pid": 515,
+            "port": 7000,
+            "processName": "ControlCenter",
+            "protocol": "tcp"
+          },
+          {
+            "bind": "all",
+            "pid": 612,
+            "port": 55627,
+            "processName": "rapportd",
+            "protocol": "tcp"
+          },
+          {
+            "bind": "all",
+            "pid": 1,
+            "port": 445,
+            "processName": "launchd",
+            "protocol": "tcp"
+          },
+          {
+            "bind": "loopback",
+            "pid": 4821,
+            "port": 5432,
+            "processName": "postgres",
+            "protocol": "tcp"
+          },
+          {
+            "bind": "loopback",
+            "pid": 97251,
+            "port": 5173,
+            "processName": "Code Helper (Plu",
+            "protocol": "tcp"
+          }
+        ],
+        "processNamesComplete": true
+      },
+      "status": "ok"
+    },
+    "loginItems": {
+      "data": {
+        "count": 2,
+        "names": [
+          "Docker",
+          "Raycast"
+        ]
+      },
+      "status": "ok"
+    },
+    "malwareProtection": {
+      "data": {
+        "engine": "xprotect",
+        "present": true,
+        "version": "5311"
+      },
+      "status": "ok"
+    },
+    "passwordPolicy": {
+      "data": {
+        "maxFailedAttempts": null,
+        "minLength": 4
+      },
+      "status": "ok"
+    },
+    "persistence": {
+      "data": {
+        "items": [
+          {
+            "label": "com.docker.vmnetd",
+            "plistPath": "/Library/LaunchDaemons/com.docker.vmnetd.plist",
+            "program": "/Library/PrivilegedHelperTools/com.docker.vmnetd",
+            "programExists": true,
+            "runAtLoad": true,
+            "scope": "system_daemon"
+          },
+          {
+            "label": "homebrew.mxcl.postgresql@16",
+            "plistPath": "/Users/antoine/Library/LaunchAgents/homebrew.mxcl.postgresql@16.plist",
+            "program": "/opt/homebrew/opt/postgresql@16/bin/postgres",
+            "programExists": true,
+            "runAtLoad": true,
+            "scope": "user_agent"
+          }
+        ]
+      },
+      "status": "ok"
+    },
+    "platformIntegrity": {
+      "data": {
+        "execPolicyEnabled": true,
+        "systemProtectionEnabled": true
+      },
+      "status": "ok"
+    },
+    "remoteAccess": {
+      "data": {
+        "remoteManagement": {
+          "listeningPort": null,
+          "serviceLoaded": false
+        },
+        "screenSharing": {
+          "listeningPort": null,
+          "serviceLoaded": false
+        },
+        "ssh": {
+          "listeningPort": null,
+          "serviceLoaded": false
+        }
+      },
+      "status": "ok"
+    },
+    "screenLock": {
+      "data": {
+        "delaySeconds": 0,
+        "requirePassword": true,
+        "screensaverIdleSeconds": "unset"
+      },
+      "status": "ok"
+    },
+    "ssh": {
+      "data": {
+        "dirExists": true,
+        "dirMode": "700",
+        "keys": [
+          {
+            "encrypted": false,
+            "format": "openssh",
+            "mode": "600",
+            "path": "/Users/antoine/.ssh/id_ed25519"
+          },
+          {
+            "encrypted": false,
+            "format": "pem",
+            "mode": "600",
+            "path": "/Users/antoine/.ssh/aws-eu-west-1.pem"
+          }
+        ]
+      },
+      "status": "ok"
+    },
+    "updates": {
+      "data": {
+        "appStoreAutoUpdate": false,
+        "autoInstallOs": true,
+        "autoInstallSecurityResponses": true,
+        "automaticCheck": "unset",
+        "automaticDownload": true,
+        "lastCheckAt": "2026-10-14T22:10:12.000Z",
+        "lastResultCode": 2,
+        "pendingCount": 1
+      },
+      "status": "ok"
+    }
+  }
+}

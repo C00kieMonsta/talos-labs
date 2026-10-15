@@ -1,0 +1,12 @@
+
+			List of Share Points
+name:		Antoine’s Public Folder
+path:		/Users/antoine/Public
+	smb:	{
+    		name:	Antoine’s Public Folder
+    		shared:	1
+    		guest access:	1
+    		read-only:	0
+    		sealed:	0
+	}
+

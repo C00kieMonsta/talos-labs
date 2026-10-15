@@ -1,0 +1,798 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1`] = `
+[
+  {
+    "category": "encryption",
+    "cis": "2.6.6",
+    "evidence": [
+      {
+        "key": "systemVolumeEncrypted",
+        "label": "System disk encrypted",
+        "value": {
+          "kind": "bool",
+          "value": false,
+        },
+      },
+      {
+        "key": "method",
+        "label": "Encryption method",
+        "value": {
+          "kind": "enum",
+          "value": "filevault",
+        },
+      },
+    ],
+    "explanation": "FileVault scrambles everything on your disk so it can only be read with your password. Without it, anyone who takes the Mac, or just its drive, can read your files by plugging it into another computer. It is the single most important setting on a laptop that ever leaves the house.",
+    "fix": {
+      "commands": [],
+      "effort": "ten_minutes",
+      "settingsPane": "filevault",
+      "settingsPath": [
+        "System Settings",
+        "Privacy & Security",
+        "FileVault",
+      ],
+      "sideEffects": "restart",
+      "steps": [
+        "Open System Settings, then Privacy & Security, and scroll to FileVault.",
+        "Click Turn On and enter your password when asked.",
+        "Choose how to keep the recovery key. Writing it down and storing it away from the Mac is the simplest option.",
+        "Leave the Mac plugged in; encryption finishes in the background and may ask for a restart.",
+      ],
+      "summary": "Turn on FileVault in System Settings and keep the recovery key somewhere safe.",
+      "verify": "Open Terminal and run fdesetup status. It should print "FileVault is On."",
+    },
+    "points": 20,
+    "requires": [
+      "diskEncryption",
+    ],
+    "ruleId": "TL-MAC-001",
+    "severity": "critical",
+    "status": "fail",
+    "title": "Your disk is encrypted",
+    "unknownReason": null,
+  },
+  {
+    "category": "network",
+    "cis": "2.2.1",
+    "evidence": [
+      {
+        "key": "enabled",
+        "label": "Firewall on",
+        "value": {
+          "kind": "bool",
+          "value": false,
+        },
+      },
+    ],
+    "explanation": "The firewall decides which programs may accept connections from other computers on the network. With it off, any program that opens a port is reachable from the cafe Wi-Fi or hotel network you are on. Turning it on costs nothing and most apps never notice.",
+    "fix": {
+      "commands": [
+        {
+          "appliesTo": null,
+          "args": [
+            "--setglobalstate",
+            "on",
+          ],
+          "interactive": false,
+          "needsAdmin": true,
+          "program": "/usr/libexec/ApplicationFirewall/socketfilterfw",
+        },
+      ],
+      "effort": "two_minutes",
+      "settingsPane": "firewall",
+      "settingsPath": [
+        "System Settings",
+        "Network",
+        "Firewall",
+      ],
+      "sideEffects": "none",
+      "steps": [
+        "Open System Settings, then Network, then Firewall.",
+        "Switch Firewall on.",
+      ],
+      "summary": "Turn the firewall on in System Settings.",
+      "verify": "Network > Firewall shows the switch on, or socketfilterfw --getglobalstate prints "enabled".",
+    },
+    "points": 8,
+    "requires": [
+      "firewall",
+    ],
+    "ruleId": "TL-MAC-002",
+    "severity": "high",
+    "status": "fail",
+    "title": "The firewall is on",
+    "unknownReason": null,
+  },
+  {
+    "category": "network",
+    "cis": "2.2.2",
+    "evidence": [
+      {
+        "key": "stealthMode",
+        "label": "Stealth mode on",
+        "value": {
+          "kind": "bool",
+          "value": false,
+        },
+      },
+    ],
+    "explanation": "Stealth mode makes your Mac ignore the probes that attackers and automated scanners send to find computers on a network. With it off, your Mac answers those probes and confirms it is there. It is a small change that makes you a less obvious target on shared Wi-Fi.",
+    "fix": {
+      "commands": [
+        {
+          "appliesTo": null,
+          "args": [
+            "--setstealthmode",
+            "on",
+          ],
+          "interactive": false,
+          "needsAdmin": true,
+          "program": "/usr/libexec/ApplicationFirewall/socketfilterfw",
+        },
+      ],
+      "effort": "two_minutes",
+      "settingsPane": "firewall",
+      "settingsPath": [
+        "System Settings",
+        "Network",
+        "Firewall",
+        "Options",
+      ],
+      "sideEffects": "none",
+      "steps": [
+        "Open System Settings, then Network, then Firewall, and click Options.",
+        "Switch on Enable stealth mode and click OK.",
+      ],
+      "summary": "Enable stealth mode in the firewall options.",
+      "verify": "socketfilterfw --getstealthmode prints "Stealth mode enabled".",
+    },
+    "points": 2,
+    "requires": [
+      "firewall",
+    ],
+    "ruleId": "TL-MAC-003",
+    "severity": "low",
+    "status": "fail",
+    "title": "Your Mac stays quiet to network probes",
+    "unknownReason": null,
+  },
+  {
+    "category": "updates",
+    "cis": "1.1",
+    "evidence": [
+      {
+        "key": "pendingCount",
+        "label": "Updates waiting",
+        "value": {
+          "kind": "number",
+          "unit": "count",
+          "value": 1,
+        },
+      },
+    ],
+    "explanation": "An update is ready but has not been installed. Until it is, your Mac still has whatever problem the update fixes, and the fix itself tells attackers exactly where to look. Installing it usually means a restart and a few minutes of waiting.",
+    "fix": {
+      "commands": [
+        {
+          "appliesTo": null,
+          "args": [
+            "-ia",
+          ],
+          "interactive": false,
+          "needsAdmin": true,
+          "program": "softwareupdate",
+        },
+      ],
+      "effort": "half_hour",
+      "settingsPane": "software_update",
+      "settingsPath": [
+        "System Settings",
+        "General",
+        "Software Update",
+      ],
+      "sideEffects": "restart",
+      "steps": [
+        "Save your work and plug the Mac in.",
+        "Open System Settings, then General, then Software Update, and click Update Now or Restart Now.",
+        "Let the Mac restart and finish installing before you use it again.",
+      ],
+      "summary": "Install the waiting update from Software Update.",
+      "verify": "Software Update says your Mac is up to date.",
+    },
+    "points": 8,
+    "requires": [
+      "updates",
+    ],
+    "ruleId": "TL-MAC-010",
+    "severity": "high",
+    "status": "fail",
+    "title": "No update is waiting",
+    "unknownReason": null,
+  },
+  {
+    "category": "updates",
+    "cis": "1.4",
+    "evidence": [
+      {
+        "key": "appStoreAutoUpdate",
+        "label": "App Store automatic updates",
+        "value": {
+          "kind": "enum",
+          "value": "false",
+        },
+      },
+    ],
+    "explanation": "Apps from the App Store get their own security fixes, separate from macOS. With automatic updates on, they are patched without you doing anything. With it off, an old browser or messaging app can stay vulnerable for months.",
+    "fix": {
+      "commands": [
+        {
+          "appliesTo": null,
+          "args": [
+            "write",
+            "/Library/Preferences/com.apple.commerce",
+            "AutoUpdate",
+            "-bool",
+            "true",
+          ],
+          "interactive": false,
+          "needsAdmin": true,
+          "program": "defaults",
+        },
+      ],
+      "effort": "two_minutes",
+      "settingsPane": null,
+      "settingsPath": [
+        "App Store",
+        "Settings",
+        "Automatic Updates",
+      ],
+      "sideEffects": "none",
+      "steps": [
+        "Open the App Store app.",
+        "In the menu bar choose App Store, then Settings.",
+        "Tick Automatic Updates.",
+      ],
+      "summary": "Turn on Automatic Updates in the App Store settings.",
+      "verify": "App Store > Settings shows Automatic Updates ticked.",
+    },
+    "points": 2,
+    "requires": [
+      "updates",
+    ],
+    "ruleId": "TL-MAC-011",
+    "severity": "low",
+    "status": "fail",
+    "title": "App Store apps update automatically",
+    "unknownReason": null,
+  },
+  {
+    "category": "access_control",
+    "cis": null,
+    "evidence": [
+      {
+        "key": "currentUserIsAdmin",
+        "label": "Current account is an administrator",
+        "value": {
+          "kind": "bool",
+          "value": true,
+        },
+      },
+      {
+        "key": "humanAdminCount",
+        "label": "Administrator accounts",
+        "value": {
+          "kind": "number",
+          "unit": "count",
+          "value": 2,
+        },
+      },
+    ],
+    "explanation": "An administrator account can install anything and change any setting. If malware or a bad download runs while you are logged in as an administrator, it gets those powers too. Using a standard account day to day means you are asked for an administrator password before anything important changes, which is a useful moment to pause.",
+    "fix": {
+      "commands": [],
+      "effort": "half_hour",
+      "settingsPane": "users_groups",
+      "settingsPath": [
+        "System Settings",
+        "Users & Groups",
+      ],
+      "sideEffects": "workflow",
+      "steps": [
+        "Open System Settings, then Users & Groups, and click Add Account. Choose Administrator and give it a strong password.",
+        "Log out and log in as the new administrator account.",
+        "Back in Users & Groups, click the (i) next to your daily account and untick Allow this user to administer this computer.",
+        "Log back in to your daily account. You will now be asked for the administrator name and password when something needs it.",
+      ],
+      "summary": "Create a separate administrator account and make your daily account a standard user.",
+      "verify": "Users & Groups lists your daily account as Standard.",
+    },
+    "points": 2,
+    "requires": [
+      "accounts",
+    ],
+    "ruleId": "TL-MAC-014",
+    "severity": "low",
+    "status": "fail",
+    "title": "Your everyday account is not an administrator",
+    "unknownReason": null,
+  },
+  {
+    "category": "access_control",
+    "cis": "5.2.2",
+    "evidence": [
+      {
+        "key": "policySet",
+        "label": "Minimum length policy set",
+        "value": {
+          "kind": "bool",
+          "value": true,
+        },
+      },
+      {
+        "key": "minLength",
+        "label": "Minimum password length",
+        "value": {
+          "kind": "number",
+          "unit": "chars",
+          "value": 4,
+        },
+      },
+    ],
+    "explanation": "This checks the password rule set on the Mac itself, not your actual password. The security benchmark recommends requiring at least 15 characters, and your Mac does not enforce that, so a short password is allowed. A long passphrase is still the best thing you can choose, whatever the policy says.",
+    "fix": {
+      "commands": [],
+      "effort": "ten_minutes",
+      "settingsPane": null,
+      "settingsPath": null,
+      "sideEffects": "none",
+      "steps": [
+        "Choose a login password or passphrase of 15 or more characters. This is good practice even though it does not change the policy.",
+        "Advanced, optional: write the CIS password policy as a plist file, then run pwpolicy -setaccountpolicies with that file as an administrator.",
+      ],
+      "summary": "Use a login password of 15 or more characters; optionally set the policy with pwpolicy.",
+      "verify": "Run pwpolicy getaccountpolicies in Terminal. The policyAttributePassword content should contain .{15,}. This check reads that policy, not your password.",
+    },
+    "points": 0,
+    "requires": [
+      "passwordPolicy",
+    ],
+    "ruleId": "TL-MAC-017",
+    "severity": "info",
+    "status": "review",
+    "title": "Short passwords are not allowed",
+    "unknownReason": null,
+  },
+  {
+    "category": "sharing",
+    "cis": "2.13.2, 2.3.3.2",
+    "evidence": [
+      {
+        "key": "enabled",
+        "label": "File Sharing on",
+        "value": {
+          "kind": "bool",
+          "value": true,
+        },
+      },
+      {
+        "key": "shareCount",
+        "label": "Shared folders",
+        "value": {
+          "kind": "number",
+          "unit": "count",
+          "value": 1,
+        },
+      },
+      {
+        "key": "guestShareCount",
+        "label": "Folders open to guests",
+        "value": {
+          "kind": "number",
+          "unit": "count",
+          "value": 1,
+        },
+      },
+      {
+        "key": "sharePath",
+        "label": "Guest folder",
+        "value": {
+          "kind": "path",
+          "value": "/Users/antoine/Public",
+        },
+      },
+    ],
+    "explanation": "File Sharing is on and at least one shared folder lets guests in without a password. Anyone on the same network can open that folder and read, and often change, what is inside. On a cafe or hotel network that means strangers.",
+    "fix": {
+      "commands": [],
+      "effort": "two_minutes",
+      "settingsPane": "users_groups",
+      "settingsPath": [
+        "System Settings",
+        "Users & Groups",
+        "Guest User",
+      ],
+      "sideEffects": "workflow",
+      "steps": [
+        "Open System Settings, then Users & Groups, click the (i) next to Guest User and switch off Allow guest users to connect to shared folders.",
+        "Or open General, then Sharing, click the (i) next to File Sharing, select the folder and set Everyone to No Access.",
+        "Or, if you do not share files from this Mac, switch File Sharing off altogether.",
+      ],
+      "summary": "Stop guests connecting to shared folders, or turn File Sharing off.",
+      "verify": "Run the check-up again; the guest share count is 0 or File Sharing is off.",
+    },
+    "points": 8,
+    "requires": [
+      "fileSharing",
+    ],
+    "ruleId": "TL-MAC-022",
+    "severity": "high",
+    "status": "fail",
+    "title": "Shared folders are not open to guests",
+    "unknownReason": null,
+  },
+  {
+    "category": "persistence",
+    "cis": null,
+    "evidence": [
+      {
+        "key": "itemCount",
+        "label": "Background items",
+        "value": {
+          "kind": "number",
+          "unit": "count",
+          "value": 2,
+        },
+      },
+      {
+        "key": "itemLabel",
+        "label": "Item",
+        "value": {
+          "kind": "text",
+          "value": "com.docker.vmnetd",
+        },
+      },
+      {
+        "key": "daemonPlist",
+        "label": "Daemon file",
+        "value": {
+          "kind": "path",
+          "value": "/Library/LaunchDaemons/com.docker.vmnetd.plist",
+        },
+      },
+      {
+        "key": "itemLabel",
+        "label": "Item",
+        "value": {
+          "kind": "text",
+          "value": "homebrew.mxcl.postgresql@16",
+        },
+      },
+      {
+        "key": "agentPlist",
+        "label": "Agent file",
+        "value": {
+          "kind": "path",
+          "value": "/Users/antoine/Library/LaunchAgents/homebrew.mxcl.postgresql@16.plist",
+        },
+      },
+    ],
+    "explanation": "Some programs on this Mac are set to start on their own, in the background, every time you log in or the Mac starts. Most are harmless helpers from apps you installed, but this is also the usual way malware makes sure it keeps running. It is worth looking down the list once and removing anything you do not recognise or no longer use.",
+    "fix": {
+      "commands": [
+        {
+          "appliesTo": "agentPlist",
+          "args": [
+            "bootout",
+            "gui/$UID",
+            "{path}",
+          ],
+          "interactive": false,
+          "needsAdmin": false,
+          "program": "launchctl",
+        },
+        {
+          "appliesTo": "daemonPlist",
+          "args": [
+            "bootout",
+            "system",
+            "{path}",
+          ],
+          "interactive": false,
+          "needsAdmin": true,
+          "program": "launchctl",
+        },
+      ],
+      "effort": "ten_minutes",
+      "settingsPane": "login_items",
+      "settingsPath": [
+        "System Settings",
+        "General",
+        "Login Items & Extensions",
+        "Allow in the Background",
+      ],
+      "sideEffects": "workflow",
+      "steps": [
+        "Open System Settings, then General, then Login Items & Extensions, and look under Allow in the Background.",
+        "Switch off anything you do not recognise. If the app it belongs to is no longer installed, switch it off too.",
+        "Advanced: for an item that does not appear there, run the matching command shown to stop it, then delete the plist file listed in the evidence.",
+      ],
+      "summary": "Review the background items and remove any you do not recognise.",
+      "verify": "Run the check-up again; the item no longer appears in the evidence.",
+    },
+    "points": 0,
+    "requires": [
+      "persistence",
+    ],
+    "ruleId": "TL-MAC-023",
+    "severity": "info",
+    "status": "review",
+    "title": "Programs that start in the background",
+    "unknownReason": null,
+  },
+  {
+    "category": "persistence",
+    "cis": null,
+    "evidence": [
+      {
+        "key": "loginItemCount",
+        "label": "Apps that open at login",
+        "value": {
+          "kind": "number",
+          "unit": "count",
+          "value": 2,
+        },
+      },
+      {
+        "key": "loginItemName",
+        "label": "App",
+        "value": {
+          "kind": "text",
+          "value": "Docker",
+        },
+      },
+      {
+        "key": "loginItemName",
+        "label": "App",
+        "value": {
+          "kind": "text",
+          "value": "Raycast",
+        },
+      },
+    ],
+    "explanation": "These apps open by themselves every time you log in. That is usually by choice, but an app you forgot about, or one that added itself, keeps running and keeps its access to your files and network. Fewer login items also means a faster start.",
+    "fix": {
+      "commands": [],
+      "effort": "two_minutes",
+      "settingsPane": "login_items",
+      "settingsPath": [
+        "System Settings",
+        "General",
+        "Login Items & Extensions",
+        "Open at Login",
+      ],
+      "sideEffects": "none",
+      "steps": [
+        "Open System Settings, then General, then Login Items & Extensions.",
+        "Under Open at Login, select an item you do not need and click the minus button.",
+      ],
+      "summary": "Remove login items you do not need from Login Items & Extensions.",
+      "verify": "Open at Login lists only the apps you want.",
+    },
+    "points": 0,
+    "requires": [
+      "loginItems",
+    ],
+    "ruleId": "TL-MAC-025",
+    "severity": "info",
+    "status": "review",
+    "title": "Apps that open at login",
+    "unknownReason": null,
+  },
+  {
+    "category": "backup",
+    "cis": "2.3.4.1",
+    "evidence": [
+      {
+        "key": "method",
+        "label": "Backup method",
+        "value": {
+          "kind": "enum",
+          "value": "time_machine",
+        },
+      },
+      {
+        "key": "configured",
+        "label": "Backup configured",
+        "value": {
+          "kind": "bool",
+          "value": false,
+        },
+      },
+      {
+        "key": "destinationCount",
+        "label": "Backup destinations",
+        "value": {
+          "kind": "number",
+          "unit": "count",
+          "value": 0,
+        },
+      },
+    ],
+    "explanation": "There is no backup set up for this Mac. If the disk fails, the Mac is stolen, or ransomware scrambles your files, everything that is not backed up is gone. Time Machine is built in and only needs an external disk or a network drive.",
+    "fix": {
+      "commands": [],
+      "effort": "ten_minutes",
+      "settingsPane": "time_machine",
+      "settingsPath": [
+        "System Settings",
+        "General",
+        "Time Machine",
+      ],
+      "sideEffects": "none",
+      "steps": [
+        "Plug in an external disk, or make sure a network drive you can use for backups is reachable.",
+        "Open System Settings, then General, then Time Machine, and click Add Backup Disk.",
+        "Choose the disk and keep Back Up Automatically on. Encrypting the backup is recommended if the disk ever leaves the house.",
+      ],
+      "summary": "Add a backup disk in Time Machine.",
+      "verify": "Time Machine lists the disk and shows a time for the latest backup after the first run.",
+    },
+    "points": 4,
+    "requires": [
+      "backup",
+    ],
+    "ruleId": "TL-MAC-026",
+    "severity": "medium",
+    "status": "fail",
+    "title": "Backups are set up",
+    "unknownReason": null,
+  },
+  {
+    "category": "browser",
+    "cis": null,
+    "evidence": [
+      {
+        "key": "browserCount",
+        "label": "Browsers installed",
+        "value": {
+          "kind": "number",
+          "unit": "count",
+          "value": 2,
+        },
+      },
+      {
+        "key": "broadAccessCount",
+        "label": "Extensions with access to every site",
+        "value": {
+          "kind": "number",
+          "unit": "count",
+          "value": 0,
+        },
+      },
+      {
+        "key": "uncheckedBrowser",
+        "label": "Browser not checked",
+        "value": {
+          "kind": "enum",
+          "value": "chrome",
+        },
+      },
+    ],
+    "explanation": "A browser extension on this Mac is allowed to read and change every website you visit, including your bank and your email. Extensions are sold and updated by people you have never met, and a popular one can turn bad overnight. Limiting each extension to the sites it needs, or to run only when you click it, keeps the damage small if that happens.",
+    "fix": {
+      "commands": [],
+      "effort": "ten_minutes",
+      "settingsPane": "full_disk_access",
+      "settingsPath": [
+        "System Settings",
+        "Privacy & Security",
+        "Full Disk Access",
+      ],
+      "sideEffects": "workflow",
+      "steps": [
+        "In the browser, open the extensions page (chrome://extensions in Chrome, Brave, Edge and Arc; about:addons in Firefox).",
+        "For each extension named in the evidence, open Details and set Site access to On click, or to the specific sites it needs. Remove extensions you no longer use.",
+        "To let this app check Chrome, Brave, Edge or Arc, open System Settings, then Privacy & Security, then Full Disk Access, switch on Talos Labs, and run the check-up again.",
+      ],
+      "summary": "Limit each extension's site access, and grant Full Disk Access so Chrome-family browsers can be checked.",
+      "verify": "Run the check-up again; no extension is listed with access to every site.",
+    },
+    "points": 0,
+    "requires": [
+      "browsers",
+    ],
+    "ruleId": "TL-MAC-028",
+    "severity": "low",
+    "status": "unknown",
+    "title": "Browser extensions do not read every website",
+    "unknownReason": "needs_full_disk_access",
+  },
+  {
+    "category": "developer",
+    "cis": null,
+    "evidence": [
+      {
+        "key": "keyCount",
+        "label": "SSH keys found",
+        "value": {
+          "kind": "number",
+          "unit": "count",
+          "value": 2,
+        },
+      },
+      {
+        "key": "unprotectedCount",
+        "label": "Keys without a passphrase",
+        "value": {
+          "kind": "number",
+          "unit": "count",
+          "value": 2,
+        },
+      },
+      {
+        "key": "unrecognisedCount",
+        "label": "Keys in an unrecognised format",
+        "value": {
+          "kind": "number",
+          "unit": "count",
+          "value": 0,
+        },
+      },
+      {
+        "key": "keyPath",
+        "label": "Key file",
+        "value": {
+          "kind": "path",
+          "value": "/Users/antoine/.ssh/id_ed25519",
+        },
+      },
+      {
+        "key": "keyPath",
+        "label": "Key file",
+        "value": {
+          "kind": "path",
+          "value": "/Users/antoine/.ssh/aws-eu-west-1.pem",
+        },
+      },
+    ],
+    "explanation": "An SSH key is a file that logs you in to servers and services such as GitHub without a password. One of yours is stored with no passphrase, so anyone who copies the file, through malware, a stolen backup or a shared Mac, can use it as you straight away. Adding a passphrase means the file alone is useless to them.",
+    "fix": {
+      "commands": [
+        {
+          "appliesTo": "keyPath",
+          "args": [
+            "-p",
+            "-f",
+            "{path}",
+          ],
+          "interactive": true,
+          "needsAdmin": false,
+          "program": "ssh-keygen",
+        },
+      ],
+      "effort": "two_minutes",
+      "settingsPane": null,
+      "settingsPath": null,
+      "sideEffects": "workflow",
+      "steps": [
+        "Open Terminal and run the command shown for each key. It asks for the old passphrase (press Return if there is none) and then for a new one, twice.",
+        "Choose a passphrase you can remember; a few unrelated words works well.",
+        "To avoid typing it every time, run ssh-add --apple-use-keychain with the key path once, and the Mac keychain will supply it.",
+      ],
+      "summary": "Add a passphrase to each unprotected SSH key with ssh-keygen.",
+      "verify": "Run the check-up again; the unprotected key count is 0.",
+    },
+    "points": 8,
+    "requires": [
+      "ssh",
+    ],
+    "ruleId": "TL-MAC-029",
+    "severity": "high",
+    "status": "fail",
+    "title": "SSH keys are protected by a passphrase",
+    "unknownReason": null,
+  },
+]
+`;

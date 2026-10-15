@@ -1,12 +1,26 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-// @ts-expect-error type error without @types/node package
 import process from "node:process";
+
 const host = process.env.TAURI_DEV_HOST;
+
+// Compile-time date compared against a licence's updatesUntil.
+const buildDate = new Date().toISOString().slice(0, 10);
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
   plugins: [react()],
+
+  define: {
+    __BUILD_DATE__: JSON.stringify(buildDate),
+  },
+
+  test: {
+    environment: "jsdom",
+    include: ["src/**/*.test.{ts,tsx}"],
+    globals: false,
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

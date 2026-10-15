@@ -1,0 +1,98 @@
+{
+  "collectedAt": "2026-10-15T09:30:00.000Z",
+  "host": {
+    "arch": "arm64",
+    "collectorVersion": "0.1.0",
+    "os": "macos",
+    "osBuild": "26A434",
+    "osVersion": "27.0.1"
+  },
+  "schemaVersion": 1,
+  "sections": {
+    "accounts": {
+      "detail": "bin: dscl",
+      "reason": "needs_admin",
+      "status": "unavailable"
+    },
+    "backup": {
+      "detail": "bin: tmutil",
+      "reason": "timeout",
+      "status": "unavailable"
+    },
+    "browsers": {
+      "detail": "read_dir: Application Support",
+      "reason": "needs_full_disk_access",
+      "status": "unavailable"
+    },
+    "diskEncryption": {
+      "detail": "bin: fdesetup",
+      "reason": "tool_missing",
+      "status": "unavailable"
+    },
+    "dotfiles": {
+      "detail": "fixture: covers every reason",
+      "reason": "not_supported_on_os",
+      "status": "unavailable"
+    },
+    "fileSharing": {
+      "detail": null,
+      "reason": "collector_error",
+      "status": "unavailable"
+    },
+    "firewall": {
+      "detail": "bin: socketfilterfw",
+      "reason": "timeout",
+      "status": "unavailable"
+    },
+    "listeners": {
+      "detail": "bin: netstat",
+      "reason": "timeout",
+      "status": "unavailable"
+    },
+    "loginItems": {
+      "detail": "osascript: -1743",
+      "reason": "needs_automation_permission",
+      "status": "unavailable"
+    },
+    "malwareProtection": {
+      "detail": null,
+      "reason": "collector_error",
+      "status": "unavailable"
+    },
+    "passwordPolicy": {
+      "detail": "bin: pwpolicy",
+      "reason": "tool_missing",
+      "status": "unavailable"
+    },
+    "persistence": {
+      "detail": "read_dir: LaunchDaemons",
+      "reason": "permission_denied",
+      "status": "unavailable"
+    },
+    "platformIntegrity": {
+      "detail": "parser: spctl",
+      "reason": "parse_error",
+      "status": "unavailable"
+    },
+    "remoteAccess": {
+      "detail": "parser: launchctl",
+      "reason": "parse_error",
+      "status": "unavailable"
+    },
+    "screenLock": {
+      "detail": "parser: sysadminctl",
+      "reason": "parse_error",
+      "status": "unavailable"
+    },
+    "ssh": {
+      "detail": "read_dir: .ssh",
+      "reason": "permission_denied",
+      "status": "unavailable"
+    },
+    "updates": {
+      "detail": "read: com.apple.SoftwareUpdate",
+      "reason": "permission_denied",
+      "status": "unavailable"
+    }
+  }
+}

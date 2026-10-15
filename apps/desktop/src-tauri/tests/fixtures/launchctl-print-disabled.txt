@@ -1,0 +1,12 @@
+
+	disabled services = {
+		"com.malwarebytes.mbam.rtprotection.daemon" => enabled
+		"com.fleetdm.orbit" => enabled
+		"com.apple.CSCSupportd" => disabled
+		"com.apple.ftpd" => disabled
+		"com.docker.socket" => enabled
+		"com.apple.mdmclient.daemon.runatboot" => disabled
+		"com.docker.vmnetd" => enabled
+		"com.malwarebytes.mbam.settings.daemon" => enabled
+		"com.microsoft.autoupdate.helper" => enabled
+	}

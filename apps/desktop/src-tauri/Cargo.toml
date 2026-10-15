@@ -4,15 +4,25 @@ version = "0.1.0"
 description = "Talos Labs: plain-language security check-up for your computer"
 authors = ["Talos Labs"]
 edition = "2024"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+# tauri dev runs a bare `cargo run`; this picks the app over the talos-collect dev binary.
+default-run = "talos-desktop"
 
 [lib]
-# The `_lib` suffix may seem redundant but it is necessary
-# to make the lib name unique and wouldn't conflict with the bin name.
-# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+# The `_lib` suffix keeps the library name distinct from the binary name on Windows.
 name = "talos_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "talos-desktop"
+path = "src/main.rs"
+
+[[bin]]
+name = "talos-collect"
+path = "src/bin/talos-collect.rs"
+
+[features]
+# Prints raw command output to stderr. Development only.
+debug-raw = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -22,7 +32,19 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+plist = "1.10"
+regex = "1"
+wait-timeout = "0.2"
+keyring = "4"
+base64 = "0.22"
+dirs = "7"
+libc = "0.2"
+thiserror = "2"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

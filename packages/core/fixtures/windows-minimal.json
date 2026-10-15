@@ -1,0 +1,108 @@
+{
+  "collectedAt": "2026-10-15T09:30:00.000Z",
+  "host": {
+    "arch": "x86_64",
+    "collectorVersion": "0.1.0",
+    "os": "windows",
+    "osBuild": "26100.4351",
+    "osVersion": "11.0.26100"
+  },
+  "schemaVersion": 1,
+  "sections": {
+    "accounts": {
+      "detail": "collector: windows",
+      "reason": "not_supported_on_os",
+      "status": "unavailable"
+    },
+    "backup": {
+      "detail": "collector: windows",
+      "reason": "not_supported_on_os",
+      "status": "unavailable"
+    },
+    "browsers": {
+      "detail": "collector: windows",
+      "reason": "not_supported_on_os",
+      "status": "unavailable"
+    },
+    "diskEncryption": {
+      "data": {
+        "method": "bitlocker",
+        "systemVolumeEncrypted": true
+      },
+      "status": "ok"
+    },
+    "dotfiles": {
+      "detail": "collector: windows",
+      "reason": "not_supported_on_os",
+      "status": "unavailable"
+    },
+    "fileSharing": {
+      "detail": "collector: windows",
+      "reason": "not_supported_on_os",
+      "status": "unavailable"
+    },
+    "firewall": {
+      "data": {
+        "blockAllIncoming": null,
+        "enabled": true,
+        "stealthMode": null
+      },
+      "status": "ok"
+    },
+    "listeners": {
+      "detail": "collector: windows",
+      "reason": "not_supported_on_os",
+      "status": "unavailable"
+    },
+    "loginItems": {
+      "detail": "collector: windows",
+      "reason": "not_supported_on_os",
+      "status": "unavailable"
+    },
+    "malwareProtection": {
+      "data": {
+        "engine": "defender",
+        "present": true,
+        "version": "1.431.100.0"
+      },
+      "status": "ok"
+    },
+    "passwordPolicy": {
+      "detail": "collector: windows",
+      "reason": "not_supported_on_os",
+      "status": "unavailable"
+    },
+    "persistence": {
+      "detail": "collector: windows",
+      "reason": "not_supported_on_os",
+      "status": "unavailable"
+    },
+    "platformIntegrity": {
+      "data": {
+        "execPolicyEnabled": true,
+        "systemProtectionEnabled": null
+      },
+      "status": "ok"
+    },
+    "remoteAccess": {
+      "detail": "collector: windows",
+      "reason": "not_supported_on_os",
+      "status": "unavailable"
+    },
+    "screenLock": {
+      "detail": "collector: windows",
+      "reason": "not_supported_on_os",
+      "status": "unavailable"
+    },
+    "ssh": {
+      "detail": "collector: windows",
+      "reason": "not_supported_on_os",
+      "status": "unavailable"
+    },
+    "updates": {
+      "detail": "collector: windows",
+      "reason": "not_supported_on_os",
+      "status": "unavailable"
+    }
+  }
+}
