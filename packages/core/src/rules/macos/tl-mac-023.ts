@@ -43,6 +43,13 @@ export const TL_MAC_023: Rule = {
     verify: "Run the check-up again; the item no longer appears in the evidence.",
     effort: "ten_minutes",
     sideEffects: "workflow",
+    apply: {
+      kind: "deep_link",
+      pane: "login_items",
+      watch: ["persistence"],
+      watchEvery: 3,
+      reveal: "plist",
+    },
   },
   evaluate(state) {
     const data = section(state, "persistence");

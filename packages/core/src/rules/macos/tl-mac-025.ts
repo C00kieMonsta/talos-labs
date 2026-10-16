@@ -27,6 +27,13 @@ export const TL_MAC_025: Rule = {
     verify: "Open at Login lists only the apps you want.",
     effort: "two_minutes",
     sideEffects: "none",
+    apply: {
+      kind: "deep_link",
+      pane: "login_items",
+      watch: ["loginItems"],
+      watchEvery: 5,
+      reveal: null,
+    },
   },
   evaluate(state) {
     const data = section(state, "loginItems");

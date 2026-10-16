@@ -12,7 +12,11 @@ pub fn read(dir: &Path) -> std::io::Result<Option<String>> {
     match std::fs::read_to_string(path(dir)) {
         Ok(text) => {
             let trimmed = text.trim();
-            Ok(if trimmed.is_empty() { None } else { Some(trimmed.to_owned()) })
+            Ok(if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_owned())
+            })
         }
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(err),

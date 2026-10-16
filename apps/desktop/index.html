@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
     <title>Talos Labs</title>
+    <script>
+      // Outside the Tauri window there is no sidebar material, so the sidebar paints its fallback colour.
+      if (!("__TAURI_INTERNALS__" in window)) document.documentElement.classList.add("no-vibrancy");
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -4,6 +4,7 @@
   "description": "Capability for the main window. App-defined commands need no entries; no shell, fs, http or opener permission is granted.",
   "windows": ["main"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "core:window:allow-start-dragging"
   ]
 }

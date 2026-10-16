@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 
 use super::{check_exit, defaults, run};
-use crate::collect::{to_section, Fail};
+use crate::collect::{Fail, to_section};
 use crate::exec::{Bin, ExecError};
 use crate::state::{Accounts, Section, Tri};
 
@@ -42,13 +42,19 @@ pub fn parse_user_ids(text: &str) -> Option<HashMap<String, i64>> {
 /// A member counts as a human admin when its name resolves to a user record with a UniqueID of
 /// `FIRST_HUMAN_UID` or more. A deleted account leaves its name in the group with no record, so it is
 /// dropped. Without the user listing the count falls back to excluding `root` and `_` service names.
-pub fn summarise(members: &[String], current_user: &str, user_ids: Option<&HashMap<String, i64>>) -> (bool, u64) {
+pub fn summarise(
+    members: &[String],
+    current_user: &str,
+    user_ids: Option<&HashMap<String, i64>>,
+) -> (bool, u64) {
     let current_user = current_user.trim();
     let is_admin = !current_user.is_empty() && members.iter().any(|m| m == current_user);
     let humans = members
         .iter()
         .filter(|m| match user_ids {
-            Some(ids) => ids.get(m.as_str()).is_some_and(|uid| *uid >= FIRST_HUMAN_UID),
+            Some(ids) => ids
+                .get(m.as_str())
+                .is_some_and(|uid| *uid >= FIRST_HUMAN_UID),
             None => m.as_str() != "root" && !m.starts_with('_'),
         })
         .count();
@@ -59,7 +65,9 @@ pub fn summarise(members: &[String], current_user: &str, user_ids: Option<&HashM
 pub fn parse_login_window(dump: &str) -> (Tri, bool) {
     let map = defaults::parse_dump(dump);
     let guest = defaults::tri(&map, "GuestEnabled");
-    let auto_login = map.get("autoLoginUser").is_some_and(|v| !v.trim().is_empty());
+    let auto_login = map
+        .get("autoLoginUser")
+        .is_some_and(|v| !v.trim().is_empty());
     (guest, auto_login)
 }
 
@@ -74,16 +82,27 @@ fn list_user_ids(cancel: &AtomicBool) -> Result<Option<HashMap<String, i64>>, Fa
 }
 
 fn inner(cancel: &AtomicBool) -> Result<Accounts, Fail> {
-    let dscl = run(Bin::Dscl, &[".", "-read", "/Groups/admin", "GroupMembership"], cancel)?;
+    let dscl = run(
+        Bin::Dscl,
+        &[".", "-read", "/Groups/admin", "GroupMembership"],
+        cancel,
+    )?;
     check_exit(&dscl, Bin::Dscl)?;
     let members = parse_group_membership(&dscl.stdout)?;
     let user_ids = list_user_ids(cancel)?;
     let whoami = run(Bin::Whoami, &[], cancel)?;
     check_exit(&whoami, Bin::Whoami)?;
-    let (current_user_is_admin, human_admin_count) = summarise(&members, &whoami.stdout, user_ids.as_ref());
-    let dump = defaults::read_domain(LOGINWINDOW_DOMAIN, "loginwindow", cancel)?.unwrap_or_default();
+    let (current_user_is_admin, human_admin_count) =
+        summarise(&members, &whoami.stdout, user_ids.as_ref());
+    let dump =
+        defaults::read_domain(LOGINWINDOW_DOMAIN, "loginwindow", cancel)?.unwrap_or_default();
     let (guest_enabled, auto_login_enabled) = parse_login_window(&dump);
-    Ok(Accounts { current_user_is_admin, human_admin_count, guest_enabled, auto_login_enabled })
+    Ok(Accounts {
+        current_user_is_admin,
+        human_admin_count,
+        guest_enabled,
+        auto_login_enabled,
+    })
 }
 
 pub fn collect(cancel: &AtomicBool) -> Section<Accounts> {
@@ -117,22 +136,32 @@ mod tests {
         assert_eq!(ids.get("com.example.helper.nobody"), Some(&1000));
         assert_eq!(ids.get("bob"), None);
         assert_eq!(parse_user_ids(""), None);
-        assert_eq!(parse_user_ids("DS Error: -14009 (eDSUnknownNodeName)\n"), None);
+        assert_eq!(
+            parse_user_ids("DS Error: -14009 (eDSUnknownNodeName)\n"),
+            None
+        );
     }
 
     #[test]
     fn a_deleted_admin_name_is_not_counted() {
-        let members = parse_group_membership(include_str!("../../../tests/fixtures/dscl-admin.txt")).unwrap();
+        let members =
+            parse_group_membership(include_str!("../../../tests/fixtures/dscl-admin.txt")).unwrap();
         let ids = parse_user_ids(USERS).unwrap();
         // bob has no user record; root and _mbsetupuser sit below 500.
         assert_eq!(summarise(&members, "alice\n", Some(&ids)), (true, 1));
-        assert_eq!(summarise(&members, "bob", Some(&ids)), (true, 1), "the ghost name still matches whoami");
+        assert_eq!(
+            summarise(&members, "bob", Some(&ids)),
+            (true, 1),
+            "the ghost name still matches whoami"
+        );
         assert_eq!(summarise(&members, "sam", Some(&ids)), (false, 1));
     }
 
     #[test]
     fn a_second_human_admin_is_counted_when_it_resolves() {
-        let members: Vec<String> = ["root", "alice", "carol", "_mbsetupuser"].map(str::to_owned).into();
+        let members: Vec<String> = ["root", "alice", "carol", "_mbsetupuser"]
+            .map(str::to_owned)
+            .into();
         let ids = parse_user_ids(USERS).unwrap();
         assert_eq!(summarise(&members, "alice", Some(&ids)), (true, 2));
     }

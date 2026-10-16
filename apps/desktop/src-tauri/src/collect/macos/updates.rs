@@ -3,7 +3,7 @@
 use std::sync::atomic::AtomicBool;
 
 use super::defaults;
-use crate::collect::{to_section, Fail};
+use crate::collect::{Fail, to_section};
 use crate::state::{Section, Tri, Updates};
 
 pub const SOFTWARE_UPDATE_DOMAIN: &str = "/Library/Preferences/com.apple.SoftwareUpdate";
@@ -27,7 +27,9 @@ pub fn parse_software_update(dump: &str, commerce_auto_update: Option<&str>) -> 
     };
     Updates {
         pending_count,
-        last_check_at: map.get("LastSuccessfulDate").and_then(|v| defaults::date_to_iso(v)),
+        last_check_at: map
+            .get("LastSuccessfulDate")
+            .and_then(|v| defaults::date_to_iso(v)),
         last_result_code: map.get("LastResultCode").and_then(|v| v.parse().ok()),
         automatic_check: defaults::tri(&map, "AutomaticCheckEnabled"),
         automatic_download: defaults::tri(&map, "AutomaticDownload"),
@@ -38,7 +40,8 @@ pub fn parse_software_update(dump: &str, commerce_auto_update: Option<&str>) -> 
 }
 
 fn inner(cancel: &AtomicBool) -> Result<Updates, Fail> {
-    let dump = defaults::read_domain(SOFTWARE_UPDATE_DOMAIN, "SoftwareUpdate", cancel)?.unwrap_or_default();
+    let dump = defaults::read_domain(SOFTWARE_UPDATE_DOMAIN, "SoftwareUpdate", cancel)?
+        .unwrap_or_default();
     let commerce = defaults::read_key(COMMERCE_DOMAIN, "AutoUpdate", "commerce", cancel)?;
     Ok(parse_software_update(&dump, commerce.as_deref()))
 }
@@ -56,7 +59,11 @@ mod tests {
     #[test]
     fn parses_captured_dump_without_automatic_check_key() {
         let u = parse_software_update(CAPTURED, Some("0"));
-        assert_eq!(u.pending_count, Some(0), "RecommendedUpdates is empty although LastUpdatesAvailable is 1");
+        assert_eq!(
+            u.pending_count,
+            Some(0),
+            "RecommendedUpdates is empty although LastUpdatesAvailable is 1"
+        );
         assert_eq!(u.last_check_at.as_deref(), Some("2026-10-15T08:56:56.000Z"));
         assert_eq!(u.last_result_code, Some(2));
         assert_eq!(u.automatic_check, Tri::Unset);
@@ -75,10 +82,17 @@ mod tests {
         let two = PENDING.replace("        }\n    );", "        },\n                {\n            \"Display Name\" = \"Safari 27.1\";\n        }\n    );");
         assert_eq!(parse_software_update(&two, None).pending_count, Some(2));
         let counter_only = parse_software_update("{\n    LastUpdatesAvailable = 1;\n}\n", None);
-        assert_eq!(counter_only.pending_count, Some(1), "the counter is the fallback when the list is absent");
+        assert_eq!(
+            counter_only.pending_count,
+            Some(1),
+            "the counter is the fallback when the list is absent"
+        );
         let counter_zero = parse_software_update("{\n    LastUpdatesAvailable = 0;\n}\n", None);
         assert_eq!(counter_zero.pending_count, Some(0));
-        assert_eq!(parse_software_update("{\n    SplatEnabled = 1;\n}\n", None).pending_count, None);
+        assert_eq!(
+            parse_software_update("{\n    SplatEnabled = 1;\n}\n", None).pending_count,
+            None
+        );
     }
 
     #[test]
@@ -94,11 +108,17 @@ mod tests {
     fn security_responses_fold_four_combinations() {
         let both_missing = parse_software_update("{\n}\n", None);
         assert_eq!(both_missing.auto_install_security_responses, Tri::Unset);
-        let one_false = parse_software_update("{\n    ConfigDataInstall = 1;\n    CriticalUpdateInstall = 0;\n}\n", None);
+        let one_false = parse_software_update(
+            "{\n    ConfigDataInstall = 1;\n    CriticalUpdateInstall = 0;\n}\n",
+            None,
+        );
         assert_eq!(one_false.auto_install_security_responses, Tri::False);
         let other_false = parse_software_update("{\n    ConfigDataInstall = 0;\n}\n", None);
         assert_eq!(other_false.auto_install_security_responses, Tri::False);
-        let both_true = parse_software_update("{\n    ConfigDataInstall = 1;\n    CriticalUpdateInstall = 1;\n}\n", None);
+        let both_true = parse_software_update(
+            "{\n    ConfigDataInstall = 1;\n    CriticalUpdateInstall = 1;\n}\n",
+            None,
+        );
         assert_eq!(both_true.auto_install_security_responses, Tri::True);
         let one_true = parse_software_update("{\n    CriticalUpdateInstall = 1;\n}\n", None);
         assert_eq!(one_true.auto_install_security_responses, Tri::True);

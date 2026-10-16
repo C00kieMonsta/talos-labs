@@ -38,6 +38,13 @@ export const TL_MAC_027: Rule = {
     verify: "Time Machine shows a latest backup time within the last week, and the check-up passes while the backup disk is connected.",
     effort: "ten_minutes",
     sideEffects: "none",
+    apply: {
+      kind: "deep_link",
+      pane: "time_machine",
+      watch: ["backup"],
+      watchEvery: 10,
+      reveal: null,
+    },
   },
   evaluate(state) {
     const data = section(state, "backup");

@@ -1,15 +1,17 @@
 //! Tauri command surface. Thin; maps errors to strings. Argument names are single lowercase words.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
-use crate::assistant;
 use crate::capabilities::{self, Capabilities};
 use crate::collect::{self, CollectError, ProgressStatus};
+use crate::fix::plan::{FixPlan, PlanStore};
+use crate::fix::run::{self as fix_run, FixStatus, STATUS_EVENT};
+use crate::fix::{FixChoice, FixOutcome};
 use crate::settings_pane::SettingsPane;
 use crate::state::{SectionKey, SystemState};
 use crate::{license_store, report_store, secret};
@@ -25,7 +27,10 @@ pub struct AppState {
 
 impl Default for AppState {
     fn default() -> Self {
-        AppState { scan_cancel: Arc::new(AtomicBool::new(false)), section_cancel: Arc::new(AtomicBool::new(false)) }
+        AppState {
+            scan_cancel: Arc::new(AtomicBool::new(false)),
+            section_cancel: Arc::new(AtomicBool::new(false)),
+        }
     }
 }
 
@@ -73,7 +78,10 @@ fn app_data_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 }
 
 #[tauri::command]
-pub async fn collect_system_state(app: AppHandle, state: State<'_, AppState>) -> Result<SystemState, String> {
+pub async fn collect_system_state(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<SystemState, String> {
     let cancel = state.start_scan();
     let emitter = app.clone();
     let progress: Arc<collect::ProgressFn> = Arc::new(move |key, status| {
@@ -95,13 +103,17 @@ pub fn cancel_scan(state: State<'_, AppState>) {
 /// its own: `exec::run` checks it before every spawn and polls it while a child runs. Rejects with
 /// "cancelled" when the flag was set, so a cancelled recheck never replaces a good section.
 #[tauri::command]
-pub async fn collect_section(key: String, state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+pub async fn collect_section(
+    key: String,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
     let key = SectionKey::parse(&key).ok_or_else(|| "unknown section key".to_owned())?;
     let cancel = state.start_section();
-    let section = tauri::async_runtime::spawn_blocking(move || collect::collect_section(key, cancel))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(cancelled)?;
+    let section =
+        tauri::async_runtime::spawn_blocking(move || collect::collect_section(key, cancel))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(cancelled)?;
     serde_json::to_value(section).map_err(|e| e.to_string())
 }
 
@@ -120,29 +132,101 @@ pub fn check_capabilities() -> Capabilities {
 #[tauri::command]
 pub fn open_settings_pane(app: AppHandle, pane: String) -> Result<(), String> {
     let pane = SettingsPane::parse(&pane).ok_or_else(|| "unknown settings pane".to_owned())?;
-    app.opener().open_url(pane.url(), None::<&str>).map_err(|e| e.to_string())
+    app.opener()
+        .open_url(pane.url(), None::<&str>)
+        .map_err(|e| e.to_string())
 }
 
-/// Opens the user's own Claude or ChatGPT account with a prompt built by core. Rust picks the URL.
+/// Where "Buy" goes. Fixed here so the webview never passes a URL.
+pub const BUY_URL: &str = "https://taloslabs.ai/buy";
+
+/// Builds and stores a plan for five minutes. Rejects with the `FixError` string.
 #[tauri::command]
-pub fn open_assistant(app: AppHandle, assistant: String, prompt: String) -> Result<(), String> {
-    let url = assistant::assistant_url(&assistant, &prompt)?;
-    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+pub async fn fix_preview(
+    state: State<'_, PlanStore>,
+    rule: String,
+    choice: FixChoice,
+) -> Result<FixPlan, String> {
+    let plan = tauri::async_runtime::spawn_blocking(move || fix_run::preview(&rule, &choice))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(String::from)?;
+    Ok(state.insert(plan))
+}
+
+/// Runs a stored plan. Pre-run errors reject; run-time errors resolve `{ ok: false }`.
+#[tauri::command]
+pub async fn fix_apply(
+    app: AppHandle,
+    state: State<'_, PlanStore>,
+    plan: String,
+    passphrase: Option<String>,
+) -> Result<FixOutcome, String> {
+    let passphrase = passphrase.map(zeroize::Zeroizing::new);
+    let (stored, running) = state.start(&plan).map_err(String::from)?;
+    let emit = move |status: FixStatus| {
+        let _ = app.emit(STATUS_EVENT, status);
+    };
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        fix_run::apply(&stored, &running, passphrase, &emit)
+    })
+    .await
+    .map_err(|e| e.to_string());
+    state.finish(&plan);
+    outcome?.map_err(String::from)
+}
+
+/// Kills the running child; the osascript dialog closes with it.
+#[tauri::command]
+pub fn fix_cancel(state: State<'_, PlanStore>, plan: String) {
+    state.cancel(&plan);
+}
+
+/// Finder reveal for 023, 024 and 031 after the same validation as a preview.
+#[tauri::command]
+pub async fn fix_reveal(app: AppHandle, rule: String, choice: FixChoice) -> Result<(), String> {
+    let path =
+        tauri::async_runtime::spawn_blocking(move || crate::fix::reveal::resolve(&rule, &choice))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(String::from)?;
+    app.opener()
+        .reveal_item_in_dir(path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn open_buy_page(app: AppHandle) -> Result<(), String> {
+    app.opener()
+        .open_url(BUY_URL, None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+/// For the Full Disk Access continuation: the new grant applies to the next process.
+#[tauri::command]
+pub fn app_restart(app: AppHandle) {
+    app.restart();
 }
 
 #[tauri::command]
 pub async fn secret_get(name: String) -> Result<Option<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || secret::get(&name)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || secret::get(&name))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 pub async fn secret_set(name: String, value: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || secret::set(&name, &value)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || secret::set(&name, &value))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 pub async fn secret_delete(name: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || secret::delete(&name)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || secret::delete(&name))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -179,7 +263,10 @@ mod tests {
         let state = AppState::default();
         let flag = state.start_section();
         state.cancel_scan();
-        assert!(matches!(collect::collect_section(SectionKey::Accounts, flag), Err(CollectError::Cancelled)));
+        assert!(matches!(
+            collect::collect_section(SectionKey::Accounts, flag),
+            Err(CollectError::Cancelled)
+        ));
         assert!(state.scan_cancel.load(Ordering::SeqCst));
     }
 
@@ -198,7 +285,10 @@ mod tests {
         let state = AppState::default();
         state.cancel_scan();
         assert!(!state.start_section().load(Ordering::SeqCst));
-        assert!(state.scan_cancel.load(Ordering::SeqCst), "the scan flag waits for the next scan");
+        assert!(
+            state.scan_cancel.load(Ordering::SeqCst),
+            "the scan flag waits for the next scan"
+        );
         assert!(!state.start_scan().load(Ordering::SeqCst));
     }
 

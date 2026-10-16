@@ -10,8 +10,7 @@ export type Route =
   | { name: "findings"; severity?: SeverityFilter; category?: CategoryFilter }
   | { name: "finding"; ruleId: RuleId }
   | { name: "ask" }
-  | { name: "settings" }
-  | { name: "about" };
+  | { name: "settings" };
 
 export type RouteName = Route["name"];
 

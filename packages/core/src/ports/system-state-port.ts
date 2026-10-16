@@ -22,9 +22,14 @@ export interface CollectSectionOptions {
   readonly signal?: AbortSignalLike;
 }
 
+/** Automation permission for System Events, read without prompting. */
+export type AutomationStatus = "granted" | "denied" | "not_determined";
+
 export interface Capabilities {
   /** null when no probe directory exists on this machine. */
   readonly fullDiskAccess: boolean | null;
+  /** null when the probe could not decide (System Events not running). */
+  readonly automation: AutomationStatus | null;
 }
 
 /** Implemented by the desktop app over Tauri commands. Read-only. */

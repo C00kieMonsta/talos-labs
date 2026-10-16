@@ -5,6 +5,7 @@ import {
   SECTION_KEYS,
   assertSystemState,
   type AbortSignalLike,
+  type AutomationStatus,
   type Capabilities,
   type CollectOptions,
   type CollectSectionOptions,
@@ -54,10 +55,19 @@ function toSchemaError(error: unknown): ScanError {
   return new ScanError("schema_mismatch", `schema mismatch: ${detail}`);
 }
 
-function isCapabilities(value: unknown): value is Capabilities {
-  if (typeof value !== "object" || value === null) return false;
-  const fda = (value as { fullDiskAccess?: unknown }).fullDiskAccess;
-  return fda === null || typeof fda === "boolean";
+const AUTOMATION_STATUSES: readonly AutomationStatus[] = ["granted", "denied", "not_determined"];
+
+/** Each field is read on its own, so a bad value in one does not hide the other. */
+function toCapabilities(value: unknown): Capabilities {
+  if (typeof value !== "object" || value === null) return { fullDiskAccess: null, automation: null };
+  const { fullDiskAccess, automation } = value as { fullDiskAccess?: unknown; automation?: unknown };
+  return {
+    fullDiskAccess: typeof fullDiskAccess === "boolean" ? fullDiskAccess : null,
+    automation:
+      typeof automation === "string" && (AUTOMATION_STATUSES as readonly string[]).includes(automation)
+        ? (automation as AutomationStatus)
+        : null,
+  };
 }
 
 function cancelledError(): ScanError {
@@ -147,8 +157,6 @@ export class TauriSystemStateAdapter implements SystemStatePort {
   }
 
   async capabilities(): Promise<Capabilities> {
-    const raw = await invoke<unknown>("check_capabilities");
-    if (!isCapabilities(raw)) return { fullDiskAccess: null };
-    return { fullDiskAccess: raw.fullDiskAccess };
+    return toCapabilities(await invoke<unknown>("check_capabilities"));
   }
 }

@@ -20,8 +20,8 @@ export const TL_MAC_016: Rule = {
     settingsPane: "users_groups",
     commands: [
       {
-        program: "defaults",
-        args: ["delete", "/Library/Preferences/com.apple.loginwindow", "autoLoginUser"],
+        program: "sysadminctl",
+        args: ["-autologin", "off"],
         needsAdmin: true,
         interactive: false,
         appliesTo: null,
@@ -34,6 +34,17 @@ export const TL_MAC_016: Rule = {
     verify: "The Mac asks for a password at the login screen after a restart.",
     effort: "two_minutes",
     sideEffects: "reauth",
+    apply: {
+      kind: "in_app",
+      choice: "none",
+      passphrase: false,
+      needsPassword: true,
+      recheck: ["accounts"],
+      confirmTitle: "Turn automatic login off?",
+      confirmVerb: "Turn off",
+      confirmNote: null,
+      reversible: "You can choose an account again in System Settings > Users & Groups.",
+    },
   },
   evaluate(state) {
     const data = section(state, "accounts");

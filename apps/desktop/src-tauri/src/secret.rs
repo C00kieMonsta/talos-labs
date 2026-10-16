@@ -3,7 +3,11 @@
 pub const SERVICE: &str = "ai.taloslabs.desktop";
 
 fn valid_name(name: &str) -> bool {
-    !name.is_empty() && name.len() <= 64 && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    !name.is_empty()
+        && name.len() <= 64
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
 }
 
 fn entry(name: &str) -> Result<keyring::Entry, String> {

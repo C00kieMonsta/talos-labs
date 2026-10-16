@@ -6,11 +6,14 @@ import {
   buildSystemPrompt,
   validateAnswer,
   validateExplanation,
+  explainerEligibleRuleIds,
+
   validatePrioritisation,
-  type AbortSignalLike,
+  type AiAvailability,
   type Answer,
   type AskInput,
   type ExplainInput,
+  type ExplainOptions,
   type ExplainerPort,
   type ExplainerResult,
   type Explanation,
@@ -59,24 +62,30 @@ export class OllamaExplainerAdapter implements ExplainerPort {
     this.fetchImpl = options.fetchImpl ?? ((input, init) => fetch(input, init));
   }
 
-  explain(input: ExplainInput, signal?: AbortSignalLike): Promise<ExplainerResult<Explanation>> {
-    return this.request(explainTurns(input), EXPLANATION_JSON_SCHEMA, validateExplanation, signal);
+  /** A configured Developer-mode provider is taken to be reachable; a failed call reports the reason. */
+  async availability(_fresh?: boolean): Promise<AiAvailability> {
+    return "available";
   }
 
-  prioritise(input: PrioritiseInput, signal?: AbortSignalLike): Promise<ExplainerResult<Prioritisation>> {
-    return this.request(prioritiseTurns(input), PRIORITISATION_JSON_SCHEMA, validatePrioritisation, signal);
+  explain(input: ExplainInput, options?: ExplainOptions<Explanation>): Promise<ExplainerResult<Explanation>> {
+    return this.request(explainTurns(input), EXPLANATION_JSON_SCHEMA, validateExplanation, options);
   }
 
-  ask(input: AskInput, signal?: AbortSignalLike): Promise<ExplainerResult<Answer>> {
-    return this.request(askTurns(input), ANSWER_JSON_SCHEMA, validateAnswer, signal);
+  prioritise(input: PrioritiseInput, options?: ExplainOptions<Prioritisation>): Promise<ExplainerResult<Prioritisation>> {
+    return this.request(prioritiseTurns(input), PRIORITISATION_JSON_SCHEMA, validatePrioritisationFor, options);
+  }
+
+  ask(input: AskInput, options?: ExplainOptions<Answer>): Promise<ExplainerResult<Answer>> {
+    return this.request(askTurns(input), ANSWER_JSON_SCHEMA, validateAnswer, options);
   }
 
   private async request<T>(
     turns: readonly ChatTurn[],
     schema: Record<string, unknown>,
     validate: Validator<T>,
-    signal: AbortSignalLike | undefined,
+    options: ExplainOptions<T> | undefined,
   ): Promise<ExplainerResult<T>> {
+    const signal = options?.signal;
     const report = await this.reportSource();
     if (report === null) return failure("unknown");
 
@@ -119,6 +128,14 @@ export class OllamaExplainerAdapter implements ExplainerPort {
 
     const parsed = parseJson(text);
     if (!parsed.ok) return failure("rejected_output");
-    return validate(parsed.value, report);
+    const result = validate(parsed.value, report);
+    // A non-streaming provider shows its whole answer as one partial.
+    if (result.ok) options?.onPartial?.(result.value);
+    return result;
   }
+}
+
+/** The order may only name rules the prompt showed, which for a full context is every eligible rule. */
+function validatePrioritisationFor(raw: unknown, report: ScanReport): ExplainerResult<Prioritisation> {
+  return validatePrioritisation(raw, report, explainerEligibleRuleIds(report));
 }

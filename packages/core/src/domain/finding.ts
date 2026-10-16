@@ -79,7 +79,8 @@ export type SettingsPane =
   | "login_items"
   | "time_machine"
   | "full_disk_access"
-  | "automation";
+  | "automation"
+  | "apple_intelligence";
 
 /**
  * A command shown to the user with a copy button. The app never runs it.
@@ -97,6 +98,46 @@ export interface FixCommand {
   readonly appliesTo: string | null;
 }
 
+/** What the webview must pick before an in-app fix can be planned. all_ssh_keys means Rust binds every key itself. */
+export type FixApplyChoice = "none" | "share" | "ssh_key" | "all_ssh_keys";
+
+/** How the app can act on this fix. Catalog-owned; the Rust FIX_CATALOG mirrors every in_app entry. */
+export type FixApply =
+  | {
+      readonly kind: "in_app";
+      readonly choice: FixApplyChoice;
+      /** true when the fix needs a new passphrase typed in the app (029). */
+      readonly passphrase: boolean;
+      /** true when macOS will raise its administrator dialog. */
+      readonly needsPassword: boolean;
+      /** Sections re-read after the apply. */
+      readonly recheck: readonly SectionKey[];
+      /** Sheet title with a question mark, e.g. "Turn the firewall on?" */
+      readonly confirmTitle: string;
+      /** Verb for the primary button, e.g. "Turn on". The UI adds the ellipsis when a dialog follows. */
+      readonly confirmVerb: string;
+      /** Extra sentence for the sheet, or null. */
+      readonly confirmNote: string | null;
+      /** One line, or null when not reversible. */
+      readonly reversible: string | null;
+    }
+  | {
+      readonly kind: "deep_link";
+      readonly pane: SettingsPane;
+      /** Sections polled while the user is away in System Settings. */
+      readonly watch: readonly SectionKey[];
+      /** Seconds between polls while away. */
+      readonly watchEvery: number;
+      readonly reveal: "plist" | null;
+    }
+  | {
+      readonly kind: "manual";
+      /** Sections to poll after "Watch for the change" or a reveal; empty means no watcher. */
+      readonly watch: readonly SectionKey[];
+      readonly watchEvery: number;
+      readonly reveal: "plist" | "file" | null;
+    };
+
 export interface Fix {
   /** One sentence, imperative. */
   readonly summary: string;
@@ -111,6 +152,7 @@ export interface Fix {
   readonly verify: string | null;
   readonly effort: FixEffort;
   readonly sideEffects: FixSideEffect;
+  readonly apply: FixApply;
 }
 
 /** One row per catalog rule, in catalog order. Compact; carries no catalog text. */

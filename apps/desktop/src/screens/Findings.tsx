@@ -1,29 +1,33 @@
 import { useEffect, useRef, useState } from "react";
-import type { Category, Finding, Rule, RuleId, Severity } from "@talos/core";
+import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
+import type { Category, Finding, Rule, RuleId, ScanReport, Severity } from "@talos/core";
+import { AiCard, useAiCardFlow } from "../components/AiCard";
 import { FindingCard } from "../components/FindingCard";
-import { Lock } from "../components/Lock";
 import { SeverityBadge } from "../components/SeverityBadge";
-import {
-  CATEGORY_LABELS,
-  CATEGORY_ORDER,
-  EXPLAINER_FAILURE_LABELS,
-  SEVERITY_LABELS,
-  SEVERITY_ORDER,
-  SOCKET_TABLE_LABEL,
-} from "../app/labels";
+import { CATEGORY_LABELS, CATEGORY_ORDER, SEVERITY_LABELS, SEVERITY_ORDER, SOCKET_TABLE_LABEL } from "../app/labels";
 import { useApp } from "../app/context";
 import type { CategoryFilter, SeverityFilter } from "../app/router";
 import { hiddenBySocketTable } from "../app/network-checks";
 import { lastReport } from "../scan/machine";
 import type { ExplainState } from "../scan/machine";
-import { isInAppProvider } from "../settings";
+import { SuggestedOrderBody } from "./Overview";
+
+/** The filter selects live in the toolbar when it offers a slot, else inline. */
+function ToolbarSlot({ children }: { children: ReactNode }) {
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setSlot(document.getElementById("toolbar-slot"));
+  }, []);
+  return slot === null ? <div className="filters">{children}</div> : createPortal(children, slot);
+}
 
 function bySeverity(a: Finding, b: Finding): number {
   return SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity);
 }
 
 export function Findings() {
-  const { scan, router, catalog, gate, settings } = useApp();
+  const { scan, router, catalog, settings } = useApp();
   const report = lastReport(scan.scan);
   // The filters live on the route, so Back from a finding restores them; local state keeps the selects responsive.
   const routed = router.route.name === "findings" ? router.route : null;
@@ -79,16 +83,11 @@ export function Findings() {
 
   const open = (ruleId: RuleId) => router.navigate({ name: "finding", ruleId });
   const reasonFor = (finding: Finding) => (hiddenBySocketTable(report, finding) ? SOCKET_TABLE_LABEL : undefined);
-  const suggested = order === null ? [] : order.map((id) => report.findings.find((f) => f.ruleId === id)).filter((f): f is Finding => f !== undefined);
-  // The suggested order comes from the in-app explainer; the browser hand-off has no return channel.
-  const aiOn = isInAppProvider(settings.explainer.provider);
-  const showAside = aiOn || suggested.length > 0;
+  const showAside = settings.explainer.aiEnabled && (live || order !== null) && report.findings.some((f) => f.status !== "unknown");
 
   return (
     <main className="screen findings">
-      <header className="section-head">
-        <h1>Findings</h1>
-        <div className="filters">
+      <ToolbarSlot>
           <label>
             <span className="visually-hidden">Filter by severity</span>
             <select value={severity} onChange={(e) => setSeverity(e.target.value as SeverityFilter)} aria-label="Severity">
@@ -111,8 +110,7 @@ export function Findings() {
               ))}
             </select>
           </label>
-        </div>
-      </header>
+      </ToolbarSlot>
 
       <div className={showAside ? "findings-layout with-aside" : "findings-layout"}>
         <div className="findings-main">
@@ -154,105 +152,31 @@ export function Findings() {
           )}
         </div>
 
-        {showAside && (
-          <SuggestedOrder
-            suggested={suggested}
-            explain={explain}
-            live={live}
-            allowed={gate.has("explainer")}
-            onOpen={open}
-            onPrioritise={() => void scan.prioritise()}
-            onSettings={() => router.navigate({ name: "settings" })}
-          />
-        )}
+        {showAside && <SuggestedOrder report={report} onOpen={open} />}
       </div>
     </main>
   );
 }
 
-function SuggestedOrder({
-  suggested,
-  explain,
-  live,
-  allowed,
-  onOpen,
-  onPrioritise,
-  onSettings,
-}: {
-  suggested: readonly Finding[];
-  explain: ExplainState;
-  live: boolean;
-  allowed: boolean;
-  onOpen(ruleId: RuleId): void;
-  onPrioritise(): void;
-  onSettings(): void;
-}) {
-  const working = explain.kind === "running" && explain.target === "prioritise";
-  const busy = explain.kind === "running";
-  const failure = explain.kind === "failed" && explain.target === "prioritise" ? explain.reason : null;
+function SuggestedOrder({ report, onOpen }: { report: ScanReport; onOpen(ruleId: RuleId): void }) {
+  const flow = useAiCardFlow("prioritise");
+  const priority = flow.explain.kind === "ready" || flow.explain.kind === "failed" ? flow.explain.priority : null;
   const heading = useRef<HTMLHeadingElement>(null);
-  const wasWorking = useRef(false);
-
+  const streaming = flow.state.kind === "streaming";
+  const wasStreaming = useRef(false);
   // When the order the user asked for lands, read it next: focus the heading above it.
   useEffect(() => {
-    if (wasWorking.current && !working && suggested.length > 0) heading.current?.focus();
-    wasWorking.current = working;
-  }, [working, suggested.length]);
-
+    if (wasStreaming.current && !streaming && priority !== null) heading.current?.focus();
+    wasStreaming.current = streaming;
+  }, [streaming, priority]);
   return (
-    <aside className="card findings-aside" aria-labelledby="suggested">
+    <aside className="findings-aside" aria-labelledby="suggested">
       <h2 id="suggested" ref={heading} tabIndex={-1}>
         Suggested order
       </h2>
-      {!allowed ? (
-        <Lock
-          title="An AI-suggested order is part of the full version"
-          body="Enter a licence key in Settings to turn it on."
-          action={
-            <button type="button" className="button" onClick={onSettings}>
-              Open Settings
-            </button>
-          }
-        />
-      ) : suggested.length > 0 ? (
-        <>
-          <p className="muted small">From the AI, not verified. The groups on the left keep the severity order.</p>
-          <ol>
-            {suggested.map((finding) => (
-              <li key={finding.ruleId}>
-                <button type="button" className="link-button" data-rule-id={finding.ruleId} onClick={() => onOpen(finding.ruleId)}>
-                  {finding.headline}
-                </button>
-              </li>
-            ))}
-          </ol>
-        </>
-      ) : !live ? (
-        <p className="muted">Run a fresh check-up to ask the AI which items to tackle first.</p>
-      ) : (
-        <div>
-          <p className="muted small">The AI can suggest which items to tackle first, based on how you use this Mac.</p>
-          {failure !== null && (
-            <p className="notice" role="alert">
-              {EXPLAINER_FAILURE_LABELS[failure]}
-            </p>
-          )}
-          <p className="muted progress-note" aria-live="polite">
-            {working ? "Working out an order for you." : ""}
-          </p>
-          <button
-            type="button"
-            className="button"
-            onClick={() => {
-              if (!busy) onPrioritise();
-            }}
-            aria-disabled={busy}
-            aria-busy={working}
-          >
-            Suggest an order
-          </button>
-        </div>
-      )}
+      <AiCard kind="overview" title="Suggested order" state={flow.state} {...flow.handlers}>
+        {priority !== null && <SuggestedOrderBody report={report} priority={priority} onOpen={onOpen} />}
+      </AiCard>
     </aside>
   );
 }

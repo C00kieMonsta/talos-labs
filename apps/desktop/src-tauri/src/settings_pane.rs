@@ -16,10 +16,11 @@ pub enum SettingsPane {
     TimeMachine,
     FullDiskAccess,
     Automation,
+    AppleIntelligence,
 }
 
 impl SettingsPane {
-    pub const ALL: [SettingsPane; 11] = [
+    pub const ALL: [SettingsPane; 12] = [
         SettingsPane::Filevault,
         SettingsPane::Firewall,
         SettingsPane::Security,
@@ -31,6 +32,7 @@ impl SettingsPane {
         SettingsPane::TimeMachine,
         SettingsPane::FullDiskAccess,
         SettingsPane::Automation,
+        SettingsPane::AppleIntelligence,
     ];
 
     pub fn parse(text: &str) -> Option<Self> {
@@ -39,17 +41,42 @@ impl SettingsPane {
 
     pub fn url(self) -> &'static str {
         match self {
-            SettingsPane::Filevault => "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?FileVault",
-            SettingsPane::Firewall => "x-apple.systempreferences:com.apple.Network-Settings.extension?Firewall",
-            SettingsPane::Security => "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Security",
-            SettingsPane::SoftwareUpdate => "x-apple.systempreferences:com.apple.Software-Update-Settings.extension",
-            SettingsPane::LockScreen => "x-apple.systempreferences:com.apple.Lock-Screen-Settings.extension",
-            SettingsPane::UsersGroups => "x-apple.systempreferences:com.apple.Users-Groups-Settings.extension",
-            SettingsPane::Sharing => "x-apple.systempreferences:com.apple.Sharing-Settings.extension",
-            SettingsPane::LoginItems => "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
-            SettingsPane::TimeMachine => "x-apple.systempreferences:com.apple.Time-Machine-Settings.extension",
-            SettingsPane::FullDiskAccess => "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles",
-            SettingsPane::Automation => "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Automation",
+            SettingsPane::Filevault => {
+                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?FileVault"
+            }
+            SettingsPane::Firewall => {
+                "x-apple.systempreferences:com.apple.Network-Settings.extension?Firewall"
+            }
+            SettingsPane::Security => {
+                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Security"
+            }
+            SettingsPane::SoftwareUpdate => {
+                "x-apple.systempreferences:com.apple.Software-Update-Settings.extension"
+            }
+            SettingsPane::LockScreen => {
+                "x-apple.systempreferences:com.apple.Lock-Screen-Settings.extension"
+            }
+            SettingsPane::UsersGroups => {
+                "x-apple.systempreferences:com.apple.Users-Groups-Settings.extension"
+            }
+            SettingsPane::Sharing => {
+                "x-apple.systempreferences:com.apple.Sharing-Settings.extension"
+            }
+            SettingsPane::LoginItems => {
+                "x-apple.systempreferences:com.apple.LoginItems-Settings.extension"
+            }
+            SettingsPane::TimeMachine => {
+                "x-apple.systempreferences:com.apple.Time-Machine-Settings.extension"
+            }
+            SettingsPane::FullDiskAccess => {
+                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles"
+            }
+            SettingsPane::Automation => {
+                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Automation"
+            }
+            SettingsPane::AppleIntelligence => {
+                "x-apple.systempreferences:com.apple.Siri-Settings.extension"
+            }
         }
     }
 }
@@ -61,12 +88,25 @@ mod tests {
     #[test]
     fn parses_every_core_pane_name() {
         let names = [
-            "filevault", "firewall", "security", "software_update", "lock_screen", "users_groups",
-            "sharing", "login_items", "time_machine", "full_disk_access", "automation",
+            "filevault",
+            "firewall",
+            "security",
+            "software_update",
+            "lock_screen",
+            "users_groups",
+            "sharing",
+            "login_items",
+            "time_machine",
+            "full_disk_access",
+            "automation",
+            "apple_intelligence",
         ];
         for (name, pane) in names.iter().zip(SettingsPane::ALL) {
             assert_eq!(SettingsPane::parse(name), Some(pane));
-            assert!(pane.url().starts_with("x-apple.systempreferences:com.apple."));
+            assert!(
+                pane.url()
+                    .starts_with("x-apple.systempreferences:com.apple.")
+            );
         }
         assert_eq!(SettingsPane::parse("terminal"), None);
     }

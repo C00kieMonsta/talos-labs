@@ -1,0 +1,374 @@
+[
+  {
+    "ruleId": "TL-MAC-001",
+    "kind": "deep_link",
+    "choice": null,
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [],
+    "pane": "filevault",
+    "watch": [
+      "diskEncryption"
+    ]
+  },
+  {
+    "ruleId": "TL-MAC-002",
+    "kind": "in_app",
+    "choice": "none",
+    "passphrase": false,
+    "needsPassword": true,
+    "recheck": [
+      "firewall"
+    ],
+    "pane": null,
+    "watch": []
+  },
+  {
+    "ruleId": "TL-MAC-003",
+    "kind": "in_app",
+    "choice": "none",
+    "passphrase": false,
+    "needsPassword": true,
+    "recheck": [
+      "firewall"
+    ],
+    "pane": null,
+    "watch": []
+  },
+  {
+    "ruleId": "TL-MAC-004",
+    "kind": "deep_link",
+    "choice": null,
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [],
+    "pane": "security",
+    "watch": [
+      "platformIntegrity"
+    ]
+  },
+  {
+    "ruleId": "TL-MAC-005",
+    "kind": "manual",
+    "choice": null,
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [],
+    "pane": null,
+    "watch": []
+  },
+  {
+    "ruleId": "TL-MAC-006",
+    "kind": "deep_link",
+    "choice": null,
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [],
+    "pane": "software_update",
+    "watch": [
+      "malwareProtection"
+    ]
+  },
+  {
+    "ruleId": "TL-MAC-007",
+    "kind": "in_app",
+    "choice": "none",
+    "passphrase": false,
+    "needsPassword": true,
+    "recheck": [
+      "updates"
+    ],
+    "pane": null,
+    "watch": []
+  },
+  {
+    "ruleId": "TL-MAC-008",
+    "kind": "in_app",
+    "choice": "none",
+    "passphrase": false,
+    "needsPassword": true,
+    "recheck": [
+      "updates"
+    ],
+    "pane": null,
+    "watch": []
+  },
+  {
+    "ruleId": "TL-MAC-009",
+    "kind": "in_app",
+    "choice": "none",
+    "passphrase": false,
+    "needsPassword": true,
+    "recheck": [
+      "updates"
+    ],
+    "pane": null,
+    "watch": []
+  },
+  {
+    "ruleId": "TL-MAC-010",
+    "kind": "deep_link",
+    "choice": null,
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [],
+    "pane": "software_update",
+    "watch": [
+      "updates"
+    ]
+  },
+  {
+    "ruleId": "TL-MAC-011",
+    "kind": "in_app",
+    "choice": "none",
+    "passphrase": false,
+    "needsPassword": true,
+    "recheck": [
+      "updates"
+    ],
+    "pane": null,
+    "watch": []
+  },
+  {
+    "ruleId": "TL-MAC-012",
+    "kind": "deep_link",
+    "choice": null,
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [],
+    "pane": "lock_screen",
+    "watch": [
+      "screenLock"
+    ]
+  },
+  {
+    "ruleId": "TL-MAC-013",
+    "kind": "in_app",
+    "choice": "none",
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [
+      "screenLock"
+    ],
+    "pane": null,
+    "watch": []
+  },
+  {
+    "ruleId": "TL-MAC-014",
+    "kind": "deep_link",
+    "choice": null,
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [],
+    "pane": "users_groups",
+    "watch": [
+      "accounts"
+    ]
+  },
+  {
+    "ruleId": "TL-MAC-015",
+    "kind": "in_app",
+    "choice": "none",
+    "passphrase": false,
+    "needsPassword": true,
+    "recheck": [
+      "accounts"
+    ],
+    "pane": null,
+    "watch": []
+  },
+  {
+    "ruleId": "TL-MAC-016",
+    "kind": "in_app",
+    "choice": "none",
+    "passphrase": false,
+    "needsPassword": true,
+    "recheck": [
+      "accounts"
+    ],
+    "pane": null,
+    "watch": []
+  },
+  {
+    "ruleId": "TL-MAC-017",
+    "kind": "manual",
+    "choice": null,
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [],
+    "pane": null,
+    "watch": []
+  },
+  {
+    "ruleId": "TL-MAC-018",
+    "kind": "deep_link",
+    "choice": null,
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [],
+    "pane": "firewall",
+    "watch": [
+      "listeners"
+    ]
+  },
+  {
+    "ruleId": "TL-MAC-019",
+    "kind": "in_app",
+    "choice": "none",
+    "passphrase": false,
+    "needsPassword": true,
+    "recheck": [
+      "remoteAccess",
+      "listeners"
+    ],
+    "pane": null,
+    "watch": []
+  },
+  {
+    "ruleId": "TL-MAC-020",
+    "kind": "in_app",
+    "choice": "none",
+    "passphrase": false,
+    "needsPassword": true,
+    "recheck": [
+      "remoteAccess",
+      "listeners"
+    ],
+    "pane": null,
+    "watch": []
+  },
+  {
+    "ruleId": "TL-MAC-021",
+    "kind": "in_app",
+    "choice": "none",
+    "passphrase": false,
+    "needsPassword": true,
+    "recheck": [
+      "remoteAccess",
+      "listeners"
+    ],
+    "pane": null,
+    "watch": []
+  },
+  {
+    "ruleId": "TL-MAC-022",
+    "kind": "in_app",
+    "choice": "share",
+    "passphrase": false,
+    "needsPassword": true,
+    "recheck": [
+      "fileSharing",
+      "listeners"
+    ],
+    "pane": null,
+    "watch": []
+  },
+  {
+    "ruleId": "TL-MAC-023",
+    "kind": "deep_link",
+    "choice": null,
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [],
+    "pane": "login_items",
+    "watch": [
+      "persistence"
+    ]
+  },
+  {
+    "ruleId": "TL-MAC-024",
+    "kind": "manual",
+    "choice": null,
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [],
+    "pane": null,
+    "watch": [
+      "persistence"
+    ]
+  },
+  {
+    "ruleId": "TL-MAC-025",
+    "kind": "deep_link",
+    "choice": null,
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [],
+    "pane": "login_items",
+    "watch": [
+      "loginItems"
+    ]
+  },
+  {
+    "ruleId": "TL-MAC-026",
+    "kind": "deep_link",
+    "choice": null,
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [],
+    "pane": "time_machine",
+    "watch": [
+      "backup"
+    ]
+  },
+  {
+    "ruleId": "TL-MAC-027",
+    "kind": "deep_link",
+    "choice": null,
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [],
+    "pane": "time_machine",
+    "watch": [
+      "backup"
+    ]
+  },
+  {
+    "ruleId": "TL-MAC-028",
+    "kind": "manual",
+    "choice": null,
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [],
+    "pane": null,
+    "watch": [
+      "browsers"
+    ]
+  },
+  {
+    "ruleId": "TL-MAC-029",
+    "kind": "in_app",
+    "choice": "ssh_key",
+    "passphrase": true,
+    "needsPassword": false,
+    "recheck": [
+      "ssh"
+    ],
+    "pane": null,
+    "watch": []
+  },
+  {
+    "ruleId": "TL-MAC-030",
+    "kind": "in_app",
+    "choice": "all_ssh_keys",
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [
+      "ssh"
+    ],
+    "pane": null,
+    "watch": []
+  },
+  {
+    "ruleId": "TL-MAC-031",
+    "kind": "manual",
+    "choice": null,
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [],
+    "pane": null,
+    "watch": [
+      "dotfiles"
+    ]
+  }
+]

@@ -30,6 +30,12 @@ export const TL_MAC_017: Rule = {
       "Run the check-up again; the minimum password length shows 15 or more. This check reads the policy, not your password.",
     effort: "ten_minutes",
     sideEffects: "none",
+    apply: {
+      kind: "manual",
+      watch: [],
+      watchEvery: 3,
+      reveal: null,
+    },
   },
   evaluate(state) {
     const data = section(state, "passwordPolicy");

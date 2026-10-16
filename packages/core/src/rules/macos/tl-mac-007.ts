@@ -41,6 +41,17 @@ export const TL_MAC_007: Rule = {
     verify: "Both switches show as on in the Automatic Updates sheet.",
     effort: "two_minutes",
     sideEffects: "none",
+    apply: {
+      kind: "in_app",
+      choice: "none",
+      passphrase: false,
+      needsPassword: true,
+      recheck: ["updates"],
+      confirmTitle: "Check for and download updates automatically?",
+      confirmVerb: "Turn on",
+      confirmNote: null,
+      reversible: "You can switch it off again in System Settings > General > Software Update.",
+    },
   },
   evaluate(state) {
     const data = section(state, "updates");

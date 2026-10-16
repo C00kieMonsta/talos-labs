@@ -26,7 +26,10 @@ pub fn parse_dump(text: &str) -> BTreeMap<String, String> {
             continue;
         }
         let opens = line.ends_with('{') || line.ends_with('(');
-        if depth == 1 && !opens && let Some((key, value)) = line.split_once('=') {
+        if depth == 1
+            && !opens
+            && let Some((key, value)) = line.split_once('=')
+        {
             let value = value.trim();
             let value = value.strip_suffix(';').unwrap_or(value).trim();
             map.insert(unquote(key.trim()), unquote(value));
@@ -49,7 +52,9 @@ pub fn array_len(text: &str, key: &str) -> Option<usize> {
             continue;
         }
         if line == "{" || line == "(" {
-            if depth == 2 && let Some(n) = count.as_mut() {
+            if depth == 2
+                && let Some(n) = count.as_mut()
+            {
                 *n += 1;
             }
             depth += 1;
@@ -63,9 +68,16 @@ pub fn array_len(text: &str, key: &str) -> Option<usize> {
             continue;
         }
         let opens = line.ends_with('{') || line.ends_with('(');
-        if depth == 1 && line.ends_with('(') && let Some((k, _)) = line.split_once('=') && unquote(k.trim()) == key {
+        if depth == 1
+            && line.ends_with('(')
+            && let Some((k, _)) = line.split_once('=')
+            && unquote(k.trim()) == key
+        {
             count = Some(0);
-        } else if depth == 2 && !opens && let Some(n) = count.as_mut() {
+        } else if depth == 2
+            && !opens
+            && let Some(n) = count.as_mut()
+        {
             *n += 1;
         }
         if opens {
@@ -103,7 +115,10 @@ pub fn tri(map: &BTreeMap<String, String>, key: &str) -> Tri {
 pub fn date_to_iso(value: &str) -> Option<String> {
     chrono::DateTime::parse_from_str(value.trim(), "%Y-%m-%d %H:%M:%S %z")
         .ok()
-        .map(|d| d.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+        .map(|d| {
+            d.with_timezone(&chrono::Utc)
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+        })
 }
 
 fn is_missing(out: &Output) -> bool {
@@ -128,12 +143,22 @@ pub fn read_domain(domain: &str, label: &str, cancel: &AtomicBool) -> Result<Opt
 }
 
 /// One key as its printed value, trimmed, or None when the key or domain is missing.
-pub fn read_key(domain: &str, key: &str, label: &str, cancel: &AtomicBool) -> Result<Option<String>, Fail> {
+pub fn read_key(
+    domain: &str,
+    key: &str,
+    label: &str,
+    cancel: &AtomicBool,
+) -> Result<Option<String>, Fail> {
     Ok(read(&["read", domain, key], label, cancel)?.map(|v| v.trim().to_owned()))
 }
 
 /// Like `read_key` but for the current host (`defaults -currentHost read`).
-pub fn read_current_host_key(domain: &str, key: &str, label: &str, cancel: &AtomicBool) -> Result<Option<String>, Fail> {
+pub fn read_current_host_key(
+    domain: &str,
+    key: &str,
+    label: &str,
+    cancel: &AtomicBool,
+) -> Result<Option<String>, Fail> {
     Ok(read(&["-currentHost", "read", domain, key], label, cancel)?.map(|v| v.trim().to_owned()))
 }
 
@@ -166,8 +191,14 @@ mod tests {
         let map = parse_dump(DUMP);
         assert_eq!(map.get("AutomaticDownload").map(String::as_str), Some("1"));
         assert_eq!(map.get("LastResultCode").map(String::as_str), Some("2"));
-        assert_eq!(map.get("LastAttemptBuildVersion").map(String::as_str), Some("27.0.1 (26A434)"));
-        assert_eq!(map.get("LastSuccessfulDate").map(String::as_str), Some("2026-10-15 08:56:56 +0000"));
+        assert_eq!(
+            map.get("LastAttemptBuildVersion").map(String::as_str),
+            Some("27.0.1 (26A434)")
+        );
+        assert_eq!(
+            map.get("LastSuccessfulDate").map(String::as_str),
+            Some("2026-10-15 08:56:56 +0000")
+        );
         assert_eq!(map.get("SplatEnabled").map(String::as_str), Some("1"));
         assert!(!map.contains_key("Nested"));
         assert!(!map.contains_key("MSU_UPDATE_24E263_patch_15.4.1_minor"));
@@ -179,12 +210,24 @@ mod tests {
     fn counts_top_level_array_entries() {
         assert_eq!(array_len(DUMP, "AutoInstallProductKeys"), Some(0));
         assert_eq!(array_len(DUMP, "PrimaryLanguages"), Some(2));
-        assert_eq!(array_len(DUMP, "FirstInstallTonightDateDictionary"), None, "a dictionary is not an array");
-        assert_eq!(array_len(DUMP, "SplatEnabled"), None, "a scalar is not an array");
+        assert_eq!(
+            array_len(DUMP, "FirstInstallTonightDateDictionary"),
+            None,
+            "a dictionary is not an array"
+        );
+        assert_eq!(
+            array_len(DUMP, "SplatEnabled"),
+            None,
+            "a scalar is not an array"
+        );
         assert_eq!(array_len(DUMP, "Missing"), None);
         assert_eq!(array_len("", "Missing"), None);
         let dicts = "{\n    Other =     (\n        {\n            A = 1;\n        }\n    );\n    \"Quoted Key\" =     (\n                {\n            \"Display Name\" = \"macOS 27.1\";\n            Nested =             (\n                x\n            );\n        },\n                {\n            \"Display Name\" = \"Safari 27.1\";\n        }\n    );\n    After = 1;\n}\n";
-        assert_eq!(array_len(dicts, "Quoted Key"), Some(2), "each dictionary is one entry");
+        assert_eq!(
+            array_len(dicts, "Quoted Key"),
+            Some(2),
+            "each dictionary is one entry"
+        );
         assert_eq!(array_len(dicts, "Other"), Some(1));
         assert_eq!(array_len(dicts, "After"), None);
     }
@@ -202,8 +245,14 @@ mod tests {
 
     #[test]
     fn converts_defaults_dates() {
-        assert_eq!(date_to_iso("2026-10-15 08:56:56 +0000").as_deref(), Some("2026-10-15T08:56:56.000Z"));
-        assert_eq!(date_to_iso("2026-10-15 10:56:56 +0200").as_deref(), Some("2026-10-15T08:56:56.000Z"));
+        assert_eq!(
+            date_to_iso("2026-10-15 08:56:56 +0000").as_deref(),
+            Some("2026-10-15T08:56:56.000Z")
+        );
+        assert_eq!(
+            date_to_iso("2026-10-15 10:56:56 +0200").as_deref(),
+            Some("2026-10-15T08:56:56.000Z")
+        );
         assert_eq!(date_to_iso("nope"), None);
     }
 

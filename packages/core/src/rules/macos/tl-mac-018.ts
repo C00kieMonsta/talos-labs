@@ -57,6 +57,13 @@ export const TL_MAC_018: Rule = {
     verify: "Run the check-up again; the port no longer appears in the evidence.",
     effort: "ten_minutes",
     sideEffects: "workflow",
+    apply: {
+      kind: "deep_link",
+      pane: "firewall",
+      watch: ["listeners"],
+      watchEvery: 3,
+      reveal: null,
+    },
   },
   evaluate(state) {
     const data = section(state, "listeners");

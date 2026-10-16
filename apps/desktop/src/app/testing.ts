@@ -2,8 +2,11 @@ import { vi } from "vitest";
 import { createElement, useState } from "react";
 import type { ReactNode } from "react";
 import type {
+  Capabilities,
   ExplainerPort,
   Finding,
+  FixPlan,
+  FixPort,
   LicenseState,
   RuleCatalog,
   RuleId,
@@ -27,6 +30,7 @@ import { AppContext } from "./context";
 
 export const noExplainer: ExplainerPort = {
   id: "none",
+  availability: async () => "off",
   explain: async () => ({ ok: false, reason: "not_configured" }),
   prioritise: async () => ({ ok: false, reason: "not_configured" }),
   ask: async () => ({ ok: false, reason: "not_configured" }),
@@ -43,7 +47,7 @@ export function fakeSystemState(
     collectSection: vi.fn(
       async <K extends SectionKey>(key: K) => sectionSource.sections[key] as SystemStateSections[K],
     ),
-    capabilities: vi.fn(async () => ({ fullDiskAccess: false })),
+    capabilities: vi.fn(async (): Promise<Capabilities> => ({ fullDiskAccess: false, automation: "granted" })),
     ...overrides,
   };
 }
@@ -65,8 +69,9 @@ export function fakeAdapters(overrides: Partial<Adapters> = {}, state: SystemSta
       saveLast: vi.fn(async () => undefined),
       loadLast: vi.fn(async (): Promise<ScanReport | null> => null),
     },
+    fixes: fakeFixPort(),
     openSettingsPane: vi.fn(async () => undefined),
-    openAssistant: vi.fn(async () => undefined),
+    restart: vi.fn(async () => undefined),
     createExplainer: vi.fn(async () => noExplainer),
     ...overrides,
   };
@@ -85,6 +90,17 @@ export function fakeScanController(scan: ScanState): ScanController {
     explain: vi.fn(async () => undefined),
     prioritise: vi.fn(async () => undefined),
     ask: vi.fn(async () => ({ ok: false as const, reason: "not_configured" as const })),
+    stopExplain: vi.fn(),
+    revealRow: vi.fn(),
+    markPreparing: vi.fn(),
+    present: vi.fn(async () => undefined),
+    previewFix: vi.fn(async () => undefined),
+    applyFix: vi.fn(async () => undefined),
+    cancelFix: vi.fn(),
+    dismissFix: vi.fn(),
+    startWatch: vi.fn(),
+    stopWatch: vi.fn(),
+    reveal: vi.fn(async () => undefined),
     conversation: [],
     setConversation: vi.fn(),
     draft: "",
@@ -112,6 +128,10 @@ export function fakeContextValue(input: {
     gate: input.gate,
     scan: fakeScanController(scanState),
     router: { route: { name: "overview" }, lastMove: "navigate", navigate: vi.fn(), back: vi.fn(), replace: vi.fn() },
+    aiUsable: false,
+    ai: { availability: null, probe: vi.fn(async () => "off" as const), reprobe: vi.fn(() => () => undefined) },
+    capabilities: null,
+    refreshCapabilities: vi.fn(async () => null),
   };
 }
 
@@ -154,6 +174,17 @@ export function fakeFinding(overrides: Partial<Finding> & Pick<Finding, "ruleId"
       verify: "The toggle reads On.",
       effort: "two_minutes",
       sideEffects: "none",
+      apply: {
+        kind: "in_app",
+        choice: "none",
+        passphrase: false,
+        needsPassword: true,
+        recheck: ["firewall"],
+        confirmTitle: "Turn the firewall on?",
+        confirmVerb: "Turn on",
+        confirmNote: null,
+        reversible: "You can switch it off again in System Settings > Network > Firewall.",
+      },
     },
     ...overrides,
   };
@@ -189,5 +220,31 @@ export function fakeReport(findings: readonly Finding[], passes: readonly RuleId
       ...findings.map((f) => ({ ruleId: f.ruleId, status: f.status, evidence: f.evidence, unknownReason: f.unknownReason, points: f.points })),
     ],
     findings,
+  };
+}
+
+export function fakePlan(overrides: Partial<FixPlan> = {}): FixPlan {
+  return {
+    planId: "plan-1",
+    ruleId: "TL-MAC-001",
+    lines: [{ text: "/usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on", privilege: "admin" }],
+    needsPassword: true,
+    needsPassphrase: false,
+    recheck: ["firewall"],
+    reversible: "You can switch it off again in System Settings > Network > Firewall.",
+    previous: null,
+    expiresAt: "2026-10-15T10:05:00.000Z",
+    ...overrides,
+  };
+}
+
+/** A fix port whose preview returns `plan` and whose apply succeeds at once. */
+export function fakeFixPort(plan: FixPlan = fakePlan(), overrides: Partial<FixPort> = {}): FixPort {
+  return {
+    preview: vi.fn(async () => plan),
+    apply: vi.fn(async () => ({ ok: true as const })),
+    reveal: vi.fn(async () => undefined),
+    openBuyPage: vi.fn(async () => undefined),
+    ...overrides,
   };
 }

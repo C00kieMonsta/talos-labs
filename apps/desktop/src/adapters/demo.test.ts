@@ -13,7 +13,7 @@ import {
   validatePrioritisation,
 } from "@talos/core";
 import { DEFAULT_SETTINGS } from "../settings";
-import { createDemoAdapters, DEMO_EXPLAIN_DELAY_MS, DEMO_LICENSE_KEY, DEMO_LICENSE_PAYLOAD } from "./demo";
+import { createDemoAdapters, DEMO_EXPLAIN_DELAY_MS, DEMO_LICENSE_KEY, DEMO_LICENSE_KEY_PASTED, DEMO_LICENSE_PAYLOAD } from "./demo";
 
 const report = evaluate(DEV_MACHINE, MACOS_CATALOG, { now: "2026-10-15T10:00:00.000Z", os: "macos" });
 const context = toExplainerContext(report, MACOS_CATALOG, DEFAULT_SETTINGS.profile);
@@ -75,7 +75,7 @@ describe("createDemoAdapters: systemState", () => {
     const adapters = createDemoAdapters({ fixture: "hardened", collectDelayMs: 0 });
     const section = await adapters.systemState.collectSection("firewall");
     expect(section.status).toBe("ok");
-    expect(await adapters.systemState.capabilities()).toEqual({ fullDiskAccess: false });
+    expect(await adapters.systemState.capabilities()).toEqual({ fullDiskAccess: false, automation: null });
   });
 
   it("collectSection rejects with cancelled when the signal aborts during the delay", async () => {
@@ -119,14 +119,18 @@ describe("createDemoAdapters: licence, secrets, reports", () => {
     expect(await reports.loadLast()).toBe(report);
   });
 
-  it("records pane and assistant calls on window instead of opening anything", async () => {
+  it("records pane, buy page and restart calls on window instead of opening anything", async () => {
     const adapters = createDemoAdapters({ fixture: "dev-machine" });
     await adapters.openSettingsPane("firewall");
-    await adapters.openAssistant("chatgpt", "Explain this");
-    expect(window.__talosDemoCalls).toEqual([
-      { kind: "openSettingsPane", arg: "firewall" },
-      { kind: "openAssistant", arg: "chatgpt", prompt: "Explain this" },
-    ]);
+    await adapters.fixes.openBuyPage();
+    await adapters.restart();
+    expect(window.__talosDemoCalls).toEqual([{ kind: "openSettingsPane", arg: "firewall" }, { kind: "openBuyPage" }, { kind: "restart" }]);
+    expect(JSON.stringify(window.__talosDemoCalls)).not.toMatch(/https?:/);
+  });
+
+  it("accepts the pasted demo key too", async () => {
+    const { license } = createDemoAdapters({ fixture: "dev-machine" });
+    expect((await license.install(DEMO_LICENSE_KEY_PASTED)).status).toBe("valid");
   });
 });
 
@@ -140,10 +144,10 @@ describe("createDemoAdapters: explainer", () => {
     return pending;
   }
 
-  it("returns NoExplainer for browser and none", async () => {
+  it("returns NoExplainer when AI is switched off, and the Apple fake otherwise", async () => {
     const adapters = createDemoAdapters({ fixture: "dev-machine" });
-    expect((await adapters.createExplainer(settings("browser"))).id).toBe("none");
-    expect((await adapters.createExplainer(settings("none"))).id).toBe("none");
+    expect((await adapters.createExplainer({ ...settings("apple"), aiEnabled: false })).id).toBe("none");
+    expect((await adapters.createExplainer(settings("apple"))).id).toBe("apple");
   });
 
   it("answers after the delay with outputs that pass the core validators", async () => {
@@ -162,7 +166,7 @@ describe("createDemoAdapters: explainer", () => {
     const prioritised = await settled(explainer.prioritise({ context }));
     expect(prioritised.ok).toBe(true);
     if (!prioritised.ok) return;
-    expect(validatePrioritisation(prioritised.value, report).ok).toBe(true);
+    expect(validatePrioritisation(prioritised.value, report, explainerEligibleRuleIds(report)).ok).toBe(true);
     expect([...prioritised.value.order].sort()).toEqual([...explainerEligibleRuleIds(report)].sort());
     expect(prioritised.value.order[0]).toBe("TL-MAC-001");
     expect(prioritised.value.startWith.length).toBeGreaterThan(0);

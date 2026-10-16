@@ -1,4 +1,6 @@
 import type {
+  AiAvailability,
+  ExplainerProfile,
   Category,
   ExplainerFailure,
   FixEffort,
@@ -11,12 +13,6 @@ import type {
   UnknownReason,
 } from "@talos/core";
 import type { ScanError } from "../scan/machine";
-import type { Assistant } from "../settings";
-
-export const ASSISTANT_LABELS: Readonly<Record<Assistant, string>> = {
-  claude: "Claude",
-  chatgpt: "ChatGPT",
-};
 
 /** Shown while a section is being read. */
 export const SECTION_PROGRESS_LABELS: Readonly<Record<SectionKey, string>> = {
@@ -207,6 +203,10 @@ export const EXPLAINER_FAILURE_LABELS: Readonly<Record<ExplainerFailure, string>
   rejected_output: "The answer did not pass our checks, so it was not shown.",
   refused: "The AI provider declined to answer.",
   unknown: "Something went wrong with the AI provider.",
+  unavailable: "Apple Intelligence isn't available right now. Try again in a moment.",
+  too_long: "This check-up is too long for the on-device model to read in one go.",
+  cancelled: "The explanation was stopped before it finished.",
+  busy: "Another explanation is still being written. Wait for it to finish.",
 };
 
 export const SCAN_ERROR_LABELS: Readonly<Record<ScanError, string>> = {
@@ -242,3 +242,45 @@ export function formatDateTime(iso: string): string {
   if (Number.isNaN(date.getTime())) return iso;
   return new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
+
+export const PROFILE_ROLE_LABELS: Readonly<Record<ExplainerProfile["role"], string>> = {
+  individual: "For myself",
+  freelancer: "As a freelancer",
+  small_business: "In a small business",
+};
+
+export const PROFILE_TECHNICAL_LABELS: Readonly<Record<ExplainerProfile["technical"], string>> = {
+  low: "Not very",
+  medium: "Somewhat",
+  high: "Very",
+};
+
+/** One line for the collapsed About you section, e.g. "Freelancer, somewhat technical, client data, laptop leaves home". */
+export function summariseProfile(profile: ExplainerProfile): string {
+  const role = { individual: "Personal use", freelancer: "Freelancer", small_business: "Small business" }[profile.role];
+  const technical = { low: "not very technical", medium: "somewhat technical", high: "very technical" }[profile.technical];
+  const data = profile.handlesClientData ? "client data" : "no client data";
+  const laptop = profile.laptopLeavesHome ? "laptop leaves home" : "stays at home";
+  return `${role}, ${technical}, ${data}, ${laptop}`;
+}
+
+/** The word and the button for each AI availability state in Settings. */
+export const AI_AVAILABILITY_LABELS: Readonly<Record<AiAvailability, { word: string; action: string | null }>> = {
+  available: { word: "Ready", action: null },
+  model_not_ready: { word: "Model downloading", action: null },
+  apple_intelligence_not_enabled: { word: "Needs Apple Intelligence", action: "Open Apple Intelligence settings" },
+  device_not_eligible: { word: "This Mac can't run it", action: null },
+  helper_unavailable: { word: "Not available right now", action: "Try again" },
+  off: { word: "Off", action: null },
+};
+
+export type PermissionStatus = "granted" | "not_granted" | "not_determined" | "unknown";
+
+export const PERMISSION_STATUS_LABELS: Readonly<Record<PermissionStatus, string>> = {
+  granted: "Granted",
+  not_granted: "Not granted",
+  not_determined: "Not asked yet",
+  unknown: "Could not tell",
+};
+
+export const PRIVACY_SENTENCE = "Nothing leaves this Mac. AI explanations are written here by Apple Intelligence.";

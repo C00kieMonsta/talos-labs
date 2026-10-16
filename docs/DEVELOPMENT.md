@@ -12,14 +12,18 @@
 | TypeScript | 6.0, strict |
 | Vite | 8 |
 | vitest | 3 |
+| Swift | 6.3, `xcrun swiftc` from the Xcode Command Line Tools, with a macOS 26 or later SDK (FoundationModels) |
 
 Development happens on macOS. The collectors run only on macOS; `packages/core` and its tests run anywhere.
 
-Prerequisites: Xcode Command Line Tools (`xcode-select --install`), rustup, Node 22, pnpm 10. Then:
+Prerequisites: Xcode Command Line Tools (`xcode-select --install`) on macOS 26 or later, rustup, Node 22, pnpm 10. Then:
 
 ```sh
 pnpm install
+pnpm --filter @talos/desktop sidecar:build
 ```
+
+The second command builds the `talos-ai` helper (see "Sidecar build" below). `tauri dev` and `tauri build` fail without the files it writes.
 
 Never run `pnpm add` in a package to pull a dependency into the app without checking `docs/SECURITY-MODEL.md`; the webview has no filesystem or shell access by design, and every dependency ships to users.
 
@@ -34,16 +38,18 @@ Run from the repo root unless noted.
 | `pnpm --filter @talos/core test` | core tests only; `test:watch` for watch mode |
 | `pnpm --filter @talos/desktop test` | desktop tests (jsdom) |
 | `pnpm --filter @talos/core fixtures:emit` | writes every TypeScript fixture to `packages/core/fixtures/*.json` for the Rust contract test |
+| `pnpm --filter @talos/desktop sidecar:build` | runs `apps/desktop/sidecar/build.sh`: compiles the Swift helper for both architectures and writes three files into `src-tauri/binaries/`. Run it once after cloning and again after any change under `sidecar/` |
 | `pnpm desktop` | `tauri dev`: Vite on port 1420 plus a debug Rust build with hot reload |
 | `pnpm --filter @talos/desktop build` | web assets only, into `apps/desktop/dist` |
 | `pnpm --filter @talos/desktop dev:demo` | the web build in demo mode on port 1430: fixture-backed adapters, runs in a plain browser. See below |
 | `pnpm desktop:build` | `tauri build`: release binary and bundles. See `docs/SIGNING.md` |
 | `pnpm scan` | runs `talos-collect` (building it when missing), evaluates the result and prints a summary. `pnpm scan --json` prints the `ScanReport`; `pnpm scan <state.json>` evaluates a saved `SystemState` instead of running the collector |
-| `cargo test` (in `apps/desktop/src-tauri`) | parser, exec and serde round-trip tests |
-| `cargo test -- --ignored` | smoke and capability tests that touch the real machine |
+| `cargo test` (in `apps/desktop/src-tauri`) | parser, exec, serde round-trip, fix catalog, quoting, plan, privileged-output and sidecar protocol tests. Nothing in the default set changes a setting or shows a dialog |
+| `cargo test -- --ignored` | smoke and capability tests that touch the real machine (the Automation probe, the real `ssh-keygen -p` on a temp key) |
 | `cargo clippy --all-targets -- -D warnings` | the crate denies `unwrap_used`, `expect_used`, `panic` and `string_slice` and warns on `indexing_slicing`; with `-D warnings` a new index site must use `get` or carry an allow with a reason |
 | `cargo run --bin talos-collect` | dev binary: runs every collector and prints the `SystemState` JSON |
 | `cargo run --bin talos-collect --features debug-raw` | same, with raw command output logged for parser work |
+| `cargo run --bin talos-fixes` | prints `FIX_CATALOG` as JSON: rule, lines with placeholders, privilege, recheck. Used by the contract test and when updating `docs/RULES.md`. Runs nothing |
 
 `cargo test` needs `apps/desktop/dist` to exist, because `tauri::generate_context!()` embeds `frontendDist` at compile time. Run `pnpm --filter @talos/desktop build` once first. CI does the same.
 
@@ -56,9 +62,23 @@ pnpm scan --json   # the full ScanReport
 
 The script runs `apps/desktop/src-tauri/target/debug/talos-collect` and builds it with `cargo build --bin talos-collect` when it is missing (`--build` forces a rebuild). Pass a file path to evaluate a saved `SystemState` JSON instead.
 
+## Sidecar build
+
+AI explanations run in `talos-ai`, a Swift command-line tool under `apps/desktop/sidecar/talos-ai/Sources/` that links FoundationModels and speaks JSON lines on stdin and stdout. Rust spawns it; the webview never sees it. `apps/desktop/sidecar/build.sh` compiles it with `xcrun swiftc -O` twice, once per target triple, then merges the two with `lipo`:
+
+```
+apps/desktop/src-tauri/binaries/talos-ai-aarch64-apple-darwin
+apps/desktop/src-tauri/binaries/talos-ai-x86_64-apple-darwin
+apps/desktop/src-tauri/binaries/talos-ai-universal-apple-darwin
+```
+
+`tauri.conf.json` lists `binaries/talos-ai` under `bundle.externalBin`. `tauri dev` and a plain `tauri build` pick the host-triple file; `tauri build --target universal-apple-darwin` (CI and releases) picks the `lipo` output. The entry file is `Sources/main.swift` with top-level code; do not add `-parse-as-library` or `@main`. The same source builds for both triples because the macOS SDK ships an x86_64 interface for FoundationModels. Details, the protocol and the Rust side are in DESIGN-V02.md section 4.
+
+The three output files are build artefacts, not source; do not commit them. CI runs `pnpm --filter @talos/desktop sidecar:build` before any cargo step. CI runners have no Apple Intelligence, so nothing in `cargo test` or `pnpm test` talks to the real helper; the protocol tests use a fake sidecar binary. Running the helper for real is on the "Only on a real Mac" list below.
+
 ## Demo mode and QA harness
 
-The web build can run in a plain browser with every port backed by a core fixture, so the UI can be driven by a script without the Tauri window. `apps/desktop/src/adapters/demo.ts` holds the adapters; `apps/desktop/src/app/demo-boot.ts` reads the options from the page URL (`fixture`, `delay`, `explainer`, `reset`, `provider`, `dev`, `onboarded`, `licensed`).
+The web build can run in a plain browser with every port backed by a core fixture, so the UI can be driven by a script without the Tauri window. `apps/desktop/src/adapters/demo.ts` holds the adapters; `apps/desktop/src/app/demo-boot.ts` reads the options from the page URL (`fixture`, `delay`, `pace`, `explainer`, `reset`, `provider`, `dev`, `onboarded`, `licensed`, `fix`, `fix_delay`, `ai`, `ai_ready`, `fda_after`, `automation`, `poll_after`). The fix port, the Apple explainer, the buy page and restart are faked and recorded on `window.__talosDemoCalls`; nothing is applied.
 
 ```sh
 cd apps/desktop
@@ -78,21 +98,29 @@ packages/core/src/
   fixtures/      DEV_MACHINE, HARDENED, ALL_UNAVAILABLE, FRESH_INSTALL, WINDOWS_MINIMAL
   engine/        evaluate(state, catalog, ctx) -> ScanReport
   rules/macos/   one file per rule, one test per rule, index.ts exports MACOS_CATALOG
-  explainer/     toExplainerContext, buildSystemPrompt, JSON schemas, output validators, limits
+  explainer/     toExplainerContext, buildSystemPrompt, on-device-prompt (ON_DEVICE_LIMITS, buildOnDevicePrompt), JSON schemas, output validators, limits
   license/       parseLicense, entitled, freeFixRuleIds
 packages/core/fixtures/*.json   emitted; read by cargo test
 apps/desktop/src/
-  adapters/      Tauri-backed implementations of the ports, the explainer adapters, NoExplainer
+  adapters/      Tauri-backed implementations of the ports (system state, fixes, licence, secrets, reports), the explainer adapters (Apple, Claude, Ollama), demo adapters
   settings/      non-secret settings in localStorage
   license/       public-key.ts, revoked.ts
   scan/          the scan state machine
-  screens/       Welcome, Scanning, Overview, Findings, Finding detail, Ask, Settings, About
+  screens/       Welcome, Scanning, Overview, Findings, Finding detail, Ask, Settings (About is its last section)
 apps/desktop/qa/    snap.ts and axe.ts, browser QA against the demo build (see above)
+apps/desktop/sidecar/
+  build.sh       xcrun swiftc for both triples, then lipo
+  talos-ai/      Swift sources of the on-device AI helper
 apps/desktop/src-tauri/src/
   commands.rs    Tauri command surface
-  exec.rs        enum Bin and run(bin, args, timeout, cancel)
+  exec.rs        enum Bin and run(bin, args, timeout, cancel); collectors only, no fix binary
   state.rs       serde mirror of SystemState
   collect/       collect_all, collect_section, macos/<section>.rs
+  fix/           catalog.rs (FIX_CATALOG, FixBin), inputs.rs, plan.rs, privileged.rs (osascript), pty.rs (ssh-keygen -p), reveal.rs
+  ai/            sidecar.rs (spawn, idle kill, cancel), protocol.rs (JSON lines)
+  automation.rs  AEDeterminePermissionToAutomateTarget probe
+  menu.rs        app menu
+  bin/talos-fixes.rs   prints FIX_CATALOG as JSON
 apps/desktop/src-tauri/tests/fixtures/*.txt   verbatim command outputs for parser tests
 scripts/keygen/keygen.ts   licence keygen
 scripts/scan-cli.ts        collector plus engine from the terminal (pnpm scan)
@@ -105,12 +133,24 @@ One file per rule, one test per rule, one row in `docs/RULES.md`.
 1. Create `packages/core/src/rules/macos/tl-mac-0NN.ts` exporting a `Rule` (`packages/core/src/domain/rule.ts`). Pick the next unused id; ids are never reused. `title` is a statement the reader can agree with ("Your disk is encrypted"). Set `severity`, `category`, `cis` (a section from `docs/CIS-MAP.md` or `null`), `os: ["macos"]`, `requires` (sections that must be `ok` before `evaluate` runs), `evidenceKeys` (every key the rule may emit, each matching `SAFE_STRING_PATTERN`), `evidenceVocabulary` (allowed values for every `enum` key), `explanation`, `fix` and `evaluate`.
 2. `evaluate(state, ctx)` is pure. Read `state`, return a `RuleOutcome`. Compare ages against `state.collectedAt`, not `ctx.now`. Return `not_applicable` when the concept is absent, `unknown` with a nested section's reason or `indeterminate` when the data is inconclusive. Never throw on purpose; the engine turns a throw into `unknown` with `rule_error`.
 3. Evidence: `bool`, `number`, `enum` and `version` may reach the explainer; `path` and `text` are local-only. An `enum` value outside the vocabulary is downgraded to `text` by the engine. A catalog test asserts no downgrade happens on the fixtures.
-4. Fix: the Settings path is primary. Commands are displayed with a copy button and never run. Follow the command policy in `docs/DESIGN.md` section 3 (no `spctl --global-enable`, no `systemsetup`, no `pwpolicy -setpolicy`). A `{path}` placeholder in `args` needs `appliesTo` set to a `path`-kind evidence key of the same rule.
+4. Fix: the Settings path is primary. Commands are displayed with a copy button when Developer mode shows them. Follow the command policy in `docs/DESIGN.md` section 3 (no `spctl --global-enable`, no `systemsetup`, no `pwpolicy -setpolicy`). A `{path}` placeholder in `args` needs `appliesTo` set to a `path`-kind evidence key of the same rule. Every rule also carries `fix.apply` (`FixApply` in `packages/core/src/domain/finding.ts`): `in_app`, `deep_link` or `manual`. Start with `manual` or `deep_link`; an `in_app` entry follows "Adding an in-app fix" below.
 5. Register the rule in `packages/core/src/rules/macos/index.ts` in id order.
 6. Add `tl-mac-0NN.test.ts` next to it. Table-driven: pass, fail, section unavailable gives `unknown` with that reason, every `not_applicable` branch, and `WINDOWS_MINIMAL` gives `not_applicable`. Assert status, evidence keys and evidence kinds.
 7. Add the row to `docs/RULES.md`. Update "Expected results on the fixtures" and the engine test expectations if the new rule changes a fixture's outcome or score. Update the dev-machine findings snapshot.
 8. If the rule cites a CIS control, add the row to `docs/CIS-MAP.md` with the mSCP rule id you verified it against.
 9. Bump `MACOS_CATALOG.version`. Any change to a rule's text, severity or condition bumps it too.
+
+## Adding an in-app fix
+
+An in-app fix is a row in two tables that must agree, and a contract test that proves they do. Nothing in the UI can run a command that is not in the Rust table. Full shapes are in DESIGN-V02.md section 5 and section 8.
+
+1. Core. Set the rule's `fix.apply` to an `in_app` entry: `choice` (`none`, `share`, `ssh_key` or `all_ssh_keys`), `passphrase`, `needsPassword`, `recheck` (a subset of `requires` plus the sections the commands change; 019 to 022 add `listeners`), `confirmTitle` (a question, "Turn the firewall on?"), `confirmVerb` ("Turn on"), `confirmNote` and `reversible` (one line or `null`). The catalog test in `packages/core` checks these constraints.
+2. Rust. Add the entry to `FIX_CATALOG` in `apps/desktop/src-tauri/src/fix/catalog.rs`: the same rule id, the steps as `FixBin` (an absolute program path added to that enum, never to `exec.rs`) plus `Arg::Lit` literals or the placeholder kinds that `inputs.rs` validates, the privilege of each step, and the same `recheck`. Literal arguments must match the literal pattern; `cargo test` checks every one.
+3. Contract test. Run `pnpm --filter @talos/core fixtures:emit` to refresh `packages/core/fixtures/fix-catalog.json` (one entry per rule with `kind`, `choice`, `passphrase`, `needsPassword`, `recheck`, `pane`, `watch`), then `cargo test`. The Rust test asserts `FIX_CATALOG` lists exactly the `in_app` rules with the same `choice`, `needsPassword` and `recheck`. `cargo run --bin talos-fixes` prints the Rust table for the TypeScript side of the same test; update its snapshot when the table changes.
+4. `docs/RULES.md`. Update the rule's row: fix kind, the commands as `talos-fixes` prints them, and the reversing line.
+5. Tests for the commands: a stub program for the pty path, a stderr fixture for the privileged path if the command can fail in a new way. Never apply the fix on your own Mac from a test; the real-machine check is on the "Only on a real Mac" list.
+
+Admin steps go through one `osascript` `do shell script ... with administrator privileges` per plan, built only from the plan and quoted by `sh_quote` and `as_quote`. The passphrase for 029 goes through a pty, never an argument. Both are in DESIGN-V02.md section 5, "Privilege path".
 
 ## Adding a collector section
 
@@ -143,14 +183,25 @@ collect_system_state() -> SystemState        emits "scan:progress" { key, status
 collect_section({ key }) -> Section          rejects with "cancelled"
 cancel_scan() -> void                        the running scan and recheck reject with "cancelled"
 cancel_section() -> void                     the running recheck rejects with "cancelled"; the scan goes on
-check_capabilities() -> { fullDiskAccess: boolean | null }
-open_settings_pane({ pane }) -> void         pane is a SettingsPane string; Rust maps it to a URL
+check_capabilities() -> { fullDiskAccess: boolean | null, automation: "granted" | "denied" | "not_determined" | null }
+open_settings_pane({ pane }) -> void         pane is a SettingsPane string (now including "apple_intelligence"); Rust maps it to a URL
+fix_preview({ rule, choice }) -> FixPlan     builds and stores a plan for 5 min; rejects with not_in_catalog, invalid_choice or invalid_input
+fix_apply({ plan, passphrase? }) -> FixOutcome   emits "fix:status" { planId, phase, step, of }; see below for the two error channels
+fix_cancel({ plan }) -> void                 kills the running child; the osascript dialog closes with it
+fix_reveal({ rule, choice }) -> void         Finder reveal for 023, 024 and 031 after the same validation
+open_buy_page() -> void                      fixed URL chosen in Rust
+app_restart() -> void                        AppHandle::restart, for the Full Disk Access continuation
+ai_availability({ fresh }) -> AiAvailability
+ai_generate({ request }) -> void             emits "ai:stream" events; see DESIGN-V02.md section 4
+ai_cancel({ id }) -> void
 secret_get({ name }) / secret_set({ name, value }) / secret_delete({ name })
 report_save_last({ report }) / report_load_last()
 license_read() / license_write({ key }) / license_delete()
 ```
 
-Errors are strings.
+Errors are strings. `fix_apply` has two failure channels: errors found before anything runs (`plan_expired`, `not_in_catalog`, `invalid_choice`, `invalid_input`, `busy`, `precondition_changed`) reject the invoke with the `FixError` string; errors from the run itself (`cancelled`, `wrong_password`, `command_failed`, `timeout`) resolve with `{ ok: false, error, step }`. The `TauriFixAdapter` folds both into one `FixOutcome`. Only one plan runs at a time.
+
+The v0.1 browser assistant command is gone. The fix and AI contracts, the `FixChoice` wire shape and the `ai:stream` event are in DESIGN-V02.md sections 4, 5 and 8.
 
 ## TCC permissions in development
 
@@ -169,8 +220,24 @@ tccutil reset AppleEvents com.apple.Terminal
 
 Use `ai.taloslabs.desktop` instead of `com.apple.Terminal` for the app bundle.
 
+The app also probes the Automation grant without prompting (`automation.rs`, `AEDeterminePermissionToAutomateTarget` against System Events) so the permission card can tell "not asked yet" from "denied". When System Events is not running the probe answers `null` and the collector result is used instead. The flow is in DESIGN-V02.md section 6.
+
+Apple Intelligence is a third, optional dependency for the AI card only. The helper reports `device_not_eligible`, `apple_intelligence_not_enabled`, `model_not_ready` or `available`; the card has copy for each and a button that opens the Apple Intelligence pane. Developer builds with the model still downloading see `model_not_ready`; that is expected.
+
 Grants are tied to the code signature. An unsigned dev build may lose its grants after a rebuild, which is why granting them to the terminal is easier during development.
 
 ## Network sections in development builds
 
-On macOS 27.0.1, `netstat -anv -p tcp` run from an ad-hoc signed binary (a `cargo build` output, `pnpm desktop`, an unsigned CI build) returns an empty socket table, while the same command from a shell or a Developer ID signed process lists every listener. The `listeners` section is then `permission_denied` with detail `netstat: empty socket table`, `remoteAccess` and `fileSharing` carry `shared: listeners`, and rules 018 to 022 show as Couldn't check. Reproduce with `./target/debug/talos-collect --section listeners` next to `/usr/sbin/netstat -anv -p tcp | grep -c LISTEN` in the same shell. A Developer ID signed build is expected to fix it; that has not been verified, so check these three sections on the first signed build.
+On macOS 27.0.1, `netstat -anv -p tcp` run from an ad-hoc signed binary (a `cargo build` output, `pnpm desktop`, an unsigned CI build) returns an empty socket table, while the same command from a shell or a Developer ID signed process lists every listener. The `listeners` section is then `permission_denied` with detail `netstat: empty socket table`, `remoteAccess` and `fileSharing` carry `shared: listeners`, and rules 018 to 022 show as Couldn't check. Reproduce with `./target/debug/talos-collect --section listeners` next to `/usr/sbin/netstat -anv -p tcp | grep -c LISTEN` in the same shell. A Developer ID signed build is expected to fix it; that has not been verified, so check these three sections on the first signed build. The same limit means the in-app fixes for rules 019 to 022 cannot be seen to pass under `pnpm desktop`: the recheck after Apply comes back `unreadable`. The demo build fakes those rechecks, which is why the QA harness runs against it.
+
+## Only on a real Mac
+
+These cannot be covered by `pnpm test`, `cargo test` or the demo build. Check them by hand on a Mac before a release, and never from a test that runs on your own machine without meaning to. The full list is DESIGN-V02.md section 9, "Only on a real Mac".
+
+- Window chrome: the vibrancy sidebar, traffic-light placement, drag region and inactive state; the Cmd+, menu item.
+- The native administrator dialog: its prompt text, the cancel code, and the error number after three wrong passwords (recorded into the `privileged.rs` fixtures). `fix_cancel` closing the dialog.
+- Each admin command in `FIX_CATALOG` applied and rechecked, including `launchctl bootout` exit 3 as root, and `sharing -e` on a real share.
+- The pty path with real `ssh-keygen -p` on OpenSSH, PEM and PKCS#8 keys.
+- The Full Disk Access grant, the Quit & Reopen prompt from System Settings, and the relaunch continuation. `AEDeterminePermissionToAutomateTarget` before and after granting Automation.
+- The four FoundationModels availability states, guided generation output shape, the real context-window limit, guardrail refusals, and the Apple Intelligence settings URL.
+- Sidecar signing and notarisation; the signed-build socket table; `reveal_item_in_dir` on hidden dotfiles.

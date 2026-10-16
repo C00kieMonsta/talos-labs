@@ -1,21 +1,59 @@
 import type { ExplainerProfile } from "@talos/core";
+import { PROFILE_ROLE_LABELS, PROFILE_TECHNICAL_LABELS } from "../app/labels";
 
 type Role = ExplainerProfile["role"];
 type Technical = ExplainerProfile["technical"];
 
-const ROLES: readonly { value: Role; label: string }[] = [
-  { value: "individual", label: "For myself" },
-  { value: "freelancer", label: "As a freelancer" },
-  { value: "small_business", label: "In a small business" },
-];
+const ROLES: readonly Role[] = ["individual", "freelancer", "small_business"];
+const TECHNICAL: readonly Technical[] = ["low", "medium", "high"];
 
-const TECHNICAL: readonly { value: Technical; label: string }[] = [
-  { value: "low", label: "Not very. Keep it simple." },
-  { value: "medium", label: "Somewhat. I can follow steps." },
-  { value: "high", label: "Very. Be precise and brief." },
-];
+export const PROFILE_QUESTIONS = {
+  role: "How do you use this Mac?",
+  technical: "How technical are you?",
+  clientData: "I keep other people's data on this Mac, such as client files",
+  laptop: "This laptop leaves home",
+} as const;
 
-/** Three radio questions and one toggle. Never free text. */
+function Segmented<T extends string>({
+  legend,
+  name,
+  options,
+  labels,
+  value,
+  onChange,
+}: {
+  legend: string;
+  name: string;
+  options: readonly T[];
+  labels: Readonly<Record<T, string>>;
+  value: T;
+  onChange(next: T): void;
+}) {
+  return (
+    <fieldset className="segmented">
+      <legend>{legend}</legend>
+      <div className="segmented-options">
+        {options.map((option) => (
+          <label key={option} className={option === value ? "segment segment-on" : "segment"}>
+            <input type="radio" name={name} checked={value === option} onChange={() => onChange(option)} />
+            {labels[option]}
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+function Switch({ label, checked, onChange }: { label: string; checked: boolean; onChange(next: boolean): void }) {
+  return (
+    <label className="toggle">
+      <input type="checkbox" role="switch" aria-checked={checked} checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <span>{label}</span>
+    </label>
+  );
+}
+
+/** Two segmented controls and two switches. Never free text. */
 export function ProfileForm({
   value,
   onChange,
@@ -27,68 +65,32 @@ export function ProfileForm({
 }) {
   return (
     <div className="profile-form">
-      <fieldset>
-        <legend>How do you use this Mac?</legend>
-        {ROLES.map((option) => (
-          <label key={option.value}>
-            <input
-              type="radio"
-              name={`${idPrefix}-role`}
-              checked={value.role === option.value}
-              onChange={() => onChange({ ...value, role: option.value })}
-            />
-            {option.label}
-          </label>
-        ))}
-      </fieldset>
-
-      <fieldset>
-        <legend>How comfortable are you with technical settings?</legend>
-        {TECHNICAL.map((option) => (
-          <label key={option.value}>
-            <input
-              type="radio"
-              name={`${idPrefix}-technical`}
-              checked={value.technical === option.value}
-              onChange={() => onChange({ ...value, technical: option.value })}
-            />
-            {option.label}
-          </label>
-        ))}
-      </fieldset>
-
-      <fieldset>
-        <legend>Do you keep other people's data on this Mac, such as client files?</legend>
-        <label>
-          <input
-            type="radio"
-            name={`${idPrefix}-client-data`}
-            checked={value.handlesClientData}
-            onChange={() => onChange({ ...value, handlesClientData: true })}
-          />
-          Yes
-        </label>
-        <label>
-          <input
-            type="radio"
-            name={`${idPrefix}-client-data`}
-            checked={!value.handlesClientData}
-            onChange={() => onChange({ ...value, handlesClientData: false })}
-          />
-          No
-        </label>
-      </fieldset>
-
-      <label className="toggle">
-        <input
-          type="checkbox"
-          role="switch"
-          aria-checked={value.laptopLeavesHome}
-          checked={value.laptopLeavesHome}
-          onChange={(event) => onChange({ ...value, laptopLeavesHome: event.target.checked })}
-        />
-        <span>This is a laptop that leaves home</span>
-      </label>
+      <Segmented
+        legend={PROFILE_QUESTIONS.role}
+        name={`${idPrefix}-role`}
+        options={ROLES}
+        labels={PROFILE_ROLE_LABELS}
+        value={value.role}
+        onChange={(role) => onChange({ ...value, role })}
+      />
+      <Segmented
+        legend={PROFILE_QUESTIONS.technical}
+        name={`${idPrefix}-technical`}
+        options={TECHNICAL}
+        labels={PROFILE_TECHNICAL_LABELS}
+        value={value.technical}
+        onChange={(technical) => onChange({ ...value, technical })}
+      />
+      <Switch
+        label={PROFILE_QUESTIONS.clientData}
+        checked={value.handlesClientData}
+        onChange={(handlesClientData) => onChange({ ...value, handlesClientData })}
+      />
+      <Switch
+        label={PROFILE_QUESTIONS.laptop}
+        checked={value.laptopLeavesHome}
+        onChange={(laptopLeavesHome) => onChange({ ...value, laptopLeavesHome })}
+      />
     </div>
   );
 }

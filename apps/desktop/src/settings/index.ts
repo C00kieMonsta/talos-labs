@@ -1,24 +1,29 @@
-import type { ExplainerProfile } from "@talos/core";
+import type { AiAvailability, ExplainerProfile } from "@talos/core";
 
-/** Where AI help comes from. "browser" opens the user's own Claude or ChatGPT account; no key is involved. */
-export type ExplainerProvider = "browser" | "none" | "claude" | "ollama";
-
-/** The account the browser hand-off opens. */
-export type Assistant = "claude" | "chatgpt";
+/** Where AI help comes from. "apple" runs on this Mac; the other two need Developer mode. */
+export type ExplainerProvider = "apple" | "claude" | "ollama";
 
 export interface ExplainerSettings {
   provider: ExplainerProvider;
-  assistant: Assistant;
+  /** The one switch that turns AI off. */
+  aiEnabled: boolean;
   claudeModel: string;
   ollamaModel: string;
+}
+
+export interface DeveloperSettings {
+  enabled: boolean;
+  /** Terminal commands next to fixes and the reversing command in the sheet. */
+  showCommands: boolean;
+  /** The "What will run" disclosure opens by default. */
+  showPlanExpanded: boolean;
 }
 
 export interface AppSettings {
   explainer: ExplainerSettings;
   profile: ExplainerProfile;
   onboarded: boolean;
-  /** Shows Terminal commands next to fixes and unlocks the API-key and local-model providers. */
-  developerMode: boolean;
+  developer: DeveloperSettings;
 }
 
 export const SETTINGS_STORAGE_KEY = "talos.settings";
@@ -28,8 +33,8 @@ export const MAX_MODEL_ID_LENGTH = 64;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   explainer: {
-    provider: "browser",
-    assistant: "claude",
+    provider: "apple",
+    aiEnabled: true,
     claudeModel: "claude-opus-5",
     ollamaModel: "llama3.1",
   },
@@ -40,17 +45,18 @@ export const DEFAULT_SETTINGS: AppSettings = {
     laptopLeavesHome: true,
   },
   onboarded: false,
-  developerMode: false,
+  developer: { enabled: false, showCommands: true, showPlanExpanded: true },
 };
 
-export const PROVIDERS: readonly ExplainerProvider[] = ["browser", "none", "claude", "ollama"];
-export const ASSISTANTS: readonly Assistant[] = ["claude", "chatgpt"];
+export const PROVIDERS: readonly ExplainerProvider[] = ["apple", "claude", "ollama"];
 const ROLES: readonly ExplainerProfile["role"][] = ["individual", "freelancer", "small_business"];
 const TECHNICAL: readonly ExplainerProfile["technical"][] = ["low", "medium", "high"];
 
-/** Providers that run inside the app and need Developer mode. */
-export function isInAppProvider(provider: ExplainerProvider): provider is "claude" | "ollama" {
-  return provider === "claude" || provider === "ollama";
+/** True when the AI switch is on and the provider can answer. */
+export function aiUsable(settings: AppSettings, availability: AiAvailability | null): boolean {
+  if (!settings.explainer.aiEnabled) return false;
+  if (settings.explainer.provider !== "apple" && settings.developer.enabled) return true;
+  return availability === "available";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -79,14 +85,20 @@ export function parseSettings(raw: unknown): AppSettings {
   const root = isRecord(raw) ? raw : {};
   const explainer = isRecord(root["explainer"]) ? root["explainer"] : {};
   const profile = isRecord(root["profile"]) ? root["profile"] : {};
+  const developer = isRecord(root["developer"]) ? root["developer"] : {};
   const d = DEFAULT_SETTINGS;
-  const developerMode = pickBoolean(root["developerMode"], d.developerMode);
-  const provider = pickEnum(explainer["provider"], PROVIDERS, d.explainer.provider);
+  // v0.1 stored a top-level developerMode boolean.
+  const developerEnabled = pickBoolean(developer["enabled"], pickBoolean(root["developerMode"], d.developer.enabled));
+  const storedProvider = explainer["provider"];
+  let aiEnabled = pickBoolean(explainer["aiEnabled"], d.explainer.aiEnabled);
+  // v0.1 stored "none" for no AI; the switch carries that now.
+  if (storedProvider === "none") aiEnabled = false;
+  let provider = pickEnum(storedProvider, PROVIDERS, d.explainer.provider);
+  if (!developerEnabled && provider !== "apple") provider = "apple";
   return {
     explainer: {
-      // An in-app provider is only offered in Developer mode; without it the browser hand-off applies.
-      provider: !developerMode && isInAppProvider(provider) ? "browser" : provider,
-      assistant: pickEnum(explainer["assistant"], ASSISTANTS, d.explainer.assistant),
+      provider,
+      aiEnabled,
       claudeModel: pickModelId(explainer["claudeModel"], d.explainer.claudeModel),
       ollamaModel: pickModelId(explainer["ollamaModel"], d.explainer.ollamaModel),
     },
@@ -97,7 +109,11 @@ export function parseSettings(raw: unknown): AppSettings {
       laptopLeavesHome: pickBoolean(profile["laptopLeavesHome"], d.profile.laptopLeavesHome),
     },
     onboarded: pickBoolean(root["onboarded"], d.onboarded),
-    developerMode,
+    developer: {
+      enabled: developerEnabled,
+      showCommands: pickBoolean(developer["showCommands"], d.developer.showCommands),
+      showPlanExpanded: pickBoolean(developer["showPlanExpanded"], d.developer.showPlanExpanded),
+    },
   };
 }
 

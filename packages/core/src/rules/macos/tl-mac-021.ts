@@ -32,6 +32,17 @@ export const TL_MAC_021: Rule = {
     verify: "Sharing shows Remote Management off.",
     effort: "two_minutes",
     sideEffects: "none",
+    apply: {
+      kind: "in_app",
+      choice: "none",
+      passphrase: false,
+      needsPassword: true,
+      recheck: ["remoteAccess", "listeners"],
+      confirmTitle: "Turn Remote Management off?",
+      confirmVerb: "Turn off",
+      confirmNote: null,
+      reversible: "You can switch it on again in System Settings > General > Sharing.",
+    },
   },
   evaluate(state) {
     const service = section(state, "remoteAccess").remoteManagement;

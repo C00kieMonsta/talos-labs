@@ -34,6 +34,17 @@ export const TL_MAC_015: Rule = {
     verify: "Guest User shows as Off in Users & Groups.",
     effort: "two_minutes",
     sideEffects: "none",
+    apply: {
+      kind: "in_app",
+      choice: "none",
+      passphrase: false,
+      needsPassword: true,
+      recheck: ["accounts"],
+      confirmTitle: "Turn the Guest account off?",
+      confirmVerb: "Turn off",
+      confirmNote: null,
+      reversible: "You can switch it on again in System Settings > Users & Groups.",
+    },
   },
   evaluate(state) {
     const data = section(state, "accounts");

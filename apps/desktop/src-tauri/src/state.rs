@@ -613,7 +613,11 @@ mod tests {
 
     #[test]
     fn tri_round_trips() {
-        for (value, text) in [(Tri::True, "true"), (Tri::False, "false"), (Tri::Unset, "\"unset\"")] {
+        for (value, text) in [
+            (Tri::True, "true"),
+            (Tri::False, "false"),
+            (Tri::Unset, "\"unset\""),
+        ] {
             assert_eq!(serde_json::to_string(&value).unwrap(), text);
             let back: Tri = serde_json::from_str(text).unwrap();
             assert_eq!(back, value);
@@ -623,8 +627,14 @@ mod tests {
 
     #[test]
     fn idle_seconds_round_trips() {
-        assert_eq!(serde_json::to_string(&IdleSeconds::Seconds(600)).unwrap(), "600");
-        assert_eq!(serde_json::to_string(&IdleSeconds::Unset).unwrap(), "\"unset\"");
+        assert_eq!(
+            serde_json::to_string(&IdleSeconds::Seconds(600)).unwrap(),
+            "600"
+        );
+        assert_eq!(
+            serde_json::to_string(&IdleSeconds::Unset).unwrap(),
+            "\"unset\""
+        );
         let back: IdleSeconds = serde_json::from_str("1200").unwrap();
         assert_eq!(back, IdleSeconds::Seconds(1200));
     }
@@ -656,7 +666,10 @@ mod tests {
         );
         for key in SectionKey::ALL {
             assert_eq!(SectionKey::parse(key.as_str()), Some(key));
-            assert_eq!(serde_json::to_string(&key).unwrap(), format!("\"{}\"", key.as_str()));
+            assert_eq!(
+                serde_json::to_string(&key).unwrap(),
+                format!("\"{}\"", key.as_str())
+            );
         }
         assert_eq!(SectionKey::parse("nope"), None);
     }

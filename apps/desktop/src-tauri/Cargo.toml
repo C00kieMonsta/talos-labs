@@ -20,6 +20,10 @@ path = "src/main.rs"
 name = "talos-collect"
 path = "src/bin/talos-collect.rs"
 
+[[bin]]
+name = "talos-fixes"
+path = "src/bin/talos-fixes.rs"
+
 [features]
 # Prints raw command output to stderr. Development only.
 debug-raw = []
@@ -41,6 +45,8 @@ dirs = "7"
 libc = "0.2"
 thiserror = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+zeroize = "1"
+rand = "0.9"
 
 [lints.clippy]
 unwrap_used = "deny"

@@ -17,6 +17,15 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
     ],
     "explanation": "FileVault scrambles everything on your disk so it can only be read with your password. Without it, anyone who takes the Mac, or just its drive, can read your files by plugging it into another computer. It is the single most important setting on a laptop that ever leaves the house.",
     "fix": {
+      "apply": {
+        "kind": "deep_link",
+        "pane": "filevault",
+        "reveal": null,
+        "watch": [
+          "diskEncryption",
+        ],
+        "watchEvery": 3,
+      },
       "commands": [],
       "effort": "ten_minutes",
       "settingsPane": "filevault",
@@ -61,6 +70,19 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
     ],
     "explanation": "The firewall decides which programs may accept connections from other computers on the network. With it off, any program that opens a port is reachable from the cafe Wi-Fi or hotel network you are on. Turning it on costs nothing and most apps never notice.",
     "fix": {
+      "apply": {
+        "choice": "none",
+        "confirmNote": null,
+        "confirmTitle": "Turn the firewall on?",
+        "confirmVerb": "Turn on",
+        "kind": "in_app",
+        "needsPassword": true,
+        "passphrase": false,
+        "recheck": [
+          "firewall",
+        ],
+        "reversible": "You can switch it off again in System Settings > Network > Firewall.",
+      },
       "commands": [
         {
           "appliesTo": null,
@@ -114,6 +136,19 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
     ],
     "explanation": "Stealth mode makes your Mac ignore the probes that attackers and automated scanners send to find computers on a network. With it off, your Mac answers those probes and confirms it is there. It is a small change that makes you a less obvious target on shared Wi-Fi.",
     "fix": {
+      "apply": {
+        "choice": "none",
+        "confirmNote": null,
+        "confirmTitle": "Turn stealth mode on?",
+        "confirmVerb": "Turn on",
+        "kind": "in_app",
+        "needsPassword": true,
+        "passphrase": false,
+        "recheck": [
+          "firewall",
+        ],
+        "reversible": "You can switch it off again in System Settings > Network > Firewall > Options.",
+      },
       "commands": [
         {
           "appliesTo": null,
@@ -169,6 +204,15 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
     ],
     "explanation": "An update is ready but has not been installed. Until it is, your Mac still has whatever problem the update fixes, and the fix itself tells attackers exactly where to look. Installing it usually means a restart and a few minutes of waiting.",
     "fix": {
+      "apply": {
+        "kind": "deep_link",
+        "pane": "software_update",
+        "reveal": null,
+        "watch": [
+          "updates",
+        ],
+        "watchEvery": 10,
+      },
       "commands": [
         {
           "appliesTo": null,
@@ -222,6 +266,19 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
     ],
     "explanation": "Apps from the App Store get their own security fixes, separate from macOS. With automatic updates on, they are patched without you doing anything. With it off, an old browser or messaging app can stay vulnerable for months.",
     "fix": {
+      "apply": {
+        "choice": "none",
+        "confirmNote": null,
+        "confirmTitle": "Update App Store apps automatically?",
+        "confirmVerb": "Turn on",
+        "kind": "in_app",
+        "needsPassword": true,
+        "passphrase": false,
+        "recheck": [
+          "updates",
+        ],
+        "reversible": "You can switch it off again in App Store > Settings.",
+      },
       "commands": [
         {
           "appliesTo": null,
@@ -288,6 +345,15 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
     ],
     "explanation": "An administrator account can install anything and change any setting. If malware or a bad download runs while you are logged in as an administrator, it gets those powers too. Using a standard account day to day means you are asked for an administrator password before anything important changes, which is a useful moment to pause.",
     "fix": {
+      "apply": {
+        "kind": "deep_link",
+        "pane": "users_groups",
+        "reveal": null,
+        "watch": [
+          "accounts",
+        ],
+        "watchEvery": 3,
+      },
       "commands": [],
       "effort": "half_hour",
       "settingsPane": "users_groups",
@@ -340,6 +406,12 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
     ],
     "explanation": "This checks the password rule set on the Mac itself, not your actual password. The security benchmark recommends requiring at least 15 characters, and your Mac does not enforce that, so a short password is allowed. A long passphrase is still the best thing you can choose, whatever the policy says.",
     "fix": {
+      "apply": {
+        "kind": "manual",
+        "reveal": null,
+        "watch": [],
+        "watchEvery": 3,
+      },
       "commands": [],
       "effort": "ten_minutes",
       "settingsPane": null,
@@ -404,6 +476,20 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
     ],
     "explanation": "File Sharing is on and at least one shared folder gives Everyone access, so a guest with no password can open it from the network and read, and often change, what is inside. On a cafe or hotel network that means strangers.",
     "fix": {
+      "apply": {
+        "choice": "share",
+        "confirmNote": "People will still be able to open it with a password.",
+        "confirmTitle": "Stop sharing this folder with everyone?",
+        "confirmVerb": "Stop sharing",
+        "kind": "in_app",
+        "needsPassword": true,
+        "passphrase": false,
+        "recheck": [
+          "fileSharing",
+          "listeners",
+        ],
+        "reversible": "You can open it to everyone again in System Settings > General > Sharing > File Sharing.",
+      },
       "commands": [],
       "effort": "two_minutes",
       "settingsPane": "sharing",
@@ -481,6 +567,15 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
     ],
     "explanation": "Some programs on this Mac are set to start on their own, in the background, every time you log in or the Mac starts. Most are harmless helpers from apps you installed, but this is also the usual way malware makes sure it keeps running. It is worth looking down the list once and removing anything you do not recognise or no longer use.",
     "fix": {
+      "apply": {
+        "kind": "deep_link",
+        "pane": "login_items",
+        "reveal": "plist",
+        "watch": [
+          "persistence",
+        ],
+        "watchEvery": 3,
+      },
       "commands": [
         {
           "appliesTo": "agentPlist",
@@ -565,6 +660,15 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
     ],
     "explanation": "These apps open by themselves every time you log in. That is usually by choice, but an app you forgot about, or one that added itself, keeps running and keeps its access to your files and network. Fewer login items also means a faster start.",
     "fix": {
+      "apply": {
+        "kind": "deep_link",
+        "pane": "login_items",
+        "reveal": null,
+        "watch": [
+          "loginItems",
+        ],
+        "watchEvery": 5,
+      },
       "commands": [],
       "effort": "two_minutes",
       "settingsPane": "login_items",
@@ -625,6 +729,15 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
     ],
     "explanation": "There is no backup set up for this Mac. If the disk fails, the Mac is stolen, or ransomware scrambles your files, everything that is not backed up is gone. Time Machine is built in and only needs an external disk or a network drive.",
     "fix": {
+      "apply": {
+        "kind": "deep_link",
+        "pane": "time_machine",
+        "reveal": null,
+        "watch": [
+          "backup",
+        ],
+        "watchEvery": 10,
+      },
       "commands": [],
       "effort": "ten_minutes",
       "settingsPane": "time_machine",
@@ -686,6 +799,14 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
     ],
     "explanation": "A browser extension on this Mac is allowed to read and change every website you visit, including your bank and your email. Extensions are sold and updated by people you have never met, and a popular one can turn bad overnight. Limiting each extension to the sites it needs, or to run only when you click it, keeps the damage small if that happens.",
     "fix": {
+      "apply": {
+        "kind": "manual",
+        "reveal": null,
+        "watch": [
+          "browsers",
+        ],
+        "watchEvery": 3,
+      },
       "commands": [],
       "effort": "ten_minutes",
       "settingsPane": null,
@@ -760,6 +881,19 @@ exports[`evaluate on dev-machine > snapshot of findings guards wording changes 1
     ],
     "explanation": "An SSH key is a file that logs you in to servers and services such as GitHub without a password. At least one of yours is stored with no passphrase, so anyone who copies the file, through malware, a stolen backup or a shared Mac, can use it as you straight away. Adding a passphrase means the file alone is useless to them.",
     "fix": {
+      "apply": {
+        "choice": "ssh_key",
+        "confirmNote": null,
+        "confirmTitle": "Add a passphrase to this key?",
+        "confirmVerb": "Add passphrase",
+        "kind": "in_app",
+        "needsPassword": false,
+        "passphrase": true,
+        "recheck": [
+          "ssh",
+        ],
+        "reversible": null,
+      },
       "commands": [
         {
           "appliesTo": "keyPath",

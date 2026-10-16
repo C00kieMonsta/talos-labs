@@ -28,6 +28,12 @@ export const TL_MAC_024: Rule = {
     verify: "Run the check-up again; the orphan count is 0.",
     effort: "two_minutes",
     sideEffects: "none",
+    apply: {
+      kind: "manual",
+      watch: ["persistence"],
+      watchEvery: 3,
+      reveal: "plist",
+    },
   },
   evaluate(state) {
     const data = section(state, "persistence");

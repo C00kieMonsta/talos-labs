@@ -31,6 +31,17 @@ export const TL_MAC_002: Rule = {
     verify: "Network > Firewall shows the switch on.",
     effort: "two_minutes",
     sideEffects: "none",
+    apply: {
+      kind: "in_app",
+      choice: "none",
+      passphrase: false,
+      needsPassword: true,
+      recheck: ["firewall"],
+      confirmTitle: "Turn the firewall on?",
+      confirmVerb: "Turn on",
+      confirmNote: null,
+      reversible: "You can switch it off again in System Settings > Network > Firewall.",
+    },
   },
   evaluate(state) {
     const data = section(state, "firewall");

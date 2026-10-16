@@ -3,23 +3,25 @@ import type { FormEvent } from "react";
 import type { ExplainerProfile } from "@talos/core";
 import { ProfileForm } from "../components/ProfileForm";
 
-const READS = [
-  "Whether your disk is encrypted and the firewall is on",
-  "Update settings and whether an update is waiting",
-  "Screen lock, guest and automatic login settings",
-  "Which programs listen on the network and which start in the background",
-  "File sharing, remote access and backup settings",
-  "The names and permissions of browser extensions",
-  "Whether your SSH keys have a passphrase and sensible permissions",
-  "Whether shell config files contain patterns that look like secrets",
-];
+export const WELCOME_LEAD =
+  "Talos Labs reads your Mac's security settings, compares them with the CIS benchmark, and shows you what to fix. It changes a setting only when you ask it to, and tells you first.";
 
-const NEVER_READS = [
+export const WELCOME_FOOTNOTE =
+  "Explanations are written on this Mac by Apple Intelligence when it is available. Nothing leaves your Mac.";
+
+export const READS = [
+  "Whether your disk is encrypted and the firewall is on",
+  "Update, screen lock, guest and automatic login settings",
+  "Which programs listen on the network, start in the background or share files",
+  "The names and permissions of browser extensions",
+] as const;
+
+export const NEVER_READS = [
   "Your documents, photos, mail or messages",
   "Passwords, keys or the contents of any secret",
   "Your computer's name or your browsing history",
-  "Anything it would need an administrator password for",
-];
+  "What you type into macOS's own password dialog",
+] as const;
 
 export function Welcome({
   initial,
@@ -40,25 +42,21 @@ export function Welcome({
   return (
     <main className="screen welcome">
       <header className="welcome-head">
-        <p className="eyebrow">Talos Labs</p>
         <h1>A calm check-up for your Mac</h1>
-        <p className="lead">
-          Talos Labs reads your Mac's security settings, compares them with the CIS benchmark, and tells you what to
-          fix and how. It only reads. It never changes anything.
-        </p>
+        <p className="lead">{WELCOME_LEAD}</p>
       </header>
 
       <div className="two-col">
-        <section className="card" aria-labelledby="reads">
-          <h2 id="reads">What it reads</h2>
+        <section aria-labelledby="reads">
+          <h2 id="reads">Reads</h2>
           <ul className="plain-list">
             {READS.map((item) => (
               <li key={item}>{item}</li>
             ))}
           </ul>
         </section>
-        <section className="card" aria-labelledby="never">
-          <h2 id="never">What it never reads</h2>
+        <section aria-labelledby="never">
+          <h2 id="never">Never reads</h2>
           <ul className="plain-list">
             {NEVER_READS.map((item) => (
               <li key={item}>{item}</li>
@@ -68,19 +66,15 @@ export function Welcome({
       </div>
 
       <form className="card" onSubmit={submit} aria-labelledby="about-you">
-        <h2 id="about-you">A little about you</h2>
-        <p className="muted">
-          These answers help the explanations fit your situation. You can change them later in Settings. AI help
-          opens in your own Claude or ChatGPT account. Only the check-up results are sent, never file names, paths or
-          passwords.
-        </p>
+        <h2 id="about-you">About you</h2>
         <ProfileForm value={profile} onChange={setProfile} idPrefix="welcome" />
+        <p className="muted small">{WELCOME_FOOTNOTE}</p>
         <div className="actions">
           <button type="submit" className="button button-primary">
             Start check-up
           </button>
           <button type="button" className="button button-ghost" onClick={onSkip}>
-            Skip for now
+            Skip
           </button>
         </div>
       </form>

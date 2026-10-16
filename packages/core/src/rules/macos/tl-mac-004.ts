@@ -26,6 +26,13 @@ export const TL_MAC_004: Rule = {
     verify: "Privacy & Security shows App Store & Known Developers under Allow applications from.",
     effort: "two_minutes",
     sideEffects: "none",
+    apply: {
+      kind: "deep_link",
+      pane: "security",
+      watch: ["platformIntegrity"],
+      watchEvery: 3,
+      reveal: null,
+    },
   },
   evaluate(state) {
     const data = section(state, "platformIntegrity");

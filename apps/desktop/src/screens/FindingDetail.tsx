@@ -1,17 +1,19 @@
 import { useEffect, useRef } from "react";
 import type { Evidence, Explanation, Finding, Rule, RuleId, RuleStatus, SettingsPane } from "@talos/core";
-import { buildBrowserPrompt, toExplainerContext } from "@talos/core";
-import { AssistantCard } from "../components/AssistantCard";
+import { AiCard, useAiCardFlow } from "../components/AiCard";
 import { EvidenceTable } from "../components/EvidenceTable";
 import { FixCard } from "../components/FixCard";
+import { FixFlow } from "../components/FixSheet";
+import { LicenceField } from "../components/LicenceField";
 import { Lock } from "../components/Lock";
 import { ModelText } from "../components/ModelText";
 import { PermissionCard } from "../components/PermissionCard";
 import { SeverityBadge } from "../components/SeverityBadge";
+import { Icon } from "../components/Icon";
 import { useApp } from "../app/context";
+import { ICONS } from "../app/icons";
 import {
   CATEGORY_LABELS,
-  EXPLAINER_FAILURE_LABELS,
   SOCKET_TABLE_COPY,
   SOCKET_TABLE_LABEL,
   UNKNOWN_REASON_LABELS,
@@ -21,8 +23,6 @@ import {
 } from "../app/labels";
 import { hiddenBySocketTable } from "../app/network-checks";
 import { lastReport } from "../scan/machine";
-import type { ExplainState } from "../scan/machine";
-import { isInAppProvider } from "../settings";
 
 const STATUS_LABELS: Readonly<Record<RuleStatus, string>> = {
   fail: "Needs fixing",
@@ -87,25 +87,18 @@ function fromRule(rule: Rule, status: RuleStatus, evidence: readonly Evidence[])
 }
 
 export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
-  const { scan, router, catalog, gate, settings, updateSettings, adapters } = useApp();
+  const { scan, catalog, gate, settings, adapters, capabilities } = useApp();
   const report = lastReport(scan.scan);
   const finding = report?.findings.find((f) => f.ruleId === ruleId);
   const result = report?.results.find((r) => r.ruleId === ruleId);
   const rule = catalog.rules.find((r) => r.id === ruleId);
 
   const view: DetailView | null =
-    finding !== undefined
-      ? finding
-      : rule !== undefined
-        ? fromRule(rule, result?.status ?? "pass", result?.evidence ?? [])
-        : null;
+    finding !== undefined ? finding : rule !== undefined ? fromRule(rule, result?.status ?? "pass", result?.evidence ?? []) : null;
 
   if (view === null) {
     return (
       <main className="screen detail">
-        <button type="button" className="link-button" onClick={router.back}>
-          Back
-        </button>
         <h1>Check not found</h1>
         <p className="muted">This check is not in the current report.</p>
       </main>
@@ -114,10 +107,6 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
 
   const live = scan.scan.kind === "ready";
   const rechecking = scan.scan.kind === "rechecking";
-  // An explanation already on screen stays while its section is read again.
-  const explain: ExplainState = scan.scan.kind === "ready" || scan.scan.kind === "rechecking" ? scan.scan.explain : { kind: "off" };
-  const { provider, assistant } = settings.explainer;
-  const inAppAi = isInAppProvider(provider);
   // The kernel withheld the socket table from this build; no permission or fix changes that.
   const unsignedBuild = report !== null && hiddenBySocketTable(report, view);
   // A fix is only shown for a confirmed problem; an unknown check has nothing confirmed to fix yet.
@@ -129,21 +118,19 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
   const lastRecheck = scan.scan.kind === "ready" ? scan.scan.lastRecheck : null;
   const checkedAgain = lastRecheck !== null && view.requires.includes(lastRecheck.key) ? lastRecheck : null;
   const lead = EXPLANATION_LEAD[view.status];
-  // async so a throw while building the prompt surfaces as a rejection the card can show.
-  const openInBrowser =
-    report !== null && provider === "browser"
-      ? async () => {
-          const context = toExplainerContext(report, catalog, settings.profile);
-          await adapters.openAssistant(assistant, buildBrowserPrompt(context, catalog, view.ruleId));
-        }
-      : null;
+  const fixing = scan.scan.kind === "ready" && scan.scan.fixing?.plan.ruleId === view.ruleId ? scan.scan.fixing : null;
+  const watching = scan.scan.kind === "ready" || scan.scan.kind === "rechecking" ? scan.scan.watching : null;
+  const busy = scan.scan.kind === "ready" && scan.scan.fixing !== null && fixing === null;
+  // The rule has left the report once it passes; the strip still says so, with the time of the read.
+  const passedAt =
+    watching?.ruleId === view.ruleId && watching.passedAt !== null
+      ? watching.passedAt
+      : fixing?.phase === "done" && fixing.result === "pass"
+        ? report?.scannedAt ?? null
+        : null;
 
   return (
     <main className="screen detail">
-      <button type="button" className="link-button" onClick={router.back}>
-        Back
-      </button>
-
       <header className="detail-head">
         <div className="finding-card-head">
           <span className={`status status-${view.status}`}>{STATUS_LABELS[view.status]}</span>
@@ -162,6 +149,10 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
         )}
       </header>
 
+      {(permissionPane === "full_disk_access" || permissionPane === "automation") && view.status === "unknown" && (
+        <PermissionCard kind={permissionPane} affected={[]} capabilities={capabilities} />
+      )}
+
       {unsignedBuild && (
         <section className="card card-muted" aria-labelledby="unsigned-heading">
           <h2 id="unsigned-heading">Why this check could not run</h2>
@@ -169,9 +160,31 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
         </section>
       )}
 
-      {(permissionPane === "full_disk_access" || permissionPane === "automation") && (
-        <PermissionCard pane={permissionPane} affected={[]} onOpen={openPane} />
-      )}
+      {!fixable && passedAt !== null && <PassedStrip at={passedAt} />}
+
+      {fixable &&
+        (locked ? (
+          <Lock
+            title="This fix is part of the full version"
+            body="The three most valuable fixes are free. A licence unlocks every fix, rechecks and AI explanations."
+            action={<LicenceField onBuy={() => void adapters.fixes.openBuyPage()} />}
+          />
+        ) : (
+          <FixCard
+            finding={finding ?? { ...view, status: view.status === "review" ? "review" : "fail" }}
+            developer={settings.developer}
+            fixing={fixing}
+            watching={watching}
+            busy={busy || !live}
+            onApply={(choice) => void scan.previewFix(view.ruleId, choice)}
+            onOpenPane={(pane) => {
+              openPane(pane);
+              if (live) scan.startWatch(view.ruleId);
+            }}
+            onReveal={(choice) => void scan.reveal(view.ruleId, choice)}
+            onWatch={() => scan.startWatch(view.ruleId)}
+          />
+        ))}
 
       <section className="card" aria-labelledby="evidence-heading">
         <h2 id="evidence-heading">What was found</h2>
@@ -184,46 +197,7 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
         <p>{view.explanation}</p>
       </section>
 
-      {inAppAi && actionable && (
-        <AiCard
-          ruleId={view.ruleId}
-          explain={explain}
-          live={live}
-          allowed={gate.has("explainer")}
-          onExplain={() => void scan.explain(view.ruleId)}
-          onSettings={() => router.navigate({ name: "settings" })}
-        />
-      )}
-
-      {openInBrowser !== null && actionable && (
-        <AssistantCard
-          assistant={assistant}
-          target="item"
-          onOpen={openInBrowser}
-          onSwitch={(next) => updateSettings({ explainer: { ...settings.explainer, assistant: next } })}
-        />
-      )}
-
-      {fixable &&
-        (locked ? (
-          <Lock
-            title="This fix is part of the full version"
-            body="The three most valuable fixes are free. A licence unlocks every fix, rechecks and AI explanations."
-            action={
-              <button type="button" className="button" onClick={() => router.navigate({ name: "settings" })}>
-                Enter a licence key
-              </button>
-            }
-          />
-        ) : (
-          <FixCard
-            fix={view.fix}
-            evidence={view.evidence}
-            points={view.points}
-            developerMode={settings.developerMode}
-            onOpenPane={openPane}
-          />
-        ))}
+      {settings.explainer.aiEnabled && actionable && (live || rechecking) && <FindingAiCard ruleId={view.ruleId} />}
 
       {(actionable || checkedAgain !== null) && (
         <RecheckCard
@@ -236,7 +210,21 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
           onRecheck={() => void scan.recheck(view.requires)}
         />
       )}
+      <FixFlow />
     </main>
+  );
+}
+
+/** "Now passes, checked at 20:41" for a rule the watcher or a fix saw through; focus moves to it. */
+function PassedStrip({ at }: { at: string }) {
+  const strip = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    strip.current?.focus();
+  }, []);
+  return (
+    <p ref={strip} tabIndex={-1} role="status" className="status-strip status-strip-passed">
+      <Icon icon={ICONS.check} /> Now passes, checked at {formatTime(at)}
+    </p>
   );
 }
 
@@ -259,7 +247,6 @@ function RecheckCard({
 }) {
   const unknown = status === "unknown";
   const result = useRef<HTMLParagraphElement>(null);
-  const button = useRef<HTMLButtonElement>(null);
   const resultAt = checkedAgain?.at ?? null;
   const previousAt = useRef(resultAt);
 
@@ -287,7 +274,6 @@ function RecheckCard({
         <button
           type="button"
           className="button button-primary"
-          ref={button}
           onClick={() => {
             if (!rechecking) onRecheck();
           }}
@@ -301,88 +287,61 @@ function RecheckCard({
   );
 }
 
-function AiCard({
-  ruleId,
-  explain,
-  live,
-  allowed,
-  onExplain,
-  onSettings,
-}: {
-  ruleId: RuleId;
-  explain: ExplainState;
-  live: boolean;
-  allowed: boolean;
-  onExplain(): void;
-  onSettings(): void;
-}) {
-  const explanation: Explanation | undefined =
-    explain.kind === "ready" || explain.kind === "failed" ? explain.byRule[ruleId] : undefined;
-  const running = explain.kind === "running" && explain.target === ruleId;
-  const busy = explain.kind === "running";
-  const failure = explain.kind === "failed" && explain.target === ruleId ? explain.reason : null;
-  const heading = useRef<HTMLHeadingElement>(null);
-  const wasRunning = useRef(false);
-  const hasExplanation = explanation !== undefined;
-
-  // When the explanation the user asked for lands, read it next: focus the heading above it.
-  useEffect(() => {
-    if (wasRunning.current && !running && hasExplanation) heading.current?.focus();
-    wasRunning.current = running;
-  }, [running, hasExplanation]);
-
+/** The explanation lands field by field; a partial is shown with a caret until the whole answer is validated. */
+export function ExplanationFields({ explanation, streaming }: { explanation: Partial<Explanation>; streaming: boolean }) {
+  const why = explanation.whyItMattersForYou;
+  const what = explanation.whatCouldHappen;
+  const urgency = explanation.urgency;
+  const caretOn = (field: "why" | "what") =>
+    streaming && (field === "why" ? what === undefined && urgency === undefined : urgency === undefined);
   return (
-    <section className="card ai-card" aria-labelledby="ai-heading">
-      <div className="section-head">
-        <h2 id="ai-heading" ref={heading} tabIndex={-1}>
-          AI explanation
-        </h2>
-        <span className="badge badge-ai">AI explanation, not verified</span>
-      </div>
-      {!allowed ? (
-        <Lock
-          title="AI explanations are part of the full version"
-          body="Enter a licence key in Settings to turn them on."
-          action={
-            <button type="button" className="button" onClick={onSettings}>
-              Open Settings
-            </button>
-          }
-        />
-      ) : explanation !== undefined ? (
-        <div className="ai-body">
+    <div className="ai-body">
+      {why !== undefined && (
+        <>
           <p className="label">Why it matters for you</p>
-          <ModelText text={explanation.whyItMattersForYou} />
-          <p className="label">What could happen</p>
-          <ModelText text={explanation.whatCouldHappen} />
-          <p className="label">Urgency</p>
-          <p>{URGENCY_LABELS[explanation.urgency]}</p>
-        </div>
-      ) : !live ? (
-        <p className="muted">Run a fresh check-up to ask for an AI explanation of this item.</p>
-      ) : (
-        <div>
-          {failure !== null && (
-            <p className="notice" role="alert">
-              {EXPLAINER_FAILURE_LABELS[failure]}
-            </p>
-          )}
-          <p className="muted progress-note" aria-live="polite">
-            {running ? "Writing an explanation for you." : ""}
-          </p>
-          <button
-            type="button"
-            className="button"
-            onClick={() => {
-              if (!busy) onExplain();
-            }}
-            aria-disabled={busy}
-            aria-busy={running}
-          >
-            Explain this for me
-          </button>
-        </div>
+          <ModelText text={why} caret={caretOn("why")} />
+        </>
       )}
-    </section>
+      {what !== undefined && (
+        <>
+          <p className="label">What could happen</p>
+          <ModelText text={what} caret={caretOn("what")} />
+        </>
+      )}
+      {urgency !== undefined && URGENCY_LABELS[urgency] !== undefined && (
+        <>
+          <p className="label">Urgency</p>
+          <p>
+            <span className={`pill urgency-${urgency}`}>{URGENCY_LABELS[urgency]}</span>
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function FindingAiCard({ ruleId }: { ruleId: RuleId }) {
+  const flow = useAiCardFlow(ruleId);
+  const { explain } = flow;
+  const heading = useRef<HTMLDivElement>(null);
+  const streaming = explain.kind === "running" && explain.target === ruleId;
+  const explanation: Partial<Explanation> | null = streaming
+    ? explain.partial
+    : explain.kind === "ready" || explain.kind === "failed"
+      ? (explain.byRule[ruleId] ?? null)
+      : null;
+  const ready = !streaming && explanation !== null;
+  const wasStreaming = useRef(false);
+  // When the explanation the user asked for lands, read it next.
+  useEffect(() => {
+    if (wasStreaming.current && ready) heading.current?.focus();
+    wasStreaming.current = streaming;
+  }, [streaming, ready]);
+  return (
+    <div ref={heading} tabIndex={-1} className="ai-card-host">
+      <AiCard kind="finding" state={flow.state} {...flow.handlers}>
+        {explanation !== null && <ExplanationFields explanation={explanation} streaming={streaming} />}
+      </AiCard>
+    </div>
   );
 }

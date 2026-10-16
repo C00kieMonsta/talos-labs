@@ -15,9 +15,28 @@ const BASE: Fix = {
   verify: null,
   effort: "two_minutes",
   sideEffects: "none",
+  apply: { kind: "in_app", choice: "none", passphrase: false, needsPassword: true, recheck: ["firewall"], confirmTitle: "Turn the firewall on?", confirmVerb: "Turn on", confirmNote: null, reversible: null },
 };
 
 const KEY: Evidence = { key: "keyPath", label: "Key", value: { kind: "path", value: "/Users/a/.ssh/id_ed25519" } };
+
+const DEV = { enabled: true, showCommands: true, showPlanExpanded: true };
+const NO_DEV = { ...DEV, enabled: false };
+
+// The card now takes a whole finding; this keeps the old test shape.
+function card(fix: Fix, evidence: readonly Evidence[], points: number, developerMode: boolean) {
+  const status = "fail" as const;
+  return {
+    finding: { ruleId: "TL-MAC-001" as const, title: "Your firewall is on", headline: "Firewall is off", severity: "high" as const, category: "network" as const, cis: null, requires: ["firewall" as const], status, evidence, unknownReason: null, points, explanation: "x", fix },
+    developer: developerMode ? DEV : NO_DEV,
+    fixing: null,
+    watching: null,
+    onApply: vi.fn(),
+    onOpenPane: vi.fn(),
+    onReveal: vi.fn(),
+    onWatch: vi.fn(),
+  };
+}
 
 const TERMINAL_ONLY: Fix = {
   ...BASE,
@@ -51,7 +70,7 @@ describe("needsTerminalHint", () => {
 
 describe("FixCard", () => {
   it("renders no commands and no hint when Developer mode is off and the steps are enough", () => {
-    render(createElement(FixCard, { fix: BASE, evidence: [], points: 8, developerMode: false, onOpenPane: vi.fn() }));
+    render(createElement(FixCard, card(BASE, [], 8, false)));
     expect(document.querySelector(".command")).toBeNull();
     expect(screen.queryByRole("button", { name: "Copy command" })).toBeNull();
     expect(screen.queryByText(TERMINAL_HINT)).toBeNull();
@@ -60,20 +79,20 @@ describe("FixCard", () => {
   });
 
   it("says the fix is done in Terminal when there is no Settings path, and part of it otherwise", () => {
-    render(createElement(FixCard, { fix: TERMINAL_ONLY, evidence: [KEY], points: 2, developerMode: false, onOpenPane: vi.fn() }));
+    render(createElement(FixCard, card(TERMINAL_ONLY, [KEY], 2, false)));
     expect(document.querySelector(".command")).toBeNull();
     expect(document.body.textContent).not.toContain("chmod");
     expect(screen.getByText(TERMINAL_ONLY_HINT)).toBeTruthy();
     expect(screen.queryByText(TERMINAL_HINT)).toBeNull();
     cleanup();
     const partly: Fix = { ...BASE, steps: ["Run the command shown for each key."] };
-    render(createElement(FixCard, { fix: partly, evidence: [], points: 2, developerMode: false, onOpenPane: vi.fn() }));
+    render(createElement(FixCard, card(partly, [], 2, false)));
     expect(screen.getByText(TERMINAL_HINT)).toBeTruthy();
     expect(screen.queryByText(TERMINAL_ONLY_HINT)).toBeNull();
   });
 
   it("shows the filled command with a Copy button in Developer mode, headed by whether Terminal is the only way", () => {
-    render(createElement(FixCard, { fix: TERMINAL_ONLY, evidence: [KEY], points: 2, developerMode: true, onOpenPane: vi.fn() }));
+    render(createElement(FixCard, card(TERMINAL_ONLY, [KEY], 2, true)));
     expect(screen.getByText("chmod 600 /Users/a/.ssh/id_ed25519")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Copy command" })).toBeTruthy();
     expect(screen.getByText("In Terminal")).toBeTruthy();
@@ -81,23 +100,23 @@ describe("FixCard", () => {
     expect(screen.queryByText(TERMINAL_HINT)).toBeNull();
     expect(screen.queryByText(TERMINAL_ONLY_HINT)).toBeNull();
     cleanup();
-    render(createElement(FixCard, { fix: BASE, evidence: [], points: 8, developerMode: true, onOpenPane: vi.fn() }));
+    render(createElement(FixCard, card(BASE, [], 8, true)));
     expect(screen.getByText("If you prefer Terminal")).toBeTruthy();
   });
 
   it("numbers the Copy buttons when a fix has several commands", () => {
     const two: Fix = { ...BASE, commands: [...BASE.commands, { program: "ls", args: ["-la"], needsAdmin: false, interactive: false, appliesTo: null }] };
-    render(createElement(FixCard, { fix: two, evidence: [], points: 8, developerMode: true, onOpenPane: vi.fn() }));
+    render(createElement(FixCard, card(two, [], 8, true)));
     expect(screen.getByRole("button", { name: "Copy command 1" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Copy command 2" })).toBeTruthy();
   });
 
   it("labels the path block by the app it starts in", () => {
-    render(createElement(FixCard, { fix: BASE, evidence: [], points: 8, developerMode: false, onOpenPane: vi.fn() }));
+    render(createElement(FixCard, card(BASE, [], 8, false)));
     expect(screen.getByText("In System Settings")).toBeTruthy();
     cleanup();
     const appStore: Fix = { ...BASE, settingsPath: ["App Store", "Settings", "Automatic Updates"], settingsPane: null };
-    render(createElement(FixCard, { fix: appStore, evidence: [], points: 2, developerMode: false, onOpenPane: vi.fn() }));
+    render(createElement(FixCard, card(appStore, [], 2, false)));
     expect(screen.getByText("In App Store")).toBeTruthy();
     expect(screen.queryByText("In System Settings")).toBeNull();
     expect(screen.queryByRole("button", { name: "Open this settings pane" })).toBeNull();
@@ -105,14 +124,14 @@ describe("FixCard", () => {
 
   it("marks the interactive note so it always lands under the command", () => {
     const prompts: Fix = { ...BASE, commands: [{ ...BASE.commands[0]!, interactive: true }] };
-    render(createElement(FixCard, { fix: prompts, evidence: [], points: 8, developerMode: true, onOpenPane: vi.fn() }));
+    render(createElement(FixCard, card(prompts, [], 8, true)));
     const note = screen.getByText("Prompts for input");
     expect(note.classList.contains("command-note")).toBe(true);
     expect(note.closest(".command")).not.toBeNull();
   });
 
   it("reads the Settings path with a spoken separator and no prohibited label", () => {
-    render(createElement(FixCard, { fix: BASE, evidence: [], points: 8, developerMode: false, onOpenPane: vi.fn() }));
+    render(createElement(FixCard, card(BASE, [], 8, false)));
     const path = document.querySelector("p.settings-path") as HTMLParagraphElement;
     expect(path.getAttribute("aria-label")).toBeNull();
     const spoken = path.cloneNode(true) as HTMLElement;
@@ -125,7 +144,7 @@ describe("CopyButton", () => {
   it("names itself by its visible text and announces Copied through a status region", async () => {
     const writeText = vi.fn(async () => undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
-    render(createElement(FixCard, { fix: TERMINAL_ONLY, evidence: [KEY], points: 2, developerMode: true, onOpenPane: vi.fn() }));
+    render(createElement(FixCard, card(TERMINAL_ONLY, [KEY], 2, true)));
     const button = screen.getByRole("button", { name: "Copy command" });
     expect(button.getAttribute("aria-live")).toBeNull();
     expect(screen.getByRole("status").textContent).toBe("");

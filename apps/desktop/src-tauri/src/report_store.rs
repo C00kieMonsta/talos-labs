@@ -15,7 +15,10 @@ fn path(dir: &Path) -> PathBuf {
 
 /// Temp file beside the target so the final rename stays on one filesystem.
 fn temp_path(file: &Path) -> PathBuf {
-    let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = file
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let seq = WRITE_SEQ.fetch_add(1, Ordering::SeqCst);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -114,7 +117,10 @@ mod tests {
         save_last(&dir, &serde_json::json!({ "reportId": "r1" })).unwrap();
         save_last(&dir, &serde_json::json!({ "reportId": "r2" })).unwrap();
         assert_eq!(entries(&dir), [FILE_NAME]);
-        assert_eq!(load_last(&dir).unwrap(), Some(serde_json::json!({ "reportId": "r2" })));
+        assert_eq!(
+            load_last(&dir).unwrap(),
+            Some(serde_json::json!({ "reportId": "r2" }))
+        );
         let mode = std::fs::metadata(path(&dir)).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
         let _ = std::fs::remove_dir_all(&dir);
@@ -143,6 +149,9 @@ mod tests {
         assert_ne!(a, b);
         assert_eq!(a.parent(), file.parent());
         let name = a.file_name().unwrap().to_string_lossy().into_owned();
-        assert!(name.starts_with(".last-report.json.") && name.ends_with(".tmp"), "{name}");
+        assert!(
+            name.starts_with(".last-report.json.") && name.ends_with(".tmp"),
+            "{name}"
+        );
     }
 }

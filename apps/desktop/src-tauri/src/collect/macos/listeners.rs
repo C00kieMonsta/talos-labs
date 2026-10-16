@@ -1,12 +1,12 @@
 //! TCP listeners from `netstat -anv -p tcp`.
 
-use std::sync::atomic::AtomicBool;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicBool;
 
 use regex::Regex;
 
 use super::{lit, run};
-use crate::collect::{to_section, Fail};
+use crate::collect::{Fail, to_section};
 use crate::exec::Bin;
 use crate::state::{Listener, ListenerBind, Listeners, Protocol, Section, UnavailableReason};
 
@@ -46,9 +46,15 @@ pub fn process_token(rest: &[&str]) -> (Option<String>, Option<u32>) {
 /// Empty output, or a header with no socket rows, means the kernel withheld the table: on macOS 27
 /// the `pcblist_n` sysctl returns an empty list to process trees whose ancestor is ad-hoc signed.
 pub fn parse_netstat(text: &str) -> Result<Listeners, Fail> {
-    let socket_rows = text.lines().filter(|l| l.starts_with("tcp") || l.starts_with("udp")).count();
+    let socket_rows = text
+        .lines()
+        .filter(|l| l.starts_with("tcp") || l.starts_with("udp"))
+        .count();
     if text.trim().is_empty() || (socket_rows == 0 && text.contains("Proto")) {
-        return Err(Fail::new(UnavailableReason::PermissionDenied, "netstat: empty socket table"));
+        return Err(Fail::new(
+            UnavailableReason::PermissionDenied,
+            "netstat: empty socket table",
+        ));
     }
     if !text.lines().any(|l| l.trim_start().starts_with("Proto")) {
         return Err(Fail::parse("netstat"));
@@ -75,12 +81,21 @@ pub fn parse_netstat(text: &str) -> Result<Listeners, Fail> {
         if process_name.is_none() {
             complete = false;
         }
-        let entry = Listener { protocol, port, bind: classify_bind(host), process_name, pid };
+        let entry = Listener {
+            protocol,
+            port,
+            bind: classify_bind(host),
+            process_name,
+            pid,
+        };
         if !entries.contains(&entry) {
             entries.push(entry);
         }
     }
-    Ok(Listeners { entries, process_names_complete: complete })
+    Ok(Listeners {
+        entries,
+        process_names_complete: complete,
+    })
 }
 
 fn inner(cancel: &AtomicBool) -> Result<Listeners, Fail> {
@@ -100,7 +115,11 @@ mod tests {
     const CAPTURED: &str = include_str!("../../../tests/fixtures/netstat.txt");
 
     fn find(listeners: &Listeners, port: u16) -> Vec<&Listener> {
-        listeners.entries.iter().filter(|e| e.port == port).collect()
+        listeners
+            .entries
+            .iter()
+            .filter(|e| e.port == port)
+            .collect()
     }
 
     #[test]
@@ -118,11 +137,22 @@ mod tests {
         assert_eq!(rapportd[0].pid, Some(522));
         assert_eq!(rapportd[0].bind, ListenerBind::All);
         let cc = find(&l, 5000);
-        assert_eq!(cc.len(), 1, "tcp4 and tcp6 rows for the same socket collapse");
+        assert_eq!(
+            cc.len(),
+            1,
+            "tcp4 and tcp6 rows for the same socket collapse"
+        );
         assert_eq!(cc[0].process_name.as_deref(), Some("ControlCenter"));
         assert_eq!(cc[0].pid, Some(515));
-        assert!(l.entries.iter().all(|e| !e.process_name.as_deref().unwrap_or("").contains("131072")));
-        assert!(!l.entries.iter().any(|e| e.port == 56643), "ESTABLISHED rows are dropped");
+        assert!(
+            l.entries
+                .iter()
+                .all(|e| !e.process_name.as_deref().unwrap_or("").contains("131072"))
+        );
+        assert!(
+            !l.entries.iter().any(|e| e.port == 56643),
+            "ESTABLISHED rows are dropped"
+        );
     }
 
     #[test]
@@ -145,9 +175,17 @@ mod tests {
         assert_eq!(find(&l, 631)[0].bind, ListenerBind::Loopback);
         assert_eq!(find(&l, 8080)[0].bind, ListenerBind::LinkLocal);
         assert_eq!(find(&l, 8443)[0].bind, ListenerBind::Specific);
-        assert_eq!(find(&l, 8081)[0].bind, ListenerBind::Loopback, "lo0 aliases are loopback");
+        assert_eq!(
+            find(&l, 8081)[0].bind,
+            ListenerBind::Loopback,
+            "lo0 aliases are loopback"
+        );
         assert_eq!(find(&l, 5353)[0].bind, ListenerBind::Loopback);
-        assert_eq!(find(&l, 8082)[0].bind, ListenerBind::Loopback, "IPv4-mapped loopback");
+        assert_eq!(
+            find(&l, 8082)[0].bind,
+            ListenerBind::Loopback,
+            "IPv4-mapped loopback"
+        );
         assert_eq!(classify_bind("127.1.2.3"), ListenerBind::Loopback);
         assert_eq!(classify_bind("128.0.0.1"), ListenerBind::Specific);
         assert_eq!(classify_bind("1270.0.0.1"), ListenerBind::Specific);
@@ -164,7 +202,16 @@ mod tests {
 
     #[test]
     fn process_token_joins_from_the_last_numeric_column() {
-        let (name, pid) = process_token(&["0", "0", "131072", "131072", "Code", "Helper", "(Plu:47351", "00100"]);
+        let (name, pid) = process_token(&[
+            "0",
+            "0",
+            "131072",
+            "131072",
+            "Code",
+            "Helper",
+            "(Plu:47351",
+            "00100",
+        ]);
         assert_eq!(name.as_deref(), Some("Code Helper (Plu"));
         assert_eq!(pid, Some(47351));
         assert_eq!(process_token(&["0", "0"]), (None, None));
@@ -180,7 +227,10 @@ mod tests {
     fn empty_output_is_permission_denied() {
         let fail = parse_netstat("").unwrap_err();
         assert_eq!(fail.reason, UnavailableReason::PermissionDenied);
-        assert_eq!(parse_netstat("\n").unwrap_err().reason, UnavailableReason::PermissionDenied);
+        assert_eq!(
+            parse_netstat("\n").unwrap_err().reason,
+            UnavailableReason::PermissionDenied
+        );
     }
 
     #[test]

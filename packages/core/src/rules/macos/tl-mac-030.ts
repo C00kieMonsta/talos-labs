@@ -45,6 +45,17 @@ export const TL_MAC_030: Rule = {
     verify: "Run the check-up again; the folder shows as readable by you only and no key is listed.",
     effort: "two_minutes",
     sideEffects: "none",
+    apply: {
+      kind: "in_app",
+      choice: "all_ssh_keys",
+      passphrase: false,
+      needsPassword: false,
+      recheck: ["ssh"],
+      confirmTitle: "Make your SSH folder private?",
+      confirmVerb: "Make private",
+      confirmNote: "Only your account will be able to read it.",
+      reversible: "The previous permissions are recorded in the plan.",
+    },
   },
   evaluate(state) {
     const data = section(state, "ssh");

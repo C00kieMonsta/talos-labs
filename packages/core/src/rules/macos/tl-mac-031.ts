@@ -43,6 +43,12 @@ export const TL_MAC_031: Rule = {
     verify: "Run the check-up again; the hit count is 0.",
     effort: "ten_minutes",
     sideEffects: "workflow",
+    apply: {
+      kind: "manual",
+      watch: ["dotfiles"],
+      watchEvery: 5,
+      reveal: "file",
+    },
   },
   evaluate(state) {
     const data = section(state, "dotfiles");

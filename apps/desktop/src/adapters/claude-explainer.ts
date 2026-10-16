@@ -7,11 +7,14 @@ import {
   buildSystemPrompt,
   validateAnswer,
   validateExplanation,
+  explainerEligibleRuleIds,
+
   validatePrioritisation,
-  type AbortSignalLike,
+  type AiAvailability,
   type Answer,
   type AskInput,
   type ExplainInput,
+  type ExplainOptions,
   type ExplainerPort,
   type ExplainerResult,
   type Explanation,
@@ -63,16 +66,21 @@ export class ClaudeExplainerAdapter implements ExplainerPort {
     this.systemPrompt = options.systemPrompt ?? buildSystemPrompt(MACOS_CATALOG);
   }
 
-  explain(input: ExplainInput, signal?: AbortSignalLike): Promise<ExplainerResult<Explanation>> {
-    return this.request(explainTurns(input), EXPLANATION_JSON_SCHEMA, "low", validateExplanation, signal);
+  /** A configured Developer-mode provider is taken to be reachable; a failed call reports the reason. */
+  async availability(_fresh?: boolean): Promise<AiAvailability> {
+    return "available";
   }
 
-  prioritise(input: PrioritiseInput, signal?: AbortSignalLike): Promise<ExplainerResult<Prioritisation>> {
-    return this.request(prioritiseTurns(input), PRIORITISATION_JSON_SCHEMA, "low", validatePrioritisation, signal);
+  explain(input: ExplainInput, options?: ExplainOptions<Explanation>): Promise<ExplainerResult<Explanation>> {
+    return this.request(explainTurns(input), EXPLANATION_JSON_SCHEMA, "low", validateExplanation, options);
   }
 
-  ask(input: AskInput, signal?: AbortSignalLike): Promise<ExplainerResult<Answer>> {
-    return this.request(askTurns(input), ANSWER_JSON_SCHEMA, "medium", validateAnswer, signal);
+  prioritise(input: PrioritiseInput, options?: ExplainOptions<Prioritisation>): Promise<ExplainerResult<Prioritisation>> {
+    return this.request(prioritiseTurns(input), PRIORITISATION_JSON_SCHEMA, "low", validatePrioritisationFor, options);
+  }
+
+  ask(input: AskInput, options?: ExplainOptions<Answer>): Promise<ExplainerResult<Answer>> {
+    return this.request(askTurns(input), ANSWER_JSON_SCHEMA, "medium", validateAnswer, options);
   }
 
   private async request<T>(
@@ -80,8 +88,9 @@ export class ClaudeExplainerAdapter implements ExplainerPort {
     schema: Record<string, unknown>,
     effort: Effort,
     validate: Validator<T>,
-    signal: AbortSignalLike | undefined,
+    options: ExplainOptions<T> | undefined,
   ): Promise<ExplainerResult<T>> {
+    const signal = options?.signal;
     const apiKey = await this.secrets.get("anthropic_api_key");
     if (apiKey === null || apiKey.length === 0) return failure("no_api_key");
 
@@ -119,7 +128,10 @@ export class ClaudeExplainerAdapter implements ExplainerPort {
     const parsed = parseJson(text.text);
     if (!parsed.ok) return failure("rejected_output");
 
-    return validate(parsed.value, report);
+    const result = validate(parsed.value, report);
+    // A non-streaming provider shows its whole answer as one partial.
+    if (result.ok) options?.onPartial?.(result.value);
+    return result;
   }
 }
 
@@ -129,4 +141,9 @@ function mapError(error: unknown): "auth" | "timeout" | "network" | "unknown" {
   if (error instanceof Anthropic.APIConnectionTimeoutError) return "timeout";
   if (error instanceof Anthropic.APIConnectionError) return "network";
   return "unknown";
+}
+
+/** The order may only name rules the prompt showed, which for a full context is every eligible rule. */
+function validatePrioritisationFor(raw: unknown, report: ScanReport): ExplainerResult<Prioritisation> {
+  return validatePrioritisation(raw, report, explainerEligibleRuleIds(report));
 }

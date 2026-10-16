@@ -1,8 +1,13 @@
 //! Runs the real collectors on this Mac. Ignored by default; run with `cargo test -- --ignored`.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use talos_desktop_lib::collect::{self, ProgressFn};
 use talos_desktop_lib::state::{SectionKey, SystemState};
@@ -10,7 +15,8 @@ use talos_desktop_lib::state::{SectionKey, SystemState};
 #[test]
 #[ignore]
 fn collect_all_on_this_mac() {
-    let progress: Arc<ProgressFn> = Arc::new(|key, status| eprintln!("{} {:?}", key.as_str(), status));
+    let progress: Arc<ProgressFn> =
+        Arc::new(|key, status| eprintln!("{} {:?}", key.as_str(), status));
     let state = collect::collect_all(progress, Arc::new(AtomicBool::new(false))).unwrap();
     let json = serde_json::to_value(&state).unwrap();
     let sections = json["sections"].as_object().unwrap();

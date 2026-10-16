@@ -134,8 +134,16 @@ export type Visit = (shot: Shot, reach: () => Promise<void>) => Promise<void>;
 const NAV = { name: "Main" } as const;
 const STEP_TIMEOUT = 20_000;
 
+/** Sidebar rows: the main nav holds the screens; Settings is the foot row outside it. */
 async function nav(page: Page, label: string): Promise<void> {
-  await page.getByRole("navigation", NAV).getByRole("button", { name: label, exact: true }).click();
+  const sidebar = page.locator("aside.sidebar");
+  const row = label === "Settings" ? sidebar.locator(".sidebar-foot") : sidebar.getByRole("navigation", NAV);
+  await row.getByRole("button", { name: label, exact: true }).click();
+}
+
+/** The toolbar's "‹ Findings" button on a finding. */
+async function back(page: Page): Promise<void> {
+  await page.locator("button.toolbar-back").click();
 }
 
 async function heading(page: Page, name: string | RegExp, level: 1 | 2 | 3 = 1): Promise<void> {
@@ -148,129 +156,346 @@ async function runCheckUp(page: Page): Promise<void> {
   await page.getByText("Last check-up").waitFor({ timeout: STEP_TIMEOUT });
 }
 
-/** A card's name is its whole content (badge, category, headline, points), so match the headline anywhere in it. */
+/** A card is an article whose headline link opens the finding. */
 async function openCard(page: Page, headline: RegExp): Promise<void> {
-  await page.locator("button.finding-card").filter({ hasText: headline }).first().click();
+  await page.locator("article.finding-card").filter({ hasText: headline }).first().locator("a.finding-card-title").click();
   await heading(page, headline);
+}
+
+/** The pasted demo key: matches the LicenceField paste regex, so it verifies without a button press. */
+const DEMO_LICENSE_KEY_PASTED = `TL1.${"DEMO".repeat(5)}.${"D".repeat(64)}`;
+
+interface DemoCall {
+  readonly kind: string;
+  readonly arg?: string;
+}
+
+async function demoCalls(page: Page): Promise<DemoCall[]> {
+  return page.evaluate(() => (window as unknown as { __talosDemoCalls?: DemoCall[] }).__talosDemoCalls ?? []);
+}
+
+/** Fails when the demo recorded anything that looks like a URL: the app never hands one to the browser. */
+async function assertNoUrlRecorded(page: Page): Promise<void> {
+  const calls = await demoCalls(page);
+  if (/https?:/.test(JSON.stringify(calls))) throw new Error(`a URL was recorded: ${JSON.stringify(calls)}`);
+}
+
+/** The element must sit above the 600 px fold at the smallest window height. */
+async function assertAboveFold(locator: ReturnType<Page["locator"]>, what: string): Promise<void> {
+  const box = await locator.boundingBox();
+  if (box === null || box.y + box.height > MIN_HEIGHT) throw new Error(`${what} is below the ${MIN_HEIGHT}px fold: ${JSON.stringify(box)}`);
+}
+
+/** Runs a paced check-up and asserts the Overview is not reached before the floor. */
+async function pacedCheckUp(page: Page, floorMs: number): Promise<void> {
+  const started = Date.now();
+  await page.getByRole("button", { name: "Run check-up" }).click();
+  await heading(page, "Checking your Mac");
+  await page.getByText("Last check-up").waitFor({ timeout: STEP_TIMEOUT });
+  const took = Date.now() - started;
+  if (took < floorMs) throw new Error(`the Overview was reached after ${took} ms, before the ${floorMs} ms floor`);
+}
+
+/** Opens the fix sheet for a finding's in-app fix. */
+async function openFixSheet(page: Page, headline: RegExp, verb: RegExp): Promise<void> {
+  await openCard(page, headline);
+  await page.locator(".fix-action-row").getByRole("button", { name: verb }).click();
+  await page.getByRole("dialog").waitFor({ timeout: STEP_TIMEOUT });
 }
 
 /** Every screen the QA scripts cover, in order. The walk keeps SPA state between shots. */
 export async function walk(page: Page, baseUrl: string, visit: Visit): Promise<void> {
-  const url = (query: string) => `${baseUrl}/?${query}`;
+  // Every shot that is not about pacing collapses the scan schedule.
+  const url = (query: string, options: { paced?: boolean } = {}) => `${baseUrl}/?${query}${options.paced === true ? "" : "&pace=0"}`;
+  const goto = async (query: string, options: { paced?: boolean; reducedMotion?: boolean } = {}) => {
+    await page.emulateMedia({ reducedMotion: options.reducedMotion === true ? "reduce" : "no-preference" });
+    await page.goto(url(query, options));
+  };
+  const LICENSED = "reset=1&fixture=dev-machine&licensed=1&onboarded=1&delay=0";
 
-  // Dev machine, unlicensed, browser hand-off.
-  await visit({ name: "welcome-empty" }, async () => {
-    await page.goto(url("reset=1&fixture=dev-machine"));
+  // Dev machine, unlicensed, on-device AI.
+  await visit({ name: "welcome-single" }, async () => {
+    await goto("reset=1&fixture=dev-machine");
     await heading(page, "A calm check-up for your Mac");
   });
   await visit({ name: "welcome-filled" }, async () => {
     await page.getByRole("radio", { name: "As a freelancer" }).check();
-    await page.getByRole("radio", { name: "Somewhat. I can follow steps." }).check();
-    await page.getByRole("radio", { name: "Yes", exact: true }).check();
+    await page.getByRole("radio", { name: "Somewhat" }).check();
+    await page.getByRole("switch", { name: /other people's data/ }).check();
   });
   await visit({ name: "overview-dev-machine" }, async () => {
     await page.getByRole("button", { name: "Start check-up" }).click();
     await heading(page, "Overview");
     await heading(page, "Next three fixes", 2);
   });
+  await visit({ name: "overview-inline-actions" }, async () => {
+    const actions = page.locator("section[aria-labelledby='next-fixes'] .finding-card-action");
+    if ((await actions.count()) < 3) throw new Error("the next three fixes should each carry an inline action");
+  });
   await visit({ name: "findings-dev-machine" }, async () => {
     await nav(page, "Findings");
     await heading(page, "Findings");
   });
+  await visit({ name: "findings-cost-words" }, async () => {
+    for (const word of ["Fix in app", "Open Settings", "Steps"]) await page.locator(".finding-card-cost").filter({ hasText: word }).first().waitFor({ timeout: STEP_TIMEOUT });
+  });
   await visit({ name: "finding-free-dev-machine" }, async () => {
-    await openCard(page, /Your disk is not encrypted/);
+    await openCard(page, /The firewall is off/);
     await heading(page, "How to fix it", 2);
   });
   await visit({ name: "finding-locked-dev-machine" }, async () => {
-    await page.getByRole("button", { name: "Back" }).click();
+    await back(page);
     await heading(page, "Findings");
-    const cards = page.locator("section[aria-labelledby='group-needs-fixing'] button.finding-card");
-    const count = await cards.count();
-    for (let i = count - 1; i >= 0; i -= 1) {
-      await cards.nth(i).click();
-      const lock = page.getByRole("region", { name: "This fix is part of the full version" });
-      if (await lock.isVisible({ timeout: 2000 }).catch(() => false)) return;
-      await page.getByRole("button", { name: "Back" }).click();
-      await heading(page, "Findings");
-    }
-    throw new Error("no locked finding on the dev machine");
+    await openCard(page, /A shared folder is open to Everyone/);
+    await page.getByRole("region", { name: "This fix is part of the full version" }).waitFor({ timeout: STEP_TIMEOUT });
   });
-  await visit({ name: "settings-dev-off" }, async () => {
+  // The valid line shows for 800 ms before the lock gives way, so every capture pastes afresh.
+  await visit({ name: "lock-licence-pasted", volatile: true }, async () => {
+    await goto("reset=1&fixture=dev-machine&onboarded=1&delay=0");
+    await runCheckUp(page);
+    await nav(page, "Findings");
+    await heading(page, "Findings");
+    await openCard(page, /A shared folder is open to Everyone/);
+    const lock = page.getByRole("region", { name: "This fix is part of the full version" });
+    await lock.getByPlaceholder("Paste your licence key").fill(DEMO_LICENSE_KEY_PASTED);
+    await lock.locator(".licence-valid").waitFor({ timeout: STEP_TIMEOUT });
+    await assertNoUrlRecorded(page);
+  });
+  await visit({ name: "settings-reduced" }, async () => {
+    await goto("reset=1&fixture=dev-machine&onboarded=1&delay=0");
     await nav(page, "Settings");
     await heading(page, "Settings");
-    await page.getByText("not granted").waitFor({ timeout: STEP_TIMEOUT });
+    await page.getByText("Not granted").first().waitFor({ timeout: STEP_TIMEOUT });
   });
   await visit({ name: "settings-dev-on" }, async () => {
     await page.getByRole("switch", { name: "Developer mode" }).check();
     await page.getByRole("radio", { name: "Claude API key" }).waitFor({ timeout: STEP_TIMEOUT });
   });
-  await visit({ name: "finding-dev-on-dev-machine" }, async () => {
-    await nav(page, "Findings");
-    await heading(page, "Findings");
-    await openCard(page, /The firewall is off/);
-    await page.getByText("If you prefer Terminal").waitFor({ timeout: STEP_TIMEOUT });
+  await visit({ name: "window-inactive" }, async () => {
+    await page.evaluate(() => document.querySelector(".shell")?.classList.add("window-inactive"));
   });
-  await visit({ name: "ask-claude-locked" }, async () => {
-    await nav(page, "Settings");
-    await page.getByRole("radio", { name: "Claude API key" }).check();
+  await visit({ name: "ask-locked" }, async () => {
+    await goto("reset=1&fixture=dev-machine&onboarded=1&delay=0");
+    await runCheckUp(page);
     await nav(page, "Ask");
     await heading(page, "Ask");
-    await page.getByRole("region", { name: "Asking questions is part of the full version" }).waitFor({ timeout: STEP_TIMEOUT });
-  });
-  await visit({ name: "about-unlicensed" }, async () => {
-    await nav(page, "About");
-    await heading(page, "About");
+    await page.getByText("AI explanations are part of the full version.").waitFor({ timeout: STEP_TIMEOUT });
   });
 
-  // Dev machine, licensed, in-app Claude (fake).
-  await visit({ name: "ask-claude-answered" }, async () => {
-    await page.goto(url("reset=1&fixture=dev-machine&provider=claude&licensed=1&onboarded=1"));
+  // Dev machine, licensed, on-device AI (fake).
+  await visit({ name: "ask-streaming", volatile: true }, async () => {
+    await goto(LICENSED);
     await runCheckUp(page);
     await nav(page, "Ask");
     await heading(page, "Ask");
     await page.getByLabel("Your question").fill("Which of these should I do first?");
     await page.locator("form.ask-form").getByRole("button", { name: "Ask" }).click();
-    await page.getByText("AI, not verified").waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".chat-streaming").getByRole("button", { name: "Stop" }).waitFor({ timeout: STEP_TIMEOUT });
   });
-  await visit({ name: "finding-ai-explained" }, async () => {
+  await visit({ name: "ask-answered" }, async () => {
+    await page.locator(".chat-streaming").waitFor({ state: "detached", timeout: STEP_TIMEOUT });
+    await page.locator(".chat-assistant").first().waitFor({ timeout: STEP_TIMEOUT });
+  });
+  // The explanation is cached once it lands, so every capture starts from a fresh report.
+  await visit({ name: "ai-streaming", volatile: true }, async () => {
+    await goto(LICENSED);
+    await runCheckUp(page);
     await nav(page, "Findings");
     await heading(page, "Findings");
     await openCard(page, /Your disk is not encrypted/);
     await page.getByRole("button", { name: "Explain this for me" }).click();
-    await page.getByText("Why it matters for you").waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".ai-card").getByRole("button", { name: "Stop" }).waitFor({ timeout: STEP_TIMEOUT });
+  });
+  await visit({ name: "ai-ready" }, async () => {
+    await page.getByText("Written on this Mac by Apple Intelligence. Not verified.").waitFor({ timeout: STEP_TIMEOUT });
   });
   await visit({ name: "findings-suggested-order" }, async () => {
-    await page.getByRole("button", { name: "Back" }).click();
+    await back(page);
     await heading(page, "Findings");
-    await page.getByRole("button", { name: "Suggest an order" }).click();
-    await page.locator(".findings-aside").getByText("From the AI, not verified").waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".findings-aside").getByRole("button", { name: "Suggest an order" }).click();
+    await page.locator(".findings-aside").getByText("Start with").waitFor({ timeout: STEP_TIMEOUT });
   });
   await visit({ name: "settings-licensed" }, async () => {
     await nav(page, "Settings");
-    await page.getByText(/^Licensed: personal plan/).waitFor({ timeout: STEP_TIMEOUT });
+    await page.getByText(/^Licensed, personal plan/).waitFor({ timeout: STEP_TIMEOUT });
   });
-  await visit({ name: "about-licensed" }, async () => {
-    await nav(page, "About");
-    await page.getByText(/tag deadbeef/).waitFor({ timeout: STEP_TIMEOUT });
+  for (const state of ["device_not_eligible", "apple_intelligence_not_enabled", "model_not_ready", "helper_unavailable"] as const) {
+    await visit({ name: `ai-${state.replace(/_/g, "-")}` }, async () => {
+      await goto(`${LICENSED}&ai=${state}`);
+      await runCheckUp(page);
+      await page.locator(`.ai-card[data-ai-state="${state}"]`).waitFor({ timeout: STEP_TIMEOUT });
+    });
+  }
+  await visit({ name: "ai-failed" }, async () => {
+    await goto(`${LICENSED}&explainer=network`);
+    await runCheckUp(page);
+    await page.getByRole("button", { name: "Suggest an order" }).click();
+    await page.locator(".ai-card[data-ai-state='failed']").waitFor({ timeout: STEP_TIMEOUT });
   });
 
-  // Mid-scan. Slow enough to catch; reached afresh for every capture.
-  await visit({ name: "scanning-mid-scan", volatile: true }, async () => {
-    await page.goto(url("reset=1&fixture=dev-machine&onboarded=1&delay=400"));
+  // Fix sheet. Rule 002 is an admin fix; 013 (forced to fail) needs no password; 029 takes a passphrase.
+  await visit({ name: "fix-confirm-admin" }, async () => {
+    await goto(LICENSED);
+    await runCheckUp(page);
+    await nav(page, "Findings");
+    await heading(page, "Findings");
+    await openFixSheet(page, /The firewall is off/, /^Turn on/);
+    await page.getByText("macOS will ask for your administrator password", { exact: false }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertAboveFold(page.getByRole("dialog").locator(".sheet-actions .button-primary"), "the sheet's primary button");
+    const calls = await demoCalls(page);
+    if (!calls.some((c) => c.kind === "fixPreview" && c.arg === "TL-MAC-002")) throw new Error(`no fixPreview recorded: ${JSON.stringify(calls)}`);
+  });
+  await visit({ name: "fix-confirm-user" }, async () => {
+    await goto(`${LICENSED}&fail=013`);
+    await runCheckUp(page);
+    await nav(page, "Findings");
+    await heading(page, "Findings");
+    await openFixSheet(page, /The screen does not lock itself/, /./);
+    await page.getByRole("dialog").getByText("No password is needed.").waitFor({ timeout: STEP_TIMEOUT });
+    await page.getByRole("dialog").getByText(/^Currently /).waitFor({ timeout: STEP_TIMEOUT });
+  });
+  await visit({ name: "fix-waiting-password", volatile: true }, async () => {
+    await goto(`${LICENSED}&fix_delay=4000`);
+    await runCheckUp(page);
+    await nav(page, "Findings");
+    await heading(page, "Findings");
+    await openFixSheet(page, /The firewall is off/, /^Turn on/);
+    await page.getByRole("dialog").getByRole("button", { name: /^Turn on/ }).click();
+    await page.getByText("Waiting for macOS to check your password").waitFor({ timeout: STEP_TIMEOUT });
+  });
+  await visit({ name: "fix-running", volatile: true }, async () => {
+    await page.getByText(/^Running \(1 of/).waitFor({ timeout: STEP_TIMEOUT });
+  });
+  await visit({ name: "fix-done" }, async () => {
+    await page.getByText(/^Done\./).waitFor({ timeout: STEP_TIMEOUT });
+    const calls = await demoCalls(page);
+    if (!calls.some((c) => c.kind === "fixApply")) throw new Error(`no fixApply recorded: ${JSON.stringify(calls)}`);
+    await assertNoUrlRecorded(page);
+  });
+  const ERRORS = ["cancelled", "wrong_password", "command_failed", "timeout", "precondition_changed", "plan_expired", "invalid_choice", "invalid_input", "not_in_catalog", "busy"] as const;
+  for (const error of ERRORS) {
+    await visit({ name: `fix-${error.replace(/_/g, "-")}` }, async () => {
+      await goto(`${LICENSED}&fix=${error}&fix_delay=0`);
+      await runCheckUp(page);
+      await nav(page, "Findings");
+      await heading(page, "Findings");
+      await openFixSheet(page, /The firewall is off/, /^Turn on/);
+      await page.getByRole("dialog").getByRole("button", { name: /^Turn on/ }).click();
+      await page.getByRole("dialog").getByRole("alert").waitFor({ timeout: STEP_TIMEOUT });
+    });
+  }
+  await visit({ name: "fix-still-failing" }, async () => {
+    await goto(`${LICENSED}&fix=still_failing&fix_delay=0`);
+    await runCheckUp(page);
+    await nav(page, "Findings");
+    await heading(page, "Findings");
+    await openFixSheet(page, /The firewall is off/, /^Turn on/);
+    await page.getByRole("dialog").getByRole("button", { name: /^Turn on/ }).click();
+    await page.getByText(/the check still fails/).waitFor({ timeout: STEP_TIMEOUT });
+  });
+  await visit({ name: "fix-passphrase" }, async () => {
+    await goto(LICENSED);
+    await runCheckUp(page);
+    await nav(page, "Findings");
+    await heading(page, "Findings");
+    await openFixSheet(page, /An SSH key has no passphrase/, /./);
+    await page.getByLabel("New passphrase").waitFor({ timeout: STEP_TIMEOUT });
+  });
+  await visit({ name: "fix-watching" }, async () => {
+    await goto(LICENSED);
+    await runCheckUp(page);
+    await nav(page, "Findings");
+    await heading(page, "Findings");
+    await openCard(page, /Your disk is not encrypted/);
+    await page.locator(".fix-action-row").getByRole("button", { name: "Open System Settings" }).click();
+    await page.getByText(/Watching for the change/).waitFor({ timeout: STEP_TIMEOUT });
+    await assertNoUrlRecorded(page);
+  });
+  await visit({ name: "fix-passed" }, async () => {
+    await goto(`${LICENSED}&poll_after=1`);
+    await runCheckUp(page);
+    await nav(page, "Findings");
+    await heading(page, "Findings");
+    await openCard(page, /Your disk is not encrypted/);
+    await page.locator(".fix-action-row").getByRole("button", { name: "Open System Settings" }).click();
+    await page.locator(".status-strip-passed").waitFor({ timeout: STEP_TIMEOUT });
+  });
+
+  // Permissions, on the fixture where nothing could be read.
+  await visit({ name: "permission-watching" }, async () => {
+    await goto("reset=1&fixture=all-unavailable&onboarded=1&delay=0");
+    await runCheckUp(page);
+    await page.getByRole("button", { name: "Open Full Disk Access" }).click();
+    await page.locator("[data-permission-state='watching']").waitFor({ timeout: STEP_TIMEOUT });
+  });
+  await visit({ name: "permission-granted" }, async () => {
+    await goto("reset=1&fixture=all-unavailable&onboarded=1&delay=0&fda_after=1");
+    await runCheckUp(page);
+    await page.getByRole("button", { name: "Open Full Disk Access" }).click();
+    await page.locator("[data-permission-state='granted']").waitFor({ timeout: STEP_TIMEOUT });
+  });
+  await visit({ name: "permission-reopen" }, async () => {
+    await goto("reset=1&fixture=all-unavailable&onboarded=1&delay=0");
+    await runCheckUp(page);
+    await page.getByRole("button", { name: "Open Full Disk Access" }).click();
+    await page.locator("[data-permission-state='reopen_needed']").waitFor({ timeout: 25_000 });
+  });
+  await visit({ name: "permission-prompting" }, async () => {
+    await goto("reset=1&fixture=all-unavailable&onboarded=1&delay=0&automation=not_determined");
+    await runCheckUp(page);
+    await page.getByRole("button", { name: "Allow" }).click();
+    await page.locator("[data-permission-state='prompting']").waitFor({ timeout: STEP_TIMEOUT });
+  });
+
+  // Scanning pacing. Reached afresh for every capture.
+  await visit({ name: "scanning-paced-2s", volatile: true }, async () => {
+    await goto("reset=1&fixture=dev-machine&onboarded=1&delay=0", { paced: true });
     await heading(page, "Overview");
     await page.getByRole("button", { name: "Run check-up" }).click();
     await heading(page, "Checking your Mac");
-    await page.getByText(/^[3-9] of \d+ areas done$/).waitFor({ timeout: STEP_TIMEOUT });
-    // Cancel must be in view at the smallest window height without scrolling.
-    const cancel = await page.getByRole("button", { name: "Cancel" }).boundingBox();
-    if (cancel === null || cancel.y + cancel.height > MIN_HEIGHT) {
-      throw new Error(`the Cancel button is below the ${MIN_HEIGHT}px fold: ${JSON.stringify(cancel)}`);
-    }
+    await page.locator(".scanning-subline").filter({ hasText: /^[4-7] of 17 areas$/ }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertAboveFold(page.getByRole("button", { name: "Cancel" }), "the Cancel button");
+  });
+  await visit({ name: "scanning-paced-5s", volatile: true }, async () => {
+    await goto("reset=1&fixture=dev-machine&onboarded=1&delay=0", { paced: true });
+    await heading(page, "Overview");
+    await page.getByRole("button", { name: "Run check-up" }).click();
+    await page.locator(".scanning-subline").filter({ hasText: /^1[4-7] of 17 areas$/ }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.getByText(/^\d+ found so far/).waitFor({ timeout: STEP_TIMEOUT });
+  });
+  await visit({ name: "scanning-preparing", volatile: true }, async () => {
+    await goto("reset=1&fixture=dev-machine&onboarded=1&delay=0", { paced: true });
+    await heading(page, "Overview");
+    await page.getByRole("button", { name: "Run check-up" }).click();
+    await page.getByText("Preparing your report").first().waitFor({ timeout: STEP_TIMEOUT });
+  });
+  await visit({ name: "overview-transition", volatile: true }, async () => {
+    await goto("reset=1&fixture=dev-machine&onboarded=1&delay=0", { paced: true });
+    await heading(page, "Overview");
+    await pacedCheckUp(page, 6000);
+    await sleep(100);
+  });
+  await visit({ name: "scanning-prompting", volatile: true }, async () => {
+    await goto("reset=1&fixture=dev-machine&onboarded=1&delay=0&automation=not_determined", { paced: true });
+    await heading(page, "Overview");
+    await page.getByRole("button", { name: "Run check-up" }).click();
+    await page.getByText("macOS is asking whether Talos Labs may read your login items").waitFor({ timeout: STEP_TIMEOUT });
+  });
+  await visit({ name: "scanning-reduced-motion", volatile: true }, async () => {
+    await goto("reset=1&fixture=dev-machine&onboarded=1&delay=0", { paced: true, reducedMotion: true });
+    await heading(page, "Overview");
+    await page.getByRole("button", { name: "Run check-up" }).click();
+    await page.locator(".scanning-subline").filter({ hasText: /^[6-9] of 17 areas$/ }).waitFor({ timeout: STEP_TIMEOUT });
+  });
+  await visit({ name: "overview-after-reduced-motion" }, async () => {
+    await goto("reset=1&fixture=dev-machine&onboarded=1&delay=0", { paced: true, reducedMotion: true });
+    await heading(page, "Overview");
+    await pacedCheckUp(page, 4500);
   });
 
   // Other fixtures.
   await visit({ name: "overview-all-unavailable" }, async () => {
-    await page.goto(url("reset=1&fixture=all-unavailable&onboarded=1"));
+    await goto("reset=1&fixture=all-unavailable&onboarded=1");
     await runCheckUp(page);
     await heading(page, "Nothing could be checked", 2);
     await heading(page, "Couldn't check", 2);
@@ -278,23 +503,23 @@ export async function walk(page: Page, baseUrl: string, visit: Visit): Promise<v
   await visit({ name: "findings-all-unavailable" }, async () => {
     await nav(page, "Findings");
     await heading(page, "Findings");
-    await page.locator("section[aria-labelledby='group-couldn-t-check'] button.finding-card").first().waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator("section[aria-labelledby='group-couldn-t-check'] article.finding-card").first().waitFor({ timeout: STEP_TIMEOUT });
   });
   await visit({ name: "finding-unknown-all-unavailable" }, async () => {
-    await page.locator("section[aria-labelledby='group-couldn-t-check'] button.finding-card").first().click();
+    await page.locator("section[aria-labelledby='group-couldn-t-check'] article.finding-card a.finding-card-title").first().click();
     await heading(page, /^Couldn't check whether/);
   });
   await visit({ name: "overview-hardened" }, async () => {
-    await page.goto(url("reset=1&fixture=hardened&onboarded=1"));
+    await goto("reset=1&fixture=hardened&onboarded=1");
     await runCheckUp(page);
     await heading(page, "Nothing needs fixing", 2);
   });
   await visit({ name: "overview-fresh-install" }, async () => {
-    await page.goto(url("reset=1&fixture=fresh-install&onboarded=1"));
+    await goto("reset=1&fixture=fresh-install&onboarded=1");
     await runCheckUp(page);
   });
   await visit({ name: "overview-windows-minimal" }, async () => {
-    await page.goto(url("reset=1&fixture=windows-minimal&onboarded=1"));
+    await goto("reset=1&fixture=windows-minimal&onboarded=1");
     await runCheckUp(page);
   });
   await visit({ name: "findings-windows-minimal" }, async () => {

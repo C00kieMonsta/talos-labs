@@ -28,6 +28,17 @@ export const TL_MAC_020: Rule = {
     verify: "Sharing shows Screen Sharing off, and the check-up no longer reports port 5900.",
     effort: "two_minutes",
     sideEffects: "none",
+    apply: {
+      kind: "in_app",
+      choice: "none",
+      passphrase: false,
+      needsPassword: true,
+      recheck: ["remoteAccess", "listeners"],
+      confirmTitle: "Turn Screen Sharing off?",
+      confirmVerb: "Turn off",
+      confirmNote: null,
+      reversible: "You can switch it on again in System Settings > General > Sharing.",
+    },
   },
   evaluate(state) {
     const data = section(state, "remoteAccess");

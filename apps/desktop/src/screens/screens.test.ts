@@ -1,24 +1,29 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { Explanation, LicenseState, Rule, RuleCatalog, RuleId, SystemState } from "@talos/core";
+import type { AiAvailability, Capabilities, Explanation, FixPlan, LicenseState, Rule, RuleCatalog, RuleId, SystemState } from "@talos/core";
 import { ALL_UNAVAILABLE, DEV_MACHINE, HARDENED, MACOS_CATALOG, evaluate } from "@talos/core";
 import { DEFAULT_SETTINGS, MAX_MODEL_ID_LENGTH } from "../settings";
 import { AppContext } from "../app/context";
 import { buildGate } from "../app/gate";
 import type { Gate } from "../app/gate";
-import { StatefulProvider, fakeAdapters, fakeContextValue, fakeFinding, fakeReport } from "../app/testing";
+import { StatefulProvider, fakeAdapters, fakeContextValue, fakeFinding, fakePlan, fakeReport } from "../app/testing";
 import type { ExplainerProvider } from "../settings";
-import { pendingSections } from "../scan/machine";
-import type { ExplainState, LastRecheck } from "../scan/machine";
-import { Scanning } from "./Scanning";
+import type { ExplainState, FixingState, LastRecheck, ReadyState, WatchingState } from "../scan/machine";
+import type { PacerView, RowState } from "../scan/useScanPacer";
+import { Scanning, PROMPTING_ROW_COPY } from "./Scanning";
+import { SECTION_PROGRESS_LABELS } from "../app/labels";
 import { Welcome } from "./Welcome";
 import { Findings } from "./Findings";
 import { FindingDetail } from "./FindingDetail";
 import { Overview } from "./Overview";
-import { Ask, NEAR_LIMIT_NOTICE } from "./Ask";
+import { AI_OFF_COPY, Ask, NEAR_LIMIT_NOTICE } from "./Ask";
+import { AI_BADGE, AI_LOCKED_COPY, AI_UNAVAILABLE_COPY } from "../components/AiCard";
+import { PASSWORD_SENTENCE, NO_PASSWORD_SENTENCE } from "../components/fix-copy";
 import { Settings } from "./Settings";
-import { About } from "./About";
+import type { SettingsProps } from "./Settings";
+import type { Adapters } from "../adapters";
+import type { AppSettings } from "../settings";
 
 afterEach(cleanup);
 
@@ -45,7 +50,17 @@ function rule(id: Rule["id"], title: string, failTitle: string): Rule {
     evidenceKeys: [],
     evidenceVocabulary: {},
     explanation: "x",
-    fix: { summary: "x", settingsPath: null, settingsPane: null, commands: [], steps: [], verify: null, effort: "two_minutes", sideEffects: "none" },
+    fix: {
+      summary: "x",
+      settingsPath: null,
+      settingsPane: null,
+      commands: [],
+      steps: [],
+      verify: null,
+      effort: "two_minutes",
+      sideEffects: "none",
+      apply: { kind: "manual", watch: [], watchEvery: 0, reveal: null },
+    },
     evaluate: () => ({ status: "pass", evidence: [] }),
   };
 }
@@ -67,93 +82,131 @@ const findings = [
 ];
 const report = fakeReport(findings, ["TL-MAC-003"]);
 
+
+const EMPTY_STATE = { schemaVersion: 1 as const, collectedAt: report.collectedAt, host: report.platform, sections: {} as never };
+
+/** A ready state with no fix or watch running. */
+function readyState(explain: ExplainState = { kind: "off" }, extra: Partial<ReadyState> = {}): ReadyState {
+  return { kind: "ready", report, state: EMPTY_STATE, explain, lastRecheck: null, fixing: null, watching: null, ...extra };
+}
+
+/** fakeContextValue plus a probed on-device availability. */
+function withAi(value: ReturnType<typeof fakeContextValue>, availability: AiAvailability | null) {
+  return { ...value, ai: { ...value.ai, availability } };
+}
+
+const ROWS = (SECTIONS: Partial<Record<string, RowState>>): PacerView["rows"] => {
+  const rows = {} as Record<string, RowState>;
+  for (const key of Object.keys(report.sections)) rows[key] = SECTIONS[key] ?? "pending";
+  return rows as PacerView["rows"];
+};
+
+function pacer(overrides: Partial<PacerView> = {}): PacerView {
+  return { rows: ROWS({}), found: { attention: 0, review: 0 }, phase: "areas", progress: 0, revealed: 0, ...overrides };
+}
+
 describe("Scanning", () => {
-  it("shows plain progress labels and lets the user cancel", () => {
-    const sections = { ...pendingSections(), firewall: "ok" as const, browsers: "unavailable" as const };
-    const onCancel = vi.fn();
-    render(createElement(Scanning, { sections, onCancel }));
-    expect(screen.getByText("Checking disk encryption")).toBeTruthy();
-    expect(screen.getByText("Firewall")).toBeTruthy();
-    expect(screen.getByText(": could not be checked")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(onCancel).toHaveBeenCalled();
+  it("starts with every row pending, the bar at zero and nothing found", () => {
+    render(createElement(Scanning, { pacer: pacer(), report: null }));
+    expect(screen.getByText("Starting")).toBeTruthy();
+    expect(screen.getByText("Nothing found yet")).toBeTruthy();
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("0");
+    expect(document.querySelectorAll(".progress-pending").length).toBe(17);
+    expect(screen.queryByRole("heading")).toBeNull();
   });
 
-  it("counts areas as done, not checked, since some may have been out of reach", () => {
-    const sections = { ...pendingSections(), firewall: "ok" as const, browsers: "unavailable" as const, ssh: "unavailable" as const };
-    render(createElement(Scanning, { sections, onCancel: vi.fn() }));
-    expect(screen.getByText("3 of 17 areas done")).toBeTruthy();
-    expect(screen.queryByText(/areas checked/)).toBeNull();
+  it("labels a checking row by its progress label and a revealed row by its verdict", () => {
+    const view = pacer({
+      rows: ROWS({ diskEncryption: "attention", firewall: "fine", browsers: "unavailable", updates: "checking", ssh: "review" }),
+      revealed: 3,
+      found: { attention: 2, review: 1 },
+      progress: 3 / 17,
+    });
+    const failing = fakeReport([
+      fakeFinding({ ruleId: "TL-MAC-001", status: "fail", requires: ["diskEncryption"] }),
+      fakeFinding({ ruleId: "TL-MAC-002", status: "fail", requires: ["diskEncryption"] }),
+      fakeFinding({ ruleId: "TL-MAC-003", status: "review", requires: ["ssh"] }),
+    ]);
+    render(createElement(Scanning, { pacer: view, report: failing }));
+    expect(screen.getByText(SECTION_PROGRESS_LABELS.updates)).toBeTruthy();
+    expect(screen.getByText("Checking")).toBeTruthy();
+    expect(screen.getByText("2 to look at")).toBeTruthy();
+    expect(screen.getByText("1 worth a look")).toBeTruthy();
+    expect(screen.getByText("Fine")).toBeTruthy();
+    expect(screen.getByText("Couldn't check")).toBeTruthy();
+    expect(screen.getByText("3 of 17 areas")).toBeTruthy();
+    expect(screen.getByText("2 found so far, 1 worth a look")).toBeTruthy();
   });
 
-  it("takes one Cancel click only and keeps the button in the header", () => {
-    const onCancel = vi.fn();
-    render(createElement(Scanning, { sections: pendingSections(), onCancel }));
-    const button = screen.getByRole("button", { name: "Cancel" });
-    expect(button.closest("header")).not.toBeNull();
-    fireEvent.click(button);
-    fireEvent.click(button);
-    fireEvent.dblClick(button);
-    expect(onCancel).toHaveBeenCalledTimes(1);
-    const cancelling = screen.getByRole("button", { name: "Cancelling" });
-    expect((cancelling as HTMLButtonElement).disabled).toBe(true);
+  it("shows the Automation copy on the loginItems row only when it is prompting", () => {
+    render(createElement(Scanning, { pacer: pacer({ rows: ROWS({ loginItems: "prompting" }) }), report: null }));
+    expect(screen.getByText(PROMPTING_ROW_COPY)).toBeTruthy();
+  });
+
+  it("announces checkpoints only, and the preparing row dims the list", () => {
+    const { rerender } = render(createElement(Scanning, { pacer: pacer({ revealed: 2 }), report: null }));
+    expect(screen.getByRole("status").textContent).toBe("");
+    rerender(createElement(Scanning, { pacer: pacer({ revealed: 6 }), report: null }));
+    expect(screen.getByRole("status").textContent).toBe("6 of 17 areas");
+    rerender(createElement(Scanning, { pacer: pacer({ revealed: 17, phase: "preparing", progress: 1 }), report: null }));
+    expect(screen.getByRole("status").textContent).toBe("Preparing your report");
+    expect(document.querySelector(".progress-dimmed")).not.toBeNull();
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("100");
   });
 });
 
 describe("Welcome", () => {
-  it("produces a profile from the radios and toggle, and can be skipped", () => {
+  it("preselects the defaults, builds a profile from the controls, and can be skipped", () => {
     const onStart = vi.fn();
     const onSkip = vi.fn();
     render(createElement(Welcome, { initial: DEFAULT_SETTINGS.profile, onStart, onSkip }));
+    expect((screen.getByLabelText("For myself") as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText("Not very") as HTMLInputElement).checked).toBe(true);
+    const switches = screen.getAllByRole("switch") as HTMLInputElement[];
+    expect(switches.map((s) => s.checked)).toEqual([false, true]);
     fireEvent.click(screen.getByLabelText("As a freelancer"));
-    fireEvent.click(screen.getByLabelText("Very. Be precise and brief."));
-    fireEvent.click(screen.getByLabelText("Yes"));
-    fireEvent.click(screen.getByRole("switch"));
+    fireEvent.click(screen.getByLabelText("Very"));
+    fireEvent.click(screen.getByRole("switch", { name: /other people's data/ }));
+    fireEvent.click(screen.getByRole("switch", { name: "This laptop leaves home" }));
     fireEvent.click(screen.getByRole("button", { name: "Start check-up" }));
     expect(onStart).toHaveBeenCalledWith({ role: "freelancer", technical: "high", handlesClientData: true, laptopLeavesHome: false });
-    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
     expect(onSkip).toHaveBeenCalled();
   });
 
-  it("does not promise Terminal commands, which Developer mode controls, not the profile", () => {
+  it("is one screen: the lead, four Reads and four Never reads lines, and the on-device footnote", () => {
     render(createElement(Welcome, { initial: DEFAULT_SETTINGS.profile, onStart: vi.fn(), onSkip: vi.fn() }));
-    expect(screen.queryByText(/Show me the commands/)).toBeNull();
-  });
-
-  it("does not promise to never read the username, since home paths carry it", () => {
-    render(createElement(Welcome, { initial: DEFAULT_SETTINGS.profile, onStart: vi.fn(), onSkip: vi.fn() }));
-    expect(screen.queryByText(/username/i)).toBeNull();
-    expect(screen.getByText("Your computer's name or your browsing history")).toBeTruthy();
-  });
-
-  it("says AI help uses the user's own account and sends only the results", () => {
-    render(createElement(Welcome, { initial: DEFAULT_SETTINGS.profile, onStart: vi.fn(), onSkip: vi.fn() }));
-    expect(screen.getByText(/opens in your own Claude or ChatGPT account/)).toBeTruthy();
-    expect(screen.getByText(/Only the check-up results are sent, never file names, paths or passwords/)).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("A calm check-up for your Mac");
+    expect(screen.getByText(/It changes a setting only when you ask it to, and tells you first\./)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Reads" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Never reads" })).toBeTruthy();
+    expect(screen.getAllByRole("listitem").length).toBe(8);
+    expect(screen.getByText("What you type into macOS's own password dialog")).toBeTruthy();
+    expect(screen.queryByText(/administrator password for/)).toBeNull();
+    expect(screen.getByText(/written on this Mac by Apple Intelligence when it is available\. Nothing leaves your Mac\./)).toBeTruthy();
+    expect(screen.queryByText(/Claude|ChatGPT|account|licence/i)).toBeNull();
   });
 });
 
 describe("Findings", () => {
   it("groups findings, filters by severity, and shows the AI order beside the groups", () => {
-    const value = fakeContextValue({
-      adapters: fakeAdapters(),
-      license: NONE,
-      gate: stubGate(false),
-      catalog,
-      scanState: {
-        kind: "ready",
-        report,
-        state: { schemaVersion: 1, collectedAt: report.collectedAt, host: report.platform, sections: {} as never },
-        explain: { kind: "ready", byRule: {}, order: ["TL-MAC-002", "TL-MAC-001", "TL-MAC-003"] },
-        lastRecheck: null,
-      },
-    });
+    const value = withAi(
+      fakeContextValue({
+        adapters: fakeAdapters(),
+        license: VALID,
+        gate: stubGate(true),
+        catalog,
+        scanState: readyState({ kind: "ready", byRule: {}, order: ["TL-MAC-002", "TL-MAC-001", "TL-MAC-003"], priority: { order: ["TL-MAC-002", "TL-MAC-001", "TL-MAC-003"], reasons: [], startWith: ["TL-MAC-002"] } }),
+      }),
+      "available",
+    );
     render(createElement(AppContext.Provider, { value }, createElement(Findings)));
     expect(screen.getByRole("heading", { name: /Needs fixing/ })).toBeTruthy();
     expect(screen.getByRole("heading", { name: /Worth a look/ })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Passed" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Suggested order" })).toBeTruthy();
     expect(screen.getByText("AI #2")).toBeTruthy();
+    expect(screen.getByText("Start with")).toBeTruthy();
     const cardTitles = () => Array.from(document.querySelectorAll(".finding-card .finding-card-title")).map((n) => n.textContent);
     expect(cardTitles()).toEqual(["Your disk is not encrypted", "The firewall is off", "Stealth mode is off"]);
     fireEvent.change(screen.getByLabelText("Severity"), { target: { value: "critical" } });
@@ -161,26 +214,14 @@ describe("Findings", () => {
     expect(value.router.replace).toHaveBeenCalledWith({ name: "findings", severity: "critical", category: "all" });
   });
 
-  it("names each card by its visible content: severity, category, AI rank, headline and points", () => {
-    const value = fakeContextValue({
-      adapters: fakeAdapters(),
-      license: NONE,
-      gate: stubGate(false),
-      catalog,
-      scanState: {
-        kind: "ready",
-        report,
-        state: { schemaVersion: 1, collectedAt: report.collectedAt, host: report.platform, sections: {} as never },
-        explain: { kind: "ready", byRule: {}, order: ["TL-MAC-002", "TL-MAC-001", "TL-MAC-003"] },
-        lastRecheck: null,
-      },
-    });
+  it("shows the fix-cost word on every card and no nested interactive element", () => {
+    const value = fakeContextValue({ adapters: fakeAdapters(), license: NONE, gate: stubGate(false), catalog, scanState: { kind: "idle", report: null, last: report } });
     render(createElement(AppContext.Provider, { value }, createElement(Findings)));
-    const card = document.querySelector('.finding-card[data-rule-id="TL-MAC-001"]') as HTMLButtonElement;
-    expect(card.getAttribute("aria-label")).toBeNull();
-    expect(card.querySelector("h1, h2, h3, h4")).toBeNull();
-    expect(screen.getByRole("button", { name: /Critical.*Encryption.*AI #2, AI suggestion, not verified.*Your disk is not encrypted.*\+20 points when fixed/s })).toBe(card);
-    expect(document.querySelector(".badge-rank[title]")).toBeNull();
+    const card = document.querySelector('.finding-card[data-rule-id="TL-MAC-001"]') as HTMLElement;
+    expect(card.tagName).toBe("ARTICLE");
+    expect(card.querySelector(".finding-card-cost")?.textContent).toContain("Fix in app");
+    expect(card.querySelectorAll("a, button").length).toBe(1);
+    expect(screen.getByRole("link", { name: "Your disk is not encrypted" })).toBeTruthy();
   });
 
   it("names each group heading with a spoken count", () => {
@@ -224,13 +265,7 @@ describe("Findings", () => {
   });
 
   it("starts from the filters carried on the route", () => {
-    const base = fakeContextValue({
-      adapters: fakeAdapters(),
-      license: NONE,
-      gate: stubGate(false),
-      catalog,
-      scanState: { kind: "idle", report: null, last: report },
-    });
+    const base = fakeContextValue({ adapters: fakeAdapters(), license: NONE, gate: stubGate(false), catalog, scanState: { kind: "idle", report: null, last: report } });
     const value = { ...base, router: { ...base.router, route: { name: "findings" as const, severity: "high" as const, category: "network" as const } } };
     render(createElement(AppContext.Provider, { value }, createElement(Findings)));
     expect((screen.getByLabelText("Severity") as HTMLSelectElement).value).toBe("high");
@@ -254,22 +289,36 @@ function readyContext(input: {
   explain?: ExplainState;
   lastRecheck?: LastRecheck | null;
   provider?: ExplainerProvider;
-  assistant?: "claude" | "chatgpt";
+  aiEnabled?: boolean;
+  /** The probed on-device availability; undefined leaves it unprobed. */
+  ai?: AiAvailability | null;
   developerMode?: boolean;
+  fixing?: FixingState | null;
+  watching?: WatchingState | null;
+  capabilities?: Capabilities | null;
 }) {
   const report = evaluate(input.state, MACOS_CATALOG, { now: NOW, os: "macos" });
-  return fakeContextValue({
+  const value = fakeContextValue({
     adapters: fakeAdapters(),
     license: input.license,
     gate: buildGate(report, input.license),
     settings: {
       ...DEFAULT_SETTINGS,
       onboarded: true,
-      developerMode: input.developerMode ?? false,
-      explainer: { ...DEFAULT_SETTINGS.explainer, provider: input.provider ?? "none", assistant: input.assistant ?? "claude" },
+      developer: { ...DEFAULT_SETTINGS.developer, enabled: input.developerMode ?? false },
+      explainer: { ...DEFAULT_SETTINGS.explainer, provider: input.provider ?? "apple", aiEnabled: input.aiEnabled ?? true },
     },
-    scanState: { kind: "ready", report, state: input.state, explain: input.explain ?? { kind: "off" }, lastRecheck: input.lastRecheck ?? null },
+    scanState: {
+      kind: "ready",
+      report,
+      state: input.state,
+      explain: input.explain ?? { kind: "off" },
+      lastRecheck: input.lastRecheck ?? null,
+      fixing: input.fixing ?? null,
+      watching: input.watching ?? null,
+    },
   });
+  return { ...withAi(value, input.ai === undefined ? "available" : input.ai), capabilities: input.capabilities ?? null };
 }
 
 describe("Overview", () => {
@@ -291,41 +340,77 @@ describe("Overview", () => {
     expect(screen.queryByRole("heading", { name: "Remote Login (SSH) is off" })).toBeNull();
   });
 
-  it("offers to explain the whole report in the chosen assistant and lets the user switch", async () => {
-    const value = readyContext({ state: DEV_MACHINE, license: NONE, provider: "browser" });
+  it("offers Suggest an order on the AI card and renders the order as Start with, Then, and the rest in points order", () => {
+    const value = readyContext({ state: DEV_MACHINE, license: VALID });
+    const { rerender } = render(createElement(AppContext.Provider, { value }, createElement(Overview)));
+    fireEvent.click(screen.getByRole("button", { name: "Suggest an order" }));
+    expect(value.scan.prioritise).toHaveBeenCalledTimes(1);
+    const priority = { order: ["TL-MAC-002", "TL-MAC-001"] as RuleId[], reasons: [{ ruleId: "TL-MAC-002" as RuleId, reason: "Quick and worth it." }], startWith: ["TL-MAC-002"] as RuleId[] };
+    const ready = readyContext({ state: DEV_MACHINE, license: VALID, explain: { kind: "ready", byRule: {}, order: ["TL-MAC-002", "TL-MAC-001"], priority } });
+    rerender(createElement(AppContext.Provider, { value: ready }, createElement(Overview)));
+    expect(screen.getByText("Start with")).toBeTruthy();
+    expect(screen.getByText("Quick and worth it.")).toBeTruthy();
+    expect(screen.getByText("Then")).toBeTruthy();
+    expect(screen.getByText("Then, in points order")).toBeTruthy();
+    expect(screen.getByText(AI_BADGE)).toBeTruthy();
+  });
+
+  it("shows the honest unavailable state for every user and the lock only when the model is available", () => {
+    render(createElement(AppContext.Provider, { value: readyContext({ state: DEV_MACHINE, license: NONE, ai: "device_not_eligible" }) }, createElement(Overview)));
+    expect(screen.getByText(AI_UNAVAILABLE_COPY.device_not_eligible)).toBeTruthy();
+    expect(screen.queryByText(AI_LOCKED_COPY)).toBeNull();
+    cleanup();
+    render(createElement(AppContext.Provider, { value: readyContext({ state: DEV_MACHINE, license: NONE, ai: "available" }) }, createElement(Overview)));
+    expect(screen.getByText(AI_LOCKED_COPY)).toBeTruthy();
+    expect(screen.getByPlaceholderText("Paste your licence key")).toBeTruthy();
+    cleanup();
+    render(createElement(AppContext.Provider, { value: readyContext({ state: DEV_MACHINE, license: NONE, aiEnabled: false }) }, createElement(Overview)));
+    expect(document.querySelector(".ai-card")).toBeNull();
+  });
+
+  it("probes availability lazily when the card mounts and re-probes after opening Apple Intelligence settings", () => {
+    const value = readyContext({ state: DEV_MACHINE, license: VALID, ai: null });
     render(createElement(AppContext.Provider, { value }, createElement(Overview)));
-    fireEvent.click(screen.getByRole("button", { name: "Explain my results in Claude" }));
-    await waitFor(() => expect(value.adapters.openAssistant).toHaveBeenCalledTimes(1));
-    const [assistant, prompt] = vi.mocked(value.adapters.openAssistant).mock.calls[0] as [string, string];
-    expect(assistant).toBe("claude");
-    expect(prompt).toContain("TL-MAC-001");
-    expect(prompt.length).toBeLessThanOrEqual(6000);
-    fireEvent.click(screen.getByRole("button", { name: "Use ChatGPT instead" }));
-    expect(value.updateSettings).toHaveBeenCalledWith({ explainer: { ...value.settings.explainer, assistant: "chatgpt" } });
+    expect(value.ai.probe).toHaveBeenCalled();
     cleanup();
-    render(createElement(AppContext.Provider, { value: readyContext({ state: DEV_MACHINE, license: NONE, provider: "browser", assistant: "chatgpt" }) }, createElement(Overview)));
-    expect(screen.getByRole("button", { name: "Explain my results in ChatGPT" })).toBeTruthy();
+    const off = readyContext({ state: DEV_MACHINE, license: VALID, ai: "apple_intelligence_not_enabled" });
+    render(createElement(AppContext.Provider, { value: off }, createElement(Overview)));
+    fireEvent.click(screen.getByRole("button", { name: "Open Apple Intelligence settings" }));
+    expect(off.adapters.openSettingsPane).toHaveBeenCalledWith("apple_intelligence");
+    expect(off.ai.reprobe).toHaveBeenCalledWith(5000);
   });
 
-  it("shows no AI card when the provider is none or in-app", () => {
-    render(createElement(AppContext.Provider, { value: readyContext({ state: DEV_MACHINE, license: NONE, provider: "none" }) }, createElement(Overview)));
-    expect(screen.queryByRole("heading", { name: "AI help" })).toBeNull();
-    cleanup();
-    render(createElement(AppContext.Provider, { value: readyContext({ state: DEV_MACHINE, license: VALID, provider: "claude" }) }, createElement(Overview)));
-    expect(screen.queryByRole("heading", { name: "AI help" })).toBeNull();
-  });
-
-  it("lists the next fixes by their problem headline", () => {
-    render(createElement(AppContext.Provider, { value: readyContext({ state: DEV_MACHINE, license: NONE }) }, createElement(Overview)));
-    expect(screen.getByRole("button", { name: /Your disk is not encrypted/ })).toBeTruthy();
+  it("lists the next fixes by their problem headline with an inline action that previews the fix", () => {
+    const value = readyContext({ state: DEV_MACHINE, license: NONE });
+    render(createElement(AppContext.Provider, { value }, createElement(Overview)));
+    expect(screen.getByRole("link", { name: "Your disk is not encrypted" })).toBeTruthy();
     expect(screen.queryByText("Your disk is encrypted")).toBeNull();
+    const card = document.querySelector('.finding-card[data-rule-id="TL-MAC-001"]') as HTMLElement;
+    fireEvent.click(card.querySelector(".finding-card-action") as HTMLButtonElement);
+    const apply = MACOS_CATALOG.rules.find((r) => r.id === "TL-MAC-001")?.fix.apply;
+    if (apply?.kind === "in_app") expect(value.scan.previewFix).toHaveBeenCalledWith("TL-MAC-001", { kind: "none" });
+    else if (apply?.kind === "deep_link") {
+      expect(value.adapters.openSettingsPane).toHaveBeenCalledWith(apply.pane);
+      expect(value.scan.startWatch).toHaveBeenCalledWith("TL-MAC-001");
+    } else expect(value.router.navigate).toHaveBeenCalledWith({ name: "finding", ruleId: "TL-MAC-001" });
+  });
+
+  it("opens the confirmation sheet for the fix the scan state holds", () => {
+    const plan: FixPlan = fakePlan({ ruleId: "TL-MAC-002", recheck: ["firewall"] });
+    const fixing: FixingState = { plan, phase: "confirm", step: 0, of: 1, error: null, result: null };
+    const value = readyContext({ state: DEV_MACHINE, license: VALID, fixing });
+    render(createElement(AppContext.Provider, { value }, createElement(Overview)));
+    const sheet = screen.getByRole("dialog");
+    expect(sheet.textContent).toContain(PASSWORD_SENTENCE);
+    fireEvent.click(screen.getByRole("button", { name: "Turn on…" }));
+    expect(value.scan.applyFix).toHaveBeenCalledWith(undefined);
   });
 
   it("folds the checks that could not run into one card per reason, each leading to Findings", () => {
-    const value = readyContext({ state: ALL_UNAVAILABLE, license: NONE, provider: "browser" });
+    const value = readyContext({ state: ALL_UNAVAILABLE, license: NONE });
     render(createElement(AppContext.Provider, { value }, createElement(Overview)));
     expect(screen.getByRole("heading", { name: "Nothing could be checked" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "AI help" })).toBeNull();
+    expect(document.querySelector(".ai-card")).toBeNull();
     const report = evaluate(ALL_UNAVAILABLE, MACOS_CATALOG, { now: NOW, os: "macos" });
     const unknown = report.findings.filter((f) => f.status === "unknown");
     const isPermission = (r: string | null) => r === "needs_full_disk_access" || r === "needs_automation_permission";
@@ -371,13 +456,13 @@ describe("FindingDetail", () => {
   }
 
   it("explains the unsigned build and hides the fix, lock and recheck for a socket-table finding", () => {
-    renderDetail(readyContext({ state: UNSIGNED_STATE, license: VALID, provider: "claude" }), "TL-MAC-019");
+    renderDetail(readyContext({ state: UNSIGNED_STATE, license: VALID }), "TL-MAC-019");
     expect(screen.getByText("Not available in this build")).toBeTruthy();
     expect(screen.getByText(/not signed, so macOS hides the list of network services/)).toBeTruthy();
     expect(screen.queryByText("Permission was denied")).toBeNull();
     expect(screen.queryByRole("heading", { name: "How to fix it" })).toBeNull();
     expect(screen.queryByRole("button", { name: "I've done this, check again" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "AI explanation" })).toBeNull();
+    expect(document.querySelector(".ai-card")).toBeNull();
     expect(document.querySelector(".lock")).toBeNull();
   });
 
@@ -392,24 +477,33 @@ describe("FindingDetail", () => {
     expect(screen.getByRole("button", { name: "Check this item again" })).toBeTruthy();
   });
 
-  it("shows neither a lock nor a fix for a check that could not run, with or without a licence", () => {
+  it("leads a permission unknown with the permission card, and shows neither a lock nor a fix", () => {
     renderDetail(readyContext({ state: DEV_MACHINE, license: NONE }), "TL-MAC-028");
     expect(screen.queryByText("This fix is part of the full version")).toBeNull();
     expect(screen.queryByRole("heading", { name: "How to fix it" })).toBeNull();
     expect(screen.getByRole("heading", { name: "Check again" })).toBeTruthy();
     expect(screen.queryByText("Done it?")).toBeNull();
-    expect(screen.getByRole("button", { name: "Open Full Disk Access settings" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open Full Disk Access" })).toBeTruthy();
+    const main = document.querySelector("main") as HTMLElement;
+    expect(main.querySelector("header + .permission")).not.toBeNull();
     cleanup();
     renderDetail(readyContext({ state: DEV_MACHINE, license: VALID }), "TL-MAC-028");
     expect(screen.queryByRole("heading", { name: "How to fix it" })).toBeNull();
     expect(document.querySelector(".lock")).toBeNull();
-    expect(screen.getByRole("heading", { name: "Check again" })).toBeTruthy();
     expect(screen.getByText(/Once the reason above has been dealt with/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Check this item again" })).toBeTruthy();
     cleanup();
     renderDetail(readyContext({ state: DEV_MACHINE, license: NONE }), "TL-MAC-029");
     expect(screen.getByText("This fix is part of the full version")).toBeTruthy();
+    expect(screen.getAllByPlaceholderText("Paste your licence key").length).toBeGreaterThan(0);
     expect(screen.getByRole("heading", { name: "Done it?" })).toBeTruthy();
+  });
+
+  it("opens the pane and starts the watcher from the permission card", () => {
+    const value = readyContext({ state: DEV_MACHINE, license: NONE });
+    renderDetail(value, "TL-MAC-028");
+    fireEvent.click(screen.getByRole("button", { name: "Open Full Disk Access" }));
+    expect(value.adapters.openSettingsPane).toHaveBeenCalledWith("full_disk_access");
+    expect(document.querySelector('[data-permission-state="watching"]')).not.toBeNull();
   });
 
   it("frames the authored explanation by status so an unknown or passed check does not read as confirmed", () => {
@@ -425,14 +519,43 @@ describe("FindingDetail", () => {
     expect(screen.queryByText(/This check passed/)).toBeNull();
   });
 
+  it("leads the fix card with its action and the password caption", () => {
+    const value = readyContext({ state: DEV_MACHINE, license: VALID });
+    renderDetail(value, "TL-MAC-002");
+    const card = screen.getByRole("heading", { name: "How to fix it" }).closest("section") as HTMLElement;
+    const action = card.querySelector(".fix-action-row button") as HTMLButtonElement;
+    expect(action.textContent).toContain("Turn on…");
+    expect(card.querySelector(".fix-action-caption")?.textContent).toBe("macOS will ask for your password.");
+    fireEvent.click(action);
+    expect(value.scan.previewFix).toHaveBeenCalledWith("TL-MAC-002", { kind: "none" });
+  });
+
+  it("shows the watching strip and then the passed strip with the time", () => {
+    const watching: WatchingState = { ruleId: "TL-MAC-002", sections: ["firewall"], everyMs: 3000, startedAt: NOW, lastPollAt: null, passedAt: null };
+    const { rerender } = renderDetail(readyContext({ state: DEV_MACHINE, license: VALID, watching }), "TL-MAC-002");
+    expect(screen.getByText(/Watching for the change/)).toBeTruthy();
+    const passed = readyContext({ state: DEV_MACHINE, license: VALID, watching: { ...watching, passedAt: NOW } });
+    rerender(createElement(AppContext.Provider, { value: passed }, createElement(FindingDetail, { ruleId: "TL-MAC-002" })));
+    const strip = document.querySelector(".status-strip-passed") as HTMLElement;
+    expect(strip.textContent).toMatch(/Now passes, checked at \d{2}:\d{2}/);
+    expect(document.activeElement).toBe(strip);
+  });
+
+  it("keeps the passed strip once the watched rule has left the report", () => {
+    const fixed: SystemState = { ...DEV_MACHINE, sections: { ...DEV_MACHINE.sections, firewall: HARDENED.sections.firewall } };
+    const watching: WatchingState = { ruleId: "TL-MAC-002", sections: ["firewall"], everyMs: 3000, startedAt: NOW, lastPollAt: NOW, passedAt: NOW };
+    renderDetail(readyContext({ state: fixed, license: VALID, watching }), "TL-MAC-002");
+    expect(screen.queryByRole("heading", { name: "How to fix it" })).toBeNull();
+    const strip = document.querySelector(".status-strip-passed") as HTMLElement;
+    expect(strip.textContent).toMatch(/Now passes, checked at \d{2}:\d{2}/);
+    expect(document.activeElement).toBe(strip);
+  });
+
   it("reports the result of a recheck even when the status did not change", () => {
     const lastRecheck: LastRecheck = { key: "firewall", at: NOW };
     renderDetail(readyContext({ state: DEV_MACHINE, license: VALID, lastRecheck }), "TL-MAC-002");
-    expect(screen.getByRole("status").textContent).toMatch(/^Checked again at \d{2}:\d{2}\. Still needs fixing\.$/);
+    expect(screen.getByText(/^Checked again at \d{2}:\d{2}\. Still needs fixing\.$/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "I've done this, check again" })).toBeTruthy();
-    cleanup();
-    renderDetail(readyContext({ state: DEV_MACHINE, license: VALID, lastRecheck }), "TL-MAC-029");
-    expect(screen.getByRole("status").textContent).toBe("");
   });
 
   it("keeps focus on the recheck button while it runs, then reads the result when the button goes away", () => {
@@ -443,7 +566,7 @@ describe("FindingDetail", () => {
     fireEvent.click(button);
     expect(value.scan.recheck).toHaveBeenCalledWith(["firewall"]);
     const report = evaluate(DEV_MACHINE, MACOS_CATALOG, { now: NOW, os: "macos" });
-    const rechecking = { ...value, scan: { ...value.scan, scan: { kind: "rechecking" as const, report, state: DEV_MACHINE, key: "firewall" as const, explain: { kind: "off" as const } } } };
+    const rechecking = { ...value, scan: { ...value.scan, scan: { kind: "rechecking" as const, report, state: DEV_MACHINE, key: "firewall" as const, explain: { kind: "off" as const }, watching: null } } };
     rerender(createElement(AppContext.Provider, { value: rechecking }, createElement(FindingDetail, { ruleId: "TL-MAC-002" })));
     const busy = screen.getByRole("button", { name: "Checking again" });
     expect(busy.getAttribute("aria-disabled")).toBe("true");
@@ -455,7 +578,7 @@ describe("FindingDetail", () => {
     const done = readyContext({ state: fixed, license: VALID, lastRecheck: { key: "firewall", at: NOW } });
     rerender(createElement(AppContext.Provider, { value: done }, createElement(FindingDetail, { ruleId: "TL-MAC-002" })));
     expect(screen.getByRole("heading", { name: "Checked again" })).toBeTruthy();
-    const status = screen.getByRole("status");
+    const status = document.querySelector(".recheck-result") as HTMLElement;
     expect(status.textContent).toMatch(/Now passes\.$/);
     expect(document.activeElement).toBe(status);
   });
@@ -471,26 +594,32 @@ describe("FindingDetail", () => {
     expect(screen.queryByText("true")).toBeNull();
   });
 
-  it("keeps Explain this for me mounted while it runs and then moves focus to the explanation", () => {
-    const running: ExplainState = { kind: "running", target: "TL-MAC-001" };
-    const { rerender } = renderDetail(readyContext({ state: DEV_MACHINE, license: VALID, provider: "claude", explain: running }), "TL-MAC-001");
-    const button = screen.getByRole("button", { name: "Explain this for me" });
-    expect(button.getAttribute("aria-disabled")).toBe("true");
-    expect(button.getAttribute("aria-busy")).toBe("true");
-    expect(screen.getByText("Writing an explanation for you.")).toBeTruthy();
+  it("streams the explanation field by field with a caret and a Stop button, then moves focus to it", () => {
+    const from = { byRule: {}, order: null, priority: null };
+    const running: ExplainState = { kind: "running", target: "TL-MAC-001", partial: { whyItMattersForYou: "Your disk holds" }, answerPartial: null, from };
+    const value = readyContext({ state: DEV_MACHINE, license: VALID, explain: running });
+    const { rerender } = renderDetail(value, "TL-MAC-001");
+    expect(screen.getByText("Your disk holds")).toBeTruthy();
+    expect(document.querySelector(".caret")).not.toBeNull();
+    expect(screen.getByText("Writing")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect(value.scan.stopExplain).toHaveBeenCalled();
     const explanation: Explanation = { ruleId: "TL-MAC-001", whyItMattersForYou: "Why for you.", whatCouldHappen: "What.", urgency: "today" };
-    const ready: ExplainState = { kind: "ready", byRule: { "TL-MAC-001": explanation }, order: null };
-    rerender(createElement(AppContext.Provider, { value: readyContext({ state: DEV_MACHINE, license: VALID, provider: "claude", explain: ready }) }, createElement(FindingDetail, { ruleId: "TL-MAC-001" })));
+    const ready: ExplainState = { kind: "ready", byRule: { "TL-MAC-001": explanation }, order: null, priority: null };
+    rerender(createElement(AppContext.Provider, { value: readyContext({ state: DEV_MACHINE, license: VALID, explain: ready }) }, createElement(FindingDetail, { ruleId: "TL-MAC-001" })));
     expect(screen.getByText("Why for you.")).toBeTruthy();
-    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "AI explanation" }));
+    expect(screen.getByText("Today")).toBeTruthy();
+    expect(screen.getByText(AI_BADGE)).toBeTruthy();
+    expect(document.querySelector(".caret")).toBeNull();
+    expect(document.activeElement).toBe(document.querySelector(".ai-card-host"));
   });
 
   it("keeps an explanation on screen while its section is read again", () => {
     const explanation: Explanation = { ruleId: "TL-MAC-001", whyItMattersForYou: "Why for you.", whatCouldHappen: "What.", urgency: "today" };
-    const explain: ExplainState = { kind: "ready", byRule: { "TL-MAC-001": explanation }, order: null };
-    const value = readyContext({ state: DEV_MACHINE, license: VALID, provider: "claude", explain });
+    const explain: ExplainState = { kind: "ready", byRule: { "TL-MAC-001": explanation }, order: null, priority: null };
+    const value = readyContext({ state: DEV_MACHINE, license: VALID, explain });
     const report = evaluate(DEV_MACHINE, MACOS_CATALOG, { now: NOW, os: "macos" });
-    const rechecking = { ...value, scan: { ...value.scan, scan: { kind: "rechecking" as const, report, state: DEV_MACHINE, key: "ssh" as const, explain } } };
+    const rechecking = { ...value, scan: { ...value.scan, scan: { kind: "rechecking" as const, report, state: DEV_MACHINE, key: "ssh" as const, explain, watching: null } } };
     renderDetail(rechecking, "TL-MAC-001");
     expect(screen.getByText("Why for you.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Explain this for me" })).toBeNull();
@@ -498,15 +627,18 @@ describe("FindingDetail", () => {
 
   it("does not steal focus when a finding opens with an explanation already cached", () => {
     const explanation: Explanation = { ruleId: "TL-MAC-001", whyItMattersForYou: "Why for you.", whatCouldHappen: "What.", urgency: "today" };
-    const ready: ExplainState = { kind: "ready", byRule: { "TL-MAC-001": explanation }, order: null };
-    renderDetail(readyContext({ state: DEV_MACHINE, license: VALID, provider: "claude", explain: ready }), "TL-MAC-001");
+    const ready: ExplainState = { kind: "ready", byRule: { "TL-MAC-001": explanation }, order: null, priority: null };
+    renderDetail(readyContext({ state: DEV_MACHINE, license: VALID, explain: ready }), "TL-MAC-001");
     expect(document.activeElement).toBe(document.body);
   });
 
-  it("marks an explainer failure as an alert", () => {
-    const explain: ExplainState = { kind: "failed", reason: "timeout", target: "TL-MAC-002", byRule: {}, order: null };
-    renderDetail(readyContext({ state: DEV_MACHINE, license: VALID, provider: "claude", explain }), "TL-MAC-002");
+  it("marks an explainer failure as an alert with Try again", () => {
+    const explain: ExplainState = { kind: "failed", reason: "timeout", target: "TL-MAC-002", byRule: {}, order: null, priority: null };
+    const value = readyContext({ state: DEV_MACHINE, license: VALID, explain });
+    renderDetail(value, "TL-MAC-002");
     expect(screen.getByRole("alert").textContent).toMatch(/took too long/);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(value.scan.explain).toHaveBeenCalledWith("TL-MAC-002");
   });
 
   it("heads the page with the problem and names the check underneath", () => {
@@ -529,129 +661,139 @@ describe("FindingDetail", () => {
     expect(screen.getByText(/socketfilterfw --setglobalstate on/)).toBeTruthy();
   });
 
-  it("offers the browser hand-off for one finding and never the in-app card", async () => {
-    const value = readyContext({ state: DEV_MACHINE, license: NONE, provider: "browser" });
-    renderDetail(value, "TL-MAC-002");
-    expect(screen.queryByRole("heading", { name: "AI explanation" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Explain this in Claude" }));
-    await waitFor(() => expect(value.adapters.openAssistant).toHaveBeenCalledTimes(1));
-    const [assistant, prompt] = vi.mocked(value.adapters.openAssistant).mock.calls[0] as [string, string];
-    expect(assistant).toBe("claude");
-    expect(prompt).toContain("TL-MAC-002");
-    fireEvent.click(screen.getByRole("button", { name: "Use ChatGPT instead" }));
-    expect(value.updateSettings).toHaveBeenCalledWith({ explainer: { ...value.settings.explainer, assistant: "chatgpt" } });
+  it("hides the AI card when AI is off and shows the model-not-ready state without a lock", () => {
+    renderDetail(readyContext({ state: DEV_MACHINE, license: NONE, aiEnabled: false }), "TL-MAC-002");
+    expect(document.querySelector(".ai-card")).toBeNull();
     cleanup();
-    renderDetail(readyContext({ state: DEV_MACHINE, license: NONE, provider: "none" }), "TL-MAC-002");
-    expect(screen.queryByRole("heading", { name: "AI help" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "AI explanation" })).toBeNull();
-  });
-
-  it("reports a failed hand-off without throwing", async () => {
-    const value = readyContext({ state: DEV_MACHINE, license: NONE, provider: "browser" });
-    vi.mocked(value.adapters.openAssistant).mockRejectedValueOnce("prompt too long");
-    renderDetail(value, "TL-MAC-002");
-    fireEvent.click(screen.getByRole("button", { name: "Explain this in Claude" }));
-    await waitFor(() => expect(screen.getByText(/could not be opened/)).toBeTruthy());
+    renderDetail(readyContext({ state: DEV_MACHINE, license: NONE, ai: "model_not_ready" }), "TL-MAC-002");
+    expect(screen.getByText(AI_UNAVAILABLE_COPY.model_not_ready)).toBeTruthy();
+    expect(screen.queryByText(AI_LOCKED_COPY)).toBeNull();
   });
 
   it("says when a rechecked item now passes", () => {
     const lastRecheck: LastRecheck = { key: "platformIntegrity", at: NOW };
     renderDetail(readyContext({ state: DEV_MACHINE, license: VALID, lastRecheck }), "TL-MAC-004");
     expect(screen.getByRole("heading", { name: "Checked again" })).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toMatch(/Now passes\.$/);
+    expect((document.querySelector(".recheck-result") as HTMLElement).textContent).toMatch(/Now passes\.$/);
   });
 
   it("shows an explainer failure only on the finding that asked, and keeps earlier explanations", () => {
     const explanation: Explanation = { ruleId: "TL-MAC-001", whyItMattersForYou: "Why for you.", whatCouldHappen: "What.", urgency: "today" };
-    const explain: ExplainState = { kind: "failed", reason: "timeout", target: "TL-MAC-002", byRule: { "TL-MAC-001": explanation }, order: null };
-    renderDetail(readyContext({ state: DEV_MACHINE, license: VALID, provider: "claude", explain }), "TL-MAC-001");
+    const explain: ExplainState = { kind: "failed", reason: "timeout", target: "TL-MAC-002", byRule: { "TL-MAC-001": explanation }, order: null, priority: null };
+    renderDetail(readyContext({ state: DEV_MACHINE, license: VALID, explain }), "TL-MAC-001");
     expect(screen.getByText("Why for you.")).toBeTruthy();
     expect(screen.queryByText(/took too long/)).toBeNull();
     cleanup();
-    renderDetail(readyContext({ state: DEV_MACHINE, license: VALID, provider: "claude", explain }), "TL-MAC-002");
+    renderDetail(readyContext({ state: DEV_MACHINE, license: VALID, explain }), "TL-MAC-002");
     expect(screen.getByText(/took too long/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Explain this for me" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+
+  it("renders the fix sheet states: user-level confirm, running, done with points, and an error with its actions", () => {
+    const plan: FixPlan = fakePlan({ ruleId: "TL-MAC-002", needsPassword: false, lines: [{ text: "defaults write x", privilege: "user" }] });
+    const confirm: FixingState = { plan, phase: "confirm", step: 0, of: 1, error: null, result: null };
+    const { rerender } = renderDetail(readyContext({ state: DEV_MACHINE, license: VALID, fixing: confirm }), "TL-MAC-002");
+    expect(screen.getByRole("dialog").textContent).toContain(NO_PASSWORD_SENTENCE);
+    expect(screen.getByRole("button", { name: "Turn on" })).toBeTruthy();
+    const show = (fixing: FixingState) =>
+      rerender(createElement(AppContext.Provider, { value: readyContext({ state: DEV_MACHINE, license: VALID, fixing }) }, createElement(FindingDetail, { ruleId: "TL-MAC-002" })));
+    show({ ...confirm, phase: "running", step: 1, of: 1 });
+    expect(screen.getByText("Running (1 of 1)")).toBeTruthy();
+    show({ ...confirm, phase: "rechecking" });
+    expect(screen.getByText("Checking the result")).toBeTruthy();
+    show({ ...confirm, phase: "done", result: "pass" });
+    expect(screen.getByText(/^Done\. .*\+\d+ points\.$/)).toBeTruthy();
+    show({ ...confirm, phase: "done", result: "still_failing" });
+    expect(screen.getByRole("button", { name: "Check again" })).toBeTruthy();
+    show({ ...confirm, phase: "failed", error: "wrong_password", step: 1 });
+    expect(screen.getByRole("alert").textContent).toBe("macOS did not accept the password. Nothing was changed.");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+    const actionNames = () => Array.from(document.querySelectorAll(".sheet-actions button")).map((b) => b.textContent);
+    expect(actionNames()).toEqual(["Try again", "Close"]);
+    show({ ...confirm, phase: "failed", error: "precondition_changed", step: 0 });
+    expect(actionNames()).toEqual(["Rescan"]);
   });
 });
 
 describe("Findings suggested order", () => {
   it("lets a licensed user ask for an AI order from the Findings screen", () => {
-    const value = readyContext({ state: DEV_MACHINE, license: VALID, provider: "claude" });
+    const value = readyContext({ state: DEV_MACHINE, license: VALID });
     render(createElement(AppContext.Provider, { value }, createElement(Findings)));
     expect(screen.getByRole("heading", { name: "Suggested order" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Suggest an order" }));
     expect(value.scan.prioritise).toHaveBeenCalledTimes(1);
   });
 
-  it("locks the order behind the licence and shows a prioritise failure inline", () => {
-    const locked = readyContext({ state: DEV_MACHINE, license: NONE, provider: "claude" });
+  it("locks the order behind the licence with the inline field, and shows a prioritise failure inline", () => {
+    const locked = readyContext({ state: DEV_MACHINE, license: NONE });
     render(createElement(AppContext.Provider, { value: locked }, createElement(Findings)));
-    expect(screen.getByRole("region", { name: "An AI-suggested order is part of the full version" })).toBeTruthy();
+    const aside = screen.getByRole("heading", { name: "Suggested order" }).closest("aside") as HTMLElement;
+    expect(aside.textContent).toContain(AI_LOCKED_COPY);
+    expect(aside.querySelector("input")).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Suggest an order" })).toBeNull();
     cleanup();
     const failed = readyContext({
       state: DEV_MACHINE,
       license: VALID,
-      provider: "claude",
-      explain: { kind: "failed", reason: "network", target: "prioritise", byRule: {}, order: null },
+      explain: { kind: "failed", reason: "network", target: "prioritise", byRule: {}, order: null, priority: null },
     });
     render(createElement(AppContext.Provider, { value: failed }, createElement(Findings)));
     expect(screen.getByRole("alert").textContent).toMatch(/Could not reach the AI provider/);
-    expect(screen.getByRole("button", { name: "Suggest an order" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 
-  it("keeps Suggest an order mounted while it runs and then moves focus to the order", () => {
-    const running = readyContext({ state: DEV_MACHINE, license: VALID, provider: "claude", explain: { kind: "running", target: "prioritise" } });
+  it("shows Thinking about the order with Stop while it runs, then moves focus to the order", () => {
+    const from = { byRule: {}, order: null, priority: null };
+    const running = readyContext({ state: DEV_MACHINE, license: VALID, explain: { kind: "running", target: "prioritise", partial: null, answerPartial: null, from } });
     const { rerender } = render(createElement(AppContext.Provider, { value: running }, createElement(Findings)));
-    const button = screen.getByRole("button", { name: "Suggest an order" });
-    expect(button.getAttribute("aria-disabled")).toBe("true");
-    expect(screen.getByText("Working out an order for you.")).toBeTruthy();
-    fireEvent.click(button);
+    expect(screen.getByText("Thinking about the order")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect(running.scan.stopExplain).toHaveBeenCalled();
     expect(running.scan.prioritise).not.toHaveBeenCalled();
-    const ready = readyContext({ state: DEV_MACHINE, license: VALID, provider: "claude", explain: { kind: "ready", byRule: {}, order: ["TL-MAC-002", "TL-MAC-001"] } });
+    const priority = { order: ["TL-MAC-002", "TL-MAC-001"] as RuleId[], reasons: [], startWith: ["TL-MAC-002"] as RuleId[] };
+    const ready = readyContext({ state: DEV_MACHINE, license: VALID, explain: { kind: "ready", byRule: {}, order: ["TL-MAC-002", "TL-MAC-001"], priority } });
     rerender(createElement(AppContext.Provider, { value: ready }, createElement(Findings)));
-    expect(screen.getByText("From the AI, not verified. The groups on the left keep the severity order.")).toBeTruthy();
+    expect(screen.getByText("Start with")).toBeTruthy();
     expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Suggested order" }));
   });
 
-  it("hides the aside when no AI provider is set and no order exists", () => {
-    const value = readyContext({ state: DEV_MACHINE, license: VALID });
-    render(createElement(AppContext.Provider, { value }, createElement(Findings)));
-    expect(screen.queryByRole("heading", { name: "Suggested order" })).toBeNull();
-  });
-
-  it("hides the aside for the browser hand-off, which has no return channel", () => {
-    const value = readyContext({ state: DEV_MACHINE, license: VALID, provider: "browser" });
+  it("hides the aside when AI is switched off", () => {
+    const value = readyContext({ state: DEV_MACHINE, license: VALID, aiEnabled: false });
     render(createElement(AppContext.Provider, { value }, createElement(Findings)));
     expect(screen.queryByRole("heading", { name: "Suggested order" })).toBeNull();
   });
 });
 
 describe("Ask", () => {
-  it("is hidden when the provider is none or the browser hand-off", () => {
-    for (const provider of ["none", "browser"] as const) {
-      const value = fakeContextValue({
-        adapters: fakeAdapters(),
-        license: NONE,
-        gate: stubGate(false),
-        settings: { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider } },
-        scanState: { kind: "idle", report: null, last: report },
-      });
-      render(createElement(AppContext.Provider, { value }, createElement(Ask)));
-      expect(screen.getByText(/needs a Claude API key or a local Ollama model/)).toBeTruthy();
-      expect(screen.queryByLabelText("Your question")).toBeNull();
-      cleanup();
-    }
+  it("says AI is off when the switch is off, and shows the unavailable card or the lock otherwise", () => {
+    const off = fakeContextValue({
+      adapters: fakeAdapters(),
+      license: NONE,
+      gate: stubGate(false),
+      settings: { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, aiEnabled: false } },
+      scanState: { kind: "idle", report: null, last: report },
+    });
+    render(createElement(AppContext.Provider, { value: off }, createElement(Ask)));
+    expect(screen.getByText(AI_OFF_COPY)).toBeTruthy();
+    expect(screen.queryByLabelText("Your question")).toBeNull();
+    cleanup();
+    const notEligible = withAi(fakeContextValue({ adapters: fakeAdapters(), license: VALID, gate: stubGate(true), scanState: { kind: "idle", report: null, last: report } }), "device_not_eligible");
+    render(createElement(AppContext.Provider, { value: notEligible }, createElement(Ask)));
+    expect(screen.getByText(AI_UNAVAILABLE_COPY.device_not_eligible)).toBeTruthy();
+    expect(screen.queryByLabelText("Your question")).toBeNull();
+    cleanup();
+    const locked = withAi(fakeContextValue({ adapters: fakeAdapters(), license: NONE, gate: stubGate(false), scanState: { kind: "idle", report: null, last: report } }), "available");
+    render(createElement(AppContext.Provider, { value: locked }, createElement(Ask)));
+    expect(screen.getByText(AI_LOCKED_COPY)).toBeTruthy();
+    expect(screen.getByPlaceholderText("Paste your licence key")).toBeTruthy();
+    expect(screen.queryByLabelText("Your question")).toBeNull();
   });
 
   function askContext() {
-    const value = fakeContextValue({
-      adapters: fakeAdapters(),
-      license: VALID,
-      gate: stubGate(true),
-      settings: { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: "claude" } },
-      scanState: { kind: "idle", report: null, last: report },
-    });
+    const value = withAi(
+      fakeContextValue({ adapters: fakeAdapters(), license: VALID, gate: stubGate(true), scanState: { kind: "idle", report: null, last: report } }),
+      "available",
+    );
     value.scan.ask = vi.fn(async () => ({ ok: true as const, value: { answer: "<b>Start</b> with the disk.", relatedRuleIds: ["TL-MAC-001" as const], outsideScope: false } }));
     return value;
   }
@@ -729,29 +871,159 @@ describe("Ask", () => {
     expect(box.readOnly).toBe(false);
   });
 
-  it("announces a failed answer as an alert", async () => {
+  it("streams the answer with a caret and a Stop button while the machine says ask is running", () => {
+    const from = { byRule: {}, order: null, priority: null };
+    const value = withAi(
+      fakeContextValue({ adapters: fakeAdapters(), license: VALID, gate: stubGate(true), scanState: readyState({ kind: "running", target: "ask", partial: null, answerPartial: "Start with the", from }) }),
+      "available",
+    );
+    render(createElement(StatefulProvider, { value }, createElement(Ask)));
+    expect(screen.getByText("Start with the")).toBeTruthy();
+    expect(document.querySelector(".chat-streaming .caret")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect(value.scan.stopExplain).toHaveBeenCalled();
+  });
+
+  it("announces a failed answer as an alert, but not a cancel", async () => {
     const value = askContext();
     value.scan.ask = vi.fn(async () => ({ ok: false as const, reason: "network" as const }));
     render(createElement(StatefulProvider, { value }, createElement(Ask)));
     fireEvent.change(screen.getByLabelText("Your question"), { target: { value: "What first?" } });
     fireEvent.click(screen.getByRole("button", { name: "Ask" }));
     await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/Could not reach the AI provider/));
+    cleanup();
+    const cancelled = askContext();
+    cancelled.scan.ask = vi.fn(async () => ({ ok: false as const, reason: "cancelled" as const }));
+    render(createElement(StatefulProvider, { value: cancelled }, createElement(Ask)));
+    fireEvent.change(screen.getByLabelText("Your question"), { target: { value: "What first?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await waitFor(() => expect(cancelled.scan.ask).toHaveBeenCalled());
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
 
 describe("Settings", () => {
-  it("shows key status without the key, writes to the secret store, and reports Full Disk Access", async () => {
+  const caps: Capabilities = { fullDiskAccess: false, automation: "not_determined" };
+  function settingsProps(overrides: Partial<SettingsProps> = {}): SettingsProps {
+    return { aiAvailability: "available", onAiAction: vi.fn(), capabilities: caps, onPermission: vi.fn(), onBuy: vi.fn(), ...overrides };
+  }
+  function dev(provider: ExplainerProvider, explainer: Partial<AppSettings["explainer"]> = {}): AppSettings {
+    return { ...DEFAULT_SETTINGS, onboarded: true, developer: { ...DEFAULT_SETTINGS.developer, enabled: true }, explainer: { ...DEFAULT_SETTINGS.explainer, provider, ...explainer } };
+  }
+  function mount(props: Partial<SettingsProps> = {}, input: { settings?: AppSettings; license?: LicenseState; adapters?: Adapters; stateful?: boolean } = {}) {
+    const adapters = input.adapters ?? fakeAdapters();
+    const value = fakeContextValue({ adapters, license: input.license ?? NONE, gate: stubGate(false), catalog, settings: input.settings, scanState: { kind: "idle", report: null, last: null } });
+    const full = settingsProps(props);
+    render(createElement(input.stateful ? StatefulProvider : AppContext.Provider, { value }, createElement(Settings, full)));
+    return { value, adapters, props: full };
+  }
+
+  it("keeps the six sections in the design order", () => {
+    mount();
+    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(headings).toEqual(["AI explanations", "About you", "Permissions", "Licence", "Developer mode", "About"]);
+  });
+
+  it("drives the AI status line from the availability prop and its one button from onAiAction", () => {
+    const { value, props } = mount({ aiAvailability: "apple_intelligence_not_enabled" });
+    const toggle = screen.getByRole("switch", { name: "Explain findings with Apple Intelligence" }) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    expect(screen.getByText("Needs Apple Intelligence")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open Apple Intelligence settings" }));
+    expect(props.onAiAction).toHaveBeenCalledWith("apple_intelligence_not_enabled");
+    expect(screen.getByText(/Only the check-up results are used, never file names, paths or passwords\./)).toBeTruthy();
+    fireEvent.click(toggle);
+    expect(value.updateSettings).toHaveBeenCalledWith({ explainer: { ...value.settings.explainer, aiEnabled: false } });
+    cleanup();
+    mount({ aiAvailability: "device_not_eligible" });
+    expect(screen.getByText("This Mac can't run it")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Try again|Open Apple/ })).toBeNull();
+    cleanup();
+    mount({ aiAvailability: null });
+    expect(screen.getByText("Checking")).toBeTruthy();
+    cleanup();
+    mount({ aiAvailability: "off" }, { settings: { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, aiEnabled: false } } });
+    expect(screen.queryByText("Off")).toBeNull();
+    expect((screen.getByRole("switch", { name: "Explain findings with Apple Intelligence" }) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("collapses the profile to one line and expands the controls on Edit", () => {
+    const { value } = mount({}, { settings: { ...DEFAULT_SETTINGS, onboarded: true, profile: { role: "freelancer", technical: "medium", handlesClientData: true, laptopLeavesHome: true } } });
+    expect(screen.getByText("Freelancer, somewhat technical, client data, laptop leaves home")).toBeTruthy();
+    expect(screen.queryByLabelText("As a freelancer")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect((screen.getByLabelText("As a freelancer") as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByLabelText("Very"));
+    expect(value.updateSettings).toHaveBeenCalledWith({ profile: { ...value.settings.profile, technical: "high" } });
+  });
+
+  it("shows a status pill per permission and an Open or Allow button driven by props", () => {
+    const { props } = mount();
+    expect(screen.getByText("Not granted")).toBeTruthy();
+    expect(screen.getByText("Not asked yet")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open Full Disk Access" }));
+    expect(props.onPermission).toHaveBeenCalledWith("full_disk_access", "not_granted");
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+    expect(props.onPermission).toHaveBeenCalledWith("automation", "not_determined");
+    cleanup();
+    mount({ capabilities: { fullDiskAccess: true, automation: "denied" } });
+    expect(screen.getByText("Granted")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open Full Disk Access" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open Automation settings" })).toBeTruthy();
+    cleanup();
+    mount({ capabilities: { fullDiskAccess: null, automation: null } });
+    expect(screen.getAllByText("Could not tell").length).toBe(2);
+    cleanup();
+    mount({ capabilities: null });
+    expect(screen.getAllByText("Checking").length).toBe(2);
+  });
+
+  it("offers the inline licence field with the free line, then the licensed line with Remove", async () => {
     const adapters = fakeAdapters();
-    const value = fakeContextValue({
-      adapters,
-      license: NONE,
-      gate: stubGate(false),
-      settings: { ...DEFAULT_SETTINGS, onboarded: true, developerMode: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: "claude" } },
-      scanState: { kind: "idle", report: null, last: null },
-    });
-    render(createElement(AppContext.Provider, { value }, createElement(Settings)));
+    adapters.license.install = vi.fn(async (key: string): Promise<LicenseState> => (key === "TL1.GOOD" ? VALID : { status: "invalid", reason: "signature" }));
+    const { props } = mount({}, { adapters, stateful: true });
+    expect(screen.getByText("Free: the three most valuable fixes")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Buy a licence" }));
+    expect(props.onBuy).toHaveBeenCalled();
+    const input = screen.getByLabelText("Licence key") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "TL1.WRONG" } });
+    fireEvent.click(screen.getByRole("button", { name: "Activate" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("The key is not signed by Talos Labs."));
+    fireEvent.change(input, { target: { value: "TL1.GOOD" } });
+    fireEvent.click(screen.getByRole("button", { name: "Activate" }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByText(/^Licensed, personal plan, 1 seat, updates until 2027-01-01/)));
+    expect(screen.queryByLabelText("Licence key")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(screen.getByLabelText("Licence key")).toBeTruthy());
+    expect(adapters.license.remove).toHaveBeenCalled();
+  });
+
+  it("hides the sub-switches and providers until Developer mode is on, and returns to the on-device provider when it is turned off", () => {
+    const { value } = mount();
+    const toggle = screen.getByRole("switch", { name: "Developer mode" }) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    expect(screen.queryByRole("switch", { name: "Show Terminal commands next to fixes" })).toBeNull();
+    expect(screen.queryByLabelText("Claude API key")).toBeNull();
+    fireEvent.click(toggle);
+    expect(value.updateSettings).toHaveBeenCalledWith({ developer: { ...value.settings.developer, enabled: true }, explainer: value.settings.explainer });
+    cleanup();
+    const on = mount({}, { settings: dev("ollama") });
+    expect((screen.getByRole("switch", { name: "Show Terminal commands next to fixes" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("switch", { name: "Show the plan expanded in fix sheets" }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByLabelText("On this Mac")).toBeTruthy();
+    expect(screen.getByLabelText("Claude API key")).toBeTruthy();
+    expect((screen.getByLabelText("Local Ollama") as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByLabelText("Model name")).toBeTruthy();
+    fireEvent.click(screen.getByRole("switch", { name: "Show Terminal commands next to fixes" }));
+    expect(on.value.updateSettings).toHaveBeenCalledWith({ developer: { ...on.value.settings.developer, showCommands: false } });
+    fireEvent.click(screen.getByRole("switch", { name: "Developer mode" }));
+    expect(on.value.updateSettings).toHaveBeenCalledWith({ developer: { ...on.value.settings.developer, enabled: false }, explainer: { ...on.value.settings.explainer, provider: "apple" } });
+  });
+
+  it("shows key status without the key, writes to the secret store, and moves focus to the field when Remove goes away", async () => {
+    const adapters = fakeAdapters();
+    mount({}, { adapters, settings: dev("claude") });
     await waitFor(() => expect(screen.getByText("not set")).toBeTruthy());
-    await waitFor(() => expect(screen.getByText("not granted")).toBeTruthy());
     const input = screen.getByLabelText("Anthropic API key") as HTMLInputElement;
     expect(input.type).toBe("password");
     fireEvent.change(input, { target: { value: "sk-ant-secret" } });
@@ -760,171 +1032,43 @@ describe("Settings", () => {
     expect(adapters.secrets.set).toHaveBeenCalledWith("anthropic_api_key", "sk-ant-secret");
     expect(input.value).toBe("");
     expect(document.body.textContent).not.toContain("sk-ant-secret");
-    fireEvent.click(screen.getAllByRole("button", { name: "Open" })[0] as HTMLElement);
-    expect(adapters.openSettingsPane).toHaveBeenCalledWith("full_disk_access");
-  });
-
-  it("moves focus to the key field when Remove takes the button away", async () => {
-    const adapters = fakeAdapters();
-    adapters.secrets.get = vi.fn(async () => "sk-ant-stored");
-    const value = fakeContextValue({
-      adapters,
-      license: NONE,
-      gate: stubGate(false),
-      settings: { ...DEFAULT_SETTINGS, onboarded: true, developerMode: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: "claude" } },
-      scanState: { kind: "idle", report: null, last: null },
-    });
-    render(createElement(AppContext.Provider, { value }, createElement(Settings)));
-    const remove = await screen.findByRole("button", { name: "Remove" });
+    const remove = screen.getByRole("button", { name: "Remove" });
     remove.focus();
     fireEvent.click(remove);
     await waitFor(() => expect(screen.getByText("not set")).toBeTruthy());
     expect(adapters.secrets.delete).toHaveBeenCalledWith("anthropic_api_key");
-    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
-    expect(document.activeElement).toBe(screen.getByLabelText("Anthropic API key"));
+    expect(document.activeElement).toBe(input);
   });
 
-  it("caps model ids at 64 characters in the inputs and marks a longer stored id invalid", () => {
+  it("caps model ids at 64 characters, marks a longer or malformed id invalid, and links the hint without an alert", () => {
     const long = `claude-${"a".repeat(MAX_MODEL_ID_LENGTH)}`;
-    const value = fakeContextValue({
-      adapters: fakeAdapters(),
-      license: NONE,
-      gate: stubGate(false),
-      settings: { ...DEFAULT_SETTINGS, onboarded: true, developerMode: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: "claude", claudeModel: long } },
-      scanState: { kind: "idle", report: null, last: null },
-    });
-    render(createElement(AppContext.Provider, { value }, createElement(Settings)));
+    mount({}, { settings: dev("claude", { claudeModel: long }) });
     const input = screen.getByLabelText("Model id") as HTMLInputElement;
     expect(input.maxLength).toBe(MAX_MODEL_ID_LENGTH);
     expect(input.getAttribute("aria-invalid")).toBe("true");
-    expect(document.getElementById("claude-model-error")?.textContent).toContain(`at most ${MAX_MODEL_ID_LENGTH} characters`);
+    expect(input.getAttribute("aria-describedby")).toBe("claude-model-error");
+    expect(document.getElementById("claude-model-error")?.textContent).toBe("Model ids look like claude-opus-5 and are at most 64 characters.");
+    expect(screen.queryByRole("alert")).toBeNull();
     cleanup();
-    const ollama = fakeContextValue({
-      adapters: fakeAdapters(),
-      license: NONE,
-      gate: stubGate(false),
-      settings: { ...DEFAULT_SETTINGS, onboarded: true, developerMode: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: "ollama", ollamaModel: "b".repeat(MAX_MODEL_ID_LENGTH + 1) } },
-      scanState: { kind: "idle", report: null, last: null },
-    });
-    render(createElement(AppContext.Provider, { value: ollama }, createElement(Settings)));
+    mount({}, { settings: dev("ollama", { ollamaModel: "b".repeat(MAX_MODEL_ID_LENGTH + 1) }) });
     const name = screen.getByLabelText("Model name") as HTMLInputElement;
     expect(name.maxLength).toBe(MAX_MODEL_ID_LENGTH);
     expect(name.getAttribute("aria-invalid")).toBe("true");
     expect(document.getElementById("ollama-model-error")?.textContent).toContain(`at most ${MAX_MODEL_ID_LENGTH} characters`);
   });
 
-  it("says what leaves the Mac for AI help without the phrase that could mean the results stay", () => {
-    const value = fakeContextValue({ adapters: fakeAdapters(), license: NONE, gate: stubGate(false), scanState: { kind: "idle", report: null, last: null } });
-    render(createElement(AppContext.Provider, { value }, createElement(Settings)));
-    expect(screen.getByText(/File names, folder paths and file contents never leave this Mac\./)).toBeTruthy();
-    expect(screen.queryByText(/written on your Mac/)).toBeNull();
-  });
-
-  it("offers the browser hand-off and Off to everyone, and keeps key and Ollama behind Developer mode", () => {
-    const value = fakeContextValue({ adapters: fakeAdapters(), license: NONE, gate: stubGate(false), scanState: { kind: "idle", report: null, last: null } });
-    render(createElement(AppContext.Provider, { value }, createElement(Settings)));
-    const browser = screen.getByLabelText("Open in Claude or ChatGPT (uses your own account, no key needed)") as HTMLInputElement;
-    expect(browser.checked).toBe(true);
-    expect((screen.getByLabelText("Claude") as HTMLInputElement).checked).toBe(true);
-    expect(screen.getByLabelText("ChatGPT")).toBeTruthy();
-    expect(screen.getByLabelText("Off")).toBeTruthy();
-    expect(screen.queryByLabelText("Claude API key")).toBeNull();
-    expect(screen.queryByLabelText("Local Ollama")).toBeNull();
-    expect(screen.queryByLabelText("Anthropic API key")).toBeNull();
-    fireEvent.click(screen.getByLabelText("ChatGPT"));
-    expect(value.updateSettings).toHaveBeenCalledWith({ explainer: { ...value.settings.explainer, assistant: "chatgpt" } });
-    const toggle = screen.getByRole("switch", { name: "Developer mode" }) as HTMLInputElement;
-    expect(toggle.checked).toBe(false);
-    expect(screen.getByText("Shows Terminal commands next to fixes and unlocks API-key and local-model options for AI help.")).toBeTruthy();
-    fireEvent.click(toggle);
-    expect(value.updateSettings).toHaveBeenCalledWith({ developerMode: true, explainer: value.settings.explainer });
-  });
-
-  it("labels the Claude or ChatGPT choice as its own question under the browser option", () => {
-    const value = fakeContextValue({ adapters: fakeAdapters(), license: NONE, gate: stubGate(false), scanState: { kind: "idle", report: null, last: null } });
-    render(createElement(AppContext.Provider, { value }, createElement(Settings)));
-    const group = screen.getByRole("group", { name: "Which assistant" });
-    expect(group.tagName).toBe("FIELDSET");
-    expect(group.classList.contains("sub-options")).toBe(true);
-    expect(group.classList.contains("subsection")).toBe(false);
-    expect(group.querySelectorAll("input[name='assistant']").length).toBe(2);
-    expect(screen.getByText("Terminal commands are shown by Developer mode, above.")).toBeTruthy();
-  });
-
-  it("links the model id hint to its input without making it an alert", () => {
-    const value = fakeContextValue({
-      adapters: fakeAdapters(),
-      license: NONE,
-      gate: stubGate(false),
-      settings: { ...DEFAULT_SETTINGS, onboarded: true, developerMode: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: "claude", claudeModel: "gpt-9" } },
-      scanState: { kind: "idle", report: null, last: null },
-    });
-    render(createElement(AppContext.Provider, { value }, createElement(Settings)));
-    const input = screen.getByLabelText("Model id") as HTMLInputElement;
-    expect(input.getAttribute("aria-invalid")).toBe("true");
-    expect(input.getAttribute("aria-describedby")).toBe("claude-model-error");
-    expect(document.getElementById("claude-model-error")?.textContent).toBe("Model ids look like claude-opus-5 and are at most 64 characters.");
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
-
-  it("announces a rejected licence key, marks the field invalid, and moves focus when the licence changes", async () => {
-    const adapters = fakeAdapters();
-    adapters.license.install = vi.fn(async (key: string): Promise<LicenseState> => (key === "TL1.GOOD" ? VALID : { status: "invalid", reason: "signature" }));
-    const value = fakeContextValue({ adapters, license: NONE, gate: stubGate(false), scanState: { kind: "idle", report: null, last: null } });
-    render(createElement(StatefulProvider, { value }, createElement(Settings)));
-    const input = screen.getByLabelText("Licence key") as HTMLInputElement;
-    expect(input.getAttribute("aria-invalid")).toBe("false");
-    fireEvent.change(input, { target: { value: "TL1.WRONG" } });
-    fireEvent.click(screen.getByRole("button", { name: "Activate" }));
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("The key is not signed by Talos Labs."));
-    expect(input.getAttribute("aria-invalid")).toBe("true");
-    expect(input.getAttribute("aria-describedby")).toBe("licence-error");
-    expect(document.getElementById("licence-error")?.getAttribute("role")).toBe("alert");
-    expect(screen.queryByText(/The stored key is not valid/)).toBeNull();
-    expect(screen.getAllByText("The key is not signed by Talos Labs.").length).toBe(1);
-    fireEvent.change(input, { target: { value: "TL1.GOOD" } });
-    fireEvent.click(screen.getByRole("button", { name: "Activate" }));
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByText(/^Licensed: personal plan/)));
-    fireEvent.click(screen.getByRole("button", { name: "Remove licence" }));
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Licence key")));
-  });
-
-  it("shows the API key and Ollama options in Developer mode and falls back to the browser when it is turned off", () => {
-    const value = fakeContextValue({
-      adapters: fakeAdapters(),
-      license: NONE,
-      gate: stubGate(false),
-      settings: { ...DEFAULT_SETTINGS, onboarded: true, developerMode: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: "ollama" } },
-      scanState: { kind: "idle", report: null, last: null },
-    });
-    render(createElement(AppContext.Provider, { value }, createElement(Settings)));
-    expect(screen.getByLabelText("Claude API key")).toBeTruthy();
-    expect((screen.getByLabelText("Local Ollama") as HTMLInputElement).checked).toBe(true);
-    expect(screen.getByLabelText("Model name")).toBeTruthy();
-    fireEvent.click(screen.getByRole("switch", { name: "Developer mode" }));
-    expect(value.updateSettings).toHaveBeenCalledWith({ developerMode: false, explainer: { ...value.settings.explainer, provider: "browser" } });
-  });
-});
-
-describe("About", () => {
-  it("shows versions, catalogue, edition, build date and licence details", () => {
+  it("ends with the About section: versions, catalogue, edition, build date, licence id and tag, and the privacy sentence", () => {
     const license: LicenseState = {
       status: "valid",
       payload: { v: 1, lid: "01HXYZ", product: "talos-desktop", plan: "business", seats: 5, issuedAt: "2026-01-01", updatesUntil: "2027-01-01", tag: "cafebabe" },
     };
-    const value = fakeContextValue({ adapters: fakeAdapters(), license, gate: stubGate(true), catalog, scanState: { kind: "idle", report: null, last: null } });
-    render(createElement(AppContext.Provider, { value }, createElement(About)));
+    mount({}, { license });
     expect(screen.getByText("9.9.9")).toBeTruthy();
     expect(screen.getByText("Test Benchmark")).toBeTruthy();
     expect(screen.getByText(__BUILD_DATE__)).toBeTruthy();
     expect(screen.getByText(/01HXYZ/)).toBeTruthy();
     expect(screen.getByText(/cafebabe/)).toBeTruthy();
-  });
-
-  it("names the Explain buttons as the one thing that sends results out, since they need no set-up", () => {
-    const value = fakeContextValue({ adapters: fakeAdapters(), license: NONE, gate: stubGate(false), catalog, scanState: { kind: "idle", report: null, last: null } });
-    render(createElement(AppContext.Provider, { value }, createElement(About)));
-    expect(screen.getByText(/never sends anything from your Mac anywhere on its own\. The Explain buttons open your own Claude or ChatGPT account/)).toBeTruthy();
-    expect(screen.queryByText(/set up yourself/)).toBeNull();
+    expect(screen.getByText("Nothing leaves this Mac. AI explanations are written here by Apple Intelligence.")).toBeTruthy();
+    expect(screen.queryByText(/Claude or ChatGPT/)).toBeNull();
   });
 });

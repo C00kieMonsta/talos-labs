@@ -35,6 +35,13 @@ export const TL_MAC_010: Rule = {
     verify: "Software Update says your Mac is up to date.",
     effort: "half_hour",
     sideEffects: "restart",
+    apply: {
+      kind: "deep_link",
+      pane: "software_update",
+      watch: ["updates"],
+      watchEvery: 10,
+      reveal: null,
+    },
   },
   evaluate(state) {
     const data = section(state, "updates");

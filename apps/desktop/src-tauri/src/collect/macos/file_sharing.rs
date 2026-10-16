@@ -2,7 +2,7 @@
 
 use super::remote_access::{non_loopback_port, shared_listeners};
 use super::run;
-use crate::collect::{to_section, Fail, Shared};
+use crate::collect::{Fail, Shared, to_section};
 use crate::exec::Bin;
 use crate::state::{FileSharing, Section, Share};
 
@@ -13,7 +13,10 @@ pub fn parse_sharing(text: &str) -> Vec<Share> {
     let mut guest = false;
     let flush = |path: &mut Option<String>, guest: &mut bool, shares: &mut Vec<Share>| {
         if let Some(p) = path.take() {
-            shares.push(Share { path: p, guest_access: *guest });
+            shares.push(Share {
+                path: p,
+                guest_access: *guest,
+            });
         }
         *guest = false;
     };
@@ -37,7 +40,10 @@ fn inner(shared: &Shared) -> Result<FileSharing, Fail> {
     if !out.success() {
         return Err(Fail::collector("sharing: exit"));
     }
-    Ok(FileSharing { enabled, shares: parse_sharing(&out.stdout) })
+    Ok(FileSharing {
+        enabled,
+        shares: parse_sharing(&out.stdout),
+    })
 }
 
 pub fn collect(shared: &Shared) -> Section<FileSharing> {
@@ -54,9 +60,18 @@ mod tests {
     #[test]
     fn parses_captured_guest_share_without_name() {
         let shares = parse_sharing(CAPTURED);
-        assert_eq!(shares, vec![Share { path: "/Users/alice/Public".into(), guest_access: true }]);
+        assert_eq!(
+            shares,
+            vec![Share {
+                path: "/Users/alice/Public".into(),
+                guest_access: true
+            }]
+        );
         let json = serde_json::to_string(&shares).unwrap();
-        assert!(!json.contains("Public Folder"), "the name line must not appear in the output");
+        assert!(
+            !json.contains("Public Folder"),
+            "the name line must not appear in the output"
+        );
     }
 
     #[test]
@@ -64,8 +79,20 @@ mod tests {
         let text = "List of Share Points\nname:\t\tFirst\npath:\t\t/Users/x/First\n\tsmb:\t{\n\t\tname:\tFirst\n\t\tshared:\t1\n\t\tguest access:\t0\n\t}\nname:\t\tSecond\npath:\t\t/Users/x/Second\n\tsmb:\t{\n\t\tguest access:\t1\n\t}\n";
         let shares = parse_sharing(text);
         assert_eq!(shares.len(), 2);
-        assert_eq!(shares[0], Share { path: "/Users/x/First".into(), guest_access: false });
-        assert_eq!(shares[1], Share { path: "/Users/x/Second".into(), guest_access: true });
+        assert_eq!(
+            shares[0],
+            Share {
+                path: "/Users/x/First".into(),
+                guest_access: false
+            }
+        );
+        assert_eq!(
+            shares[1],
+            Share {
+                path: "/Users/x/Second".into(),
+                guest_access: true
+            }
+        );
     }
 
     #[test]

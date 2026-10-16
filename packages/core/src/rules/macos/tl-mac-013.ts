@@ -34,6 +34,17 @@ export const TL_MAC_013: Rule = {
     verify: "Lock Screen shows 20 minutes or less for Start Screen Saver when inactive.",
     effort: "two_minutes",
     sideEffects: "none",
+    apply: {
+      kind: "in_app",
+      choice: "none",
+      passphrase: false,
+      needsPassword: false,
+      recheck: ["screenLock"],
+      confirmTitle: "Lock the screen after 20 minutes?",
+      confirmVerb: "Set to 20 minutes",
+      confirmNote: null,
+      reversible: "You can set the previous time back in System Settings > Lock Screen.",
+    },
   },
   evaluate(state) {
     const data = section(state, "screenLock");

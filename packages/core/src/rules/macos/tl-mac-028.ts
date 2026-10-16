@@ -31,6 +31,12 @@ export const TL_MAC_028: Rule = {
     verify: "Run the check-up again; no extension is listed with access to every site.",
     effort: "ten_minutes",
     sideEffects: "workflow",
+    apply: {
+      kind: "manual",
+      watch: ["browsers"],
+      watchEvery: 3,
+      reveal: null,
+    },
   },
   evaluate(state) {
     const data = section(state, "browsers");

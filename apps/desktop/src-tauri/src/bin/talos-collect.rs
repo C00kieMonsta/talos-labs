@@ -1,15 +1,22 @@
 //! Runs the collectors without a Tauri runtime and prints the SystemState JSON.
 //! Usage: talos-collect [--section <key>]
 
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use talos_desktop_lib::collect::{self, ProgressFn, ProgressStatus};
 use talos_desktop_lib::state::SectionKey;
 
 fn usage() -> ! {
     eprintln!("usage: talos-collect [--section <key>]");
-    eprintln!("keys: {}", SectionKey::ALL.iter().map(|k| k.as_str()).collect::<Vec<_>>().join(", "));
+    eprintln!(
+        "keys: {}",
+        SectionKey::ALL
+            .iter()
+            .map(|k| k.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
     std::process::exit(2);
 }
 
@@ -45,7 +52,9 @@ fn main() {
             }
         }
         [flag, key] if flag == "--section" => {
-            let Some(key) = SectionKey::parse(key) else { usage() };
+            let Some(key) = SectionKey::parse(key) else {
+                usage()
+            };
             match collect::collect_section(key, cancel) {
                 Ok(section) => print_json(&section),
                 Err(err) => {

@@ -34,6 +34,17 @@ export const TL_MAC_003: Rule = {
     verify: "Network > Firewall > Options shows Enable stealth mode switched on.",
     effort: "two_minutes",
     sideEffects: "none",
+    apply: {
+      kind: "in_app",
+      choice: "none",
+      passphrase: false,
+      needsPassword: true,
+      recheck: ["firewall"],
+      confirmTitle: "Turn stealth mode on?",
+      confirmVerb: "Turn on",
+      confirmNote: null,
+      reversible: "You can switch it off again in System Settings > Network > Firewall > Options.",
+    },
   },
   evaluate(state) {
     const data = section(state, "firewall");

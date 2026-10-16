@@ -35,6 +35,17 @@ export const TL_MAC_011: Rule = {
     verify: "App Store > Settings shows Automatic Updates ticked.",
     effort: "two_minutes",
     sideEffects: "none",
+    apply: {
+      kind: "in_app",
+      choice: "none",
+      passphrase: false,
+      needsPassword: true,
+      recheck: ["updates"],
+      confirmTitle: "Update App Store apps automatically?",
+      confirmVerb: "Turn on",
+      confirmNote: null,
+      reversible: "You can switch it off again in App Store > Settings.",
+    },
   },
   evaluate(state) {
     const data = section(state, "updates");

@@ -7,14 +7,20 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
 use super::{check_cancel, home, is_not_found, is_permission_error};
-use crate::collect::{to_section, Fail};
-use crate::state::{BrowserExtension, BrowserId, BrowserReport, Browsers, Section, UnavailableReason};
+use crate::collect::{Fail, to_section};
+use crate::state::{
+    BrowserExtension, BrowserId, BrowserReport, Browsers, Section, UnavailableReason,
+};
 
 /// Chrome-family browsers: bundle name in an applications folder, user data directory under
 /// `~/Library/Application Support`.
 pub const CHROME_FAMILY: [(BrowserId, &str, &str); 4] = [
     (BrowserId::Chrome, "Google Chrome.app", "Google/Chrome"),
-    (BrowserId::Brave, "Brave Browser.app", "BraveSoftware/Brave-Browser"),
+    (
+        BrowserId::Brave,
+        "Brave Browser.app",
+        "BraveSoftware/Brave-Browser",
+    ),
     (BrowserId::Edge, "Microsoft Edge.app", "Microsoft Edge"),
     (BrowserId::Arc, "Arc.app", "Arc/User Data"),
 ];
@@ -29,7 +35,15 @@ pub const APPLICATIONS_DIR: &str = "/Applications";
 pub fn is_broad_host_pattern(pattern: &str) -> bool {
     let p = pattern.trim();
     p == "<all_urls>"
-        || ["*://*/*", "http://*/*", "https://*/*", "*://*/", "http://*/", "https://*/"].contains(&p)
+        || [
+            "*://*/*",
+            "http://*/*",
+            "https://*/*",
+            "*://*/",
+            "http://*/",
+            "https://*/",
+        ]
+        .contains(&p)
         || p.starts_with("*://*/")
         || p.starts_with("http://*/")
         || p.starts_with("https://*/")
@@ -38,7 +52,13 @@ pub fn is_broad_host_pattern(pattern: &str) -> bool {
 fn strings(value: Option<&serde_json::Value>) -> Vec<String> {
     value
         .and_then(serde_json::Value::as_array)
-        .map(|items| items.iter().filter_map(serde_json::Value::as_str).map(str::to_owned).collect())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -50,25 +70,40 @@ pub fn i18n_key(name: &str) -> Option<&str> {
 /// `[key].message` from a `_locales/<locale>/messages.json` document. Chrome matches keys case-insensitively.
 pub fn message_from_locale(text: &str, key: &str) -> Option<String> {
     let doc: serde_json::Value = serde_json::from_str(text).ok()?;
-    let (_, entry) = doc.as_object()?.iter().find(|(k, _)| k.eq_ignore_ascii_case(key))?;
-    entry.get("message").and_then(serde_json::Value::as_str).map(str::to_owned)
+    let (_, entry) = doc
+        .as_object()?
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(key))?;
+    entry
+        .get("message")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
 }
 
 /// Numeric components of a version directory name such as `1.10_0`; non-numeric parts count as 0.
 pub fn version_key(name: &str) -> Vec<u64> {
-    name.split(['.', '_']).map(|part| part.parse().unwrap_or(0)).collect()
+    name.split(['.', '_'])
+        .map(|part| part.parse().unwrap_or(0))
+        .collect()
 }
 
 /// `extensions.settings.<id>.state` per id from a Chrome `Preferences` document. 0 means disabled.
 pub fn extension_states(text: &str) -> HashMap<String, i64> {
-    let Ok(doc) = serde_json::from_str::<serde_json::Value>(text) else { return HashMap::new() };
+    let Ok(doc) = serde_json::from_str::<serde_json::Value>(text) else {
+        return HashMap::new();
+    };
     doc.get("extensions")
         .and_then(|e| e.get("settings"))
         .and_then(serde_json::Value::as_object)
         .map(|settings| {
             settings
                 .iter()
-                .filter_map(|(id, entry)| entry.get("state").and_then(serde_json::Value::as_i64).map(|state| (id.clone(), state)))
+                .filter_map(|(id, entry)| {
+                    entry
+                        .get("state")
+                        .and_then(serde_json::Value::as_i64)
+                        .map(|state| (id.clone(), state))
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -78,13 +113,23 @@ pub fn extension_states(text: &str) -> HashMap<String, i64> {
 /// A `__MSG_key__` name resolves through `message(locale, key)` and falls back to the id.
 /// Content script matches are granted at install, so they count towards `broad_host_access`;
 /// `optional_host_permissions` are not granted at install and do not.
-pub fn parse_chrome_manifest(id: &str, text: &str, message: &dyn Fn(&str, &str) -> Option<String>) -> Option<BrowserExtension> {
+pub fn parse_chrome_manifest(
+    id: &str,
+    text: &str,
+    message: &dyn Fn(&str, &str) -> Option<String>,
+) -> Option<BrowserExtension> {
     let manifest: serde_json::Value = serde_json::from_str(text).ok()?;
     let version = manifest.get("version")?.as_str()?.to_owned();
-    let raw_name = manifest.get("name").and_then(serde_json::Value::as_str).unwrap_or(id);
+    let raw_name = manifest
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(id);
     let name = match i18n_key(raw_name) {
         Some(key) => {
-            let locale = manifest.get("default_locale").and_then(serde_json::Value::as_str).unwrap_or("en");
+            let locale = manifest
+                .get("default_locale")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("en");
             message(locale, key).unwrap_or_else(|| id.to_owned())
         }
         None => raw_name.to_owned(),
@@ -98,8 +143,18 @@ pub fn parse_chrome_manifest(id: &str, text: &str, message: &dyn Fn(&str, &str) 
         .flatten()
         .flat_map(|cs| strings(cs.get("matches")))
         .collect();
-    let broad_host_access = permissions.iter().chain(hosts.iter()).chain(scripts.iter()).any(|p| is_broad_host_pattern(p));
-    Some(BrowserExtension { id: id.to_owned(), name, version, permissions, broad_host_access })
+    let broad_host_access = permissions
+        .iter()
+        .chain(hosts.iter())
+        .chain(scripts.iter())
+        .any(|p| is_broad_host_pattern(p));
+    Some(BrowserExtension {
+        id: id.to_owned(),
+        name,
+        version,
+        permissions,
+        broad_host_access,
+    })
 }
 
 /// Profile paths from Firefox `profiles.ini`: (path, is_relative).
@@ -108,7 +163,10 @@ pub fn parse_profiles_ini(text: &str) -> Vec<(String, bool)> {
     let mut in_profile = false;
     let mut path: Option<String> = None;
     let mut relative = true;
-    let flush = |in_profile: bool, path: &mut Option<String>, relative: bool, profiles: &mut Vec<(String, bool)>| {
+    let flush = |in_profile: bool,
+                 path: &mut Option<String>,
+                 relative: bool,
+                 profiles: &mut Vec<(String, bool)>| {
         if in_profile && let Some(p) = path.take() {
             profiles.push((p, relative));
         }
@@ -133,19 +191,34 @@ pub fn parse_profiles_ini(text: &str) -> Vec<(String, bool)> {
     profiles
 }
 
-const FIREFOX_BUILTIN_LOCATIONS: [&str; 4] = ["app-system-defaults", "app-builtin", "app-system-addons", "app-system-share"];
+const FIREFOX_BUILTIN_LOCATIONS: [&str; 4] = [
+    "app-system-defaults",
+    "app-builtin",
+    "app-system-addons",
+    "app-system-share",
+];
 
 /// User-installed, enabled extensions from Firefox `extensions.json`.
 pub fn parse_firefox_extensions(text: &str) -> Vec<BrowserExtension> {
-    let Ok(doc) = serde_json::from_str::<serde_json::Value>(text) else { return Vec::new() };
-    let Some(addons) = doc.get("addons").and_then(serde_json::Value::as_array) else { return Vec::new() };
+    let Ok(doc) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Vec::new();
+    };
+    let Some(addons) = doc.get("addons").and_then(serde_json::Value::as_array) else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
     for addon in addons {
-        let kind = addon.get("type").and_then(serde_json::Value::as_str).unwrap_or("");
+        let kind = addon
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
         if kind != "extension" {
             continue;
         }
-        let location = addon.get("location").and_then(serde_json::Value::as_str).unwrap_or("");
+        let location = addon
+            .get("location")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
         if FIREFOX_BUILTIN_LOCATIONS.contains(&location) {
             continue;
         }
@@ -154,12 +227,19 @@ pub fn parse_firefox_extensions(text: &str) -> Vec<BrowserExtension> {
         }
         // `active` is false for every kind of disable (user, app, soft); a disabled add-on has no host access.
         if addon.get("active").and_then(serde_json::Value::as_bool) == Some(false)
-            || addon.get("userDisabled").and_then(serde_json::Value::as_bool) == Some(true)
+            || addon
+                .get("userDisabled")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
         {
             continue;
         }
-        let Some(id) = addon.get("id").and_then(serde_json::Value::as_str) else { continue };
-        let Some(version) = addon.get("version").and_then(serde_json::Value::as_str) else { continue };
+        let Some(id) = addon.get("id").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let Some(version) = addon.get("version").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
         let name = addon
             .get("defaultLocale")
             .and_then(|l| l.get("name"))
@@ -170,7 +250,13 @@ pub fn parse_firefox_extensions(text: &str) -> Vec<BrowserExtension> {
         let permissions = strings(user.and_then(|u| u.get("permissions")));
         let origins = strings(user.and_then(|u| u.get("origins")));
         let broad_host_access = origins.iter().any(|o| is_broad_host_pattern(o));
-        out.push(BrowserExtension { id: id.to_owned(), name, version: version.to_owned(), permissions, broad_host_access });
+        out.push(BrowserExtension {
+            id: id.to_owned(),
+            name,
+            version: version.to_owned(),
+            permissions,
+            broad_host_access,
+        });
     }
     out
 }
@@ -188,13 +274,21 @@ fn chrome_profile_dirs(user_data: &Path, label: &str) -> Result<Vec<PathBuf>, Fa
     let entries = match std::fs::read_dir(user_data) {
         Ok(entries) => entries,
         Err(err) if is_not_found(&err) => return Ok(Vec::new()),
-        Err(err) => return Err(fda_fail(&err, &format!("read_dir: Application Support/{label}"))),
+        Err(err) => {
+            return Err(fda_fail(
+                &err,
+                &format!("read_dir: Application Support/{label}"),
+            ));
+        }
     };
     let mut dirs: Vec<PathBuf> = entries
         .flatten()
         .map(|e| e.path())
         .filter(|p| {
-            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
             p.is_dir() && (name == "Default" || name.starts_with("Profile "))
         })
         .collect();
@@ -210,7 +304,11 @@ fn chrome_disabled_ids(profile: &Path) -> HashSet<String> {
             states.extend(extension_states(&text));
         }
     }
-    states.into_iter().filter(|(_, state)| *state == 0).map(|(id, _)| id).collect()
+    states
+        .into_iter()
+        .filter(|(_, state)| *state == 0)
+        .map(|(id, _)| id)
+        .collect()
 }
 
 /// The version directory with the highest numeric version; ties fall back to name order.
@@ -221,14 +319,23 @@ fn latest_version_dir(id_dir: &Path) -> Option<PathBuf> {
         .map(|e| e.path())
         .filter(|p| p.is_dir())
         .max_by(|a, b| {
-            let key = |p: &Path| version_key(&p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+            let key = |p: &Path| {
+                version_key(
+                    &p.file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default(),
+                )
+            };
             key(a).cmp(&key(b)).then_with(|| a.cmp(b))
         })
 }
 
 /// Reads `<profile>/Extensions/<id>/<version>/manifest.json` for every profile, skipping disabled ids.
 /// `Ok(None)` means the directory holds no profile, so the browser is not installed.
-pub fn chrome_extensions(user_data: &Path, label: &str) -> Result<Option<Vec<BrowserExtension>>, Fail> {
+pub fn chrome_extensions(
+    user_data: &Path,
+    label: &str,
+) -> Result<Option<Vec<BrowserExtension>>, Fail> {
     let profiles = chrome_profile_dirs(user_data, label)?;
     if profiles.is_empty() {
         return Ok(None);
@@ -238,7 +345,12 @@ pub fn chrome_extensions(user_data: &Path, label: &str) -> Result<Option<Vec<Bro
         let ids = match std::fs::read_dir(profile.join("Extensions")) {
             Ok(ids) => ids,
             Err(err) if is_not_found(&err) => continue,
-            Err(err) => return Err(fda_fail(&err, &format!("read_dir: Application Support/{label}/Extensions"))),
+            Err(err) => {
+                return Err(fda_fail(
+                    &err,
+                    &format!("read_dir: Application Support/{label}/Extensions"),
+                ));
+            }
         };
         let disabled = chrome_disabled_ids(&profile);
         for id_entry in ids.flatten() {
@@ -246,10 +358,17 @@ pub fn chrome_extensions(user_data: &Path, label: &str) -> Result<Option<Vec<Bro
             if disabled.contains(&id) {
                 continue;
             }
-            let Some(latest) = latest_version_dir(&id_entry.path()) else { continue };
-            let Ok(text) = std::fs::read_to_string(latest.join("manifest.json")) else { continue };
+            let Some(latest) = latest_version_dir(&id_entry.path()) else {
+                continue;
+            };
+            let Ok(text) = std::fs::read_to_string(latest.join("manifest.json")) else {
+                continue;
+            };
             let message = |locale: &str, key: &str| {
-                let text = std::fs::read_to_string(latest.join("_locales").join(locale).join("messages.json")).ok()?;
+                let text = std::fs::read_to_string(
+                    latest.join("_locales").join(locale).join("messages.json"),
+                )
+                .ok()?;
                 message_from_locale(&text, key)
             };
             if let Some(ext) = parse_chrome_manifest(&id, &text, &message)
@@ -268,12 +387,23 @@ pub fn firefox_extensions(base: &Path) -> Result<Vec<BrowserExtension>, Fail> {
     let ini = match std::fs::read_to_string(base.join("profiles.ini")) {
         Ok(ini) => ini,
         Err(err) if is_not_found(&err) => return Ok(Vec::new()),
-        Err(err) => return Err(fda_fail(&err, "read: Application Support/Firefox/profiles.ini")),
+        Err(err) => {
+            return Err(fda_fail(
+                &err,
+                "read: Application Support/Firefox/profiles.ini",
+            ));
+        }
     };
     let mut found: Vec<BrowserExtension> = Vec::new();
     for (path, relative) in parse_profiles_ini(&ini) {
-        let profile = if relative { base.join(path) } else { PathBuf::from(path) };
-        let Ok(text) = std::fs::read_to_string(profile.join("extensions.json")) else { continue };
+        let profile = if relative {
+            base.join(path)
+        } else {
+            PathBuf::from(path)
+        };
+        let Ok(text) = std::fs::read_to_string(profile.join("extensions.json")) else {
+            continue;
+        };
         for ext in parse_firefox_extensions(&text) {
             if !found.iter().any(|e| e.id == ext.id) {
                 found.push(ext);
@@ -302,7 +432,11 @@ fn bundle_presence(app_dirs: &[PathBuf], bundle: &str) -> Presence {
             Err(_) => unknown = true,
         }
     }
-    if unknown { Presence::Unknown } else { Presence::Absent }
+    if unknown {
+        Presence::Unknown
+    } else {
+        Presence::Absent
+    }
 }
 
 /// Data directory that can be stat'ed. ENOENT means none; a leftover directory from a deleted app still counts.
@@ -339,13 +473,21 @@ pub fn scan(app_support: &Path, app_dirs: &[PathBuf]) -> Browsers {
             Ok(None) => continue,
             Err(fail) => fail.into_section(),
         };
-        installed_browsers.push(BrowserReport { browser, extensions });
+        installed_browsers.push(BrowserReport {
+            browser,
+            extensions,
+        });
     }
     let firefox = app_support.join(FIREFOX_DIR);
     if is_installed(bundle_presence(app_dirs, FIREFOX_BUNDLE), &firefox) {
-        installed_browsers.push(BrowserReport { browser: BrowserId::Firefox, extensions: to_section(firefox_extensions(&firefox)) });
+        installed_browsers.push(BrowserReport {
+            browser: BrowserId::Firefox,
+            extensions: to_section(firefox_extensions(&firefox)),
+        });
     }
-    Browsers { installed: installed_browsers }
+    Browsers {
+        installed: installed_browsers,
+    }
 }
 
 fn inner(cancel: &AtomicBool) -> Result<Browsers, Fail> {
@@ -385,7 +527,12 @@ mod tests {
         assert_eq!(ext.version, "1.2.3");
         assert_eq!(ext.permissions, ["storage", "tabs"]);
         assert!(ext.broad_host_access);
-        let narrow = parse_chrome_manifest("abc", r#"{"name":"N","version":"1","permissions":["storage"]}"#, &no_locale).unwrap();
+        let narrow = parse_chrome_manifest(
+            "abc",
+            r#"{"name":"N","version":"1","permissions":["storage"]}"#,
+            &no_locale,
+        )
+        .unwrap();
         assert!(!narrow.broad_host_access);
         assert!(parse_chrome_manifest("abc", r#"{"name":"no version"}"#, &no_locale).is_none());
         assert!(parse_chrome_manifest("abc", "not json", &no_locale).is_none());
@@ -394,21 +541,49 @@ mod tests {
     #[test]
     fn content_scripts_on_every_page_are_broad() {
         let text = r#"{"manifest_version":3,"name":"G","version":"1","permissions":["storage"],"content_scripts":[{"matches":["<all_urls>"],"js":["a.js"]}]}"#;
-        assert!(parse_chrome_manifest("g", text, &no_locale).unwrap().broad_host_access);
+        assert!(
+            parse_chrome_manifest("g", text, &no_locale)
+                .unwrap()
+                .broad_host_access
+        );
         let narrow = r#"{"name":"N","version":"1","content_scripts":[{"matches":["https://*.example.com/*"]}]}"#;
-        assert!(!parse_chrome_manifest("n", narrow, &no_locale).unwrap().broad_host_access);
+        assert!(
+            !parse_chrome_manifest("n", narrow, &no_locale)
+                .unwrap()
+                .broad_host_access
+        );
         let optional = r#"{"name":"O","version":"1","optional_host_permissions":["<all_urls>"]}"#;
-        assert!(!parse_chrome_manifest("o", optional, &no_locale).unwrap().broad_host_access, "optional hosts are not granted at install");
+        assert!(
+            !parse_chrome_manifest("o", optional, &no_locale)
+                .unwrap()
+                .broad_host_access,
+            "optional hosts are not granted at install"
+        );
     }
 
     #[test]
     fn i18n_names_resolve_through_the_default_locale() {
         let text = r#"{"name":"__MSG_appName__","default_locale":"en","version":"1"}"#;
-        let messages = r#"{"appname":{"message":"Real Name","description":"x"},"other":{"message":"no"}}"#;
-        let lookup = |locale: &str, key: &str| if locale == "en" { message_from_locale(messages, key) } else { None };
-        assert_eq!(parse_chrome_manifest("abc", text, &lookup).unwrap().name, "Real Name");
-        assert_eq!(parse_chrome_manifest("abc", text, &no_locale).unwrap().name, "abc", "falls back to the id");
-        let plain = parse_chrome_manifest("abc", r#"{"name":"Plain","version":"1"}"#, &lookup).unwrap();
+        let messages =
+            r#"{"appname":{"message":"Real Name","description":"x"},"other":{"message":"no"}}"#;
+        let lookup = |locale: &str, key: &str| {
+            if locale == "en" {
+                message_from_locale(messages, key)
+            } else {
+                None
+            }
+        };
+        assert_eq!(
+            parse_chrome_manifest("abc", text, &lookup).unwrap().name,
+            "Real Name"
+        );
+        assert_eq!(
+            parse_chrome_manifest("abc", text, &no_locale).unwrap().name,
+            "abc",
+            "falls back to the id"
+        );
+        let plain =
+            parse_chrome_manifest("abc", r#"{"name":"Plain","version":"1"}"#, &lookup).unwrap();
         assert_eq!(plain.name, "Plain");
         assert_eq!(i18n_key("__MSG_appName__"), Some("appName"));
         assert_eq!(i18n_key("__MSG_broken"), None);
@@ -438,7 +613,13 @@ mod tests {
     fn profiles_ini() {
         let text = "[Install4F96D1932A9F858E]\nDefault=Profiles/abc.default-release\nLocked=1\n\n[Profile1]\nName=default\nIsRelative=1\nPath=Profiles/xyz.default\nDefault=1\n\n[Profile0]\nName=default-release\nIsRelative=0\nPath=/Users/x/custom\n\n[General]\nStartWithLastProfile=1\nVersion=2\n";
         let profiles = parse_profiles_ini(text);
-        assert_eq!(profiles, vec![("Profiles/xyz.default".to_owned(), true), ("/Users/x/custom".to_owned(), false)]);
+        assert_eq!(
+            profiles,
+            vec![
+                ("Profiles/xyz.default".to_owned(), true),
+                ("/Users/x/custom".to_owned(), false)
+            ]
+        );
     }
 
     #[test]
@@ -463,7 +644,8 @@ mod tests {
 
     /// A temp tree with `support/` for Application Support and `apps/` holding the named bundles.
     fn fake_tree(name: &str, bundles: &[&str]) -> (PathBuf, PathBuf, Vec<PathBuf>) {
-        let root = std::env::temp_dir().join(format!("talos-browsers-{name}-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("talos-browsers-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let support = root.join("support");
         let apps = root.join("apps");
@@ -480,53 +662,100 @@ mod tests {
         let (root, dir, apps) = fake_tree("tree", &["Google Chrome.app", "Firefox.app"]);
         let ext_dir = dir.join("Google/Chrome/Default/Extensions/abcdefghijklmnop/1.0_0");
         std::fs::create_dir_all(&ext_dir).unwrap();
-        std::fs::write(ext_dir.join("manifest.json"), r#"{"name":"X","version":"1.0","host_permissions":["*://*/*"]}"#).unwrap();
+        std::fs::write(
+            ext_dir.join("manifest.json"),
+            r#"{"name":"X","version":"1.0","host_permissions":["*://*/*"]}"#,
+        )
+        .unwrap();
         // A stale 1.9 directory next to the current 1.10, and an i18n name resolved from _locales.
         let old_dir = dir.join("Google/Chrome/Default/Extensions/bbbbbbbbbbbbbbbb/1.9_0");
         let new_dir = dir.join("Google/Chrome/Default/Extensions/bbbbbbbbbbbbbbbb/1.10_0");
         std::fs::create_dir_all(&old_dir).unwrap();
         std::fs::create_dir_all(new_dir.join("_locales/en")).unwrap();
-        std::fs::write(old_dir.join("manifest.json"), r#"{"name":"__MSG_appName__","version":"1.9","permissions":["storage"]}"#).unwrap();
+        std::fs::write(
+            old_dir.join("manifest.json"),
+            r#"{"name":"__MSG_appName__","version":"1.9","permissions":["storage"]}"#,
+        )
+        .unwrap();
         std::fs::write(new_dir.join("manifest.json"), r#"{"name":"__MSG_appName__","default_locale":"en","version":"1.10","permissions":["tabs"]}"#).unwrap();
-        std::fs::write(new_dir.join("_locales/en/messages.json"), r#"{"appName":{"message":"Localised"}}"#).unwrap();
+        std::fs::write(
+            new_dir.join("_locales/en/messages.json"),
+            r#"{"appName":{"message":"Localised"}}"#,
+        )
+        .unwrap();
         // Disabled in Preferences: still on disk, not reported.
         let off_dir = dir.join("Google/Chrome/Default/Extensions/cccccccccccccccc/3.0_0");
         std::fs::create_dir_all(&off_dir).unwrap();
-        std::fs::write(off_dir.join("manifest.json"), r#"{"name":"Off","version":"3.0","host_permissions":["<all_urls>"]}"#).unwrap();
+        std::fs::write(
+            off_dir.join("manifest.json"),
+            r#"{"name":"Off","version":"3.0","host_permissions":["<all_urls>"]}"#,
+        )
+        .unwrap();
         std::fs::write(dir.join("Google/Chrome/Default/Preferences"), r#"{"extensions":{"settings":{"cccccccccccccccc":{"state":0},"abcdefghijklmnop":{"state":1}}}}"#).unwrap();
         let ff = dir.join("Firefox/Profiles/a.default");
         std::fs::create_dir_all(&ff).unwrap();
-        std::fs::write(dir.join("Firefox/profiles.ini"), "[Profile0]\nName=d\nIsRelative=1\nPath=Profiles/a.default\n").unwrap();
+        std::fs::write(
+            dir.join("Firefox/profiles.ini"),
+            "[Profile0]\nName=d\nIsRelative=1\nPath=Profiles/a.default\n",
+        )
+        .unwrap();
         std::fs::write(ff.join("extensions.json"), r#"{"addons":[{"id":"a@b","type":"extension","location":"app-profile","version":"1","defaultLocale":{"name":"A"},"userPermissions":{"permissions":[],"origins":[]}}]}"#).unwrap();
         // Leftover data from a deleted Brave, with a profile and an extension still on disk.
-        let brave_dir = dir.join("BraveSoftware/Brave-Browser/Default/Extensions/dddddddddddddddd/1.0_0");
+        let brave_dir =
+            dir.join("BraveSoftware/Brave-Browser/Default/Extensions/dddddddddddddddd/1.0_0");
         std::fs::create_dir_all(&brave_dir).unwrap();
-        std::fs::write(brave_dir.join("manifest.json"), r#"{"name":"Gone","version":"1.0","host_permissions":["<all_urls>"]}"#).unwrap();
+        std::fs::write(
+            brave_dir.join("manifest.json"),
+            r#"{"name":"Gone","version":"1.0","host_permissions":["<all_urls>"]}"#,
+        )
+        .unwrap();
         let browsers = scan(&dir, &apps);
-        assert_eq!(browsers.installed.len(), 2, "Brave has data but no bundle, so it is not installed");
+        assert_eq!(
+            browsers.installed.len(),
+            2,
+            "Brave has data but no bundle, so it is not installed"
+        );
         assert_eq!(browsers.installed[0].browser, BrowserId::Chrome);
         let chrome = browsers.installed[0].extensions.as_ok().unwrap();
         assert_eq!(chrome.len(), 2, "the disabled extension is skipped");
         assert!(chrome[0].broad_host_access);
         assert_eq!(chrome[1].id, "bbbbbbbbbbbbbbbb");
-        assert_eq!(chrome[1].version, "1.10", "numeric version order, not string order");
+        assert_eq!(
+            chrome[1].version, "1.10",
+            "numeric version order, not string order"
+        );
         assert_eq!(chrome[1].permissions, ["tabs"]);
         assert_eq!(chrome[1].name, "Localised");
         assert_eq!(browsers.installed[1].browser, BrowserId::Firefox);
-        assert_eq!(browsers.installed[1].extensions.as_ok().unwrap()[0].name, "A");
+        assert_eq!(
+            browsers.installed[1].extensions.as_ok().unwrap()[0].name,
+            "A"
+        );
         let _ = std::fs::remove_dir_all(&root);
-        assert!(scan(Path::new("/nonexistent/talos"), &[PathBuf::from("/nonexistent/talos-apps")]).installed.is_empty());
+        assert!(
+            scan(
+                Path::new("/nonexistent/talos"),
+                &[PathBuf::from("/nonexistent/talos-apps")]
+            )
+            .installed
+            .is_empty()
+        );
     }
 
     #[test]
     fn leftover_data_dirs_without_a_bundle_are_not_installed() {
         let (root, dir, apps) = fake_tree("leftover", &[]);
-        std::fs::create_dir_all(dir.join("BraveSoftware/Brave-Browser/Default/Extensions")).unwrap();
+        std::fs::create_dir_all(dir.join("BraveSoftware/Brave-Browser/Default/Extensions"))
+            .unwrap();
         std::fs::create_dir_all(dir.join("Microsoft Edge/Default")).unwrap();
         std::fs::create_dir_all(dir.join("Arc/User Data/NativeMessagingHosts")).unwrap();
         let ff = dir.join("Firefox/Profiles/a.default");
         std::fs::create_dir_all(&ff).unwrap();
-        std::fs::write(dir.join("Firefox/profiles.ini"), "[Profile0]\nName=d\nIsRelative=1\nPath=Profiles/a.default\n").unwrap();
+        std::fs::write(
+            dir.join("Firefox/profiles.ini"),
+            "[Profile0]\nName=d\nIsRelative=1\nPath=Profiles/a.default\n",
+        )
+        .unwrap();
         assert!(scan(&dir, &apps).installed.is_empty());
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -537,7 +766,10 @@ mod tests {
         let browsers = scan(&dir, &apps);
         assert_eq!(browsers.installed.len(), 2);
         assert_eq!(browsers.installed[0].browser, BrowserId::Edge);
-        assert!(browsers.installed[0].extensions.as_ok().unwrap().is_empty(), "never launched: no profile, no extensions");
+        assert!(
+            browsers.installed[0].extensions.as_ok().unwrap().is_empty(),
+            "never launched: no profile, no extensions"
+        );
         assert_eq!(browsers.installed[1].browser, BrowserId::Firefox);
         assert!(browsers.installed[1].extensions.as_ok().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&root);
@@ -553,7 +785,11 @@ mod tests {
         assert_eq!(bundle_presence(&apps, "Arc.app"), Presence::Unknown);
         let browsers = scan(&dir, &apps);
         std::fs::set_permissions(&apps[0], std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert_eq!(browsers.installed.len(), 1, "Arc has no profile and no bundle answer; Chrome has a profile");
+        assert_eq!(
+            browsers.installed.len(),
+            1,
+            "Arc has no profile and no bundle answer; Chrome has a profile"
+        );
         assert_eq!(browsers.installed[0].browser, BrowserId::Chrome);
         assert!(browsers.installed[0].extensions.as_ok().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&root);
@@ -565,7 +801,11 @@ mod tests {
         assert_eq!(bundle_presence(&apps, "Arc.app"), Presence::Present);
         assert_eq!(bundle_presence(&apps, "Firefox.app"), Presence::Absent);
         apps.insert(0, PathBuf::from("/nonexistent/talos-apps"));
-        assert_eq!(bundle_presence(&apps, "Arc.app"), Presence::Present, "a missing folder does not hide a hit elsewhere");
+        assert_eq!(
+            bundle_presence(&apps, "Arc.app"),
+            Presence::Present,
+            "a missing folder does not hide a hit elsewhere"
+        );
         assert_eq!(bundle_presence(&[], "Arc.app"), Presence::Absent);
         let _ = std::fs::remove_dir_all(&root);
     }

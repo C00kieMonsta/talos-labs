@@ -1,19 +1,20 @@
-import type { Finding, ScanReport, Severity, SettingsPane, UnknownReason } from "@talos/core";
-import { buildBrowserPrompt, toExplainerContext } from "@talos/core";
-import { AssistantCard } from "../components/AssistantCard";
-import { ScoreRing } from "../components/ScoreRing";
+import type { Finding, Prioritisation, RuleId, ScanReport, Severity, UnknownReason } from "@talos/core";
+import { AiCard, useAiCardFlow } from "../components/AiCard";
 import { FindingCard } from "../components/FindingCard";
+import { choiceFor, pathChoices } from "../components/FixCard";
+import { FixFlow } from "../components/FixSheet";
 import { PermissionCard } from "../components/PermissionCard";
-import { GRADE_SUMMARY, SEVERITY_LABELS, SOCKET_TABLE_COPY, UNKNOWN_REASON_LABELS, formatDateTime, paneForReason } from "../app/labels";
+import { ScoreMeter } from "../components/ScoreMeter";
+import { GRADE_SUMMARY, SEVERITY_LABELS, SOCKET_TABLE_COPY, UNKNOWN_REASON_LABELS, paneForReason } from "../app/labels";
 import { useApp } from "../app/context";
 import { hiddenBySocketTable } from "../app/network-checks";
 import { lastReport } from "../scan/machine";
-import type { Assistant } from "../settings";
+import type { PermissionKind } from "../scan/useCapabilityPoll";
 
 const COUNTED: readonly Severity[] = ["critical", "high", "medium", "low"];
 
-function groupByPermission(findings: readonly Finding[]): Map<"full_disk_access" | "automation", Finding[]> {
-  const groups = new Map<"full_disk_access" | "automation", Finding[]>();
+function groupByPermission(findings: readonly Finding[]): Map<PermissionKind, Finding[]> {
+  const groups = new Map<PermissionKind, Finding[]>();
   for (const finding of findings) {
     const pane = paneForReason(finding.unknownReason);
     if (pane === "full_disk_access" || pane === "automation") {
@@ -39,7 +40,7 @@ function groupByReason(findings: readonly Finding[]): { reason: UnknownReason | 
 const NO_REASON_LABEL = "Could not be checked";
 
 export function Overview() {
-  const { scan, router, gate, adapters, settings, updateSettings, catalog } = useApp();
+  const { scan, router, gate, adapters, settings, capabilities } = useApp();
   const report = lastReport(scan.scan);
 
   if (report === null) {
@@ -54,89 +55,126 @@ export function Overview() {
     );
   }
 
-  const { provider, assistant } = settings.explainer;
-  // async so a throw while building the prompt surfaces as a rejection the card can show.
-  const explainAll = async () => {
-    const context = toExplainerContext(report, catalog, settings.profile);
-    await adapters.openAssistant(assistant, buildBrowserPrompt(context, catalog));
+  const live = scan.scan.kind === "ready";
+  const onAction = (ruleId: RuleId) => {
+    const finding = report.findings.find((f) => f.ruleId === ruleId);
+    if (finding === undefined) return;
+    const apply = finding.fix.apply;
+    if (apply.kind === "in_app" && live) {
+      const choice = choiceFor(finding, pathChoices(finding.evidence)[0]?.path ?? null);
+      if (choice !== null) void scan.previewFix(ruleId, choice);
+      return;
+    }
+    if (apply.kind === "deep_link") {
+      void adapters.openSettingsPane(apply.pane);
+      if (live) scan.startWatch(ruleId);
+      return;
+    }
+    router.navigate({ name: "finding", ruleId });
   };
 
   return (
-    <OverviewBody
-      report={report}
-      freeFixes={gate.freeFixes}
-      assistant={provider === "browser" ? assistant : null}
-      onRescan={() => void scan.start()}
-      onOpenPane={(pane) => void adapters.openSettingsPane(pane)}
-      onOpenFinding={(ruleId) => router.navigate({ name: "finding", ruleId })}
-      onAll={() => router.navigate({ name: "findings" })}
-      onExplainAll={explainAll}
-      onSwitchAssistant={(next) => updateSettings({ explainer: { ...settings.explainer, assistant: next } })}
-    />
+    <>
+      <OverviewBody
+        report={report}
+        freeFixes={gate.freeFixes}
+        aiEnabled={settings.explainer.aiEnabled}
+        capabilities={capabilities}
+        onOpenFinding={(ruleId) => router.navigate({ name: "finding", ruleId })}
+        onAction={onAction}
+        onAll={() => router.navigate({ name: "findings" })}
+      />
+      <FixFlow />
+    </>
+  );
+}
+
+/** "Start with" from the model, then the rest of its order, then what it did not see in points order. */
+export function SuggestedOrderBody({ report, priority, onOpen }: { report: ScanReport; priority: Prioritisation; onOpen(ruleId: RuleId): void }) {
+  const headline = (id: RuleId) => report.findings.find((f) => f.ruleId === id)?.headline ?? id;
+  const reason = (id: RuleId) => priority.reasons.find((r) => r.ruleId === id)?.reason ?? null;
+  const startWith = priority.startWith.slice(0, 3);
+  const then = priority.order.filter((id) => !startWith.includes(id));
+  const seen = new Set<string>([...startWith, ...then]);
+  const omitted = report.findings.filter((f) => f.status !== "unknown" && !seen.has(f.ruleId)).map((f) => f.ruleId);
+  const item = (id: RuleId, withReason: boolean) => (
+    <li key={id}>
+      <button type="button" className="link-button" data-rule-id={id} onClick={() => onOpen(id)}>
+        {headline(id)}
+      </button>
+      {withReason && reason(id) !== null && <p className="muted small">{reason(id)}</p>}
+    </li>
+  );
+  return (
+    <div className="ai-body suggested-order">
+      {startWith.length > 0 && (
+        <>
+          <p className="label">Start with</p>
+          <ol>{startWith.map((id) => item(id, true))}</ol>
+        </>
+      )}
+      {then.length > 0 && (
+        <>
+          <p className="label">Then</p>
+          <ol start={startWith.length + 1}>{then.map((id) => item(id, false))}</ol>
+        </>
+      )}
+      {omitted.length > 0 && (
+        <>
+          <p className="label">Then, in points order</p>
+          <ol start={startWith.length + then.length + 1}>{omitted.map((id) => item(id, false))}</ol>
+        </>
+      )}
+    </div>
+  );
+}
+
+function OverviewAiCard({ report, onOpen }: { report: ScanReport; onOpen(ruleId: RuleId): void }) {
+  const flow = useAiCardFlow("prioritise");
+  const priority = flow.explain.kind === "ready" || flow.explain.kind === "failed" ? flow.explain.priority : null;
+  return (
+    <AiCard kind="overview" state={flow.state} {...flow.handlers}>
+      {priority !== null && <SuggestedOrderBody report={report} priority={priority} onOpen={onOpen} />}
+    </AiCard>
   );
 }
 
 function OverviewBody({
   report,
   freeFixes,
-  assistant,
-  onRescan,
-  onOpenPane,
+  aiEnabled,
+  capabilities,
   onOpenFinding,
+  onAction,
   onAll,
-  onExplainAll,
-  onSwitchAssistant,
 }: {
   report: ScanReport;
   freeFixes: readonly string[];
-  /** null when the browser hand-off is not the chosen provider. */
-  assistant: Assistant | null;
-  onRescan(): void;
-  onOpenPane(pane: SettingsPane): void;
-  onOpenFinding(ruleId: Finding["ruleId"]): void;
+  aiEnabled: boolean;
+  capabilities: Parameters<typeof PermissionCard>[0]["capabilities"];
+  onOpenFinding(ruleId: RuleId): void;
+  onAction(ruleId: RuleId): void;
   onAll(): void;
-  onExplainAll(): Promise<void>;
-  onSwitchAssistant(assistant: Assistant): void;
 }) {
   const failing = report.findings.filter((f) => f.status === "fail");
   const unknown = report.findings.filter((f) => f.status === "unknown");
   const permissions = groupByPermission(unknown);
   const networkHidden = unknown.filter((f) => hiddenBySocketTable(report, f));
-  const otherUnknown = groupByReason(
-    unknown.filter((f) => paneForReason(f.unknownReason) === null && !hiddenBySocketTable(report, f)),
-  );
-  const nextThree = freeFixes
-    .map((id) => failing.find((f) => f.ruleId === id))
-    .filter((f): f is Finding => f !== undefined);
-  const counts = COUNTED.map((severity) => ({
-    severity,
-    count: failing.filter((f) => f.severity === severity).length,
-  }));
+  const otherUnknown = groupByReason(unknown.filter((f) => paneForReason(f.unknownReason) === null && !hiddenBySocketTable(report, f)));
+  const nextThree = freeFixes.map((id) => failing.find((f) => f.ruleId === id)).filter((f): f is Finding => f !== undefined);
+  const counts = COUNTED.map((severity) => ({ severity, count: failing.filter((f) => f.severity === severity).length }));
   const { score } = report;
 
   return (
     <main className="screen overview">
-      <header className="overview-head">
-        <div>
-          <h1>Overview</h1>
-          <p className="muted">Last check-up {formatDateTime(report.scannedAt)}</p>
-        </div>
-        <button type="button" className="button" onClick={onRescan}>
-          Rescan
-        </button>
-      </header>
-
       {score.value === null || score.grade === null ? (
         <section className="card" aria-labelledby="no-score">
           <h2 id="no-score">Nothing could be checked</h2>
-          <p>
-            Every area was out of reach, so there is no score yet. Grant any permissions listed below, then run the
-            check-up again.
-          </p>
+          <p>Every area was out of reach, so there is no score yet. Grant any permissions listed below, then run the check-up again.</p>
         </section>
       ) : (
         <section className="score-panel card" aria-labelledby="score-heading">
-          <ScoreRing value={score.value} grade={score.grade} />
+          <ScoreMeter value={score.value} grade={score.grade} cappedByCritical={score.cappedByCritical} />
           <div className="score-text">
             <h2 id="score-heading">{GRADE_SUMMARY[score.grade]}</h2>
             {!score.complete && (
@@ -145,9 +183,7 @@ function OverviewBody({
                 <span className="muted">Some areas could not be checked. They are not counted, so the real score may be lower than this.</span>
               </p>
             )}
-            {score.cappedByCritical && (
-              <p className="muted">A critical issue caps the score at 59 until it is fixed.</p>
-            )}
+            {score.cappedByCritical && <p className="muted">A critical issue caps the score at 59 until it is fixed.</p>}
             <ul className="counts" aria-label="Issues by severity">
               {counts.map(({ severity, count }) => (
                 <li key={severity} className={`count count-${severity}`}>
@@ -160,9 +196,7 @@ function OverviewBody({
         </section>
       )}
 
-      {assistant !== null && score.value !== null && (
-        <AssistantCard assistant={assistant} target="results" onOpen={onExplainAll} onSwitch={onSwitchAssistant} />
-      )}
+      {aiEnabled && score.value !== null && failing.length > 0 && <OverviewAiCard report={report} onOpen={onOpenFinding} />}
 
       {nextThree.length > 0 && (
         <section aria-labelledby="next-fixes">
@@ -174,7 +208,7 @@ function OverviewBody({
           </div>
           <div className="card-grid">
             {nextThree.map((finding) => (
-              <FindingCard key={finding.ruleId} finding={finding} onOpen={onOpenFinding} />
+              <FindingCard key={finding.ruleId} finding={finding} onOpen={onOpenFinding} onAction={onAction} />
             ))}
           </div>
         </section>
@@ -191,13 +225,8 @@ function OverviewBody({
         <section aria-labelledby="couldnt-check">
           <h2 id="couldnt-check">Couldn't check</h2>
           <div className="card-grid">
-            {[...permissions.entries()].map(([pane, findings]) => (
-              <PermissionCard
-                key={pane}
-                pane={pane}
-                affected={findings.map((f) => f.title)}
-                onOpen={onOpenPane}
-              />
+            {[...permissions.entries()].map(([kind, findings]) => (
+              <PermissionCard key={kind} kind={kind} affected={findings.map((f) => f.title)} capabilities={capabilities} />
             ))}
             {networkHidden.length > 0 && (
               <section className="card card-muted" aria-labelledby="unsigned-build">

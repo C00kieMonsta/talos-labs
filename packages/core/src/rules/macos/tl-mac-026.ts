@@ -29,6 +29,13 @@ export const TL_MAC_026: Rule = {
     verify: "Time Machine lists the disk and shows a time for the latest backup after the first run.",
     effort: "ten_minutes",
     sideEffects: "none",
+    apply: {
+      kind: "deep_link",
+      pane: "time_machine",
+      watch: ["backup"],
+      watchEvery: 10,
+      reveal: null,
+    },
   },
   evaluate(state) {
     const data = section(state, "backup");

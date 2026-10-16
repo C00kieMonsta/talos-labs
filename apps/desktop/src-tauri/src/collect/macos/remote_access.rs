@@ -7,15 +7,19 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use super::{lit, run};
-use crate::collect::{to_section, Fail, Shared};
+use crate::collect::{Fail, Shared, to_section};
 use crate::exec::Bin;
-use crate::state::{ListenerBind, Listeners, RemoteAccess, Section, ServiceState, UnavailableReason};
+use crate::state::{
+    ListenerBind, Listeners, RemoteAccess, Section, ServiceState, UnavailableReason,
+};
 
 pub const SSHD_LABEL: &str = "com.openssh.sshd";
 pub const SCREEN_SHARING_LABEL: &str = "com.apple.screensharing";
-pub const REMOTE_MANAGEMENT_FILE: &str = "/Library/Application Support/Apple/Remote Desktop/RemoteManagement.launchd";
+pub const REMOTE_MANAGEMENT_FILE: &str =
+    "/Library/Application Support/Apple/Remote Desktop/RemoteManagement.launchd";
 
-static OVERRIDE_RE: LazyLock<Regex> = LazyLock::new(|| lit(r#"^"([^"]+)"\s*=>\s*(enabled|disabled)$"#));
+static OVERRIDE_RE: LazyLock<Regex> =
+    LazyLock::new(|| lit(r#"^"([^"]+)"\s*=>\s*(enabled|disabled)$"#));
 
 /// The `disabled services = { ... }` block of `launchctl print-disabled system`. None when the block is absent.
 pub fn parse_print_disabled(text: &str) -> Option<HashMap<String, bool>> {
@@ -52,14 +56,23 @@ pub fn non_loopback_port(listeners: &Listeners, ports: &[u16]) -> Option<u16> {
 
 pub fn shared_listeners(shared: &Shared) -> Result<&Listeners, Fail> {
     let section = shared.listeners();
-    section
-        .as_ok()
-        .ok_or_else(|| Fail::new(section.reason().unwrap_or(UnavailableReason::CollectorError), "shared: listeners"))
+    section.as_ok().ok_or_else(|| {
+        Fail::new(
+            section
+                .reason()
+                .unwrap_or(UnavailableReason::CollectorError),
+            "shared: listeners",
+        )
+    })
 }
 
 fn inner(shared: &Shared) -> Result<RemoteAccess, Fail> {
     let listeners = shared_listeners(shared)?;
-    let out = run(Bin::Launchctl, &["print-disabled", "system"], &shared.cancel)?;
+    let out = run(
+        Bin::Launchctl,
+        &["print-disabled", "system"],
+        &shared.cancel,
+    )?;
     let overrides = parse_print_disabled(&out.stdout);
     Ok(RemoteAccess {
         ssh: ServiceState {
@@ -95,8 +108,15 @@ mod tests {
         assert_eq!(map.get("com.docker.vmnetd"), Some(&true));
         assert_eq!(map.get("com.apple.ftpd"), Some(&false));
         assert_eq!(map.len(), 9);
-        assert_eq!(service_loaded(Some(&map), SSHD_LABEL), Some(false), "absent label means off");
-        assert_eq!(service_loaded(Some(&map), SCREEN_SHARING_LABEL), Some(false));
+        assert_eq!(
+            service_loaded(Some(&map), SSHD_LABEL),
+            Some(false),
+            "absent label means off"
+        );
+        assert_eq!(
+            service_loaded(Some(&map), SCREEN_SHARING_LABEL),
+            Some(false)
+        );
     }
 
     #[test]
@@ -104,7 +124,10 @@ mod tests {
         let text = "\tdisabled services = {\n\t\t\"com.openssh.sshd\" => enabled\n\t\t\"com.apple.screensharing\" => disabled\n\t}\n";
         let map = parse_print_disabled(text).unwrap();
         assert_eq!(service_loaded(Some(&map), SSHD_LABEL), Some(true));
-        assert_eq!(service_loaded(Some(&map), SCREEN_SHARING_LABEL), Some(false));
+        assert_eq!(
+            service_loaded(Some(&map), SCREEN_SHARING_LABEL),
+            Some(false)
+        );
     }
 
     #[test]
@@ -117,8 +140,20 @@ mod tests {
     fn ports_ignore_loopback() {
         let listeners = Listeners {
             entries: vec![
-                Listener { protocol: Protocol::Tcp, port: 22, bind: ListenerBind::Loopback, process_name: None, pid: None },
-                Listener { protocol: Protocol::Tcp, port: 5900, bind: ListenerBind::All, process_name: Some("launchd".into()), pid: Some(1) },
+                Listener {
+                    protocol: Protocol::Tcp,
+                    port: 22,
+                    bind: ListenerBind::Loopback,
+                    process_name: None,
+                    pid: None,
+                },
+                Listener {
+                    protocol: Protocol::Tcp,
+                    port: 5900,
+                    bind: ListenerBind::All,
+                    process_name: Some("launchd".into()),
+                    pid: Some(1),
+                },
             ],
             process_names_complete: false,
         };

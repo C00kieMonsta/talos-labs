@@ -1,5 +1,10 @@
 //! Contract test: every emitted core fixture deserialises into `state::SystemState` and re-serialises equal.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 
 use std::path::{Path, PathBuf};
 
@@ -10,14 +15,24 @@ fn fixture_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../packages/core/fixtures")
 }
 
-const EXPECTED: [&str; 5] = ["all-unavailable", "dev-machine", "fresh-install", "hardened", "windows-minimal"];
+const EXPECTED: [&str; 5] = [
+    "all-unavailable",
+    "dev-machine",
+    "fresh-install",
+    "hardened",
+    "windows-minimal",
+];
 
 fn json_files(dir: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
     let mut files: Vec<PathBuf> = entries
         .flatten()
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|e| e == "json"))
+        // fix-catalog.json is the fix contract, not a SystemState; tests/fix_catalog_contract.rs reads it.
+        .filter(|p| p.file_stem().is_none_or(|s| s != "fix-catalog"))
         .collect();
     files.sort();
     files
@@ -29,7 +44,9 @@ fn every_fixture_round_trips() {
     let files = json_files(&dir);
     for name in EXPECTED {
         assert!(
-            files.iter().any(|f| f.file_stem().is_some_and(|s| s == name)),
+            files
+                .iter()
+                .any(|f| f.file_stem().is_some_and(|s| s == name)),
             "{} is missing {name}.json; run pnpm --filter @talos/core fixtures:emit",
             dir.display()
         );
@@ -37,13 +54,27 @@ fn every_fixture_round_trips() {
     for file in files {
         let text = std::fs::read_to_string(&file).unwrap();
         let original: serde_json::Value = serde_json::from_str(&text).unwrap();
-        let state: SystemState = serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+        let state: SystemState =
+            serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
         assert_eq!(state.schema_version, 1, "{}", file.display());
         let back = serde_json::to_value(&state).unwrap();
-        assert_eq!(back, original, "{} changed after a round trip", file.display());
-        let sections = original.get("sections").and_then(|s| s.as_object()).unwrap();
+        assert_eq!(
+            back,
+            original,
+            "{} changed after a round trip",
+            file.display()
+        );
+        let sections = original
+            .get("sections")
+            .and_then(|s| s.as_object())
+            .unwrap();
         for key in SectionKey::ALL {
-            assert!(sections.contains_key(key.as_str()), "{} lacks {}", file.display(), key.as_str());
+            assert!(
+                sections.contains_key(key.as_str()),
+                "{} lacks {}",
+                file.display(),
+                key.as_str()
+            );
         }
     }
 }
@@ -58,5 +89,8 @@ fn dev_machine_fixture_matches_known_values() {
     let listeners = state.sections.listeners.as_ok().unwrap();
     assert_eq!(listeners.entries.len(), 6);
     let chrome = &state.sections.browsers.as_ok().unwrap().installed[0];
-    assert_eq!(chrome.extensions.reason(), Some(talos_desktop_lib::state::UnavailableReason::NeedsFullDiskAccess));
+    assert_eq!(
+        chrome.extensions.reason(),
+        Some(talos_desktop_lib::state::UnavailableReason::NeedsFullDiskAccess)
+    );
 }

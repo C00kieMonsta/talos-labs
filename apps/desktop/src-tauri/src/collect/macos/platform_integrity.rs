@@ -3,7 +3,7 @@
 use std::sync::atomic::AtomicBool;
 
 use super::{check_exit, run};
-use crate::collect::{to_section, Fail};
+use crate::collect::{Fail, to_section};
 use crate::exec::Bin;
 use crate::state::{PlatformIntegrity, Section};
 
@@ -37,7 +37,10 @@ fn inner(cancel: &AtomicBool) -> Result<PlatformIntegrity, Fail> {
     let csrutil = run(Bin::Csrutil, &["status"], cancel)?;
     check_exit(&csrutil, Bin::Csrutil)?;
     let sip = parse_csrutil(&format!("{}\n{}", csrutil.stdout, csrutil.stderr))?;
-    Ok(PlatformIntegrity { exec_policy_enabled: Some(exec_policy), system_protection_enabled: Some(sip) })
+    Ok(PlatformIntegrity {
+        exec_policy_enabled: Some(exec_policy),
+        system_protection_enabled: Some(sip),
+    })
 }
 
 pub fn collect(cancel: &AtomicBool) -> Section<PlatformIntegrity> {
@@ -61,7 +64,10 @@ mod tests {
         assert!(parse_csrutil("System Integrity Protection status: enabled.\n").unwrap());
         assert!(!parse_csrutil("System Integrity Protection status: disabled.\n").unwrap());
         let custom = "System Integrity Protection status: unknown (Custom Configuration).\n\nConfiguration:\n\tApple Internal: disabled\n\tKext Signing: enabled\n\tDebugging Restrictions: disabled\n";
-        assert!(!parse_csrutil(custom).unwrap(), "a custom configuration is not fully enabled");
+        assert!(
+            !parse_csrutil(custom).unwrap(),
+            "a custom configuration is not fully enabled"
+        );
         assert!(parse_csrutil("").is_err());
         assert!(parse_csrutil("csrutil: unrecognized command\n").is_err());
     }

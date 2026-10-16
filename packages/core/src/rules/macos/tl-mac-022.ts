@@ -28,6 +28,17 @@ export const TL_MAC_022: Rule = {
     verify: "Run the check-up again; the count of folders open to Everyone is 0, or File Sharing is off.",
     effort: "two_minutes",
     sideEffects: "workflow",
+    apply: {
+      kind: "in_app",
+      choice: "share",
+      passphrase: false,
+      needsPassword: true,
+      recheck: ["fileSharing", "listeners"],
+      confirmTitle: "Stop sharing this folder with everyone?",
+      confirmVerb: "Stop sharing",
+      confirmNote: "People will still be able to open it with a password.",
+      reversible: "You can open it to everyone again in System Settings > General > Sharing > File Sharing.",
+    },
   },
   evaluate(state) {
     const data = section(state, "fileSharing");

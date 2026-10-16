@@ -1,355 +1,439 @@
 import { useEffect, useRef, useState } from "react";
-import type { FormEvent } from "react";
-import type { Capabilities, LicenseState } from "@talos/core";
+import type { FormEvent, ReactNode } from "react";
+import { CircleAlert, CircleCheck, Cpu, Download, LoaderCircle, Sparkles } from "lucide-react";
+import { CORE_VERSION } from "@talos/core";
+import type { AiAvailability, Capabilities, ExplainerProfile, LicenseState } from "@talos/core";
+import { LicenceField } from "../components/LicenceField";
 import { ProfileForm } from "../components/ProfileForm";
 import { useApp } from "../app/context";
-import { LICENSE_INVALID_LABELS } from "../app/labels";
-import { MAX_MODEL_ID_LENGTH, isInAppProvider } from "../settings";
-import type { Assistant, ExplainerProvider } from "../settings";
+import { AI_AVAILABILITY_LABELS, LICENSE_INVALID_LABELS, PERMISSION_STATUS_LABELS, PRIVACY_SENTENCE, summariseProfile } from "../app/labels";
+import type { PermissionStatus } from "../app/labels";
+import { APP_VERSION } from "../app/version";
+import { MAX_MODEL_ID_LENGTH } from "../settings";
+import type { DeveloperSettings, ExplainerProvider } from "../settings";
 
-type KeyStatus = "unknown" | "saved" | "not_set";
+export type PermissionKind = "full_disk_access" | "automation";
+
+export interface SettingsProps {
+  /** null until the first probe has answered. */
+  aiAvailability: AiAvailability | null;
+  /** The one button of the current AI state (Open Apple Intelligence settings, Try again). */
+  onAiAction(state: AiAvailability): void;
+  /** null until check_capabilities has answered. */
+  capabilities: Capabilities | null;
+  /** Open or Allow on a permission row; starts the flow in section 6 of the design. */
+  onPermission(kind: PermissionKind, status: PermissionStatus): void;
+  onBuy(): void;
+}
+
+export const AI_SENTENCE = "Runs on this Mac. Only the check-up results are used, never file names, paths or passwords.";
+export const FREE_LINE = "Free: the three most valuable fixes";
+export const PERMISSION_TITLES: Readonly<Record<PermissionKind, string>> = {
+  full_disk_access: "Full Disk Access",
+  automation: "Automation",
+};
 
 const CLAUDE_MODEL = /^claude-[a-z0-9-]+$/;
 const OLLAMA_MODEL = /^[a-z0-9._:-]+$/;
-/** Longest model id the inputs accept; a pasted blob is marked invalid instead of being sent with every request. */
+const PROVIDER_LABELS: Readonly<Record<ExplainerProvider, string>> = {
+  apple: "On this Mac",
+  claude: "Claude API key",
+  ollama: "Local Ollama",
+};
 
 function modelIdOk(id: string, pattern: RegExp): boolean {
   return pattern.test(id) && id.length <= MAX_MODEL_ID_LENGTH;
 }
 
-export const DEVELOPER_MODE_COPY =
-  "Shows Terminal commands next to fixes and unlocks API-key and local-model options for AI help.";
+/** The pill word for each row, from the probe. */
+export function permissionStatus(capabilities: Capabilities, kind: PermissionKind): PermissionStatus {
+  if (kind === "full_disk_access") {
+    if (capabilities.fullDiskAccess === null) return "unknown";
+    return capabilities.fullDiskAccess ? "granted" : "not_granted";
+  }
+  switch (capabilities.automation) {
+    case "granted":
+      return "granted";
+    case "denied":
+      return "not_granted";
+    case "not_determined":
+      return "not_determined";
+    default:
+      return "unknown";
+  }
+}
 
-export function Settings() {
-  const { settings, updateSettings, adapters, license, setLicense } = useApp();
-  const [keyStatus, setKeyStatus] = useState<KeyStatus>("unknown");
-  const [keyDraft, setKeyDraft] = useState("");
-  const [keyError, setKeyError] = useState<string | null>(null);
-  const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
-  const [licenseDraft, setLicenseDraft] = useState("");
-  const [licenseBusy, setLicenseBusy] = useState(false);
-  const [licenseResult, setLicenseResult] = useState<LicenseState | null>(null);
+/** The button label for a row, or null when there is nothing to do. */
+export function permissionAction(kind: PermissionKind, status: PermissionStatus): string | null {
+  if (status === "granted") return null;
+  if (status === "not_determined") return "Allow";
+  return kind === "full_disk_access" ? "Open Full Disk Access" : "Open Automation settings";
+}
+
+function AiIcon({ state }: { state: AiAvailability }) {
+  const props = { size: 16, "aria-hidden": true } as const;
+  switch (state) {
+    case "available":
+      return <CircleCheck {...props} />;
+    case "model_not_ready":
+      return <Download {...props} />;
+    case "apple_intelligence_not_enabled":
+      return <Sparkles {...props} />;
+    case "device_not_eligible":
+      return <Cpu {...props} />;
+    default:
+      return <CircleAlert {...props} />;
+  }
+}
+
+function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  return (
+    <section className="card" aria-labelledby={`${id}-heading`}>
+      <h2 id={`${id}-heading`}>{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+function Switch({ label, checked, onChange }: { label: string; checked: boolean; onChange(next: boolean): void }) {
+  return (
+    <label className="toggle">
+      <input type="checkbox" role="switch" aria-checked={checked} checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <span>{label}</span>
+    </label>
+  );
+}
+
+function AiSection({ aiAvailability, onAiAction }: Pick<SettingsProps, "aiAvailability" | "onAiAction">) {
+  const { settings, updateSettings } = useApp();
+  const enabled = settings.explainer.aiEnabled;
+  const state = aiAvailability;
+  const label = state === null ? null : AI_AVAILABILITY_LABELS[state];
+  return (
+    <Section id="ai" title="AI explanations">
+      <Switch
+        label="Explain findings with Apple Intelligence"
+        checked={enabled}
+        onChange={(aiEnabled) => updateSettings({ explainer: { ...settings.explainer, aiEnabled } })}
+      />
+      {enabled && (
+        <p className="status" data-state={state ?? "checking"}>
+          {state === null ? <LoaderCircle size={16} className="spin" aria-hidden="true" /> : <AiIcon state={state} />}{" "}
+          <span>{label === null ? "Checking" : label.word}</span>
+          {state !== null && label !== null && label.action !== null && (
+            <button type="button" className="button button-small" onClick={() => onAiAction(state)}>
+              {label.action}
+            </button>
+          )}
+        </p>
+      )}
+      <p className="muted small">{AI_SENTENCE}</p>
+    </Section>
+  );
+}
+
+function AboutYouSection() {
+  const { settings, updateSettings } = useApp();
+  const [editing, setEditing] = useState(false);
+  const profile: ExplainerProfile = settings.profile;
+  return (
+    <Section id="profile" title="About you">
+      {editing ? (
+        <ProfileForm value={profile} onChange={(next) => updateSettings({ profile: next })} idPrefix="settings" />
+      ) : (
+        <p className="field-row">
+          <span>{summariseProfile(profile)}</span>
+          <button type="button" className="button button-small" onClick={() => setEditing(true)}>
+            Edit
+          </button>
+        </p>
+      )}
+    </Section>
+  );
+}
+
+function PermissionsSection({ capabilities, onPermission }: Pick<SettingsProps, "capabilities" | "onPermission">) {
+  const kinds: readonly PermissionKind[] = ["full_disk_access", "automation"];
+  return (
+    <Section id="permissions" title="Permissions">
+      <ul className="plain-list">
+        {kinds.map((kind) => {
+          const status = capabilities === null ? null : permissionStatus(capabilities, kind);
+          const action = status === null ? null : permissionAction(kind, status);
+          return (
+            <li key={kind} className="field-row">
+              <span>{PERMISSION_TITLES[kind]}</span>
+              <span className={status === "granted" ? "pill pill-accent" : "pill"} data-status={status ?? "checking"}>
+                {status === null ? "Checking" : PERMISSION_STATUS_LABELS[status]}
+              </span>
+              {status !== null && action !== null && (
+                <button type="button" className="button button-small" onClick={() => onPermission(kind, status)}>
+                  {action}
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </Section>
+  );
+}
+
+function LicenceSection({ onBuy }: Pick<SettingsProps, "onBuy">) {
+  const { adapters, license, setLicense } = useApp();
+  const [busy, setBusy] = useState(false);
   const licensedLine = useRef<HTMLParagraphElement>(null);
-  const licenseInput = useRef<HTMLInputElement>(null);
-  const keyInput = useRef<HTMLInputElement>(null);
-  const previousLicense = useRef(license.status);
+  const previous = useRef(license.status);
 
-  // Installing or removing a licence swaps the form for the summary, or back; move focus with it.
+  // Installing or removing a licence swaps the field for the summary, or back; move focus with it.
   useEffect(() => {
-    if (previousLicense.current === license.status) return;
-    previousLicense.current = license.status;
+    if (previous.current === license.status) return;
+    previous.current = license.status;
     if (license.status === "valid") licensedLine.current?.focus();
-    else licenseInput.current?.focus();
   }, [license.status]);
+
+  async function remove() {
+    setBusy(true);
+    try {
+      await adapters.license.remove();
+      setLicense({ status: "none" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (license.status === "valid") {
+    const { plan, seats, updatesUntil } = license.payload;
+    return (
+      <Section id="licence" title="Licence">
+        <p ref={licensedLine} tabIndex={-1}>
+          Licensed, {plan} plan, {seats} {seats === 1 ? "seat" : "seats"}, updates until {updatesUntil}
+        </p>
+        <button type="button" className="button button-ghost" onClick={() => void remove()} disabled={busy}>
+          Remove
+        </button>
+      </Section>
+    );
+  }
+  return (
+    <Section id="licence" title="Licence">
+      <p>{license.status === "invalid" ? `The stored key is not valid: ${LICENSE_INVALID_LABELS[license.reason]}` : FREE_LINE}</p>
+      <LicenceField onBuy={onBuy} />
+    </Section>
+  );
+}
+
+type KeyStatus = "unknown" | "saved" | "not_set";
+
+function KeychainKeyField() {
+  const { adapters } = useApp();
+  const [status, setStatus] = useState<KeyStatus>("unknown");
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let cancelled = false;
     void adapters.secrets
       .get("anthropic_api_key")
       .then((value) => {
-        if (!cancelled) setKeyStatus(value === null ? "not_set" : "saved");
+        if (!cancelled) setStatus(value === null ? "not_set" : "saved");
       })
       .catch(() => {
-        if (!cancelled) setKeyStatus("not_set");
-      });
-    void adapters.systemState
-      .capabilities()
-      .then((value) => {
-        if (!cancelled) setCapabilities(value);
-      })
-      .catch(() => {
-        if (!cancelled) setCapabilities({ fullDiskAccess: null });
+        if (!cancelled) setStatus("not_set");
       });
     return () => {
       cancelled = true;
     };
   }, [adapters]);
 
-  const { provider, assistant } = settings.explainer;
-  const { developerMode } = settings;
-  const setProvider = (next: ExplainerProvider) => updateSettings({ explainer: { ...settings.explainer, provider: next } });
-  const setAssistant = (next: Assistant) => updateSettings({ explainer: { ...settings.explainer, assistant: next } });
-  const setDeveloperMode = (next: boolean) => {
-    // Leaving Developer mode hides the in-app providers, so fall back to the browser hand-off.
-    const explainer = !next && isInAppProvider(provider) ? { ...settings.explainer, provider: "browser" as const } : settings.explainer;
-    updateSettings({ developerMode: next, explainer });
-  };
-
-  async function saveKey(event: FormEvent) {
+  async function save(event: FormEvent) {
     event.preventDefault();
-    const value = keyDraft.trim();
+    const value = draft.trim();
     if (value.length === 0) return;
     try {
       await adapters.secrets.set("anthropic_api_key", value);
-      setKeyDraft("");
-      setKeyStatus("saved");
-      setKeyError(null);
+      setDraft("");
+      setStatus("saved");
+      setError(null);
     } catch {
-      setKeyError("The key could not be saved to the Keychain.");
+      setError("The key could not be saved to the Keychain.");
     }
   }
 
-  async function removeKey() {
+  async function remove() {
     try {
       await adapters.secrets.delete("anthropic_api_key");
-      setKeyStatus("not_set");
-      setKeyError(null);
+      setStatus("not_set");
+      setError(null);
       // The Remove button unmounts with the status change; the key field is the next sensible place.
-      keyInput.current?.focus();
+      input.current?.focus();
     } catch {
-      setKeyError("The key could not be removed from the Keychain.");
+      setError("The key could not be removed from the Keychain.");
     }
   }
-
-  async function installLicense(event: FormEvent) {
-    event.preventDefault();
-    const key = licenseDraft.trim();
-    if (key.length === 0) return;
-    setLicenseBusy(true);
-    try {
-      const state = await adapters.license.install(key);
-      setLicenseResult(state);
-      // A rejected key is not stored, so the app's licence state only changes on success.
-      if (state.status === "valid") {
-        setLicense(state);
-        setLicenseDraft("");
-      }
-    } catch {
-      setLicenseResult({ status: "invalid", reason: "format" });
-    } finally {
-      setLicenseBusy(false);
-    }
-  }
-
-  async function removeLicense() {
-    setLicenseBusy(true);
-    try {
-      await adapters.license.remove();
-      setLicense({ status: "none" });
-      setLicenseResult(null);
-    } finally {
-      setLicenseBusy(false);
-    }
-  }
-
-  const claudeModelOk = modelIdOk(settings.explainer.claudeModel, CLAUDE_MODEL);
-  const ollamaModelOk = modelIdOk(settings.explainer.ollamaModel, OLLAMA_MODEL);
-  const licenseInvalid = licenseResult !== null && licenseResult.status === "invalid";
 
   return (
-    <main className="screen settings">
-      <h1>Settings</h1>
-
-      <section className="card" aria-labelledby="explainer-heading">
-        <h2 id="explainer-heading">AI help</h2>
-        <p className="muted">
-          Optional. Only the check-up results go to the AI: rule ids, statuses and numbers. File names, folder paths
-          and file contents never leave this Mac. Without AI help the app still shows every finding and fix.
+    <form onSubmit={save} className="inline-form">
+      <label htmlFor="api-key">Anthropic API key</label>
+      <p className="muted small">
+        Stored in the macOS Keychain. Status: <strong>{status === "saved" ? "saved" : status === "not_set" ? "not set" : "checking"}</strong>
+      </p>
+      <div className="field-row">
+        <input
+          id="api-key"
+          ref={input}
+          type="password"
+          autoComplete="off"
+          value={draft}
+          placeholder={status === "saved" ? "Enter a new key to replace it" : "sk-ant-..."}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        <button type="submit" className="button" disabled={draft.trim().length === 0}>
+          Save
+        </button>
+        {status === "saved" && (
+          <button type="button" className="button button-ghost" onClick={() => void remove()}>
+            Remove
+          </button>
+        )}
+      </div>
+      {error !== null && (
+        <p className="notice" role="alert">
+          {error}
         </p>
-        <fieldset>
-          <legend>Where to get AI help</legend>
-          <label>
-            <input type="radio" name="provider" checked={provider === "browser"} onChange={() => setProvider("browser")} />
-            Open in Claude or ChatGPT (uses your own account, no key needed)
-          </label>
-          {provider === "browser" && (
-            <fieldset className="sub-options">
-              <legend>Which assistant</legend>
-              <label>
-                <input type="radio" name="assistant" checked={assistant === "claude"} onChange={() => setAssistant("claude")} />
-                Claude
+      )}
+    </form>
+  );
+}
+
+function ModelIdField({ id, label, value, pattern, hint, onChange }: { id: string; label: string; value: string; pattern: RegExp; hint: string; onChange(next: string): void }) {
+  const ok = modelIdOk(value, pattern);
+  return (
+    <div>
+      <label htmlFor={id}>{label}</label>
+      <input
+        id={id}
+        type="text"
+        value={value}
+        maxLength={MAX_MODEL_ID_LENGTH}
+        aria-invalid={!ok}
+        aria-describedby={ok ? undefined : `${id}-error`}
+        onChange={(event) => onChange(event.target.value.trim())}
+      />
+      {!ok && (
+        <p className="notice" id={`${id}-error`}>
+          {hint}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function DeveloperSection() {
+  const { settings, updateSettings } = useApp();
+  const { developer, explainer } = settings;
+  const setDeveloper = (patch: Partial<DeveloperSettings>) => updateSettings({ developer: { ...developer, ...patch } });
+  const setEnabled = (enabled: boolean) => {
+    // Leaving Developer mode hides the other providers, so go back to the on-device one.
+    const next = !enabled && explainer.provider !== "apple" ? { ...explainer, provider: "apple" as const } : explainer;
+    updateSettings({ developer: { ...developer, enabled }, explainer: next });
+  };
+  const setProvider = (provider: ExplainerProvider) => updateSettings({ explainer: { ...explainer, provider } });
+  const providers: readonly ExplainerProvider[] = ["apple", "claude", "ollama"];
+  return (
+    <Section id="developer" title="Developer mode">
+      <Switch label="Developer mode" checked={developer.enabled} onChange={setEnabled} />
+      {developer.enabled && (
+        <div className="subsection">
+          <Switch label="Show Terminal commands next to fixes" checked={developer.showCommands} onChange={(showCommands) => setDeveloper({ showCommands })} />
+          <Switch label="Show the plan expanded in fix sheets" checked={developer.showPlanExpanded} onChange={(showPlanExpanded) => setDeveloper({ showPlanExpanded })} />
+          <fieldset>
+            <legend>Provider</legend>
+            {providers.map((provider) => (
+              <label key={provider}>
+                <input type="radio" name="provider" checked={explainer.provider === provider} onChange={() => setProvider(provider)} />
+                {PROVIDER_LABELS[provider]}
               </label>
-              <label>
-                <input type="radio" name="assistant" checked={assistant === "chatgpt"} onChange={() => setAssistant("chatgpt")} />
-                ChatGPT
-              </label>
-            </fieldset>
-          )}
-          <label>
-            <input type="radio" name="provider" checked={provider === "none"} onChange={() => setProvider("none")} />
-            Off
-          </label>
-          {developerMode && (
+            ))}
+          </fieldset>
+          {explainer.provider === "claude" && (
             <>
-              <label>
-                <input type="radio" name="provider" checked={provider === "claude"} onChange={() => setProvider("claude")} />
-                Claude API key
-              </label>
-              <label>
-                <input type="radio" name="provider" checked={provider === "ollama"} onChange={() => setProvider("ollama")} />
-                Local Ollama
-              </label>
+              <KeychainKeyField />
+              <ModelIdField
+                id="claude-model"
+                label="Model id"
+                value={explainer.claudeModel}
+                pattern={CLAUDE_MODEL}
+                hint={`Model ids look like claude-opus-5 and are at most ${MAX_MODEL_ID_LENGTH} characters.`}
+                onChange={(claudeModel) => updateSettings({ explainer: { ...explainer, claudeModel } })}
+              />
             </>
           )}
-        </fieldset>
-        {!developerMode && (
-          <p className="muted small">Developer mode, below, adds a Claude API key and a local Ollama model as options.</p>
-        )}
-
-        {developerMode && provider === "claude" && (
-          <div className="subsection">
-            <form onSubmit={saveKey} className="inline-form">
-              <label htmlFor="api-key">Anthropic API key</label>
-              <p className="muted small">
-                Stored in the macOS Keychain. Status:{" "}
-                <strong>{keyStatus === "saved" ? "saved" : keyStatus === "not_set" ? "not set" : "checking"}</strong>
-              </p>
-              <div className="field-row">
-                <input
-                  id="api-key"
-                  ref={keyInput}
-                  type="password"
-                  autoComplete="off"
-                  value={keyDraft}
-                  placeholder={keyStatus === "saved" ? "Enter a new key to replace it" : "sk-ant-..."}
-                  onChange={(event) => setKeyDraft(event.target.value)}
-                />
-                <button type="submit" className="button" disabled={keyDraft.trim().length === 0}>
-                  Save
-                </button>
-                {keyStatus === "saved" && (
-                  <button type="button" className="button button-ghost" onClick={() => void removeKey()}>
-                    Remove
-                  </button>
-                )}
-              </div>
-              {keyError !== null && (
-                <p className="notice" role="alert">
-                  {keyError}
-                </p>
-              )}
-            </form>
-            <label htmlFor="claude-model">Model id</label>
-            <input
-              id="claude-model"
-              type="text"
-              value={settings.explainer.claudeModel}
-              maxLength={MAX_MODEL_ID_LENGTH}
-              aria-invalid={!claudeModelOk}
-              aria-describedby={claudeModelOk ? undefined : "claude-model-error"}
-              onChange={(event) => updateSettings({ explainer: { ...settings.explainer, claudeModel: event.target.value.trim() } })}
-            />
-            {!claudeModelOk && (
-              <p className="notice" id="claude-model-error">
-                Model ids look like claude-opus-5 and are at most {MAX_MODEL_ID_LENGTH} characters.
-              </p>
-            )}
-          </div>
-        )}
-
-        {developerMode && provider === "ollama" && (
-          <div className="subsection">
-            <label htmlFor="ollama-model">Model name</label>
-            <input
-              id="ollama-model"
-              type="text"
-              value={settings.explainer.ollamaModel}
-              maxLength={MAX_MODEL_ID_LENGTH}
-              aria-invalid={!ollamaModelOk}
-              aria-describedby={ollamaModelOk ? undefined : "ollama-model-error"}
-              onChange={(event) => updateSettings({ explainer: { ...settings.explainer, ollamaModel: event.target.value.trim() } })}
-            />
-            {!ollamaModelOk && (
-              <p className="notice" id="ollama-model-error">
-                Model names use lowercase letters, digits, dots, colons and dashes, at most {MAX_MODEL_ID_LENGTH}{" "}
-                characters.
-              </p>
-            )}
-            <p className="muted small">Ollama must be running on this Mac at 127.0.0.1:11434.</p>
-          </div>
-        )}
-      </section>
-
-      <section className="card" aria-labelledby="developer-heading">
-        <h2 id="developer-heading">Developer mode</h2>
-        <label className="toggle">
-          <input
-            type="checkbox"
-            role="switch"
-            aria-checked={developerMode}
-            checked={developerMode}
-            onChange={(event) => setDeveloperMode(event.target.checked)}
-          />
-          <span>Developer mode</span>
-        </label>
-        <p className="muted">{DEVELOPER_MODE_COPY}</p>
-      </section>
-
-      <section className="card" aria-labelledby="profile-heading">
-        <h2 id="profile-heading">About you</h2>
-        <p className="muted">Used to tailor explanations. Stays on this Mac.</p>
-        <ProfileForm value={settings.profile} onChange={(profile) => updateSettings({ profile })} idPrefix="settings" />
-        <p className="muted small">Terminal commands are shown by Developer mode, above.</p>
-      </section>
-
-      <section className="card" aria-labelledby="fda-heading">
-        <h2 id="fda-heading">Full Disk Access</h2>
-        <p>
-          Status:{" "}
-          <strong>
-            {capabilities === null
-              ? "checking"
-              : capabilities.fullDiskAccess === true
-                ? "granted"
-                : capabilities.fullDiskAccess === false
-                  ? "not granted"
-                  : "could not tell"}
-          </strong>
-        </p>
-        <p className="muted">
-          Needed only to read the extension folders of Chrome, Brave, Edge and Arc. Open Privacy & Security, choose
-          Full Disk Access, switch on Talos Labs, then run the check-up again.
-        </p>
-        <button type="button" className="button" onClick={() => void adapters.openSettingsPane("full_disk_access")}>
-          Open
-        </button>
-      </section>
-
-      <section className="card" aria-labelledby="licence-heading">
-        <h2 id="licence-heading">Licence</h2>
-        {license.status === "valid" ? (
-          <div>
-            <p ref={licensedLine} tabIndex={-1}>
-              Licensed: {license.payload.plan} plan, {license.payload.seats}{" "}
-              {license.payload.seats === 1 ? "seat" : "seats"}, updates until {license.payload.updatesUntil}.
-            </p>
-            <button type="button" className="button button-ghost" onClick={() => void removeLicense()} disabled={licenseBusy}>
-              Remove licence
-            </button>
-          </div>
-        ) : (
-          <form onSubmit={installLicense} className="inline-form">
-            <p className="muted">
-              {license.status === "invalid"
-                ? `The stored key is not valid: ${LICENSE_INVALID_LABELS[license.reason]}`
-                : "No licence yet. The three most valuable fixes are free."}
-            </p>
-            <label htmlFor="licence-key">Licence key</label>
-            <div className="field-row">
-              <input
-                id="licence-key"
-                ref={licenseInput}
-                type="text"
-                autoComplete="off"
-                spellCheck={false}
-                value={licenseDraft}
-                placeholder="TL1..."
-                aria-invalid={licenseInvalid}
-                aria-describedby={licenseInvalid ? "licence-error" : undefined}
-                onChange={(event) => setLicenseDraft(event.target.value)}
+          {explainer.provider === "ollama" && (
+            <>
+              <ModelIdField
+                id="ollama-model"
+                label="Model name"
+                value={explainer.ollamaModel}
+                pattern={OLLAMA_MODEL}
+                hint={`Model names use lowercase letters, digits, dots, colons and dashes, at most ${MAX_MODEL_ID_LENGTH} characters.`}
+                onChange={(ollamaModel) => updateSettings({ explainer: { ...explainer, ollamaModel } })}
               />
-              <button type="submit" className="button" disabled={licenseBusy || licenseDraft.trim().length === 0}>
-                Activate
-              </button>
-            </div>
-            {licenseResult !== null && licenseResult.status === "invalid" && (
-              <p className="notice" id="licence-error" role="alert">
-                {LICENSE_INVALID_LABELS[licenseResult.reason]}
-              </p>
-            )}
-          </form>
-        )}
-      </section>
+              <p className="muted small">Ollama must be running on this Mac at 127.0.0.1:11434.</p>
+            </>
+          )}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+function AboutSection() {
+  const { catalog, license } = useApp();
+  const rows: readonly [string, ReactNode][] = [
+    ["Version", APP_VERSION],
+    ["Core", CORE_VERSION],
+    ["Catalogue", catalog.version],
+    ["Benchmark", catalog.cisEdition],
+    ["Build date", __BUILD_DATE__],
+    ["Licence", licenceLine(license)],
+  ];
+  return (
+    <Section id="about" title="About">
+      <dl className="meta">
+        {rows.map(([term, detail]) => (
+          <div key={term}>
+            <dt>{term}</dt>
+            <dd>{detail}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="muted small">{PRIVACY_SENTENCE}</p>
+    </Section>
+  );
+}
+
+function licenceLine(license: LicenseState): ReactNode {
+  if (license.status === "valid") {
+    return (
+      <span className="mono small">
+        id {license.payload.lid} · tag {license.payload.tag}
+      </span>
+    );
+  }
+  return license.status === "invalid" ? "Invalid" : "None";
+}
+
+export function Settings({ aiAvailability, onAiAction, capabilities, onPermission, onBuy }: SettingsProps) {
+  return (
+    <main className="screen settings">
+      <AiSection aiAvailability={aiAvailability} onAiAction={onAiAction} />
+      <AboutYouSection />
+      <PermissionsSection capabilities={capabilities} onPermission={onPermission} />
+      <LicenceSection onBuy={onBuy} />
+      <DeveloperSection />
+      <AboutSection />
     </main>
   );
 }

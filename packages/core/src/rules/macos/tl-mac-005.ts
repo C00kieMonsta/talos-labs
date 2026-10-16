@@ -28,6 +28,12 @@ export const TL_MAC_005: Rule = {
     verify: "After the restart, run the check-up again; this check passes.",
     effort: "half_hour",
     sideEffects: "restart",
+    apply: {
+      kind: "manual",
+      watch: [],
+      watchEvery: 3,
+      reveal: null,
+    },
   },
   evaluate(state) {
     const data = section(state, "platformIntegrity");

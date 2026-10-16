@@ -44,7 +44,10 @@ mod tests {
     #[test]
     fn parses_sw_vers() {
         let text = "ProductName:\t\tmacOS\nProductVersion:\t\t27.0.1\nBuildVersion:\t\t26A434\n";
-        assert_eq!(parse_sw_vers(text), Some(("27.0.1".to_owned(), Some("26A434".to_owned()))));
+        assert_eq!(
+            parse_sw_vers(text),
+            Some(("27.0.1".to_owned(), Some("26A434".to_owned())))
+        );
         assert_eq!(parse_sw_vers("garbage"), None);
     }
 }

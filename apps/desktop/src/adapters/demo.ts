@@ -1,48 +1,36 @@
 import type {
-  AbortSignalLike,
-  Answer,
-  AskInput,
+  AiAvailability,
+  AutomationStatus,
   Capabilities,
   CollectOptions,
   CollectSectionOptions,
-  ExplainInput,
-  ExplainerContext,
   ExplainerFailure,
-  ExplainerFinding,
   ExplainerPort,
-  ExplainerResult,
-  Explanation,
   LicensePayload,
   LicensePort,
   LicenseState,
-  Prioritisation,
-  PrioritiseInput,
   ReportStorePort,
-  Rule,
-  RuleCatalog,
   RuleId,
   ScanReport,
   SecretName,
   SecretStorePort,
   SectionKey,
   SettingsPane,
-  Severity,
   SystemState,
   SystemStatePort,
   SystemStateSections,
 } from "@talos/core";
-import {
-  ALL_UNAVAILABLE,
-  DEV_MACHINE,
-  FRESH_INSTALL,
-  HARDENED,
-  MACOS_CATALOG,
-  SECTION_KEYS,
-  WINDOWS_MINIMAL,
-} from "@talos/core";
-import type { Assistant, ExplainerSettings } from "../settings";
+import { ALL_UNAVAILABLE, DEV_MACHINE, FRESH_INSTALL, HARDENED, MACOS_CATALOG, SECTION_KEYS, WINDOWS_MINIMAL } from "@talos/core";
+import type { ExplainerSettings } from "../settings";
 import type { Adapters } from "./index";
+import { DemoAppleExplainer, DemoExplainer } from "./demo-explainer";
+import { DemoFixPort, type DemoFixOutcome } from "./demo-fix";
+import { cancelled, recordDemoCall, wait } from "./demo-shared";
 import { NoExplainer } from "./no-explainer";
+
+export { DemoAppleExplainer, DemoExplainer, DEMO_WORD_CHUNK_MS } from "./demo-explainer";
+export { DemoFixPort, DEMO_FIX_OUTCOMES, type DemoFixOutcome } from "./demo-fix";
+export { recordDemoCall } from "./demo-shared";
 
 /**
  * Fixture-backed adapters so the web build runs in a plain browser for QA.
@@ -60,13 +48,7 @@ export const DEMO_FIXTURES: Readonly<Record<DemoFixture, SystemState>> = {
   "windows-minimal": WINDOWS_MINIMAL,
 };
 
-export const DEMO_FIXTURE_NAMES: readonly DemoFixture[] = [
-  "dev-machine",
-  "hardened",
-  "all-unavailable",
-  "fresh-install",
-  "windows-minimal",
-];
+export const DEMO_FIXTURE_NAMES: readonly DemoFixture[] = ["dev-machine", "hardened", "all-unavailable", "fresh-install", "windows-minimal"];
 
 export interface DemoOptions {
   readonly fixture: DemoFixture;
@@ -74,13 +56,29 @@ export interface DemoOptions {
   readonly explainerFailure?: ExplainerFailure | null;
   /** Pause per section while collecting, so the Scanning screen is visible. */
   readonly collectDelayMs?: number;
+  readonly fix?: DemoFixOutcome;
+  readonly fixDelayMs?: number;
+  readonly ai?: AiAvailability;
+  readonly aiReadyMs?: number | null;
+  /** fullDiskAccess turns true on this capability poll. */
+  readonly fdaAfter?: number | null;
+  readonly automation?: AutomationStatus | null;
+  /** A watched section passes on this poll. */
+  readonly pollAfter?: number | null;
+  /** Rules forced to fail on the fixture; only TL-MAC-013 is supported (a 60 minute screen saver). */
+  readonly fail?: readonly RuleId[];
 }
 
 export const DEFAULT_COLLECT_DELAY_MS = 120;
 export const DEMO_EXPLAIN_DELAY_MS = 300;
+export const DEFAULT_FIX_DELAY_MS = 400;
+/** How long the loginItems row waits when automation=not_determined, so the prompting copy can be seen. */
+export const DEMO_PROMPT_HOLD_MS = 9000;
 
-/** The only key the demo licence accepts. */
+/** The key for typed entry. */
 export const DEMO_LICENSE_KEY = "TL1.DEMO";
+/** Matches LicenceField's paste regex, so pasting it verifies without a button press. */
+export const DEMO_LICENSE_KEY_PASTED = `TL1.${"DEMO".repeat(5)}.${"D".repeat(64)}`;
 
 export const DEMO_LICENSE_PAYLOAD: LicensePayload = {
   v: 1,
@@ -93,54 +91,71 @@ export const DEMO_LICENSE_PAYLOAD: LicensePayload = {
   tag: "deadbeef",
 };
 
-function cancelled(): Error {
-  return new Error("cancelled");
+/** A fixture variant where the named rules fail; only the screen saver rule has a cheap failing shape. */
+export function withForcedFailures(state: SystemState, fail: readonly RuleId[]): SystemState {
+  if (!fail.includes("TL-MAC-013") || state.sections.screenLock.status !== "ok") return state;
+  const screenLock = { ...state.sections.screenLock, data: { ...state.sections.screenLock.data, screensaverIdleSeconds: 3600 } };
+  return { ...state, sections: { ...state.sections, screenLock } };
 }
 
-/** Resolves after ms, or rejects with "cancelled" as soon as the signal aborts. */
-function wait(ms: number, signal?: AbortSignalLike): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(cancelled());
-      return;
-    }
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(cancelled());
-    };
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    signal?.addEventListener("abort", onAbort);
-  });
-}
-
+/** The fixture with every section swapped in from HARDENED as fixes land or watched sections pass. */
 export class DemoSystemState implements SystemStatePort {
+  private sections: SystemStateSections;
+  private polls = 0;
+  private readonly sectionPolls = new Map<SectionKey, number>();
+
   constructor(
-    private readonly state: SystemState,
+    state: SystemState,
     private readonly delayMs: number,
-  ) {}
+    private readonly options: Pick<DemoOptions, "fdaAfter" | "automation" | "pollAfter" | "fail"> = {},
+  ) {
+    this.state = withForcedFailures(state, options.fail ?? []);
+    this.sections = this.state.sections;
+  }
+
+  private readonly state: SystemState;
+
+  /** Replaces `keys` with their passing variants, so the next read turns green. */
+  pass(keys: readonly SectionKey[]): void {
+    const next = { ...this.sections } as Record<SectionKey, unknown>;
+    for (const key of keys) next[key] = HARDENED.sections[key];
+    this.sections = next as SystemStateSections;
+  }
+
+  private current(): SystemState {
+    return this.sections === this.state.sections ? this.state : { ...this.state, sections: this.sections };
+  }
 
   async collect(options?: CollectOptions): Promise<SystemState> {
     const signal = options?.signal;
     if (signal?.aborted) throw cancelled();
     for (const key of SECTION_KEYS) {
       options?.onProgress?.({ key, status: "started" });
+      // An unasked Automation permission holds loginItems the way the real osascript prompt does.
+      if (key === "loginItems" && this.options.automation === "not_determined") await wait(DEMO_PROMPT_HOLD_MS, signal);
       await wait(this.delayMs, signal);
-      const status = this.state.sections[key].status === "ok" ? "ok" : "unavailable";
+      const status = this.sections[key].status === "ok" ? "ok" : "unavailable";
       options?.onProgress?.({ key, status });
     }
-    return this.state;
+    return this.current();
   }
 
   async collectSection<K extends SectionKey>(key: K, options?: CollectSectionOptions): Promise<SystemStateSections[K]> {
     await wait(this.delayMs, options?.signal);
-    return this.state.sections[key];
+    const count = (this.sectionPolls.get(key) ?? 0) + 1;
+    this.sectionPolls.set(key, count);
+    const after = this.options.pollAfter;
+    if (typeof after === "number" && count >= after) this.pass([key]);
+    return this.sections[key];
   }
 
   async capabilities(): Promise<Capabilities> {
-    return { fullDiskAccess: false };
+    this.polls += 1;
+    const after = this.options.fdaAfter;
+    return {
+      fullDiskAccess: typeof after === "number" && this.polls >= after,
+      automation: this.options.automation ?? null,
+    };
   }
 }
 
@@ -152,7 +167,8 @@ export class DemoLicense implements LicensePort {
   }
 
   async install(key: string): Promise<LicenseState> {
-    if (key.trim() !== DEMO_LICENSE_KEY) return { status: "invalid", reason: "signature" };
+    const trimmed = key.trim();
+    if (trimmed !== DEMO_LICENSE_KEY && trimmed !== DEMO_LICENSE_KEY_PASTED) return { status: "invalid", reason: "signature" };
     this.state = { status: "valid", payload: DEMO_LICENSE_PAYLOAD };
     return this.state;
   }
@@ -194,156 +210,43 @@ export class DemoReportStore implements ReportStorePort {
   }
 }
 
-/** Records what the app would have opened, for a QA script to read back. */
-export function recordDemoCall(call: TalosDemoCall): void {
-  if (typeof window === "undefined") return;
-  const calls = window.__talosDemoCalls ?? [];
-  calls.push(call);
-  window.__talosDemoCalls = calls;
-}
-
 export async function demoOpenSettingsPane(pane: SettingsPane): Promise<void> {
   recordDemoCall({ kind: "openSettingsPane", arg: pane });
 }
 
-export async function demoOpenAssistant(assistant: Assistant, prompt: string): Promise<void> {
-  recordDemoCall({ kind: "openAssistant", arg: assistant, prompt });
-}
-
-const URGENCY_BY_SEVERITY: Readonly<Record<Severity, Explanation["urgency"]>> = {
-  critical: "today",
-  high: "this_week",
-  medium: "this_week",
-  low: "when_convenient",
-  info: "when_convenient",
-};
-
-const SEVERITY_RANK: Readonly<Record<Severity, number>> = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
-const STATUS_RANK: Readonly<Record<ExplainerFinding["status"], number>> = { fail: 0, review: 1, unknown: 2 };
-
-const MAX_TEXT = 1200;
-
-function firstSentence(text: string): string {
-  const end = text.indexOf(". ");
-  return end === -1 ? text : text.slice(0, end + 1);
-}
-
-function clip(text: string): string {
-  return text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) : text;
-}
-
-function situation(context: ExplainerContext): string {
-  const { profile } = context;
-  const parts: string[] = [];
-  if (profile.laptopLeavesHome) parts.push("this Mac leaves the house with you");
-  if (profile.handlesClientData) parts.push("you keep other people's data on it");
-  if (profile.role === "small_business") parts.push("your business runs on it");
-  if (profile.role === "freelancer") parts.push("your work depends on it");
-  return parts.length === 0 ? "you use this Mac for personal things" : parts.join(" and ");
-}
-
-function byPriority(a: ExplainerFinding, b: ExplainerFinding): number {
-  return STATUS_RANK[a.status] - STATUS_RANK[b.status] || SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity];
-}
-
-/**
- * Canned but catalog-consistent answers that pass core's validators. The order it suggests is a
- * permutation of the context's finding ids and every text is free of command lines.
- */
-export class DemoExplainer implements ExplainerPort {
-  private readonly rulesById: ReadonlyMap<RuleId, Rule>;
-
-  constructor(
-    readonly id: "claude" | "ollama",
-    catalog: RuleCatalog,
-    private readonly failure: ExplainerFailure | null,
-    private readonly delayMs: number,
-  ) {
-    this.rulesById = new Map(catalog.rules.map((rule) => [rule.id, rule]));
-  }
-
-  private async settle<T>(build: () => T): Promise<ExplainerResult<T>> {
-    await wait(this.delayMs);
-    if (this.failure !== null) return { ok: false, reason: this.failure };
-    return { ok: true, value: build() };
-  }
-
-  explain(input: ExplainInput): Promise<ExplainerResult<Explanation>> {
-    return this.settle(() => {
-      const rule = this.rulesById.get(input.ruleId);
-      const finding = input.context.findings.find((f) => f.ruleId === input.ruleId);
-      const severity = finding?.severity ?? rule?.severity ?? "medium";
-      const problem = rule?.failTitle ?? `Check ${input.ruleId} needs attention`;
-      const why = rule === undefined ? "This setting protects the data on this Mac." : firstSentence(rule.explanation);
-      return {
-        ruleId: input.ruleId,
-        whyItMattersForYou: clip(`${problem}. ${why} Because ${situation(input.context)}, this is worth sorting out.`),
-        whatCouldHappen: clip(
-          rule === undefined
-            ? "Someone with access to this Mac, or to the network it is on, could get further than they should."
-            : `${rule.explanation} The fix shown in the app takes ${rule.fix.effort === "two_minutes" ? "a couple of minutes" : rule.fix.effort === "ten_minutes" ? "about ten minutes" : "about half an hour"}.`,
-        ),
-        urgency: URGENCY_BY_SEVERITY[severity],
-      };
-    });
-  }
-
-  prioritise(input: PrioritiseInput): Promise<ExplainerResult<Prioritisation>> {
-    return this.settle(() => {
-      const ordered = [...input.context.findings].sort(byPriority);
-      const order = ordered.map((f) => f.ruleId);
-      const failing = ordered.filter((f) => f.status === "fail");
-      const reasons = failing.slice(0, 3).map((f) => {
-        const rule = this.rulesById.get(f.ruleId);
-        const points = f.points > 0 ? ` It is worth ${f.points} points.` : "";
-        return {
-          ruleId: f.ruleId,
-          reason: clip(rule === undefined ? `Fix this early.${points}` : `${rule.failTitle}. ${firstSentence(rule.explanation)}${points}`),
-        };
-      });
-      return { order, reasons, startWith: failing.slice(0, 3).map((f) => f.ruleId) };
-    });
-  }
-
-  ask(input: AskInput): Promise<ExplainerResult<Answer>> {
-    return this.settle(() => {
-      const top = [...input.context.findings].filter((f) => f.status === "fail").sort(byPriority).slice(0, 3);
-      if (top.length === 0) {
-        return {
-          answer: "Every check that could run passed, so there is nothing to fix first. Rescan now and then to keep it that way.",
-          relatedRuleIds: [],
-          outsideScope: false,
-        };
-      }
-      const names = top.map((f) => this.rulesById.get(f.ruleId)?.failTitle.toLowerCase() ?? f.ruleId);
-      const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-      return {
-        answer: clip(
-          `Start with these: ${list}. They cost the most points and, because ${situation(input.context)}, they matter most. Open each item in the app and follow the fix shown there.`,
-        ),
-        relatedRuleIds: top.map((f) => f.ruleId),
-        outsideScope: false,
-      };
-    });
-  }
+export async function demoRestart(): Promise<void> {
+  recordDemoCall({ kind: "restart" });
 }
 
 export function createDemoAdapters(options: DemoOptions): Adapters {
   const state = DEMO_FIXTURES[options.fixture];
   const delay = options.collectDelayMs ?? DEFAULT_COLLECT_DELAY_MS;
   const failure = options.explainerFailure ?? null;
+  const systemState = new DemoSystemState(state, delay, options);
+  const apple = new DemoAppleExplainer({
+    catalog: MACOS_CATALOG,
+    availability: options.ai ?? "available",
+    readyAfterMs: options.aiReadyMs ?? null,
+    failure,
+  });
   return {
-    systemState: new DemoSystemState(state, delay),
+    systemState,
     license: new DemoLicense(),
     secrets: new DemoSecretStore(),
     reports: new DemoReportStore(),
+    fixes: new DemoFixPort({
+      catalog: MACOS_CATALOG,
+      outcome: options.fix ?? "ok",
+      delayMs: options.fixDelayMs ?? DEFAULT_FIX_DELAY_MS,
+      onApplied: (keys) => systemState.pass(keys),
+    }),
     openSettingsPane: demoOpenSettingsPane,
-    openAssistant: demoOpenAssistant,
+    restart: demoRestart,
     async createExplainer(settings: ExplainerSettings): Promise<ExplainerPort> {
+      if (!settings.aiEnabled) return new NoExplainer();
       switch (settings.provider) {
-        case "browser":
-        case "none":
-          return new NoExplainer();
+        case "apple":
+          return apple;
         case "claude":
         case "ollama":
           return new DemoExplainer(settings.provider, MACOS_CATALOG, failure, DEMO_EXPLAIN_DELAY_MS);

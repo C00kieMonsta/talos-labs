@@ -28,6 +28,13 @@ export const TL_MAC_001: Rule = {
     verify: "Privacy & Security > FileVault shows FileVault as on. Run the check-up again; this check passes.",
     effort: "ten_minutes",
     sideEffects: "restart",
+    apply: {
+      kind: "deep_link",
+      pane: "filevault",
+      watch: ["diskEncryption"],
+      watchEvery: 3,
+      reveal: null,
+    },
   },
   evaluate(state) {
     const data = section(state, "diskEncryption");

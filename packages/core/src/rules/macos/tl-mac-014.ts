@@ -28,6 +28,13 @@ export const TL_MAC_014: Rule = {
     verify: "Users & Groups lists your daily account as Standard.",
     effort: "half_hour",
     sideEffects: "workflow",
+    apply: {
+      kind: "deep_link",
+      pane: "users_groups",
+      watch: ["accounts"],
+      watchEvery: 3,
+      reveal: null,
+    },
   },
   evaluate(state) {
     const data = section(state, "accounts");

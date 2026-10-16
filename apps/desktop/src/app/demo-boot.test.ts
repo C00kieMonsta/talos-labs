@@ -15,18 +15,33 @@ describe("parseDemoQuery", () => {
       provider: null,
       developerMode: false,
       onboarded: false,
+      pace: null,
     });
   });
 
   it("reads every parameter", () => {
-    const flags = parseDemoQuery("?fixture=hardened&explainer=timeout&delay=50&reset=1&provider=ollama&dev=1&onboarded=1&licensed=1");
+    const flags = parseDemoQuery(
+      "?fixture=hardened&explainer=timeout&delay=50&reset=1&provider=ollama&dev=1&onboarded=1&licensed=1&fix=wrong_password&fix_delay=10&ai=model_not_ready&ai_ready=500&fda_after=2&automation=denied&poll_after=3&pace=0",
+    );
     expect(flags).toEqual({
-      options: { fixture: "hardened", explainerFailure: "timeout", collectDelayMs: 50 },
+      options: {
+        fixture: "hardened",
+        explainerFailure: "timeout",
+        collectDelayMs: 50,
+        fix: "wrong_password",
+        fixDelayMs: 10,
+        ai: "model_not_ready",
+        aiReadyMs: 500,
+        fdaAfter: 2,
+        automation: "denied",
+        pollAfter: 3,
+      },
       reset: true,
       licensed: true,
       provider: "ollama",
       developerMode: true,
       onboarded: true,
+      pace: 0,
     });
   });
 
@@ -36,7 +51,8 @@ describe("parseDemoQuery", () => {
     expect(flags.provider).toBe("claude");
     expect(flags.developerMode).toBe(true);
     expect(flags.reset).toBe(false);
-    expect(parseDemoQuery("?provider=browser").developerMode).toBe(false);
+    expect(parseDemoQuery("?provider=apple").developerMode).toBe(false);
+    expect(parseDemoQuery("?provider=browser").provider).toBeNull();
   });
 });
 
@@ -50,16 +66,16 @@ describe("seedSettings", () => {
     expect(seeded).toEqual({
       ...DEFAULT_SETTINGS,
       explainer: { ...DEFAULT_SETTINGS.explainer, provider: "claude" },
-      developerMode: true,
+      developer: { ...DEFAULT_SETTINGS.developer, enabled: true },
       onboarded: true,
     });
   });
 
   it("never turns developer mode or onboarding off", () => {
-    const current = { ...DEFAULT_SETTINGS, developerMode: true, onboarded: true };
-    expect(seedSettings(current, parseDemoQuery("?provider=none"))).toEqual({
+    const current = { ...DEFAULT_SETTINGS, developer: { ...DEFAULT_SETTINGS.developer, enabled: true }, onboarded: true };
+    expect(seedSettings(current, parseDemoQuery("?provider=apple"))).toEqual({
       ...current,
-      explainer: { ...current.explainer, provider: "none" },
+      explainer: { ...current.explainer, provider: "apple" },
     });
   });
 });
@@ -67,7 +83,7 @@ describe("seedSettings", () => {
 describe("bootDemo", () => {
   it("clears storage on reset, stores the seeded settings and pre-installs the licence", async () => {
     localStorage.setItem("other", "x");
-    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ ...DEFAULT_SETTINGS, developerMode: true }));
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ ...DEFAULT_SETTINGS, developer: { ...DEFAULT_SETTINGS.developer, enabled: true } }));
     const adapters = bootDemo("?reset=1&onboarded=1&licensed=1&fixture=hardened&delay=0", localStorage);
     expect(localStorage.getItem("other")).toBeNull();
     expect(loadSettings()).toEqual({ ...DEFAULT_SETTINGS, onboarded: true });

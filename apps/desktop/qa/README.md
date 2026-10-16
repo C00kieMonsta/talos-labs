@@ -1,6 +1,6 @@
 # QA harness
 
-Drives the web build of the desktop app in headless Chrome. The app runs in **demo mode**: every port is backed by a core fixture, so nothing touches Tauri, the Keychain, the filesystem or the network. Google Chrome must be installed; `playwright-core` launches it with `channel: "chrome"`.
+Drives the web build of the desktop app in headless Chrome. The app runs in **demo mode**: every port is backed by a core fixture, so nothing touches Tauri, the Keychain, the filesystem, the network or any system setting. Google Chrome must be installed; `playwright-core` launches it with `channel: "chrome"`.
 
 ## Start the demo server
 
@@ -16,28 +16,54 @@ Demo mode is a build-time switch. `VITE_TALOS_DEMO=1` must be in the environment
 
 ## URL parameters
 
-All optional. They are read once, when the page loads.
+All optional. They are read once, when the page loads (`src/app/demo-boot.ts`).
+
+Scan and fixtures:
 
 | Parameter | Values | Effect |
 |---|---|---|
 | `fixture` | `dev-machine` (default), `hardened`, `all-unavailable`, `fresh-install`, `windows-minimal` | The `SystemState` the collector returns |
-| `delay` | milliseconds, default `120` | Pause per section while collecting, so the Scanning screen stays visible (17 sections) |
-| `explainer` | `not_configured`, `no_api_key`, `network`, `auth`, `timeout`, `rejected_output`, `refused`, `unknown` | Every in-app explainer call fails with this reason. Absent: the fake explainer answers after 300 ms |
+| `delay` | milliseconds, default `120` | Pause per section while collecting (17 sections) |
+| `pace` | `0` | Collapses the Scanning screen's reveal schedule. Every shot that is not about pacing passes it |
+| `fda_after` | `N` | `fullDiskAccess` flips to true on the Nth capability poll. Absent: never granted |
+| `automation` | `granted`, `denied`, `not_determined` | What `capabilities()` reports for Automation |
+| `poll_after` | `N` | A watched section passes on the Nth poll of the away-watch |
+
+Fixes:
+
+| Parameter | Values | Effect |
+|---|---|---|
+| `fix` | `ok` (default), `cancelled`, `wrong_password`, `command_failed`, `timeout`, `still_failing` | Outcome of every Apply. On `ok` the fixture section is replaced by a passing variant, so the recheck turns green. `still_failing` runs and rechecks to the same failing section |
+| `fix_delay` | milliseconds | Pause between the fix phases (`waiting_for_password`, `running`, `rechecking`) so the sheet states can be captured |
+
+AI:
+
+| Parameter | Values | Effect |
+|---|---|---|
+| `ai` | `available` (default), `device_not_eligible`, `apple_intelligence_not_enabled`, `model_not_ready`, `helper_unavailable` | What the fake Apple explainer reports as availability |
+| `ai_ready` | milliseconds | Flips `model_not_ready` to `available` after this long, for the re-probe path |
+| `explainer` | `not_configured`, `no_api_key`, `network`, `auth`, `timeout`, `rejected_output`, `refused`, `unknown` | Every explainer call fails with this reason. Absent: the fake explainer streams a canned answer |
+| `provider` | `apple`, `claude`, `ollama` | Pre-seeds the provider. `claude` and `ollama` also turn Developer mode on |
+
+App state:
+
+| Parameter | Values | Effect |
+|---|---|---|
 | `reset` | `1` | Clears localStorage before boot |
-| `provider` | `browser`, `none`, `claude`, `ollama` | Pre-seeds the AI provider. `claude` and `ollama` also turn Developer mode on |
-| `dev` | `1` | Developer mode on |
+| `dev` | `1` | Developer mode on (`developer.enabled`) |
 | `onboarded` | `1` | Skips the Welcome screen |
 | `licensed` | `1` | Pre-installs the demo licence |
 
-Example: `http://localhost:1430/?reset=1&fixture=all-unavailable&onboarded=1&delay=0`.
+Example: `http://localhost:1430/?reset=1&fixture=all-unavailable&onboarded=1&delay=0&pace=0`.
 
-What the demo adapters do:
+What the demo adapters do (`src/adapters/demo.ts`):
 
-- Collect emits `started` then `ok` or `unavailable` per section in `SECTION_KEYS` order, honours cancel, then resolves the fixture. Rechecks return the fixture section again. Full Disk Access reads as not granted.
-- The licence accepts exactly `TL1.DEMO` (plan personal, 1 seat, id `demo`, tag `deadbeef`). Any other key is rejected as unsigned. Remove clears it.
+- Collect emits `started` then `ok` or `unavailable` per section in `SECTION_KEYS` order, honours cancel, then resolves the fixture. Rechecks return the fixture section again unless `fix=ok` or `poll_after` has replaced it with a passing variant.
+- `DemoFixPort` answers `fix_preview` with a plan built from the catalog entry, runs `fix_apply` through the phases above with `fix_delay` between them, and records every call on `window.__talosDemoCalls` as `{ kind: "fixPreview" | "fixApply" | "fixCancel" | "fixReveal", ... }`. Nothing is applied and no URL is ever recorded.
+- `DemoAppleExplainer` streams the canned explanation in 40 ms word chunks and passes core's validators: a prioritisation is a permutation of the eligible ids and no text contains a command line.
+- The licence accepts two keys: `TL1.DEMO` for typed entry (plan personal, 1 seat, id `demo`, tag `deadbeef`), and `DEMO_LICENSE_KEY_PASTED` (`TL1.` + `DEMO` five times + `.` + 64 `D` characters), which matches the paste regex so the `lock-licence-pasted` shot exercises auto-verify. Any other key is rejected as unsigned. Remove clears it.
 - Secrets and the last report live in memory and vanish on reload. Settings use localStorage as in the real app.
-- Opening a System Settings pane or the browser assistant opens nothing. Each call is pushed onto `window.__talosDemoCalls` as `{ kind: "openSettingsPane", arg: pane }` or `{ kind: "openAssistant", arg: assistant, prompt }`, so a script can assert on it.
-- The in-app explainer (`provider=claude` or `ollama`) returns canned British English that passes core's validators: a prioritisation is a permutation of the eligible ids and no text contains a command line.
+- Opening a System Settings pane, the buy page and restart open nothing. Each call is pushed onto `window.__talosDemoCalls` as `{ kind: "openSettingsPane", arg: pane }`, `{ kind: "openBuyPage" }` or `{ kind: "restart" }`, so a script can assert on it.
 
 ## Screenshots
 
@@ -46,7 +72,25 @@ cd apps/desktop
 pnpm exec tsx qa/snap.ts --port 1430 --out qa/screenshots/<name>
 ```
 
-Walks every screen (Welcome empty and filled, Overview, Findings, a free and a locked finding, Settings with Developer mode off and on, a finding with Terminal commands, Ask locked and answered, an AI explanation and a suggested order, About unlicensed and licensed, Scanning mid-scan, the Couldn't-check cards on `all-unavailable`, Overview on `hardened` and `fresh-install`, Overview and Findings on `windows-minimal`) and saves each in light and dark at 1100x760 and 900x600 as `<screen>-<variant>-<scheme>-<width>.png`. Screenshots are full page: the content column is unrolled so the whole screen is visible. The list of files is printed to stdout. `qa/screenshots/` is git-ignored.
+Walks the app through the sidebar rows and saves each screen in light and dark at 1100x760 and 900x600 as `<screen>-<variant>-<scheme>-<width>.png`. Screenshots are full page: the content column is unrolled so the whole screen is visible. The list of files is printed to stdout. `qa/screenshots/` is git-ignored. Shots marked volatile capture a moving state and may differ between runs.
+
+The v0.1 shots that survive: Welcome empty and filled, Overview, Findings, a free and a locked finding, Settings with Developer mode off and on, a finding with Terminal commands, Ask locked and answered, an AI explanation and a suggested order, the Couldn't-check cards on `all-unavailable`, Overview on `hardened` and `fresh-install`, Overview and Findings on `windows-minimal`. About is a Settings section now, so the two About shots are part of `settings-reduced` and `settings-licensed`. Back from a finding is the "‹ Findings" button.
+
+Added in v0.2, each in both schemes and both sizes:
+
+| Group | Shots |
+|---|---|
+| Welcome and Scanning | `welcome-single`, `scanning-paced-2s`, `scanning-paced-5s`, `scanning-preparing` (volatile), `scanning-prompting`, `scanning-reduced-motion` (`reducedMotion: "reduce"`) |
+| Overview and Findings | `overview-inline-actions`, `overview-transition` (100 ms after `presented`), `findings-cost-words` |
+| Fix sheet | `fix-confirm-admin`, `fix-confirm-user`, `fix-waiting-password`, `fix-running`, `fix-done`, one shot per `FixError` (`fix-cancelled`, `fix-wrong-password`, `fix-command-failed`, `fix-timeout`, `fix-precondition-changed`, `fix-plan-expired`, `fix-invalid-choice`, `fix-invalid-input`, `fix-not-in-catalog`, `fix-busy`), `fix-still-failing`, `fix-passphrase`, `fix-watching`, `fix-passed` |
+| Permissions | `permission-watching`, `permission-granted`, `permission-reopen`, `permission-prompting` |
+| AI | `ai-device-not-eligible`, `ai-apple-intelligence-not-enabled`, `ai-model-not-ready`, `ai-helper-unavailable`, `ai-failed`, `ai-streaming` (volatile), `ai-ready`, `ask-streaming` |
+| Licence and Settings | `lock-licence-pasted`, `settings-reduced`, `settings-dev-on` |
+| Window | `window-inactive` |
+
+Assertions in the walk: the Overview heading is not reached before 6000 ms after "Run check-up" (4500 ms with reduced motion); the "n of 17 areas" subline advances and "found so far" increments; the Cancel icon button and every sheet's primary button sit above the 600 px fold at 900x600; `window.__talosDemoCalls` records the expected preview and apply calls and never a URL.
+
+The harness runs against the demo bundle, where `DemoFixPort` fakes rechecks. Under `tauri dev` the build is unsigned, the kernel withholds the socket table, and every real recheck of rules 019 to 022 comes back `unreadable`, so those four fixes can only be seen to pass on a signed build (`docs/SIGNING.md`).
 
 ## Accessibility
 

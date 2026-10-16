@@ -53,6 +53,7 @@ describe("useScan", () => {
     expect(result.current.scan.kind).toBe("idle");
     await act(async () => {
       await result.current.start();
+      await result.current.present();
     });
     expect(result.current.scan.kind).toBe("ready");
     if (result.current.scan.kind !== "ready") return;
@@ -78,7 +79,7 @@ describe("useScan", () => {
     await act(async () => {
       release();
     });
-    await waitFor(() => expect(result.current.scan.kind).toBe("ready"));
+    await waitFor(() => expect(result.current.scan.kind).toBe("presenting"));
   });
 
   it("cancel aborts the signal and lands in failed with cancelled, keeping the last report", async () => {
@@ -113,6 +114,7 @@ describe("useScan", () => {
     const { result } = renderHook(() => useScan(d));
     await act(async () => {
       await result.current.start();
+      await result.current.present();
     });
     expect(result.current.scan.kind === "ready" && result.current.scan.report.reportId).toBe("unencrypted");
     await act(async () => {
@@ -131,6 +133,7 @@ describe("useScan", () => {
     const { result } = renderHook(() => useScan(d));
     await act(async () => {
       await result.current.start();
+      await result.current.present();
     });
     expect(result.current.scan.kind === "ready" && result.current.scan.lastRecheck).toBeNull();
     await act(async () => {
@@ -154,6 +157,7 @@ describe("useScan", () => {
     const { result } = renderHook(() => useScan(d));
     await act(async () => {
       await result.current.start();
+      await result.current.present();
     });
     await act(async () => {
       await result.current.explain("TL-MAC-001");
@@ -167,6 +171,7 @@ describe("useScan", () => {
       target: "TL-MAC-002",
       byRule: { "TL-MAC-001": explanation },
       order: null,
+      priority: null,
     });
   });
 
@@ -178,6 +183,7 @@ describe("useScan", () => {
     const { result } = renderHook(() => useScan(d));
     await act(async () => {
       await result.current.start();
+      await result.current.present();
     });
     await act(async () => {
       await result.current.recheck(["ssh"]);
@@ -227,6 +233,7 @@ describe("useScan", () => {
       const { result } = renderHook(() => useScan(d));
       await act(async () => {
         await result.current.start();
+        await result.current.present();
       });
       act(() => {
         void result.current.recheck(["ssh"]);
@@ -254,6 +261,7 @@ describe("useScan", () => {
     const { result } = renderHook(() => useScan(d));
     await act(async () => {
       await result.current.start();
+      await result.current.present();
     });
     act(() => {
       void result.current.recheck(["ssh"]);
@@ -261,6 +269,7 @@ describe("useScan", () => {
     expect(signal?.aborted).toBe(false);
     await act(async () => {
       await result.current.start();
+      await result.current.present();
     });
     expect(signal?.aborted).toBe(true);
     expect(result.current.scan.kind).toBe("ready");
@@ -278,6 +287,7 @@ describe("useScan", () => {
     const { result } = renderHook(() => useScan(d));
     await act(async () => {
       await result.current.start();
+      await result.current.present();
     });
     act(() => {
       void result.current.recheck(["diskEncryption"]);
@@ -285,6 +295,7 @@ describe("useScan", () => {
     expect(result.current.scan.kind).toBe("rechecking");
     await act(async () => {
       await result.current.start();
+      await result.current.present();
     });
     expect(result.current.scan.kind).toBe("ready");
     expect(result.current.scan.kind === "ready" && result.current.scan.report.reportId).toBe("unencrypted");
@@ -308,6 +319,7 @@ describe("useScan", () => {
     const { result } = renderHook(() => useScan(d));
     await act(async () => {
       await result.current.start();
+      await result.current.present();
     });
     const before = result.current.scan;
     expect(before.kind).toBe("ready");
@@ -338,6 +350,7 @@ describe("useScan", () => {
     const { result } = renderHook(() => useScan(d));
     await act(async () => {
       await result.current.start();
+      await result.current.present();
     });
     await act(async () => {
       await result.current.explain("TL-MAC-001");
@@ -353,6 +366,7 @@ describe("useScan", () => {
       kind: "ready",
       byRule: { "TL-MAC-001": explanation("TL-MAC-001") },
       order: null,
+      priority: null,
     });
     await act(async () => {
       await result.current.explain("TL-MAC-001");
@@ -376,6 +390,7 @@ describe("useScan", () => {
     const { result } = renderHook(() => useScan(d));
     await act(async () => {
       await result.current.start();
+      await result.current.present();
     });
     await act(async () => {
       await result.current.explain("TL-MAC-001");
@@ -383,7 +398,7 @@ describe("useScan", () => {
     await act(async () => {
       await result.current.recheck(["ssh"]);
     });
-    expect(result.current.scan.kind === "ready" && result.current.scan.explain).toEqual({ kind: "ready", byRule: { "TL-MAC-001": explanation }, order: null });
+    expect(result.current.scan.kind === "ready" && result.current.scan.explain).toEqual({ kind: "ready", byRule: { "TL-MAC-001": explanation }, order: null, priority: null });
     expect(result.current.notice).not.toBeNull();
   });
 
@@ -402,6 +417,7 @@ describe("useScan", () => {
     expect(result.current.conversation).toHaveLength(1);
     await act(async () => {
       await result.current.start();
+      await result.current.present();
     });
     expect(result.current.conversation).toEqual([]);
     expect(result.current.draft).toBe("");

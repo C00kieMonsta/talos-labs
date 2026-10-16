@@ -195,14 +195,18 @@ describe("TauriSystemStateAdapter.collectSection", () => {
 
 describe("TauriSystemStateAdapter.capabilities", () => {
   it("passes a well-formed answer through", async () => {
-    invokeMock.mockResolvedValueOnce({ fullDiskAccess: true });
-    expect(await new TauriSystemStateAdapter().capabilities()).toEqual({ fullDiskAccess: true });
-    invokeMock.mockResolvedValueOnce({ fullDiskAccess: null });
-    expect(await new TauriSystemStateAdapter().capabilities()).toEqual({ fullDiskAccess: null });
+    invokeMock.mockResolvedValueOnce({ fullDiskAccess: true, automation: "granted" });
+    expect(await new TauriSystemStateAdapter().capabilities()).toEqual({ fullDiskAccess: true, automation: "granted" });
+    invokeMock.mockResolvedValueOnce({ fullDiskAccess: null, automation: null });
+    expect(await new TauriSystemStateAdapter().capabilities()).toEqual({ fullDiskAccess: null, automation: null });
   });
 
-  it("treats a malformed answer as unknown", async () => {
-    invokeMock.mockResolvedValueOnce({ fullDiskAccess: "maybe" });
-    expect(await new TauriSystemStateAdapter().capabilities()).toEqual({ fullDiskAccess: null });
+  it("treats a malformed answer as unknown, field by field", async () => {
+    invokeMock.mockResolvedValueOnce({ fullDiskAccess: "maybe", automation: "denied" });
+    expect(await new TauriSystemStateAdapter().capabilities()).toEqual({ fullDiskAccess: null, automation: "denied" });
+    invokeMock.mockResolvedValueOnce({ fullDiskAccess: false, automation: "sometimes" });
+    expect(await new TauriSystemStateAdapter().capabilities()).toEqual({ fullDiskAccess: false, automation: null });
+    invokeMock.mockResolvedValueOnce("nope");
+    expect(await new TauriSystemStateAdapter().capabilities()).toEqual({ fullDiskAccess: null, automation: null });
   });
 });

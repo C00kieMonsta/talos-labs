@@ -75,6 +75,7 @@ describe("renderCommand", () => {
       verify: null,
       effort: "ten_minutes",
       sideEffects: "workflow",
+      apply: { kind: "deep_link", pane: "login_items", watch: ["loginItems"], watchEvery: 3, reveal: "plist" },
     };
     const evidence: Evidence[] = [
       { key: "agentPlist", label: "Agent", value: { kind: "path", value: "/Users/a/Library/LaunchAgents/a.plist" } },

@@ -2,7 +2,20 @@ import type { Category, RuleId, RuleStatus, Severity } from "../domain/finding";
 import type { Os } from "../domain/system-state";
 import type { AbortSignalLike } from "./system-state-port";
 
-export type ExplainerId = "claude" | "ollama" | "none";
+export type ExplainerId = "apple" | "claude" | "ollama" | "none";
+
+/**
+ * What the provider reports before a request. The four unavailable states come from
+ * the on-device helper; off means the user switched AI off; a Developer-mode provider
+ * that is configured reports available.
+ */
+export type AiAvailability =
+  | "available"
+  | "device_not_eligible"
+  | "apple_intelligence_not_enabled"
+  | "model_not_ready"
+  | "helper_unavailable"
+  | "off";
 
 /** Onboarding radio buttons. Never free text. */
 export interface ExplainerProfile {
@@ -99,6 +112,12 @@ export interface Answer {
   readonly outsideScope: boolean;
 }
 
+/**
+ * unavailable: the model cannot answer right now; the UI re-probes availability.
+ * too_long: the request did not fit the on-device window even without explanations.
+ * cancelled: the request was stopped before it finished.
+ * busy: another request is still running.
+ */
 export type ExplainerFailure =
   | "not_configured"
   | "no_api_key"
@@ -107,15 +126,27 @@ export type ExplainerFailure =
   | "timeout"
   | "rejected_output"
   | "refused"
-  | "unknown";
+  | "unknown"
+  | "unavailable"
+  | "too_long"
+  | "cancelled"
+  | "busy";
 
 export type ExplainerResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly reason: ExplainerFailure };
 
+export interface ExplainOptions<T> {
+  readonly signal?: AbortSignalLike;
+  /** Called with the whole value so far, never a delta. Non-streaming providers call it once. */
+  readonly onPartial?: (partial: Partial<T>) => void;
+}
+
 export interface ExplainerPort {
   readonly id: ExplainerId;
-  explain(input: ExplainInput, signal?: AbortSignalLike): Promise<ExplainerResult<Explanation>>;
-  prioritise(input: PrioritiseInput, signal?: AbortSignalLike): Promise<ExplainerResult<Prioritisation>>;
-  ask(input: AskInput, signal?: AbortSignalLike): Promise<ExplainerResult<Answer>>;
+  /** fresh bypasses the provider's cache. */
+  availability(fresh?: boolean): Promise<AiAvailability>;
+  explain(input: ExplainInput, options?: ExplainOptions<Explanation>): Promise<ExplainerResult<Explanation>>;
+  prioritise(input: PrioritiseInput, options?: ExplainOptions<Prioritisation>): Promise<ExplainerResult<Prioritisation>>;
+  ask(input: AskInput, options?: ExplainOptions<Answer>): Promise<ExplainerResult<Answer>>;
 }

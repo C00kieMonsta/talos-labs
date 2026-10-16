@@ -8,6 +8,7 @@ export { assertSystemState, isSystemState, SystemStateGuardError, UNAVAILABLE_RE
 
 export * from "./ports/system-state-port";
 export * from "./ports/explainer-port";
+export * from "./ports/fix-port";
 export * from "./ports/license-port";
 export * from "./ports/secret-store-port";
 export * from "./ports/report-store-port";
@@ -32,9 +33,11 @@ export {
   containsCommandText,
   clampQuestion,
   clampHistory,
-  buildBrowserPrompt,
-  BROWSER_PROMPT_MAX_CHARS,
+  ON_DEVICE_LIMITS,
+  buildOnDeviceInstructions,
+  buildOnDevicePrompt,
 } from "./explainer/index";
+export type { OnDevicePrompt, OnDeviceTask, OnDeviceExtra } from "./explainer/index";
 
 export { parseLicense, entitled, freeFixRuleIds, FREE_FIX_COUNT, LICENSE_PREFIX, LICENSE_PRODUCT } from "./license/index";
 

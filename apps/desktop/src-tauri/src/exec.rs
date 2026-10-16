@@ -112,7 +112,11 @@ enum Stop {
 }
 
 /// Waits for the child until `timeout`, checking the cancel flag every `CANCEL_POLL`.
-fn wait_child(child: &mut Child, timeout: Duration, cancel: &AtomicBool) -> std::io::Result<Result<ExitStatus, Stop>> {
+fn wait_child(
+    child: &mut Child,
+    timeout: Duration,
+    cancel: &AtomicBool,
+) -> std::io::Result<Result<ExitStatus, Stop>> {
     let deadline = Instant::now() + timeout;
     loop {
         if cancel.load(Ordering::SeqCst) {
@@ -129,7 +133,12 @@ fn wait_child(child: &mut Child, timeout: Duration, cancel: &AtomicBool) -> std:
 }
 
 /// Runs `bin` with `args` verbatim. Never a shell. The child is killed on timeout or cancel.
-pub fn run(bin: Bin, args: &[&str], timeout: Duration, cancel: &AtomicBool) -> Result<Output, ExecError> {
+pub fn run(
+    bin: Bin,
+    args: &[&str],
+    timeout: Duration,
+    cancel: &AtomicBool,
+) -> Result<Output, ExecError> {
     if cancel.load(Ordering::SeqCst) {
         return Err(ExecError::Cancelled);
     }
@@ -144,7 +153,9 @@ pub fn run(bin: Bin, args: &[&str], timeout: Duration, cancel: &AtomicBool) -> R
         .spawn();
     let mut child = match spawned {
         Ok(child) => child,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Err(ExecError::ToolMissing(bin)),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Err(ExecError::ToolMissing(bin));
+        }
         Err(err) => return Err(ExecError::Io(err)),
     };
     let stdout = child.stdout.take().and_then(spawn_reader);
@@ -253,7 +264,13 @@ mod tests {
 
     #[test]
     fn arguments_reach_the_child_verbatim() {
-        let out = run(Bin::Echo, &["a;b", "$(whoami)", "two words", "`x`"], DEFAULT_TIMEOUT, &no_cancel()).unwrap();
+        let out = run(
+            Bin::Echo,
+            &["a;b", "$(whoami)", "two words", "`x`"],
+            DEFAULT_TIMEOUT,
+            &no_cancel(),
+        )
+        .unwrap();
         assert_eq!(out.stdout, "a;b $(whoami) two words `x`\n");
         assert!(out.success());
         assert!(!out.truncated);
@@ -261,7 +278,13 @@ mod tests {
 
     #[test]
     fn output_over_cap_is_truncated_and_flagged() {
-        let out = run(Bin::Head, &["-c", "1200000", "/dev/zero"], DEFAULT_TIMEOUT, &no_cancel()).unwrap();
+        let out = run(
+            Bin::Head,
+            &["-c", "1200000", "/dev/zero"],
+            DEFAULT_TIMEOUT,
+            &no_cancel(),
+        )
+        .unwrap();
         assert_eq!(out.stdout.len(), OUTPUT_CAP);
         assert!(out.truncated);
     }
@@ -269,12 +292,18 @@ mod tests {
     #[test]
     fn cancel_flag_blocks_spawn() {
         let cancel = AtomicBool::new(true);
-        assert!(matches!(run(Bin::Echo, &["hi"], DEFAULT_TIMEOUT, &cancel), Err(ExecError::Cancelled)));
+        assert!(matches!(
+            run(Bin::Echo, &["hi"], DEFAULT_TIMEOUT, &cancel),
+            Err(ExecError::Cancelled)
+        ));
     }
 
     #[test]
     fn missing_binary_is_tool_missing() {
-        assert!(matches!(run(Bin::Missing, &[], DEFAULT_TIMEOUT, &no_cancel()), Err(ExecError::ToolMissing(Bin::Missing))));
+        assert!(matches!(
+            run(Bin::Missing, &[], DEFAULT_TIMEOUT, &no_cancel()),
+            Err(ExecError::ToolMissing(Bin::Missing))
+        ));
     }
 
     #[test]
@@ -294,8 +323,25 @@ mod macos_tests {
     #[test]
     #[ignore]
     fn netstat_output_is_captured() {
-        let out = run(Bin::Netstat, &["-anv", "-p", "tcp"], DEFAULT_TIMEOUT, &AtomicBool::new(false)).unwrap();
-        eprintln!("exit={:?} stdout={} bytes stderr={} bytes truncated={}", out.exit_code, out.stdout.len(), out.stderr.len(), out.truncated);
-        assert!(out.stdout.contains("Proto"), "stdout: {:?} stderr: {:?}", out.stdout, out.stderr);
+        let out = run(
+            Bin::Netstat,
+            &["-anv", "-p", "tcp"],
+            DEFAULT_TIMEOUT,
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        eprintln!(
+            "exit={:?} stdout={} bytes stderr={} bytes truncated={}",
+            out.exit_code,
+            out.stdout.len(),
+            out.stderr.len(),
+            out.truncated
+        );
+        assert!(
+            out.stdout.contains("Proto"),
+            "stdout: {:?} stderr: {:?}",
+            out.stdout,
+            out.stderr
+        );
     }
 }

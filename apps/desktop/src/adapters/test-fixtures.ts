@@ -18,6 +18,7 @@ const FIX: Fix = {
   verify: null,
   effort: "two_minutes",
   sideEffects: "none",
+  apply: { kind: "in_app", choice: "none", passphrase: false, needsPassword: true, recheck: ["firewall"], confirmTitle: "Turn it on?", confirmVerb: "Turn on", confirmNote: null, reversible: null },
 };
 
 function finding(

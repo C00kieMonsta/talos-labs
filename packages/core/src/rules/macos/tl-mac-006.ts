@@ -27,6 +27,13 @@ export const TL_MAC_006: Rule = {
     verify: "This check passes on the next scan.",
     effort: "ten_minutes",
     sideEffects: "none",
+    apply: {
+      kind: "deep_link",
+      pane: "software_update",
+      watch: ["malwareProtection"],
+      watchEvery: 3,
+      reveal: null,
+    },
   },
   evaluate(state) {
     const data = section(state, "malwareProtection");

@@ -3,7 +3,7 @@
 use std::sync::atomic::AtomicBool;
 
 use super::{check_exit, run};
-use crate::collect::{to_section, Fail};
+use crate::collect::{Fail, to_section};
 use crate::exec::Bin;
 use crate::state::{DiskEncryption, DiskEncryptionMethod, Section};
 
@@ -23,8 +23,15 @@ pub fn parse_fdesetup(text: &str) -> Result<bool, Fail> {
 
 /// FileVault off means the system volume has no encryption method at all.
 fn from_status(on: bool) -> DiskEncryption {
-    let method = if on { DiskEncryptionMethod::Filevault } else { DiskEncryptionMethod::None };
-    DiskEncryption { system_volume_encrypted: on, method }
+    let method = if on {
+        DiskEncryptionMethod::Filevault
+    } else {
+        DiskEncryptionMethod::None
+    };
+    DiskEncryption {
+        system_volume_encrypted: on,
+        method,
+    }
 }
 
 fn inner(cancel: &AtomicBool) -> Result<DiskEncryption, Fail> {
@@ -51,8 +58,18 @@ mod tests {
     #[test]
     fn parses_on_and_deferred() {
         assert!(parse_fdesetup("FileVault is On.\n").unwrap());
-        assert!(parse_fdesetup("FileVault is On.\nDeferred enablement appears to be active for user 'x'.\n").unwrap());
-        assert!(!parse_fdesetup("FileVault is Off.\nDeferred enablement appears to be active for user 'x'.\n").unwrap());
+        assert!(
+            parse_fdesetup(
+                "FileVault is On.\nDeferred enablement appears to be active for user 'x'.\n"
+            )
+            .unwrap()
+        );
+        assert!(
+            !parse_fdesetup(
+                "FileVault is Off.\nDeferred enablement appears to be active for user 'x'.\n"
+            )
+            .unwrap()
+        );
     }
 
     #[test]
@@ -64,6 +81,9 @@ mod tests {
 
     #[test]
     fn rejects_unknown_output() {
-        assert_eq!(parse_fdesetup("").unwrap_err().detail.as_deref(), Some("parser: fdesetup"));
+        assert_eq!(
+            parse_fdesetup("").unwrap_err().detail.as_deref(),
+            Some("parser: fdesetup")
+        );
     }
 }

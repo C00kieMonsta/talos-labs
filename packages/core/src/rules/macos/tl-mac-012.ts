@@ -35,6 +35,13 @@ export const TL_MAC_012: Rule = {
     verify: "Lock Screen shows Immediately.",
     effort: "two_minutes",
     sideEffects: "none",
+    apply: {
+      kind: "deep_link",
+      pane: "lock_screen",
+      watch: ["screenLock"],
+      watchEvery: 3,
+      reveal: null,
+    },
   },
   evaluate(state) {
     const data = section(state, "screenLock");

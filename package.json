@@ -13,7 +13,8 @@
     "lint": "pnpm -r lint",
     "desktop": "pnpm --filter @talos/desktop tauri dev",
     "desktop:build": "pnpm --filter @talos/desktop tauri build",
-    "scan": "tsx scripts/scan-cli.ts"
+    "scan": "tsx scripts/scan-cli.ts",
+    "sidecar:build": "pnpm --filter @talos/desktop sidecar:build"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

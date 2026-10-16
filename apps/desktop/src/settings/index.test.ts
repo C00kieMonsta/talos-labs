@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, MAX_MODEL_ID_LENGTH, SETTINGS_STORAGE_KEY, isInAppProvider, loadSettings, parseSettings, saveSettings, type AppSettings } from "./index";
+import { DEFAULT_SETTINGS, MAX_MODEL_ID_LENGTH, SETTINGS_STORAGE_KEY, aiUsable, loadSettings, parseSettings, saveSettings, type AppSettings } from "./index";
 
 beforeEach(() => {
   localStorage.clear();
@@ -8,10 +8,10 @@ beforeEach(() => {
 describe("settings defaults", () => {
   it("matches the contract", () => {
     expect(DEFAULT_SETTINGS).toEqual({
-      explainer: { provider: "browser", assistant: "claude", claudeModel: "claude-opus-5", ollamaModel: "llama3.1" },
+      explainer: { provider: "apple", aiEnabled: true, claudeModel: "claude-opus-5", ollamaModel: "llama3.1" },
       profile: { role: "individual", technical: "low", handlesClientData: false, laptopLeavesHome: true },
       onboarded: false,
-      developerMode: false,
+      developer: { enabled: false, showCommands: true, showPlanExpanded: true },
     });
   });
 
@@ -23,10 +23,10 @@ describe("settings defaults", () => {
 describe("settings round trip", () => {
   it("saves and loads the same value", () => {
     const next: AppSettings = {
-      explainer: { provider: "claude", assistant: "chatgpt", claudeModel: "claude-sonnet-5", ollamaModel: "mistral" },
+      explainer: { provider: "claude", aiEnabled: false, claudeModel: "claude-sonnet-5", ollamaModel: "mistral" },
       profile: { role: "small_business", technical: "high", handlesClientData: true, laptopLeavesHome: false },
       onboarded: true,
-      developerMode: true,
+      developer: { enabled: true, showCommands: false, showPlanExpanded: false },
     };
     saveSettings(next);
     expect(loadSettings()).toEqual(next);
@@ -35,7 +35,7 @@ describe("settings round trip", () => {
   it("stores only the four top-level keys as JSON", () => {
     saveSettings(DEFAULT_SETTINGS);
     const raw = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) ?? "null") as Record<string, unknown>;
-    expect(Object.keys(raw).sort()).toEqual(["developerMode", "explainer", "onboarded", "profile"]);
+    expect(Object.keys(raw).sort()).toEqual(["developer", "explainer", "onboarded", "profile"]);
     expect(JSON.stringify(raw)).not.toContain("apiKey");
   });
 });
@@ -59,36 +59,40 @@ describe("tolerant parsing", () => {
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
   });
 
-  it("keeps a stored value from before developerMode and assistant existed", () => {
-    localStorage.setItem(
-      SETTINGS_STORAGE_KEY,
-      JSON.stringify({ explainer: { provider: "none", claudeModel: "claude-opus-5", ollamaModel: "llama3.1" }, profile: DEFAULT_SETTINGS.profile, onboarded: true }),
-    );
-    expect(loadSettings()).toEqual({
-      ...DEFAULT_SETTINGS,
-      explainer: { ...DEFAULT_SETTINGS.explainer, provider: "none" },
-      onboarded: true,
-      developerMode: false,
-    });
+  it("migrates a stored browser provider to apple", () => {
+    expect(parseSettings({ explainer: { provider: "browser", assistant: "chatgpt" } }).explainer).toEqual(DEFAULT_SETTINGS.explainer);
   });
 
-  it("falls back to the browser hand-off when an in-app provider is stored without developer mode", () => {
-    expect(parseSettings({ explainer: { provider: "claude" } }).explainer.provider).toBe("browser");
-    expect(parseSettings({ explainer: { provider: "ollama" }, developerMode: false }).explainer.provider).toBe("browser");
-    expect(parseSettings({ explainer: { provider: "ollama" }, developerMode: true }).explainer.provider).toBe("ollama");
-    expect(parseSettings({ explainer: { provider: "none" } }).explainer.provider).toBe("none");
+  it("migrates a stored none provider to apple with AI off", () => {
+    const parsed = parseSettings({ explainer: { provider: "none" }, onboarded: true });
+    expect(parsed.explainer.provider).toBe("apple");
+    expect(parsed.explainer.aiEnabled).toBe(false);
+    expect(parsed.onboarded).toBe(true);
+  });
+
+  it("migrates a stored developerMode boolean into developer.enabled", () => {
+    expect(parseSettings({ developerMode: true }).developer).toEqual({ enabled: true, showCommands: true, showPlanExpanded: true });
+    expect(parseSettings({ developerMode: false }).developer.enabled).toBe(false);
+    expect(parseSettings({ developerMode: true, developer: { enabled: false } }).developer.enabled).toBe(false);
+  });
+
+  it("falls back to apple when an in-app provider is stored without developer mode", () => {
+    expect(parseSettings({ explainer: { provider: "claude" } }).explainer.provider).toBe("apple");
+    expect(parseSettings({ explainer: { provider: "ollama" }, developer: { enabled: false } }).explainer.provider).toBe("apple");
+    expect(parseSettings({ explainer: { provider: "ollama" }, developer: { enabled: true } }).explainer.provider).toBe("ollama");
+    expect(parseSettings({ explainer: { provider: "claude" }, developerMode: true }).explainer.provider).toBe("claude");
   });
 
   it("keeps valid fields while repairing the rest", () => {
     localStorage.setItem(
       SETTINGS_STORAGE_KEY,
-      JSON.stringify({ explainer: { provider: "ollama", assistant: "chatgpt" }, profile: { technical: "medium", laptopLeavesHome: false }, onboarded: true, developerMode: true }),
+      JSON.stringify({ explainer: { provider: "ollama" }, profile: { technical: "medium", laptopLeavesHome: false }, onboarded: true, developer: { enabled: true, showCommands: false } }),
     );
     expect(loadSettings()).toEqual({
-      explainer: { provider: "ollama", assistant: "chatgpt", claudeModel: "claude-opus-5", ollamaModel: "llama3.1" },
+      explainer: { provider: "ollama", aiEnabled: true, claudeModel: "claude-opus-5", ollamaModel: "llama3.1" },
       profile: { role: "individual", technical: "medium", handlesClientData: false, laptopLeavesHome: false },
       onboarded: true,
-      developerMode: true,
+      developer: { enabled: true, showCommands: false, showPlanExpanded: true },
     });
   });
 
@@ -101,6 +105,7 @@ describe("tolerant parsing", () => {
   it("trims model ids", () => {
     expect(parseSettings({ explainer: { claudeModel: "  claude-sonnet-5  " } }).explainer.claudeModel).toBe("claude-sonnet-5");
   });
+
   it("falls back to the default model when a stored id is longer than the cap", () => {
     const long = "claude-" + "a".repeat(MAX_MODEL_ID_LENGTH);
     const parsed = parseSettings({ explainer: { claudeModel: long, ollamaModel: "b".repeat(MAX_MODEL_ID_LENGTH + 1) } });
@@ -110,11 +115,20 @@ describe("tolerant parsing", () => {
   });
 });
 
-describe("isInAppProvider", () => {
-  it("is true only for the providers that run inside the app", () => {
-    expect(isInAppProvider("claude")).toBe(true);
-    expect(isInAppProvider("ollama")).toBe(true);
-    expect(isInAppProvider("browser")).toBe(false);
-    expect(isInAppProvider("none")).toBe(false);
+describe("aiUsable", () => {
+  it("is false when the switch is off, whatever the availability", () => {
+    const off = parseSettings({ explainer: { aiEnabled: false } });
+    expect(aiUsable(off, "available")).toBe(false);
+  });
+
+  it("needs an available on-device model for the apple provider", () => {
+    expect(aiUsable(DEFAULT_SETTINGS, "available")).toBe(true);
+    expect(aiUsable(DEFAULT_SETTINGS, "model_not_ready")).toBe(false);
+    expect(aiUsable(DEFAULT_SETTINGS, null)).toBe(false);
+  });
+
+  it("is true for a Developer-mode provider without a probe", () => {
+    const dev = parseSettings({ explainer: { provider: "ollama" }, developer: { enabled: true } });
+    expect(aiUsable(dev, null)).toBe(true);
   });
 });

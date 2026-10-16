@@ -7,7 +7,6 @@ import {
   type ExplainerResult,
   type Prioritisation,
 } from "../ports/explainer-port";
-import { explainerEligibleRuleIds } from "./context";
 
 const REJECTED: ExplainerResult<never> = { ok: false, reason: "rejected_output" };
 
@@ -99,13 +98,20 @@ export function validateExplanation(raw: unknown, report: ScanReport): Explainer
   });
 }
 
-export function validatePrioritisation(raw: unknown, report: ScanReport): ExplainerResult<Prioritisation> {
+/**
+ * order must be a permutation of eligible: the ids the model was given (built.kept on-device,
+ * explainerEligibleRuleIds(report) for Claude and Ollama). reasons and startWith may name any id in the report.
+ */
+export function validatePrioritisation(
+  raw: unknown,
+  report: ScanReport,
+  eligible: readonly RuleId[],
+): ExplainerResult<Prioritisation> {
   return guarded(() => {
     if (!isRecord(raw)) {
       throw new Rejected();
     }
     const known = reportRuleIds(report);
-    const eligible = explainerEligibleRuleIds(report);
     const orderRaw = readList(raw["order"], EXPLAINER_LIMITS.maxFindings);
     const order = orderRaw.map((id) => readRuleId(id, known));
     if (order.length !== eligible.length || new Set(order).size !== order.length) {

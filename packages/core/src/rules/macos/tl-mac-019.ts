@@ -38,6 +38,17 @@ export const TL_MAC_019: Rule = {
     verify: "Sharing shows Remote Login off, and the check-up no longer reports port 22.",
     effort: "two_minutes",
     sideEffects: "none",
+    apply: {
+      kind: "in_app",
+      choice: "none",
+      passphrase: false,
+      needsPassword: true,
+      recheck: ["remoteAccess", "listeners"],
+      confirmTitle: "Turn Remote Login off?",
+      confirmVerb: "Turn off",
+      confirmNote: null,
+      reversible: "You can switch it on again in System Settings > General > Sharing.",
+    },
   },
   evaluate(state) {
     return remoteServiceOutcome(section(state, "remoteAccess").ssh);

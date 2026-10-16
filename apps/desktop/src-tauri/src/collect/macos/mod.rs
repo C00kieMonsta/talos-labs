@@ -26,7 +26,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use regex::{Regex, RegexSet};
 
 use super::{AnySection, Fail, Shared};
-use crate::exec::{self, Bin, ExecError, Output, DEFAULT_TIMEOUT};
+use crate::exec::{self, Bin, DEFAULT_TIMEOUT, ExecError, Output};
 use crate::state::SectionKey;
 
 pub fn collect_one(key: SectionKey, shared: &Shared) -> AnySection {
@@ -34,8 +34,12 @@ pub fn collect_one(key: SectionKey, shared: &Shared) -> AnySection {
     match key {
         SectionKey::DiskEncryption => AnySection::DiskEncryption(disk_encryption::collect(cancel)),
         SectionKey::Firewall => AnySection::Firewall(firewall::collect(cancel)),
-        SectionKey::PlatformIntegrity => AnySection::PlatformIntegrity(platform_integrity::collect(cancel)),
-        SectionKey::MalwareProtection => AnySection::MalwareProtection(malware_protection::collect(cancel)),
+        SectionKey::PlatformIntegrity => {
+            AnySection::PlatformIntegrity(platform_integrity::collect(cancel))
+        }
+        SectionKey::MalwareProtection => {
+            AnySection::MalwareProtection(malware_protection::collect(cancel))
+        }
         SectionKey::Updates => AnySection::Updates(updates::collect(cancel)),
         SectionKey::ScreenLock => AnySection::ScreenLock(screen_lock::collect(cancel)),
         SectionKey::Accounts => AnySection::Accounts(accounts::collect(cancel)),
@@ -67,7 +71,11 @@ pub fn check_exit(out: &Output, bin: Bin) -> Result<(), Fail> {
 }
 
 pub fn check_cancel(cancel: &AtomicBool) -> Result<(), Fail> {
-    if cancel.load(Ordering::SeqCst) { Err(Fail::collector("cancelled")) } else { Ok(()) }
+    if cancel.load(Ordering::SeqCst) {
+        Err(Fail::collector("cancelled"))
+    } else {
+        Ok(())
+    }
 }
 
 pub fn home() -> Result<PathBuf, Fail> {
@@ -105,13 +113,27 @@ mod tests {
 
     #[test]
     fn failed_tool_with_no_output_is_a_collector_error() {
-        let out = |code: Option<i32>, stdout: &str| Output { stdout: stdout.to_owned(), stderr: "DS Error: -14136\n".to_owned(), exit_code: code, truncated: false };
+        let out = |code: Option<i32>, stdout: &str| Output {
+            stdout: stdout.to_owned(),
+            stderr: "DS Error: -14136\n".to_owned(),
+            exit_code: code,
+            truncated: false,
+        };
         let fail = check_exit(&out(Some(56), ""), Bin::Dscl).unwrap_err();
         assert_eq!(fail.reason, crate::state::UnavailableReason::CollectorError);
         assert_eq!(fail.detail.as_deref(), Some("dscl: exit"));
-        assert!(check_exit(&out(None, "\n"), Bin::Dscl).is_err(), "killed by a signal");
-        assert!(check_exit(&out(Some(1), "assessments disabled\n"), Bin::Spctl).is_ok(), "output goes to the parser");
-        assert!(check_exit(&out(Some(0), ""), Bin::Sysadminctl).is_ok(), "stderr-only tools exit 0");
+        assert!(
+            check_exit(&out(None, "\n"), Bin::Dscl).is_err(),
+            "killed by a signal"
+        );
+        assert!(
+            check_exit(&out(Some(1), "assessments disabled\n"), Bin::Spctl).is_ok(),
+            "output goes to the parser"
+        );
+        assert!(
+            check_exit(&out(Some(0), ""), Bin::Sysadminctl).is_ok(),
+            "stderr-only tools exit 0"
+        );
     }
 
     #[test]

@@ -2,6 +2,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FIXTURES } from "../src/fixtures/index";
+import { fixCatalogJson } from "../src/rules/fix-catalog";
+import { MACOS_CATALOG } from "../src/rules/macos/index";
 
 /** Recursively sorts object keys so the JSON on disk is stable across runs. */
 function sortKeys(value: unknown): unknown {
@@ -25,3 +27,6 @@ for (const [name, state] of Object.entries(FIXTURES)) {
   writeFileSync(file, `${JSON.stringify(sortKeys(state), null, 2)}\n`);
   console.log(`wrote ${file}`);
 }
+const catalogFile = join(outDir, "fix-catalog.json");
+writeFileSync(catalogFile, fixCatalogJson(MACOS_CATALOG));
+console.log(`wrote ${catalogFile}`);

@@ -64,6 +64,17 @@ export const TL_MAC_029: Rule = {
     verify: "Run the check-up again; the unprotected key count is 0.",
     effort: "two_minutes",
     sideEffects: "workflow",
+    apply: {
+      kind: "in_app",
+      choice: "ssh_key",
+      passphrase: true,
+      needsPassword: false,
+      recheck: ["ssh"],
+      confirmTitle: "Add a passphrase to this key?",
+      confirmVerb: "Add passphrase",
+      confirmNote: null,
+      reversible: null,
+    },
   },
   evaluate(state) {
     const data = section(state, "ssh");

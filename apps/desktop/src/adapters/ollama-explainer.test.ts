@@ -136,7 +136,7 @@ describe("OllamaExplainerAdapter failure mapping", () => {
   it("forwards an external abort and reports it as network", async () => {
     fetchMock.mockImplementationOnce(hangUntilAborted);
     const controller = new AbortController();
-    const pending = adapter().explain(explainInput, controller.signal);
+    const pending = adapter().explain(explainInput, { signal: controller.signal });
     controller.abort();
     expect(await pending).toEqual({ ok: false, reason: "network" });
   });

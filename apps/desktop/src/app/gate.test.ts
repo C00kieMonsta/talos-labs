@@ -72,8 +72,8 @@ function renderDetail(ruleId: RuleId, license: LicenseState, developerMode = fal
     adapters: fakeAdapters(),
     license,
     gate: buildGate(report, license),
-    settings: { ...DEFAULT_SETTINGS, onboarded: true, developerMode },
-    scanState: { kind: "ready", report, state: DEV_MACHINE, explain: { kind: "off" }, lastRecheck: null },
+    settings: { ...DEFAULT_SETTINGS, onboarded: true, developer: { ...DEFAULT_SETTINGS.developer, enabled: developerMode } },
+    scanState: { kind: "ready", report, state: DEV_MACHINE, explain: { kind: "off" }, lastRecheck: null, fixing: null, watching: null },
   });
   return render(createElement(AppContext.Provider, { value }, createElement(FindingDetail, { ruleId })));
 }
@@ -128,6 +128,6 @@ describe("Overview next three fixes", () => {
     const expected = EXPECTED_FREE.map((id) => report.findings.find((f) => f.ruleId === id)?.headline);
     expect(titles).toEqual(expected);
     expect(screen.getByText("Incomplete")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Open Full Disk Access settings" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open Full Disk Access" })).toBeTruthy();
   });
 });

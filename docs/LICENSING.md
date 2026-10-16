@@ -17,8 +17,8 @@ One-off purchase, offline key, no account. Core parses and checks the key; the d
 | `v` | `1` | payload version |
 | `lid` | ULID | licence id. Shown in About. Used by the revocation list. |
 | `product` | `"talos-desktop"` | |
-| `plan` | `"personal"` or `"business"` | informational in v0.1, shown in About, not enforced |
-| `seats` | number | informational in v0.1 |
+| `plan` | `"personal"` or `"business"` | informational in v0.2, shown in About, not enforced |
+| `seats` | number | informational in v0.2 |
 | `issuedAt` | `YYYY-MM-DD` | |
 | `updatesUntil` | `YYYY-MM-DD` | last build date the key accepts |
 | `tag` | 8 hex chars | first 8 hex characters of `sha256(lowercased buyer email)` |
@@ -38,6 +38,18 @@ The email is never in the key. `tag` is enough to match a leaked key against the
 The result is a `LicenseState`: `none`, `invalid` with the reason, or `valid` with the payload. `entitled(state, feature)` is true for every `Feature` when the state is `valid` and false otherwise.
 
 The desktop adapter stores the raw key string in `<app data>/license.key` through Tauri commands and re-verifies it on every launch. No account, no server, no phone-home, no hardware binding.
+
+## Entering a key
+
+There is no licence form. `LicenceField` (`apps/desktop/src/components/LicenceField.tsx`) is one component rendered inline wherever a lock appears: the fix card, the AI card, Ask, Suggested order and the Licence section of Settings. One input, placeholder "Paste your licence key", `autoFocus` when it replaces a button.
+
+- Paste detection. On `paste` or `input`, a trimmed value matching `/^TL1\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{60,}$/` is verified after a 300 ms debounce with no button press. A value that does not match keeps an "Activate" button.
+- `checking` disables the field.
+- `valid`: "Licensed. Updates until <updatesUntil>" for 800 ms, then the lock is replaced by the content it hid (the fix card, the AI card) and focus moves to it. The sidebar pill reads "Licensed".
+- `invalid`: the reason labels from the table above sit under the field with `role="alert"`; focus stays in the field.
+- "Buy a licence" calls the `open_buy_page` command, which opens one fixed URL chosen in Rust; the webview never passes a URL. The field stays where it is so the key can be pasted on return. The caption reads "Opens the Talos Labs shop in your browser. Your key arrives by email; paste it here." That web link is the one step outside the app.
+
+The demo build accepts `TL1.DEMO` for typed entry and a second key that matches the paste regex, so the QA harness exercises both paths (`apps/desktop/qa/README.md`). The behaviour is specified in DESIGN-V02.md section 6, "Licence entry".
 
 ## Keygen
 
@@ -81,7 +93,7 @@ Cannot:
 - Stop the device owner patching the app binary.
 - Revoke in builds already installed.
 
-This is accepted. The price is one-off and the app is read-only; the goal is to stop casual sharing and forging, not a determined attacker.
+This is accepted. The price is one-off and the app changes nothing the user could not change in System Settings; the goal is to stop casual sharing and forging, not a determined attacker.
 
 ## updatesUntil
 
@@ -94,16 +106,16 @@ So "one-off purchase" means every build released within the window, typically tw
 
 ## Free tier
 
-Free, with no key: the full scan, the score and grade, every finding with its title, status, evidence and authored explanation, and the complete fix for the three highest-point failing findings. Ties break by catalog order. Fixes for `review` findings are always free and do not count towards the three. FileVault is the only critical rule and always lands in the top three when it fails, so nobody is left unencrypted because they did not pay.
+Free, with no key: the full scan, the score and grade, every finding with its title, status, evidence and authored explanation, and the complete fix, including Apply and the away-watch, for the three highest-point failing findings. Ties break by catalog order. The recheck bundled into an Apply or a watch is free too. Fixes for `review` findings are always free and do not count towards the three. FileVault is the only critical rule and always lands in the top three when it fails, so nobody is left unencrypted because they did not pay.
 
 `freeFixRuleIds(report)` in core computes the free set. The gate is a UI check in `apps/desktop`; core always produces the full report.
 
 Paid (`Feature`):
 
 - `all_fixes`: the fix for every finding.
-- `recheck`: single-section re-collection ("I've done this, check again"), for every finding including the three free ones.
+- `recheck`: the manual "Check again" on a finding, for every finding including the three free ones. The automatic recheck after an Apply or a watch is not gated.
 - `explainer`: the AI explanation, prioritisation and follow-up questions.
 
-## Not in v0.1
+## Not in v0.2
 
 Payment provider, checkout, key delivery email, licence server, seat enforcement, hardware binding.

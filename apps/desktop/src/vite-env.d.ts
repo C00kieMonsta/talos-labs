@@ -10,12 +10,22 @@ interface ImportMetaEnv {
 
 /** What the demo adapters would have opened. */
 interface TalosDemoCall {
-  readonly kind: "openSettingsPane" | "openAssistant";
-  readonly arg: string;
+  readonly kind:
+    | "openSettingsPane"
+    | "openBuyPage"
+    | "restart"
+    | "fixPreview"
+    | "fixApply"
+    | "fixCancel"
+    | "fixReveal"
+    | "aiCancel";
+  readonly arg?: string;
   readonly prompt?: string;
 }
 
 interface Window {
   /** Present only in demo mode. */
   __talosDemoCalls?: TalosDemoCall[];
+  /** Demo mode only: scales the Scanning reveal schedule; 0 collapses it. */
+  __talosDemoPace?: number;
 }

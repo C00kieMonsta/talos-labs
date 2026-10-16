@@ -1,14 +1,14 @@
 //! Time Machine state from `tmutil destinationinfo`, `tmutil latestbackup` and, when the disk is not
 //! mounted, the `Destinations` key of the Time Machine preference domain.
 
-use std::sync::atomic::AtomicBool;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicBool;
 
 use chrono::TimeZone;
 use regex::Regex;
 
 use super::{defaults, lit, run};
-use crate::collect::{to_section, Fail};
+use crate::collect::{Fail, to_section};
 use crate::exec::Bin;
 use crate::state::{Backup, BackupMethod, Section};
 
@@ -16,7 +16,8 @@ use crate::state::{Backup, BackupMethod, Section};
 pub const TIME_MACHINE_DOMAIN: &str = "/Library/Preferences/com.apple.TimeMachine";
 
 static ID_LINE_RE: LazyLock<Regex> = LazyLock::new(|| lit(r"(?m)^ID\s*:"));
-static BACKUP_STAMP_RE: LazyLock<Regex> = LazyLock::new(|| lit(r"(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})(\d{2})"));
+static BACKUP_STAMP_RE: LazyLock<Regex> =
+    LazyLock::new(|| lit(r"(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})(\d{2})"));
 
 /// One `ID :` line per destination.
 pub fn parse_destination_count(text: &str) -> u64 {
@@ -30,7 +31,11 @@ pub fn backup_timestamp_to_iso(text: &str) -> Option<String> {
     let date = chrono::NaiveDate::from_ymd_opt(num(1)? as i32, num(2)?, num(3)?)?;
     let naive = date.and_hms_opt(num(4)?, num(5)?, num(6)?)?;
     let local = chrono::Local.from_local_datetime(&naive).single()?;
-    Some(local.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+    Some(
+        local
+            .with_timezone(&chrono::Utc)
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+    )
 }
 
 /// (destinationReachable, lastBackupAt) from `tmutil latestbackup`.
@@ -85,7 +90,12 @@ fn inner(cancel: &AtomicBool) -> Result<Backup, Fail> {
     let (reachable, mut last_backup_at) = parse_latest_backup(&latest.stdout, &latest.stderr);
     if !reachable {
         // The preference domain keeps the completed snapshot dates while the disk is unplugged.
-        let destinations = defaults::read_key(TIME_MACHINE_DOMAIN, "Destinations", "TimeMachine Destinations", cancel)?;
+        let destinations = defaults::read_key(
+            TIME_MACHINE_DOMAIN,
+            "Destinations",
+            "TimeMachine Destinations",
+            cancel,
+        )?;
         last_backup_at = destinations.as_deref().and_then(latest_snapshot_date);
     }
     Ok(Backup {
@@ -112,7 +122,8 @@ mod tests {
         assert_eq!(parse_destination_count(text), 1);
         assert_eq!(parse_destination_count("No destinations configured.\n"), 0);
         assert_eq!(parse_destination_count(""), 0);
-        let two = "====\nName : A\nKind : Local\nID   : 1\n====\nName : B\nKind : Network\nID   : 2\n";
+        let two =
+            "====\nName : A\nKind : Local\nID   : 1\n====\nName : B\nKind : Network\nID   : 2\n";
         assert_eq!(parse_destination_count(two), 2);
     }
 
@@ -125,18 +136,32 @@ mod tests {
     #[test]
     fn snapshot_dates_give_the_newest_completed_backup() {
         let text = include_str!("../../../tests/fixtures/timemachine-destinations.txt");
-        assert_eq!(latest_snapshot_date(text).as_deref(), Some("2025-12-26T20:02:44.000Z"), "attempt dates in 2026 are not backups");
+        assert_eq!(
+            latest_snapshot_date(text).as_deref(),
+            Some("2025-12-26T20:02:44.000Z"),
+            "attempt dates in 2026 are not backups"
+        );
         let two = "(\n        {\n        SnapshotDates =         (\n            \"2025-12-26 20:02:44 +0000\",\n            \"2026-01-03 10:00:00 +0100\"\n        );\n    },\n        {\n        AttemptDates =         (\n            \"2026-07-29 22:06:10 +0000\"\n        );\n        SnapshotDates =         (\n            \"2026-02-01 08:30:00 +0000\"\n        );\n    }\n)\n";
-        assert_eq!(latest_snapshot_date(two).as_deref(), Some("2026-02-01T08:30:00.000Z"));
+        assert_eq!(
+            latest_snapshot_date(two).as_deref(),
+            Some("2026-02-01T08:30:00.000Z")
+        );
         let none = "(\n        {\n        AttemptDates =         (\n            \"2026-07-29 22:06:10 +0000\"\n        );\n        SnapshotDates =         (\n        );\n    }\n)\n";
-        assert_eq!(latest_snapshot_date(none), None, "an empty list keeps the outcome indeterminate");
+        assert_eq!(
+            latest_snapshot_date(none),
+            None,
+            "an empty list keeps the outcome indeterminate"
+        );
         assert_eq!(latest_snapshot_date(""), None);
         assert_eq!(latest_snapshot_date("(\n)\n"), None);
     }
 
     #[test]
     fn latest_backup_path_gives_timestamp() {
-        let (reachable, at) = parse_latest_backup("/Volumes/Backup/Backups.backupdb/Mac/2026-10-15-120000\n", "");
+        let (reachable, at) = parse_latest_backup(
+            "/Volumes/Backup/Backups.backupdb/Mac/2026-10-15-120000\n",
+            "",
+        );
         assert!(reachable);
         let at = at.unwrap();
         assert!(at.starts_with("2026-10-1"), "{at}");

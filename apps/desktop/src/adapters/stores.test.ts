@@ -3,7 +3,6 @@ import { MACOS_CATALOG, SECTION_KEYS, computeScore, headlineFor, type FixCommand
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FileReportStore, restoreReport } from "./file-report-store";
 import { KeychainSecretStore } from "./keychain-secret-store";
-import { openAssistant } from "./open-assistant";
 import { openSettingsPane } from "./settings-pane";
 import { TEST_REPORT } from "./test-fixtures";
 
@@ -257,20 +256,5 @@ describe("openSettingsPane", () => {
     invokeMock.mockResolvedValueOnce(undefined);
     await openSettingsPane("full_disk_access");
     expect(invokeMock).toHaveBeenCalledWith("open_settings_pane", { pane: "full_disk_access" });
-  });
-});
-
-describe("openAssistant", () => {
-  it("passes the assistant id and the prompt, never a URL", async () => {
-    invokeMock.mockResolvedValueOnce(undefined);
-    await openAssistant("chatgpt", "Explain my results.");
-    expect(invokeMock).toHaveBeenCalledWith("open_assistant", { assistant: "chatgpt", prompt: "Explain my results." });
-    const args = invokeMock.mock.calls[0]?.[1] as Record<string, unknown>;
-    expect(Object.keys(args).sort()).toEqual(["assistant", "prompt"]);
-  });
-
-  it("surfaces a rejection from Rust", async () => {
-    invokeMock.mockRejectedValueOnce("prompt too long");
-    await expect(openAssistant("claude", "x")).rejects.toBe("prompt too long");
   });
 });
