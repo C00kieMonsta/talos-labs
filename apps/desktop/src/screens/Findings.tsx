@@ -29,7 +29,7 @@ function bySeverity(a: Finding, b: Finding): number {
 }
 
 export function Findings() {
-  const { scan, router, catalog, settings } = useApp();
+  const { scan, router, catalog, settings, gate } = useApp();
   const report = lastReport(scan.scan);
   // The filters live on the route, so Back from a finding restores them; local state keeps the selects responsive.
   const routed = router.route.name === "findings" ? router.route : null;
@@ -47,8 +47,10 @@ export function Findings() {
   if (report === null) {
     return (
       <div className="screen findings">
-        <h1>Findings</h1>
         <p className="lead">Run a check-up to see findings.</p>
+        <button type="button" className="button button-primary" onClick={() => void scan.start()}>
+          Run check-up
+        </button>
       </div>
     );
   }
@@ -85,7 +87,8 @@ export function Findings() {
 
   const open = (ruleId: RuleId) => router.navigate({ name: "finding", ruleId });
   const reasonFor = (finding: Finding) => (hiddenBySocketTable(report, finding) ? SOCKET_TABLE_LABEL : undefined);
-  const showAside = settings.explainer.aiEnabled && (live || order !== null) && report.findings.some((f) => f.status !== "unknown");
+  // The locked card lives on the Overview; here the list keeps the kit's single column until AI is unlocked.
+  const showAside = settings.explainer.aiEnabled && gate.has("explainer") && (live || order !== null) && report.findings.some((f) => f.status !== "unknown");
 
   return (
     <div className="screen findings">
@@ -145,7 +148,7 @@ export function Findings() {
                             <span className="passed-title">{rule.title}</span>
                           </span>
                           <span className="finding-row-trail">
-                            <SeverityBadge severity={rule.severity} />
+                            <SeverityBadge severity={rule.severity} icon={false} />
                           </span>
                           <Icon icon={ICONS.chevronRight} className="finding-card-chevron" />
                         </button>

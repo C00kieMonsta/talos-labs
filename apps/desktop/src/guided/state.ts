@@ -20,6 +20,8 @@ export interface DoneRow {
   readonly ruleId: RuleId;
   readonly ok: boolean;
   readonly text: string;
+  /** A line under the text on a failed row: "I'll show you where" or "Did not change". */
+  readonly tag?: string;
 }
 
 export type StepState =
@@ -76,8 +78,8 @@ export function stepBusy(phase: GuidedPhase): boolean {
   return s === "working" || s === "watching";
 }
 
-/** The progress line of a step reads "1 of 5" on the first step; the bar fills the steps already done. */
-export function stepProgress(controller: GuidedController): { done: number; of: number; completed: number } {
+/** The progress line of a step reads "1 of 5" on the first step; the bar fills to the step shown, like the kit. */
+export function stepProgress(controller: GuidedController): { done: number; of: number } {
   const { done, of } = controller.progress;
-  return { done: Math.min(done + 1, of), of, completed: done };
+  return { done: Math.min(done + 1, of), of };
 }

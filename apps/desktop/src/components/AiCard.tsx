@@ -67,7 +67,6 @@ export function AiCard({
   onRetry,
   onOpenAiSettings,
   onBuy,
-  onUnlocked,
   children,
 }: {
   kind: AiCardKind;
@@ -79,7 +78,6 @@ export function AiCard({
   onRetry(): void;
   onOpenAiSettings(): void;
   onBuy(): void;
-  onUnlocked?(): void;
   /** The streaming or ready body. */
   children?: ReactNode;
 }) {
@@ -168,7 +166,7 @@ export function AiCard({
       {state.kind === "ready" && <p className="ai-card-foot">{AI_BADGE}</p>}
       {state.kind === "locked" && (
         <div className="ai-card-extra">
-          <LicenceField onBuy={onBuy} onUnlocked={onUnlocked} />
+          <LicenceField onBuy={onBuy} />
         </div>
       )}
     </section>

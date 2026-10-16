@@ -18,8 +18,18 @@ export function passphraseProblem(value: string, repeat: string): string | null 
   return null;
 }
 
-/** Body of the confirm sheet for 029: the key path, two fields, a hint and Add passphrase. */
-export function PassphraseForm({ keyPath, onSubmit, submitLabel = "Add passphrase" }: { keyPath: string | null; onSubmit(passphrase: string): void; submitLabel?: string }) {
+/** Body of the confirm sheet for 029: the key path, two fields, a hint and Add passphrase. A sheet passes onCancel so both buttons share one row. */
+export function PassphraseForm({
+  keyPath,
+  onSubmit,
+  onCancel,
+  submitLabel = "Add passphrase",
+}: {
+  keyPath: string | null;
+  onSubmit(passphrase: string): void;
+  onCancel?(): void;
+  submitLabel?: string;
+}) {
   const id = useId();
   const [value, setValue] = useState("");
   const [repeat, setRepeat] = useState("");
@@ -73,6 +83,11 @@ export function PassphraseForm({ keyPath, onSubmit, submitLabel = "Add passphras
         </p>
       )}
       <div className="sheet-actions">
+        {onCancel !== undefined && (
+          <button type="button" className="button" onClick={onCancel}>
+            Cancel
+          </button>
+        )}
         <button type="submit" className="button button-primary" aria-disabled={problem !== null}>
           {submitLabel}
         </button>

@@ -377,11 +377,12 @@ function ScanningShell({ guided, inactive }: { guided: boolean; inactive: boolea
       </GuidedShell>
     );
   }
+  // The expert column is the main landmark here, as the routed host is, so the page head sits inside it.
   return (
-    <>
+    <main className="screen-host">
       <Toolbar title="Checking your Mac" actions={actions} />
       <Scanning pacer={pacer} report={report} />
-    </>
+    </main>
   );
 }
 
@@ -425,19 +426,19 @@ function RouteToolbar({ route }: { route: Route }) {
         <Toolbar
           title="Overview"
           subtitle={report === null ? undefined : `Last check-up ${formatDateTime(report.scannedAt)}`}
-          actions={[rescan]}
+          actions={report === null ? [] : [rescan]}
         />
       );
     case "findings":
       return (
-        <Toolbar title="Findings" actions={[rescan]}>
+        <Toolbar title="Findings" actions={report === null ? [] : [rescan]}>
           <div id="toolbar-slot" className="toolbar-slot" />
         </Toolbar>
       );
     case "finding":
       return <Toolbar back={{ label: "Findings", onClick: () => router.back() }} />;
     case "ask":
-      return <Toolbar title="Ask" />;
+      return <Toolbar title="Ask about your report" subtitle="Only available with on-device Apple Intelligence." />;
     case "settings":
       return <Toolbar title="Settings" />;
   }

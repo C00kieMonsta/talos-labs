@@ -195,18 +195,19 @@ describe("TauriSystemStateAdapter.collectSection", () => {
 
 describe("TauriSystemStateAdapter.capabilities", () => {
   it("passes a well-formed answer through", async () => {
-    invokeMock.mockResolvedValueOnce({ fullDiskAccess: true, automation: "granted" });
-    expect(await new TauriSystemStateAdapter().capabilities()).toEqual({ fullDiskAccess: true, automation: "granted" });
-    invokeMock.mockResolvedValueOnce({ fullDiskAccess: null, automation: null });
-    expect(await new TauriSystemStateAdapter().capabilities()).toEqual({ fullDiskAccess: null, automation: null });
+    invokeMock.mockResolvedValueOnce({ fullDiskAccess: true, automation: "granted", bundled: true });
+    expect(await new TauriSystemStateAdapter().capabilities()).toEqual({ fullDiskAccess: true, automation: "granted", bundled: true });
+    invokeMock.mockResolvedValueOnce({ fullDiskAccess: null, automation: null, bundled: false });
+    expect(await new TauriSystemStateAdapter().capabilities()).toEqual({ fullDiskAccess: null, automation: null, bundled: false });
+    expect(invokeMock).toHaveBeenCalledWith("check_capabilities");
   });
 
-  it("treats a malformed answer as unknown, field by field", async () => {
-    invokeMock.mockResolvedValueOnce({ fullDiskAccess: "maybe", automation: "denied" });
-    expect(await new TauriSystemStateAdapter().capabilities()).toEqual({ fullDiskAccess: null, automation: "denied" });
+  it("treats a malformed answer as unknown, field by field, and a missing bundled flag as bundled", async () => {
+    invokeMock.mockResolvedValueOnce({ fullDiskAccess: "maybe", automation: "denied", bundled: false });
+    expect(await new TauriSystemStateAdapter().capabilities()).toEqual({ fullDiskAccess: null, automation: "denied", bundled: false });
     invokeMock.mockResolvedValueOnce({ fullDiskAccess: false, automation: "sometimes" });
-    expect(await new TauriSystemStateAdapter().capabilities()).toEqual({ fullDiskAccess: false, automation: null });
+    expect(await new TauriSystemStateAdapter().capabilities()).toEqual({ fullDiskAccess: false, automation: null, bundled: true });
     invokeMock.mockResolvedValueOnce("nope");
-    expect(await new TauriSystemStateAdapter().capabilities()).toEqual({ fullDiskAccess: null, automation: null });
+    expect(await new TauriSystemStateAdapter().capabilities()).toEqual({ fullDiskAccess: null, automation: null, bundled: true });
   });
 });

@@ -4,8 +4,8 @@ import {
   ALL_UNAVAILABLE,
   SECTION_KEYS,
   assertSystemState,
+  toCapabilities,
   type AbortSignalLike,
-  type AutomationStatus,
   type Capabilities,
   type CollectOptions,
   type CollectSectionOptions,
@@ -53,21 +53,6 @@ function toScanError(error: unknown): ScanError {
 function toSchemaError(error: unknown): ScanError {
   const detail = error instanceof Error ? error.message : String(error);
   return new ScanError("schema_mismatch", `schema mismatch: ${detail}`);
-}
-
-const AUTOMATION_STATUSES: readonly AutomationStatus[] = ["granted", "denied", "not_determined"];
-
-/** Each field is read on its own, so a bad value in one does not hide the other. */
-function toCapabilities(value: unknown): Capabilities {
-  if (typeof value !== "object" || value === null) return { fullDiskAccess: null, automation: null };
-  const { fullDiskAccess, automation } = value as { fullDiskAccess?: unknown; automation?: unknown };
-  return {
-    fullDiskAccess: typeof fullDiskAccess === "boolean" ? fullDiskAccess : null,
-    automation:
-      typeof automation === "string" && (AUTOMATION_STATUSES as readonly string[]).includes(automation)
-        ? (automation as AutomationStatus)
-        : null,
-  };
 }
 
 function cancelledError(): ScanError {

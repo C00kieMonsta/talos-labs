@@ -49,7 +49,7 @@ export function fakeSystemState(
     collectSection: vi.fn(
       async <K extends SectionKey>(key: K) => sectionSource.sections[key] as SystemStateSections[K],
     ),
-    capabilities: vi.fn(async (): Promise<Capabilities> => ({ fullDiskAccess: false, automation: "granted" })),
+    capabilities: vi.fn(async (): Promise<Capabilities> => ({ fullDiskAccess: false, automation: "granted", bundled: true })),
     ...overrides,
   };
 }

@@ -44,7 +44,7 @@ afterEach(() => {
 
 describe("usePermissionFlow", () => {
   it("open: opens the pane, polls every 2 s while away, flashes granted, then rechecks the section for free", async () => {
-    const d = deps([{ fullDiskAccess: false, automation: null }, { fullDiskAccess: true, automation: null }]);
+    const d = deps([{ fullDiskAccess: false, automation: null, bundled: true }, { fullDiskAccess: true, automation: null, bundled: true }]);
     const { result } = renderHook(() => usePermissionFlow("full_disk_access", "not_granted", d));
     expect(result.current.state).toBe("not_granted");
     act(() => result.current.open());
@@ -72,7 +72,7 @@ describe("usePermissionFlow", () => {
 
   it("moves to reopen_needed when focus has been back for the grace period and the grant has not shown, and Reopen records the continuation", async () => {
     vi.spyOn(document, "hasFocus").mockReturnValue(true);
-    const d = deps([{ fullDiskAccess: false, automation: null }]);
+    const d = deps([{ fullDiskAccess: false, automation: null, bundled: true }]);
     const { result } = renderHook(() => usePermissionFlow("full_disk_access", "not_granted", d));
     act(() => result.current.open());
     await act(async () => {
@@ -86,7 +86,7 @@ describe("usePermissionFlow", () => {
 
   it("Automation never asks for a reopen; Allow reads loginItems so macOS prompts, then rechecks", async () => {
     vi.spyOn(document, "hasFocus").mockReturnValue(true);
-    const d = deps([{ fullDiskAccess: null, automation: "denied" }]);
+    const d = deps([{ fullDiskAccess: null, automation: "denied", bundled: true }]);
     const { result } = renderHook(() => usePermissionFlow("automation", "not_determined", d));
     act(() => result.current.allow());
     expect(result.current.state).toBe("prompting");

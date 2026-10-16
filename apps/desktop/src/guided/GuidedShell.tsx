@@ -4,7 +4,7 @@ import { Brand } from "../components/Brand";
 import { Icon } from "../components/Icon";
 import type { ToolbarAction } from "../components/Toolbar";
 
-/** The guided shell: no sidebar, a 52 px strip with the brand, "Details" and "Settings", one centred column. */
+/** The guided shell: no sidebar, a 52 px strip with the brand, "Details" and "Settings", one centred column that is the main landmark. */
 export function GuidedShell({ title, actions = [], inactive, children }: { title?: string; actions?: readonly ToolbarAction[]; inactive: boolean; children: ReactNode }) {
   const { router } = useApp();
   return (
@@ -32,7 +32,7 @@ export function GuidedShell({ title, actions = [], inactive, children }: { title
         </div>
       </header>
       <div className="content guided-content">
-        <div className="guided">{children}</div>
+        <main className="guided">{children}</main>
       </div>
     </div>
   );

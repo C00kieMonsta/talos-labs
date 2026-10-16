@@ -61,7 +61,9 @@ export function PermissionCardView({
       <Icon icon={ICONS[icon]} size={20} className={spin === true ? "spin" : undefined} />
       <h3 id={id}>{copy.title}</h3>
       <p role={state === "watching" || state === "prompting" || state === "granted" ? "status" : undefined}>{text}</p>
-      {affected.length > 0 && state !== "granted" && <p className="muted small">Affects: {affected.join(", ")}</p>}
+      {affected.length > 0 && state !== "granted" && (
+        <p className="muted small">{affected.length === 1 ? `Affects: ${affected[0]}` : `Affects ${affected.length} checks`}</p>
+      )}
       {(state === "not_granted" || state === "watching") && (
         <button type="button" className="button" onClick={onOpen} aria-disabled={state === "watching"}>
           {copy.open}

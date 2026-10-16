@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { NEVER_READS, READS } from "../screens/Welcome";
 import { StepFrame } from "./StepFrame";
 import { WELCOME } from "./copy";
 
@@ -12,26 +11,18 @@ export function GuidedWelcome({ onStart }: { onStart(): void }) {
       title={WELCOME.title}
       body={<p>{WELCOME.body}</p>}
       primary={{ label: WELCOME.start, onClick: onStart }}
-      link={{ label: WELCOME.what, onClick: () => setOpen((o) => !o) }}
+      link={{ label: open ? WELCOME.back : WELCOME.what, onClick: () => setOpen((o) => !o) }}
       className="guided-welcome"
     >
       {open && (
         <div className="guided-reads read-columns">
           <section aria-labelledby="guided-reads">
             <h2 id="guided-reads">Reads</h2>
-            <ul className="plain-list">
-              {READS.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
+            <p>{WELCOME.reads}</p>
           </section>
           <section aria-labelledby="guided-never">
             <h2 id="guided-never">Never reads</h2>
-            <ul className="plain-list">
-              {NEVER_READS.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
+            <p>{WELCOME.neverReads}</p>
           </section>
         </div>
       )}

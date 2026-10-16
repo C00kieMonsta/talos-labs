@@ -178,7 +178,8 @@
 
 .card > h2,
 .expert-card > h2,
-.card .section-head h2 {
+.card .section-head h2,
+.fix-card-head h2 {
   margin: 0 0 12px;
   font: 600 16px/1.3 var(--font);
   letter-spacing: -0.2px;
@@ -1029,11 +1030,27 @@ button.finding-row:focus-visible,
   font: var(--text-body);
 }
 
-/* The "In System Settings" label sits above the breadcrumb, not beside it. */
+/* The breadcrumb with its Open button beside it. */
 .fix-settings {
-  display: grid;
-  justify-items: start;
-  gap: var(--space-0);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-0) var(--space-1);
+}
+
+/* An in-app fix folds its manual route under one line. */
+.fix-manual {
+  margin-top: var(--space-2);
+}
+
+.fix-manual > summary {
+  cursor: default;
+  font: var(--text-meta);
+  color: var(--fg-secondary);
+}
+
+.fix-manual > :not(summary) {
+  margin-top: var(--space-1);
 }
 
 .path-sep {
@@ -1042,7 +1059,6 @@ button.finding-row:focus-visible,
 
 .fix-steps,
 .fix-verify,
-.fix-meta,
 .fix-commands {
   margin-top: var(--space-2);
 }
@@ -1054,27 +1070,11 @@ button.finding-row:focus-visible,
   max-width: 650px;
 }
 
-/* Effort and side effects as one fine-print line. */
+/* Effort and side effects as one fine-print line under the action. */
 .fix-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-0) var(--space-2);
-  margin-bottom: 0;
+  margin: var(--space-1) 0 0;
   color: var(--fg-secondary);
   font: 400 12px/1.5 var(--font);
-}
-
-.fix-meta > div {
-  display: inline-flex;
-  gap: var(--space-0);
-}
-
-.fix-meta dt::after {
-  content: ":";
-}
-
-.fix-meta dd {
-  margin: 0;
 }
 
 .command-list {
@@ -1407,26 +1407,19 @@ button.finding-row:focus-visible,
   color: var(--success-fg);
 }
 
-.lock {
-  position: relative;
-}
-
-.lock-body {
-  filter: blur(3px);
-  pointer-events: none;
-  user-select: none;
-}
-
 .lock-panel {
-  position: absolute;
-  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: var(--space-1);
   text-align: center;
   padding: var(--space-2);
+}
+
+.lock-panel > .licence-field {
+  width: 100%;
+  max-width: 480px;
+  text-align: left;
 }
 
 .lock-panel > svg {

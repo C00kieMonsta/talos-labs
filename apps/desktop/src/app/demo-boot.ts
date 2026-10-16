@@ -88,6 +88,7 @@ export function parseDemoQuery(search: string): DemoFlags {
   const aiReady = count(params, "ai_ready");
   const fdaAfter = count(params, "fda_after");
   const automation = pickOne(params.get("automation"), AUTOMATION);
+  const bundled = params.get("bundled") !== "0";
   const pollAfter = count(params, "poll_after") ?? count(params, "watch_after");
   const pace = count(params, "pace");
   const batch = pickOne(params.get("batch"), DEMO_BATCH_OUTCOMES);
@@ -110,6 +111,7 @@ export function parseDemoQuery(search: string): DemoFlags {
       ...(aiReady !== null ? { aiReadyMs: aiReady } : {}),
       ...(fdaAfter !== null ? { fdaAfter } : {}),
       ...(automation !== null ? { automation } : {}),
+      ...(bundled ? {} : { bundled }),
       ...(pollAfter !== null ? { pollAfter } : {}),
       ...(fail.length > 0 ? { fail } : {}),
     },

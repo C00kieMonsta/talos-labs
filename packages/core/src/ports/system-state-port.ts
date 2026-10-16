@@ -30,6 +30,8 @@ export interface Capabilities {
   readonly fullDiskAccess: boolean | null;
   /** null when the probe could not decide (System Events not running). */
   readonly automation: AutomationStatus | null;
+  /** false for a dev build launched from a terminal or editor; macOS lists the launcher, not the app, under Full Disk Access. */
+  readonly bundled: boolean;
 }
 
 /** Implemented by the desktop app over Tauri commands. Read-only. */

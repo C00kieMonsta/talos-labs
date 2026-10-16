@@ -9,11 +9,24 @@ import { useApp } from "../app/context";
 import { ICONS } from "../app/icons";
 import { EXPLAINER_FAILURE_LABELS } from "../app/labels";
 import { lastReport } from "../scan/machine";
+import type { AskMessage } from "../scan/useScan";
 
 /** The counter is read with the box, not on every keystroke; one fixed notice fires near the limit. */
 const NEAR_LIMIT = 100;
 export const NEAR_LIMIT_NOTICE = `Fewer than ${NEAR_LIMIT} characters left`;
 export const AI_OFF_COPY = "AI is switched off. Turn it on in Settings to ask questions about your report.";
+
+/** One card per exchange: the question and the answer that followed it, if it has arrived. */
+export function exchanges(messages: readonly AskMessage[]): { question: AskMessage | null; answer: AskMessage | null }[] {
+  const out: { question: AskMessage | null; answer: AskMessage | null }[] = [];
+  for (const message of messages) {
+    const last = out[out.length - 1];
+    if (message.turn.role === "user") out.push({ question: message, answer: null });
+    else if (last !== undefined && last.answer === null) last.answer = message;
+    else out.push({ question: null, answer: message });
+  }
+  return out;
+}
 
 export function Ask() {
   const { scan, router, settings } = useApp();
@@ -22,7 +35,7 @@ export function Ask() {
   const [question, setQuestion] = useState(scan.draft);
   const [error, setError] = useState<string | null>(null);
   const [waiting, setWaiting] = useState(false);
-  const textarea = useRef<HTMLTextAreaElement>(null);
+  const textarea = useRef<HTMLInputElement>(null);
   const latest = useRef({ question, setDraft: scan.setDraft });
   latest.current = { question, setDraft: scan.setDraft };
   const report = lastReport(scan.scan);
@@ -87,37 +100,51 @@ export function Ask() {
 
   const headlineOf = (id: RuleId) => report?.findings.find((f) => f.ruleId === id)?.headline ?? id;
 
+  const related = (message: AskMessage) =>
+    message.related !== undefined &&
+    message.related.length > 0 && (
+      <ul className="related">
+        {message.related.map((id) => (
+          <li key={id}>
+            <button type="button" className="finding-row related-row" data-rule-id={id} onClick={() => router.navigate({ name: "finding", ruleId: id })}>
+              <span className="finding-row-content">
+                <span className="finding-row-title">{headlineOf(id)}</span>
+              </span>
+              <Icon icon={ICONS.chevronRight} className="finding-card-chevron" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    );
+  const nearLimit = max - question.length < NEAR_LIMIT;
+
   return (
     <div className="screen ask">
-      <p className="muted">Questions are answered from this report only. {AI_BADGE}</p>
-
       <div className="chat" role="log" aria-live="polite" aria-label="Conversation">
         {messages.length === 0 && partial === null && <p className="muted">Try: "Which of these should I do first?"</p>}
-        {messages.map((message, index) => (
-          <div key={index} className={`chat-turn chat-${message.turn.role}`}>
-            <p className="label">{message.turn.role === "user" ? "You" : "AI, not verified"}</p>
-            <ModelText text={message.turn.text} />
-            {message.outsideScope === true && <p className="muted small">This question is outside what the check-up covers.</p>}
-            {message.related !== undefined && message.related.length > 0 && (
-              <ul className="related">
-                {message.related.map((id) => (
-                  <li key={id}>
-                    <button type="button" className="finding-row related-row" data-rule-id={id} onClick={() => router.navigate({ name: "finding", ruleId: id })}>
-                      <span className="finding-row-content">
-                        <span className="finding-row-title">{headlineOf(id)}</span>
-                      </span>
-                      <Icon icon={ICONS.chevronRight} className="finding-card-chevron" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
+        {exchanges(messages).map((exchange, index) => (
+          <div key={index} className="chat-turn chat-exchange">
+            {exchange.question !== null && (
+              <div className="chat-user">
+                <p className="label visually-hidden">You</p>
+                <ModelText text={exchange.question.turn.text} />
+              </div>
+            )}
+            {exchange.answer !== null && (
+              <div className="chat-assistant">
+                <p className="label visually-hidden">AI, not verified</p>
+                <ModelText text={exchange.answer.turn.text} />
+                <p className="muted small chat-badge">{AI_BADGE}</p>
+                {exchange.answer.outsideScope === true && <p className="muted small">This question is outside what the check-up covers.</p>}
+                {related(exchange.answer)}
+              </div>
             )}
           </div>
         ))}
         {partial === null && waiting && <p className="muted">Thinking about your question.</p>}
         {partial !== null && (
           <div className="chat-turn chat-assistant chat-streaming">
-            <p className="label">AI, not verified</p>
+            <p className="label visually-hidden">AI, not verified</p>
             <ModelText text={partial} caret />
             <p className="muted small" role="status">
               Writing
@@ -139,28 +166,30 @@ export function Ask() {
         <label htmlFor="question" className="visually-hidden">
           Your question
         </label>
-        <textarea
-          id="question"
-          ref={textarea}
-          value={question}
-          maxLength={max}
-          rows={3}
-          placeholder="Ask about anything in your report"
-          aria-describedby="question-count"
-          onChange={(event) => setQuestion(event.target.value.slice(0, max))}
-          readOnly={busy}
-        />
-        <div className="ask-form-foot">
-          <span id="question-count" className="muted small">
-            {question.length} / {max}
-          </span>
-          <span role="status" className="visually-hidden">
-            {max - question.length < NEAR_LIMIT ? NEAR_LIMIT_NOTICE : ""}
-          </span>
-          <button type="submit" className="button button-primary" disabled={busy || question.trim().length === 0}>
+        <div className="ask-form-row">
+          <input
+            id="question"
+            type="text"
+            ref={textarea}
+            value={question}
+            maxLength={max}
+            autoComplete="off"
+            placeholder="Ask about anything in your report"
+            aria-describedby="question-count"
+            onChange={(event) => setQuestion(event.target.value.slice(0, max))}
+            readOnly={busy}
+          />
+          <button type="submit" className="button" disabled={busy || question.trim().length === 0}>
             Ask
           </button>
         </div>
+        {/* The count is read with the box; it only shows once the limit is near. */}
+        <span id="question-count" className={nearLimit ? "muted small ask-count" : "visually-hidden"}>
+          {question.length} / {max}
+        </span>
+        <span role="status" className="visually-hidden">
+          {nearLimit ? NEAR_LIMIT_NOTICE : ""}
+        </span>
       </form>
     </div>
   );

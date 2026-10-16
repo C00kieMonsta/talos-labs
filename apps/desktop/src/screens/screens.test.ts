@@ -21,7 +21,7 @@ import { Overview } from "./Overview";
 import { AI_OFF_COPY, Ask, NEAR_LIMIT_NOTICE } from "./Ask";
 import { AI_BADGE, AI_LOCKED_COPY, AI_UNAVAILABLE_COPY } from "../components/AiCard";
 import { PASSWORD_SENTENCE, NO_PASSWORD_SENTENCE } from "../components/fix-copy";
-import { Settings } from "./Settings";
+import { DEV_BUILD_FDA_COPY, Settings } from "./Settings";
 import type { SettingsProps } from "./Settings";
 import type { Adapters } from "../adapters";
 import type { AppSettings } from "../settings";
@@ -170,8 +170,9 @@ describe("Scanning (guided)", () => {
     expect(screen.queryByText(/found so far/)).toBeNull();
     expect(screen.getByText(GUIDED_SECTION_LABELS.ssh)).toBeTruthy();
     expect(screen.queryByText(SECTION_PROGRESS_LABELS.ssh)).toBeNull();
-    expect(screen.getByText("Checking")).toBeTruthy();
-    expect(screen.getByText("Couldn't check")).toBeTruthy();
+    expect(screen.queryByText("Checking")).toBeNull();
+    expect(screen.queryByText("Couldn't check")).toBeNull();
+    expect(document.querySelector(".progress-status")).toBeNull();
     expect(document.querySelectorAll(".scan-dot").length).toBe(17);
     expect(document.querySelector("[data-section='diskEncryption'] .scan-dot")?.className).toBe("scan-dot scan-dot-found");
     expect(document.querySelector("[data-section='firewall'] .scan-dot")?.className).toBe("scan-dot scan-dot-passed");
@@ -187,6 +188,7 @@ describe("Scanning (guided)", () => {
     expect(screen.getByText("Nothing found yet")).toBeTruthy();
     rerender(createElement(Scanning, { pacer: pacer({ revealed: 17, phase: "preparing", progress: 1 }), report: null, guided: true }));
     expect(document.querySelector(".scan-summary .guided-status")?.textContent).toBe("Preparing your report");
+    expect(document.querySelector(".scan-summary svg")).toBeNull();
     expect(document.querySelector(".progress-preparing")).toBeNull();
     expect(document.querySelector(".progress-dimmed")).not.toBeNull();
   });
@@ -362,9 +364,10 @@ describe("Overview", () => {
   it("tells the user an incomplete score can only be lower, not higher", () => {
     const value = readyContext({ state: DEV_MACHINE, license: NONE });
     render(createElement(AppContext.Provider, { value }, createElement(Overview)));
-    expect(screen.getByText("Incomplete")).toBeTruthy();
-    expect(screen.getByText(/real score may be lower than this/)).toBeTruthy();
-    expect(screen.queryByText(/higher than it looks/)).toBeNull();
+    const status = screen.getByText("Incomplete").closest("p") as HTMLElement;
+    expect(status.getAttribute("title")).toMatch(/real score may be lower than this/);
+    expect(screen.queryByText(/real score may be lower than this/)).toBeNull();
+    expect(status.getAttribute("title")).not.toMatch(/higher than it looks/);
   });
 
   it("folds the socket-table findings into one card that explains the unsigned build", () => {
@@ -372,7 +375,8 @@ describe("Overview", () => {
     render(createElement(AppContext.Provider, { value }, createElement(Overview)));
     expect(screen.getByRole("heading", { name: "Network checks are unavailable in this build" })).toBeTruthy();
     expect(screen.getByText(/not signed, so macOS hides the list of network services/)).toBeTruthy();
-    expect(screen.getByText(/Affects: .*Remote Login \(SSH\) is off/)).toBeTruthy();
+    expect(screen.getByText(/^Affects \d+ checks$/)).toBeTruthy();
+    expect(screen.queryByText(/Remote Login \(SSH\) is off/)).toBeNull();
     expect(screen.queryByText("Permission was denied")).toBeNull();
     expect(screen.queryByRole("heading", { name: "Remote Login (SSH) is off" })).toBeNull();
   });
@@ -417,19 +421,18 @@ describe("Overview", () => {
     expect(off.ai.reprobe).toHaveBeenCalledWith(5000);
   });
 
-  it("lists the next fixes by their problem headline with an inline action that previews the fix", () => {
+  it("lists the next fixes by their problem headline, each row opening its finding with no inline action", () => {
     const value = readyContext({ state: DEV_MACHINE, license: NONE });
     render(createElement(AppContext.Provider, { value }, createElement(Overview)));
     expect(screen.getByRole("link", { name: "Your disk is not encrypted" })).toBeTruthy();
     expect(screen.queryByText("Your disk is encrypted")).toBeNull();
     const card = document.querySelector('.finding-card[data-rule-id="TL-MAC-001"]') as HTMLElement;
-    fireEvent.click(card.querySelector(".finding-card-action") as HTMLButtonElement);
-    const apply = MACOS_CATALOG.rules.find((r) => r.id === "TL-MAC-001")?.fix.apply;
-    if (apply?.kind === "in_app") expect(value.scan.previewFix).toHaveBeenCalledWith("TL-MAC-001", { kind: "none" });
-    else if (apply?.kind === "deep_link") {
-      expect(value.adapters.openSettingsPane).toHaveBeenCalledWith(apply.pane);
-      expect(value.scan.startWatch).toHaveBeenCalledWith("TL-MAC-001");
-    } else expect(value.router.navigate).toHaveBeenCalledWith({ name: "finding", ruleId: "TL-MAC-001" });
+    expect(card.querySelector(".finding-card-action")).toBeNull();
+    expect(card.querySelectorAll("a, button").length).toBe(1);
+    expect(card.querySelector(".finding-card-cost")?.textContent).toBeTruthy();
+    fireEvent.click(screen.getByRole("link", { name: "Your disk is not encrypted" }));
+    expect(value.router.navigate).toHaveBeenCalledWith({ name: "finding", ruleId: "TL-MAC-001" });
+    expect(value.scan.previewFix).not.toHaveBeenCalled();
   });
 
   it("opens the confirmation sheet for the fix the scan state holds", () => {
@@ -460,7 +463,7 @@ describe("Overview", () => {
     const reasonCards = cards.filter((card) => card.querySelector("h3")?.textContent !== "Full Disk Access" && card.querySelector("h3")?.textContent !== "Automation");
     expect(reasonCards.length).toBe(reasons.size);
     for (const card of reasonCards) {
-      expect(card.textContent).toMatch(/Affects \d+ checks?:/);
+      expect(card.textContent).toMatch(/Affects (\d+ checks|1 check: )/);
       expect(card.querySelector("button")?.textContent).toBe("See in Findings");
     }
     fireEvent.click(screen.getAllByRole("button", { name: "See in Findings" })[0] as HTMLElement);
@@ -678,13 +681,16 @@ describe("FindingDetail", () => {
     expect(value.scan.explain).toHaveBeenCalledWith("TL-MAC-002");
   });
 
-  it("heads the page with the problem and names the check underneath", () => {
+  it("heads the page with the problem, the badge and one category line, and says the status only when it is not a failure", () => {
     renderDetail(readyContext({ state: DEV_MACHINE, license: NONE }), "TL-MAC-002");
     expect(screen.getByRole("heading", { level: 1, name: "The firewall is off" })).toBeTruthy();
-    expect(screen.getByText("What we check: The firewall is on. Result: Needs fixing.")).toBeTruthy();
-    cleanup();
-    renderDetail(readyContext({ state: DEV_MACHINE, license: NONE }), "TL-MAC-004");
+    expect(screen.getByText("Network · CIS 2.2.1")).toBeTruthy();
     expect(screen.queryByText(/What we check/)).toBeNull();
+    expect(document.querySelector(".detail-meta .status")).toBeNull();
+    expect(document.querySelectorAll(".button-primary").length).toBe(1);
+    cleanup();
+    renderDetail(readyContext({ state: DEV_MACHINE, license: NONE }), "TL-MAC-028");
+    expect(document.querySelector(".detail-meta .status")?.textContent).toBe("Couldn't check");
   });
 
   it("hides Terminal commands unless Developer mode is on", () => {
@@ -761,12 +767,12 @@ describe("Findings suggested order", () => {
     expect(value.scan.prioritise).toHaveBeenCalledTimes(1);
   });
 
-  it("locks the order behind the licence with the inline field, and shows a prioritise failure inline", () => {
+  it("keeps the list single-column while AI is locked, and shows a prioritise failure inline", () => {
     const locked = readyContext({ state: DEV_MACHINE, license: NONE });
     render(createElement(AppContext.Provider, { value: locked }, createElement(Findings)));
-    const aside = screen.getByRole("heading", { name: "Suggested order" }).closest("aside") as HTMLElement;
-    expect(aside.textContent).toContain(AI_LOCKED_COPY);
-    expect(aside.querySelector("input")).not.toBeNull();
+    expect(screen.queryByRole("heading", { name: "Suggested order" })).toBeNull();
+    expect(document.querySelector(".findings-layout.with-aside")).toBeNull();
+    expect(screen.queryByText(AI_LOCKED_COPY)).toBeNull();
     expect(screen.queryByRole("button", { name: "Suggest an order" })).toBeNull();
     cleanup();
     const failed = readyContext({
@@ -838,7 +844,8 @@ describe("Ask", () => {
   it("caps the question at 2000 characters and renders the answer as text", async () => {
     const value = askContext();
     render(createElement(StatefulProvider, { value }, createElement(Ask)));
-    const box = screen.getByLabelText("Your question") as HTMLTextAreaElement;
+    const box = screen.getByLabelText("Your question") as HTMLInputElement;
+    expect(box.tagName).toBe("INPUT");
     expect(box.maxLength).toBe(2000);
     fireEvent.change(box, { target: { value: "x".repeat(2500) } });
     expect(box.value.length).toBe(2000);
@@ -846,6 +853,10 @@ describe("Ask", () => {
     fireEvent.click(screen.getByRole("button", { name: "Ask" }));
     await waitFor(() => expect(screen.getByText("<b>Start</b> with the disk.")).toBeTruthy());
     expect(document.querySelector(".chat b")).toBeNull();
+    const cards = document.querySelectorAll(".chat .chat-turn");
+    expect(cards.length).toBe(1);
+    expect(cards[0]?.textContent).toContain("What first?");
+    expect(cards[0]?.textContent).toContain(AI_BADGE);
     expect(screen.getByRole("button", { name: "Your disk is not encrypted" })).toBeTruthy();
   });
 
@@ -857,12 +868,14 @@ describe("Ask", () => {
     expect(box.getAttribute("aria-describedby")).toBe("question-count");
     expect(count.getAttribute("aria-live")).toBeNull();
     expect(count.textContent).toBe("0 / 2000");
+    expect(count.classList.contains("visually-hidden")).toBe(true);
     const status = screen.getByRole("status");
     fireEvent.change(box, { target: { value: "Which first?" } });
     expect(count.textContent).toBe("12 / 2000");
     expect(status.textContent).toBe("");
     fireEvent.change(box, { target: { value: "x".repeat(1950) } });
     expect(status.textContent).toBe(NEAR_LIMIT_NOTICE);
+    expect(count.classList.contains("visually-hidden")).toBe(false);
     fireEvent.change(box, { target: { value: "x".repeat(1960) } });
     expect(status.textContent).toBe(NEAR_LIMIT_NOTICE);
   });
@@ -940,7 +953,7 @@ describe("Ask", () => {
 });
 
 describe("Settings", () => {
-  const caps: Capabilities = { fullDiskAccess: false, automation: "not_determined" };
+  const caps: Capabilities = { fullDiskAccess: false, automation: "not_determined", bundled: true };
   function settingsProps(overrides: Partial<SettingsProps> = {}): SettingsProps {
     return { aiAvailability: "available", onAiAction: vi.fn(), capabilities: caps, onPermission: vi.fn(), onBuy: vi.fn(), ...overrides };
   }
@@ -968,7 +981,9 @@ describe("Settings", () => {
     expect(screen.getByText("Needs Apple Intelligence")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open Apple Intelligence settings" }));
     expect(props.onAiAction).toHaveBeenCalledWith("apple_intelligence_not_enabled");
-    expect(screen.getByText(/Only the check-up results are used, never file names, paths or passwords\./)).toBeTruthy();
+    const sentence = screen.getByText(/Only the check-up results are used, never file names, paths or passwords\./);
+    expect(sentence.tagName).toBe("SMALL");
+    expect(sentence.closest(".setting-row")?.querySelector("[role='switch']")).not.toBeNull();
     fireEvent.click(toggle);
     expect(value.updateSettings).toHaveBeenCalledWith({ explainer: { ...value.settings.explainer, aiEnabled: false } });
     cleanup();
@@ -995,25 +1010,42 @@ describe("Settings", () => {
     expect(value.updateSettings).toHaveBeenCalledWith({ profile: { ...value.settings.profile, technical: "high" } });
   });
 
-  it("shows a status pill per permission and an Open or Allow button driven by props", () => {
+  it("shows a small status line per permission and an Open or Allow button driven by props", () => {
     const { props } = mount();
-    expect(screen.getByText("Not granted")).toBeTruthy();
+    const status = screen.getByText("Not granted");
+    expect(status.tagName).toBe("SMALL");
+    expect(status.getAttribute("data-status")).toBe("not_granted");
+    expect(document.querySelector(".setting-rows .pill")).toBeNull();
     expect(screen.getByText("Not asked yet")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open Full Disk Access" }));
     expect(props.onPermission).toHaveBeenCalledWith("full_disk_access", "not_granted");
     fireEvent.click(screen.getByRole("button", { name: "Allow" }));
     expect(props.onPermission).toHaveBeenCalledWith("automation", "not_determined");
     cleanup();
-    mount({ capabilities: { fullDiskAccess: true, automation: "denied" } });
+    mount({ capabilities: { fullDiskAccess: true, automation: "denied", bundled: true } });
     expect(screen.getByText("Granted")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Open Full Disk Access" })).toBeNull();
     expect(screen.getByRole("button", { name: "Open Automation settings" })).toBeTruthy();
     cleanup();
-    mount({ capabilities: { fullDiskAccess: null, automation: null } });
+    mount({ capabilities: { fullDiskAccess: null, automation: null, bundled: true } });
     expect(screen.getAllByText("Could not tell").length).toBe(2);
     cleanup();
     mount({ capabilities: null });
     expect(screen.getAllByText("Checking").length).toBe(2);
+  });
+
+  it("adds the dev-build hint under Full Disk Access only when the binary is not bundled and the permission is missing", () => {
+    mount({ capabilities: { fullDiskAccess: false, automation: "granted", bundled: false } });
+    const hint = screen.getByText(DEV_BUILD_FDA_COPY);
+    expect(hint.tagName).toBe("SMALL");
+    expect(hint.closest(".setting-row")?.textContent).toContain("Full Disk Access");
+    expect(screen.getByRole("button", { name: "Open Full Disk Access" })).toBeTruthy();
+    cleanup();
+    mount({ capabilities: { fullDiskAccess: true, automation: "denied", bundled: false } });
+    expect(screen.queryByText(DEV_BUILD_FDA_COPY)).toBeNull();
+    cleanup();
+    mount({ capabilities: { fullDiskAccess: false, automation: "denied", bundled: true } });
+    expect(screen.queryByText(DEV_BUILD_FDA_COPY)).toBeNull();
   });
 
   it("offers the inline licence field with the free line, then the licensed line with Remove", async () => {

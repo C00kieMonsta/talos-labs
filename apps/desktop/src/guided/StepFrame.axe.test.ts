@@ -24,12 +24,15 @@ describe("StepFrame accessibility", () => {
       { progress: { done: 1, of: 5 }, title: "The firewall is off", body: createElement("p", null, "Why it matters."), primary: { label: "Turn it on", onClick: vi.fn() }, link: { label: "Do this later", onClick: vi.fn() }, status: "Getting ready" },
       createElement(GuidedList, { rows: [{ key: "a", text: "The firewall is off", icon: "bullet" }] }),
     );
-    const result = await axe.run(container, { runOnly: ["nested-interactive", "button-name", "heading-order", "aria-valid-attr-value", "list", "listitem"] });
+    const result = await axe.run(container, { runOnly: ["nested-interactive", "button-name", "heading-order", "aria-valid-attr-value", "aria-progressbar-name", "list", "listitem"] });
     expect(result.violations.map((v) => v.id)).toEqual([]);
     expect(container.querySelectorAll(".button-primary").length).toBe(1);
     expect(container.querySelectorAll("h1").length).toBe(1);
     expect(container.querySelector("[role='progressbar']")?.getAttribute("aria-valuetext")).toBe("Step 1 of 5");
     expect(container.querySelector(".guided-status")?.getAttribute("role")).toBe("status");
+    expect(container.querySelector(".guided-status .scan-dot")).not.toBeNull();
+    expect(container.querySelector(".guided-status svg")).toBeNull();
+    expect(container.querySelector("[role='progressbar'] > div")?.getAttribute("style")).toContain("width: 20%");
     expect(document.activeElement?.tagName).toBe("H1");
   });
 
@@ -39,5 +42,14 @@ describe("StepFrame accessibility", () => {
     expect(container.querySelector(".guided-tick")).not.toBeNull();
     const status = Array.from(container.querySelectorAll("[role='status']")).map((n) => n.textContent);
     expect(status).toContain("Done. The firewall is on.");
+    expect(container.querySelector("main")).toBeNull();
+  });
+
+  it("keeps the done semantics without the mark when mark is false", () => {
+    const { container } = renderStep({ progress: { done: 2, of: 5 }, title: "Done. 3 things fixed.", done: true, mark: false, link: { label: "Next", onClick: vi.fn() } });
+    expect(container.querySelector(".guided-tick")).toBeNull();
+    expect(container.querySelector("[data-guided-done='true']")).not.toBeNull();
+    const status = Array.from(container.querySelectorAll("[role='status']")).map((n) => n.textContent);
+    expect(status).toContain("Done. 3 things fixed.");
   });
 });

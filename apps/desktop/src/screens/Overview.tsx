@@ -1,7 +1,6 @@
 import type { Finding, Prioritisation, RuleId, ScanReport, UnknownReason } from "@talos/core";
 import { AiCard, useAiCardFlow } from "../components/AiCard";
 import { FindingCard } from "../components/FindingCard";
-import { choiceFor, pathChoices } from "../components/FixCard";
 import { FixFlow } from "../components/FixSheet";
 import { PermissionCard } from "../components/PermissionCard";
 import { ScoreMeter } from "../components/ScoreMeter";
@@ -39,14 +38,27 @@ function groupByReason(findings: readonly Finding[]): { reason: UnknownReason | 
 
 const NO_REASON_LABEL = "Could not be checked";
 
+export const INCOMPLETE_SCORE_NOTE = "Some areas could not be checked. They are not counted, so the real score may be lower than this.";
+export const CAPPED_SCORE_NOTE = "A critical issue caps the score at 59 until it is fixed.";
+
+/** The explanation behind the one-line status, as the line's title. */
+export function scoreStatusTitle(complete: boolean, cappedByCritical: boolean): string {
+  return [complete ? null : INCOMPLETE_SCORE_NOTE, cappedByCritical ? CAPPED_SCORE_NOTE : null].filter((s) => s !== null).join(" ");
+}
+
+/** "Affects 7 checks", or the one title when a single check is affected. */
+export function affectsLine(titles: readonly string[]): string {
+  if (titles.length === 1) return `Affects 1 check: ${titles[0]}`;
+  return `Affects ${titles.length} checks`;
+}
+
 export function Overview() {
-  const { scan, router, gate, adapters, settings, capabilities } = useApp();
+  const { scan, router, gate, settings, capabilities } = useApp();
   const report = lastReport(scan.scan);
 
   if (report === null) {
     return (
       <div className="screen overview">
-        <h1>Overview</h1>
         <p className="lead">Run a check-up to see how your Mac is doing.</p>
         <button type="button" className="button button-primary" onClick={() => void scan.start()}>
           Run check-up
@@ -54,24 +66,6 @@ export function Overview() {
       </div>
     );
   }
-
-  const live = scan.scan.kind === "ready";
-  const onAction = (ruleId: RuleId) => {
-    const finding = report.findings.find((f) => f.ruleId === ruleId);
-    if (finding === undefined) return;
-    const apply = finding.fix.apply;
-    if (apply.kind === "in_app" && live) {
-      const choice = choiceFor(finding, pathChoices(finding.evidence)[0]?.path ?? null);
-      if (choice !== null) void scan.previewFix(ruleId, choice);
-      return;
-    }
-    if (apply.kind === "deep_link") {
-      void adapters.openSettingsPane(apply.pane);
-      if (live) scan.startWatch(ruleId);
-      return;
-    }
-    router.navigate({ name: "finding", ruleId });
-  };
 
   return (
     <>
@@ -81,7 +75,6 @@ export function Overview() {
         aiEnabled={settings.explainer.aiEnabled}
         capabilities={capabilities}
         onOpenFinding={(ruleId) => router.navigate({ name: "finding", ruleId })}
-        onAction={onAction}
         onAll={() => router.navigate({ name: "findings" })}
       />
       <FixFlow />
@@ -154,7 +147,6 @@ function OverviewBody({
   aiEnabled,
   capabilities,
   onOpenFinding,
-  onAction,
   onAll,
 }: {
   report: ScanReport;
@@ -162,7 +154,6 @@ function OverviewBody({
   aiEnabled: boolean;
   capabilities: Parameters<typeof PermissionCard>[0]["capabilities"];
   onOpenFinding(ruleId: RuleId): void;
-  onAction(ruleId: RuleId): void;
   onAll(): void;
 }) {
   const failing = report.findings.filter((f) => f.status === "fail");
@@ -194,16 +185,12 @@ function OverviewBody({
               {GRADE_SUMMARY[score.grade]}
             </h2>
             {(!score.complete || score.cappedByCritical) && (
-              <p className="fine-print score-fine-print score-status">
+              <p className="fine-print score-fine-print score-status" title={scoreStatusTitle(score.complete, score.cappedByCritical)}>
                 {!score.complete && <span>Incomplete</span>}
                 {!score.complete && score.cappedByCritical && <span aria-hidden="true"> · </span>}
-                {score.cappedByCritical && <span>Capped by a critical issue</span>}
+                {score.cappedByCritical && <span>{score.complete ? "Capped by a critical issue" : "capped by a critical issue"}</span>}
               </p>
             )}
-            {!score.complete && (
-              <p className="fine-print score-fine-print">Some areas could not be checked. They are not counted, so the real score may be lower than this.</p>
-            )}
-            {score.cappedByCritical && <p className="fine-print score-fine-print">A critical issue caps the score at 59 until it is fixed.</p>}
             <ul className="grid-stats" aria-label="Checks by status">
               {tiles.map(({ label, count }) => (
                 <li key={label}>
@@ -226,7 +213,7 @@ function OverviewBody({
               </div>
               <div className="finding-rows">
                 {nextThree.map((finding) => (
-                  <FindingCard key={finding.ruleId} finding={finding} onOpen={onOpenFinding} onAction={onAction} />
+                  <FindingCard key={finding.ruleId} finding={finding} onOpen={onOpenFinding} />
                 ))}
               </div>
             </section>
@@ -252,19 +239,16 @@ function OverviewBody({
                   <section className="card card-muted" aria-labelledby="unsigned-build">
                     <h3 id="unsigned-build">Network checks are unavailable in this build</h3>
                     <p>{SOCKET_TABLE_COPY}</p>
-                    <p className="muted">Affects: {networkHidden.map((f) => f.title).join(", ")}</p>
+                    <p className="muted">{affectsLine(networkHidden.map((f) => f.title))}</p>
                   </section>
                 )}
                 {otherUnknown.map((group) => {
                   const label = group.reason === null ? NO_REASON_LABEL : UNKNOWN_REASON_LABELS[group.reason];
                   const id = `reason-${group.reason ?? "none"}`;
-                  const count = group.findings.length;
                   return (
                     <section key={id} className="card card-muted" aria-labelledby={id}>
                       <h3 id={id}>{label}</h3>
-                      <p className="muted">
-                        Affects {count} {count === 1 ? "check" : "checks"}: {group.findings.map((f) => f.title).join(", ")}
-                      </p>
+                      <p className="muted">{affectsLine(group.findings.map((f) => f.title))}</p>
                       <button type="button" className="toolbar-button" onClick={onAll}>
                         See in Findings
                       </button>

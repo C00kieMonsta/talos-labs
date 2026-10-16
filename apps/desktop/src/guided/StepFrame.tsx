@@ -2,8 +2,6 @@ import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import type { RuleId } from "@talos/core";
 import { useApp } from "../app/context";
-import { ICONS } from "../app/icons";
-import { Icon } from "../components/Icon";
 import { CheckIcon } from "../components/icons";
 import { ExplainPanel } from "./ExplainPanel";
 
@@ -14,8 +12,8 @@ export interface StepAction {
 }
 
 export interface StepFrameProps {
-  /** null hides the progress line (welcome, end). `completed` fills the bar when it differs from the shown number. */
-  readonly progress: { readonly done: number; readonly of: number; readonly completed?: number } | null;
+  /** null hides the progress line (welcome, end). The bar fills to `done`, the number shown. */
+  readonly progress: { readonly done: number; readonly of: number } | null;
   /** Shown after the progress line in Developer mode. */
   readonly devId?: string | null;
   readonly title: string;
@@ -29,11 +27,11 @@ export interface StepFrameProps {
   readonly explainRuleId?: RuleId | null;
   /** A one-line notice from the step before (the watcher cap). */
   readonly notice?: string | null;
-  /** A spinner line with role="status". */
+  /** A status line with the rust dot and role="status". */
   readonly status?: string | null;
   /** A done step: the status mark, and the live region reads the headline as the result. */
   readonly done?: boolean;
-  /** The 56 px status mark above the headline without the done semantics (the end screens). */
+  /** true draws the 56 px status mark without the done semantics; false keeps a done step without the mark (a batch). */
   readonly mark?: boolean;
   /** Rendered between the primary button and the link (the paywall's licence field). */
   readonly afterPrimary?: ReactNode;
@@ -71,10 +69,10 @@ export function StepFrame(props: StepFrameProps) {
   useEffect(() => {
     if (interacted) heading.current?.focus();
   }, [title]);
-  const completed = progress?.completed ?? progress?.done ?? 0;
-  const percent = progress === null || progress.of === 0 ? 0 : Math.round((completed / progress.of) * 100);
+  const percent = progress === null || progress.of === 0 ? 0 : (progress.done / progress.of) * 100;
+  // A div: the guided shell owns the main landmark.
   return (
-    <main className={className === undefined ? "guided-step" : `guided-step ${className}`} data-guided-done={done === true ? "true" : undefined}>
+    <div className={className === undefined ? "guided-step" : `guided-step ${className}`} data-guided-done={done === true ? "true" : undefined}>
       {notice !== null && notice !== undefined && (
         <p className="guided-notice" role="status">
           {notice}
@@ -86,12 +84,12 @@ export function StepFrame(props: StepFrameProps) {
             {progress.done} of {progress.of}
             {settings.developer.enabled && devId !== null && devId !== undefined && <span className="mono"> {devId}</span>}
           </p>
-          <div className="guided-bar" role="progressbar" aria-valuemin={0} aria-valuemax={progress.of} aria-valuenow={completed} aria-valuetext={`Step ${progress.done} of ${progress.of}`}>
+          <div className="guided-bar" role="progressbar" aria-label="Check-up progress" aria-valuemin={0} aria-valuemax={progress.of} aria-valuenow={progress.done} aria-valuetext={`Step ${progress.done} of ${progress.of}`}>
             <div style={{ width: `${percent}%` }} />
           </div>
         </div>
       )}
-      {(done === true || mark === true) && (
+      {((done === true && mark !== false) || mark === true) && (
         <div className="guided-status-mark" aria-hidden="true">
           <CheckIcon size={28} strokeWidth={1.75} className="guided-tick" aria-hidden="true" focusable="false" />
         </div>
@@ -106,11 +104,10 @@ export function StepFrame(props: StepFrameProps) {
       {children}
       {status !== null && status !== undefined && (
         <p className="guided-status" role="status">
-          <Icon icon={ICONS.spinner} size={16} className="spin" />
+          <span className="scan-dot scan-dot-active" aria-hidden="true" />
           <span>{status}</span>
         </p>
       )}
-      {canExplain && explainRuleId !== null && explainRuleId !== undefined && <ExplainPanel ruleId={explainRuleId} />}
       {primary !== null && primary !== undefined && (
         <div className="guided-actions">
           <button type="button" className="button button-primary guided-primary" onClick={primary.onClick} disabled={primary.disabled} aria-disabled={primary.disabled}>
@@ -124,6 +121,7 @@ export function StepFrame(props: StepFrameProps) {
           {link.label}
         </button>
       )}
-    </main>
+      {canExplain && explainRuleId !== null && explainRuleId !== undefined && <ExplainPanel ruleId={explainRuleId} />}
+    </div>
   );
 }

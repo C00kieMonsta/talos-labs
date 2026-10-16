@@ -27,7 +27,7 @@ describe("parseDemoQuery", () => {
 
   it("reads every parameter", () => {
     const flags = parseDemoQuery(
-      "?fixture=hardened&explainer=timeout&delay=50&reset=1&provider=ollama&dev=1&onboarded=1&licensed=1&fix=wrong_password&batch=partial&scan_error=timeout&fix_delay=10&ai=model_not_ready&ai_ready=500&fda_after=2&automation=denied&poll_after=3&pace=0&guided=0&memory=%7B%22version%22%3A1%7D&since=1&continue=guided&technical=medium",
+      "?fixture=hardened&explainer=timeout&delay=50&reset=1&provider=ollama&dev=1&onboarded=1&licensed=1&fix=wrong_password&batch=partial&scan_error=timeout&fix_delay=10&ai=model_not_ready&ai_ready=500&fda_after=2&automation=denied&bundled=0&poll_after=3&pace=0&guided=0&memory=%7B%22version%22%3A1%7D&since=1&continue=guided&technical=medium",
     );
     expect(flags).toEqual({
       options: {
@@ -42,6 +42,7 @@ describe("parseDemoQuery", () => {
         aiReadyMs: 500,
         fdaAfter: 2,
         automation: "denied",
+        bundled: false,
         pollAfter: 3,
       },
       reset: true,
@@ -60,6 +61,7 @@ describe("parseDemoQuery", () => {
 
   it("takes watch_after as an alias of poll_after and ignores unknown batch, scan_error and technical values", () => {
     expect(parseDemoQuery("?watch_after=2").options.pollAfter).toBe(2);
+    expect(parseDemoQuery("?bundled=1").options.bundled).toBeUndefined();
     expect(parseDemoQuery("?poll_after=1&watch_after=2").options.pollAfter).toBe(1);
     const flags = parseDemoQuery("?batch=nope&scan_error=nope&technical=wizard&continue=fda&guided=1");
     expect(flags.options).toEqual({ fixture: "dev-machine", explainerFailure: null });

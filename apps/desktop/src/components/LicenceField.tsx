@@ -10,7 +10,8 @@ export const LICENCE_KEY_PATTERN = /^TL1\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{60,}
 export const LICENCE_AUTO_VERIFY_MS = 300;
 export const LICENCE_UNLOCK_DELAY_MS = 800;
 
-export const BUY_CAPTION = "Opens the Talos Labs shop in your browser. Your key arrives by email; paste it here.";
+/** Under the field: where the key comes from, in five words. The link itself carries no sentence. */
+export const BUY_CAPTION = "Your key arrives by email.";
 
 type FieldState =
   | { kind: "entry" }
@@ -121,18 +122,16 @@ export function LicenceField({ onUnlocked, onBuy, autoFocus = false }: LicenceFi
         <button type="submit" className="button" disabled={checking || draft.trim().length === 0}>
           {checking ? "Checking" : "Activate"}
         </button>
+        <button type="button" className="link-button licence-buy" onClick={onBuy}>
+          Buy a licence
+        </button>
       </div>
       {invalid && (
         <p className="notice" id={errorId} role="alert">
           {LICENSE_INVALID_LABELS[state.reason]}
         </p>
       )}
-      <p className="muted small">
-        <button type="button" className="link-button" onClick={onBuy}>
-          Buy a licence
-        </button>{" "}
-        {BUY_CAPTION}
-      </p>
+      <p className="muted small licence-caption">{BUY_CAPTION}</p>
     </form>
   );
 }

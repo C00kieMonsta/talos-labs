@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { CircleAlert, CircleCheck, Cpu, Download, LoaderCircle, Sparkles } from "lucide-react";
 import { CORE_VERSION } from "@talos/core";
@@ -37,6 +37,8 @@ export const PERMISSION_TITLES: Readonly<Record<PermissionKind, string>> = {
   full_disk_access: "Full Disk Access",
   automation: "Automation",
 };
+/** Under the Full Disk Access row when the binary runs outside an app bundle (pnpm tauri dev). */
+export const DEV_BUILD_FDA_COPY = "This is a development build, so it is not in the list. Press the + button and add the app that launched it (your terminal or editor), or build the app bundle.";
 
 const CLAUDE_MODEL = /^claude-[a-z0-9-]+$/;
 const OLLAMA_MODEL = /^[a-z0-9._:-]+$/;
@@ -103,13 +105,24 @@ function Section({ id, title, children }: { id: string; title: string; children:
   );
 }
 
-function Switch({ label, checked, onChange }: { label: string; checked: boolean; onChange(next: boolean): void }) {
+/** The kit's two-line row: the title in bold, one small line under it, the switch at the right. */
+function Switch({ label, description, checked, onChange }: { label: string; description?: string; checked: boolean; onChange(next: boolean): void }) {
+  const id = useId();
   return (
     <label className="toggle setting-row">
       <span className="setting-text">
-        <strong>{label}</strong>
+        <strong id={`${id}-label`}>{label}</strong>
+        {description !== undefined && <small id={`${id}-description`}>{description}</small>}
       </span>
-      <input type="checkbox" role="switch" aria-checked={checked} checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <input
+        type="checkbox"
+        role="switch"
+        aria-checked={checked}
+        aria-labelledby={`${id}-label`}
+        aria-describedby={description === undefined ? undefined : `${id}-description`}
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
     </label>
   );
 }
@@ -120,8 +133,7 @@ function CheckUpSection() {
   return (
     <Section id="checkup" title={CHECKUP_SETTINGS.title}>
       <Switch label={CHECKUP_SETTINGS.autoScan} checked={guided.autoScan} onChange={(autoScan) => updateSettings({ guided: { ...guided, autoScan } })} />
-      <Switch label={CHECKUP_SETTINGS.home} checked={guided.home} onChange={(home) => updateSettings({ guided: { ...guided, home } })} />
-      <p className="muted small">{CHECKUP_SETTINGS.sentence}</p>
+      <Switch label={CHECKUP_SETTINGS.home} description={CHECKUP_SETTINGS.sentence} checked={guided.home} onChange={(home) => updateSettings({ guided: { ...guided, home } })} />
     </Section>
   );
 }
@@ -180,6 +192,7 @@ function AiSection({ aiAvailability, onAiAction }: Pick<SettingsProps, "aiAvaila
     <Section id="ai" title="AI explanations">
       <Switch
         label="Explain findings with Apple Intelligence"
+        description={AI_SENTENCE}
         checked={enabled}
         onChange={(aiEnabled) => updateSettings({ explainer: { ...settings.explainer, aiEnabled } })}
       />
@@ -194,7 +207,6 @@ function AiSection({ aiAvailability, onAiAction }: Pick<SettingsProps, "aiAvaila
           )}
         </p>
       )}
-      <p className="muted small">{AI_SENTENCE}</p>
     </Section>
   );
 }
@@ -231,9 +243,8 @@ function PermissionsSection({ capabilities, onPermission }: Pick<SettingsProps, 
             <li key={kind} className="setting-row">
               <span className="setting-text">
                 <strong>{PERMISSION_TITLES[kind]}</strong>
-                <span className={status === "granted" ? "pill pill-accent" : "pill"} data-status={status ?? "checking"}>
-                  {status === null ? "Checking" : PERMISSION_STATUS_LABELS[status]}
-                </span>
+                <small data-status={status ?? "checking"}>{status === null ? "Checking" : PERMISSION_STATUS_LABELS[status]}</small>
+                {kind === "full_disk_access" && capabilities?.bundled === false && status !== "granted" && <small>{DEV_BUILD_FDA_COPY}</small>}
               </span>
               {status !== null && action !== null && (
                 <button type="button" className="toolbar-button" onClick={() => onPermission(kind, status)}>
@@ -288,7 +299,12 @@ function LicenceSection({ onBuy }: Pick<SettingsProps, "onBuy">) {
   }
   return (
     <Section id="licence" title="Licence">
-      <p>{license.status === "invalid" ? `The stored key is not valid: ${LICENSE_INVALID_LABELS[license.reason]}` : FREE_LINE}</p>
+      <div className="setting-row">
+        <span className="setting-text">
+          <strong>{FREE_LINE}</strong>
+          {license.status === "invalid" && <small>The stored key is not valid: {LICENSE_INVALID_LABELS[license.reason]}</small>}
+        </span>
+      </div>
       <LicenceField onBuy={onBuy} />
     </Section>
   );

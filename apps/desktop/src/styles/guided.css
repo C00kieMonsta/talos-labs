@@ -175,7 +175,7 @@
   }
 }
 
-/* Status line: a small icon and a sentence. */
+/* Status line: the 7 px rust dot and a sentence. */
 .guided-status {
   display: inline-flex;
   align-items: center;
@@ -186,9 +186,8 @@
   color: var(--fg-secondary);
 }
 
-.guided-status > svg {
-  flex: 0 0 auto;
-  color: var(--accent);
+.guided-status > .scan-dot {
+  flex: 0 0 7px;
 }
 
 /* Primary: 44 px, 220 to 320 wide, rust, deeper on hover. */
@@ -198,8 +197,6 @@
 
 .guided-list + .guided-actions,
 .guided-status + .guided-actions,
-.guided-muted-card + .guided-actions,
-.guided-explain + .guided-actions,
 .guided-dev + .guided-actions {
   margin-top: 24px;
 }
@@ -333,10 +330,8 @@
   border-color: var(--fg-secondary);
 }
 
-.guided-row > svg {
-  flex: 0 0 16px;
-  margin-top: 4px;
-  color: var(--accent);
+.guided-row > .scan-dot {
+  margin-top: 8px;
 }
 
 .guided-row-failed .guided-row-text {
@@ -350,7 +345,7 @@
   color: var(--fg-secondary);
 }
 
-/* Disclosures. */
+/* Disclosures. "Explain this" sits under the link, in the link's colour, so the primary never moves. */
 .guided-explain,
 .guided-dev {
   margin-top: 20px;
@@ -363,8 +358,15 @@
   align-items: center;
   min-height: 32px;
   cursor: pointer;
-  color: var(--accent);
+  color: var(--fg-secondary);
   font: var(--text-guided-meta);
+  font-weight: 400;
+}
+
+.guided-explain summary:hover,
+.guided-dev summary:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .guided-explain summary:focus-visible,
@@ -382,33 +384,7 @@
   margin-right: var(--space-2);
 }
 
-/* The muted card: the backup question and the permission instructions. */
-.guided-muted-card {
-  max-width: 510px;
-  margin: 0 0 24px;
-  padding: 18px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-elevated);
-}
-
-.guided-muted-card p {
-  margin: 0;
-  font: var(--text-guided-meta);
-  font-weight: 400;
-  line-height: 1.5;
-}
-
-.guided-muted-card h3 {
-  margin: 0 0 10px;
-  font: 600 15px/1.3 var(--font);
-}
-
-.guided-body + .guided-muted-card {
-  margin-top: -10px;
-}
-
-/* Reads and never reads: two columns between hairlines. */
+/* Reads and never reads: two columns of one 12 px sentence between hairlines. */
 .read-columns {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -425,24 +401,19 @@
   color: var(--fg);
 }
 
-.read-columns .plain-list {
+.read-columns p {
   margin: 0;
-  padding-left: 14px;
   font: 400 12px/1.45 var(--font);
   color: var(--fg-secondary);
-}
-
-.read-columns .plain-list li {
-  margin-bottom: 3px;
 }
 
 .guided-reads {
   margin-top: -8px;
 }
 
-/* The licence field under the paywall button: 42 px, the width of the button. */
+/* The licence field under the paywall button: 42 px, the width of the button, 2 px below it. Paste verifies; the Activate button stays in the expert panel. */
 .guided-licence {
-  margin-top: var(--space-1);
+  margin-top: 2px;
 }
 
 .guided-licence .licence-field {
@@ -473,8 +444,7 @@
 }
 
 .guided-licence .field-row .button {
-  min-height: 42px;
-  border-radius: var(--radius-sm);
+  display: none;
 }
 
 /* The step's own button is the way to buy; the field's caption would repeat it. */
@@ -492,75 +462,46 @@
   font-weight: 400;
 }
 
-/* End screens: labelled groups of 15 px rows between hairlines. The whole row is the control. */
+/* End screens: the kit's 20 px spacer, then one 15 px row per group between hairlines. The whole row is the control. */
+.guided-end {
+  padding-top: 20px;
+}
+
 .guided-summary {
   max-width: 540px;
-  margin: -4px 0 0;
-}
-
-.guided-summary-group + .guided-summary-group {
-  margin-top: 20px;
-}
-
-.guided-summary-label {
-  margin: 0 0 2px;
-  font: var(--text-guided-meta);
-  color: var(--fg-secondary);
-  letter-spacing: 0;
-}
-
-.guided-summary-list {
-  list-style: none;
   margin: 0;
-  padding: 0;
+  line-height: 1.55;
 }
 
 .guided-summary-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  display: block;
   width: 100%;
-  min-height: 44px;
   margin: 0;
-  padding: 10px 6px 10px 0;
+  padding: 10px 0;
   border: 0;
   border-bottom: 1px solid var(--border);
   border-radius: 0;
   background: none;
   color: var(--fg);
   font: 400 15px/1.55 var(--font);
-  letter-spacing: -0.1px;
   text-align: left;
   cursor: pointer;
 }
 
+.guided-summary-row small {
+  font-size: 13px;
+  color: var(--fg-secondary);
+}
+
 .guided-summary-row:hover {
-  background: var(--bg-inset);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .guided-summary-row:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: -2px;
   border-radius: var(--radius-sm);
-}
-
-.guided-summary-row > svg:first-child {
-  flex: 0 0 auto;
-  color: var(--fg-secondary);
-}
-
-.guided-summary-row-text {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.guided-summary-row-chevron {
-  flex: 0 0 auto;
-  color: var(--fg-tertiary);
-}
-
-.guided-end .guided-link {
-  margin-top: 20px;
 }
 
 .guided .passphrase-form {
@@ -639,15 +580,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.scanning-guided .progress-status {
-  font: var(--text-meta);
-  color: var(--fg);
-}
-
-.scanning-guided .progress-status .progress-dot {
-  display: none;
 }
 
 .scanning-guided .progress-item.progress-prompting {
@@ -736,41 +668,8 @@
     margin-bottom: 16px;
   }
 
-  .guided-end .guided-status-mark {
-    width: 44px;
-    height: 44px;
-    margin-bottom: 12px;
-  }
-
-  .guided-end .guided-tick {
-    width: 22px;
-    height: 22px;
-  }
-
   .guided-end .guided-body {
     margin-bottom: 14px;
-  }
-
-  .guided-summary-group + .guided-summary-group {
-    margin-top: 8px;
-  }
-
-  .guided-summary-label {
-    margin-bottom: 0;
-  }
-
-  .guided-summary-row {
-    min-height: 34px;
-    padding-top: 5px;
-    padding-bottom: 5px;
-  }
-
-  .guided-end .guided-link {
-    margin-top: 8px;
-  }
-
-  .guided-muted-card {
-    margin-bottom: 18px;
   }
 
   .scanning-guided .progress-item {
@@ -786,9 +685,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .guided-step,
-  .guided-tick,
-  .guided .spin,
-  .scanning-guided .spin {
+  .guided-tick {
     animation: none;
   }
 }

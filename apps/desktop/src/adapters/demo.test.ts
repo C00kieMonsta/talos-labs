@@ -75,7 +75,12 @@ describe("createDemoAdapters: systemState", () => {
     const adapters = createDemoAdapters({ fixture: "hardened", collectDelayMs: 0 });
     const section = await adapters.systemState.collectSection("firewall");
     expect(section.status).toBe("ok");
-    expect(await adapters.systemState.capabilities()).toEqual({ fullDiskAccess: false, automation: null });
+    expect(await adapters.systemState.capabilities()).toEqual({ fullDiskAccess: false, automation: null, bundled: true });
+  });
+
+  it("reports bundled=false only when asked", async () => {
+    const adapters = createDemoAdapters({ fixture: "dev-machine", collectDelayMs: 0, bundled: false });
+    expect(await adapters.systemState.capabilities()).toEqual({ fullDiskAccess: false, automation: null, bundled: false });
   });
 
   it("collectSection rejects with cancelled when the signal aborts during the delay", async () => {

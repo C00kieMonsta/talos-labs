@@ -135,17 +135,15 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
     <div className="screen detail">
       <header className="detail-head">
         <h1>{view.headline}</h1>
+        {/* A failing headline already reads as the problem, so the status word is for the other outcomes. */}
         <div className="detail-meta">
           <SeverityBadge severity={view.severity} />
-          <span className={`status status-${view.status}`}>{STATUS_LABELS[view.status]}</span>
-          <span className="muted small">{CATEGORY_LABELS[view.category]}</span>
-          {view.cis !== null && <span className="muted small">CIS {view.cis}</span>}
+          {view.status !== "fail" && <span className={`status status-${view.status}`}>{STATUS_LABELS[view.status]}</span>}
+          <span className="muted small">
+            {CATEGORY_LABELS[view.category]}
+            {view.cis !== null ? ` · CIS ${view.cis}` : ""}
+          </span>
         </div>
-        {view.headline !== view.title && (
-          <p className="muted detail-check">
-            What we check: {view.title}. Result: {STATUS_LABELS[view.status]}.
-          </p>
-        )}
         {view.status === "unknown" && view.unknownReason !== null && (
           <p className="muted">{unsignedBuild ? SOCKET_TABLE_LABEL : UNKNOWN_REASON_LABELS[view.unknownReason]}</p>
         )}
@@ -275,7 +273,7 @@ function RecheckCard({
       ) : (
         <button
           type="button"
-          className="button button-primary"
+          className="button"
           onClick={() => {
             if (!rechecking) onRecheck();
           }}

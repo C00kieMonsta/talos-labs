@@ -68,6 +68,8 @@ export interface DemoOptions {
   /** fullDiskAccess turns true on this capability poll. */
   readonly fdaAfter?: number | null;
   readonly automation?: AutomationStatus | null;
+  /** false shows the dev-build Full Disk Access hint; defaults to true. */
+  readonly bundled?: boolean;
   /** A watched section passes on this poll. */
   readonly pollAfter?: number | null;
   /** Rules forced to fail on the fixture; only TL-MAC-013 is supported (a 60 minute screen saver). */
@@ -124,7 +126,7 @@ export class DemoSystemState implements SystemStatePort {
   constructor(
     state: SystemState,
     private readonly delayMs: number,
-    private readonly options: Pick<DemoOptions, "fdaAfter" | "automation" | "pollAfter" | "fail" | "scanError"> = {},
+    private readonly options: Pick<DemoOptions, "fdaAfter" | "automation" | "bundled" | "pollAfter" | "fail" | "scanError"> = {},
   ) {
     this.pendingFailure = options.scanError ?? null;
     this.state = withForcedFailures(state, options.fail ?? []);
@@ -179,6 +181,7 @@ export class DemoSystemState implements SystemStatePort {
     return {
       fullDiskAccess: typeof after === "number" && this.polls >= after,
       automation: this.options.automation ?? null,
+      bundled: this.options.bundled ?? true,
     };
   }
 }

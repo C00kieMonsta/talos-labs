@@ -79,6 +79,62 @@ export function FixCard({ finding, developer, fixing, watching, busy = false, on
   }, [passedAt]);
   const donePass = fixing?.kind === "single" && fixing.plan.ruleId === finding.ruleId && fixing.phase === "done" && fixing.result === "pass";
 
+  // The button opens a deep-link pane itself, so the path is not repeated; the steps say what to do inside it.
+  const breadcrumb = fix.settingsPath !== null && apply.kind !== "deep_link" && (
+    <div className="fix-settings">
+      <p className="settings-path">
+        {fix.settingsPath.map((label, index) => (
+          <span key={index}>
+            {index > 0 && (
+              <>
+                <span className="path-sep" aria-hidden="true"> › </span>
+                <span className="visually-hidden">, then </span>
+              </>
+            )}
+            {label}
+          </span>
+        ))}
+      </p>
+      {fix.settingsPane !== null && (
+        <button type="button" className="button button-small" onClick={() => onOpenPane(fix.settingsPane as SettingsPane)} aria-label="Open this settings pane">
+          Open
+        </button>
+      )}
+    </div>
+  );
+  const steps = fix.steps.length > 0 && (
+    <div className="fix-steps">
+      <p className="label">Steps</p>
+      <ol>
+        {fix.steps.map((step, index) => (
+          <li key={index}>{step}</li>
+        ))}
+      </ol>
+    </div>
+  );
+  const verify = fix.verify !== null && (
+    <div className="fix-verify">
+      <p className="label">How to check it worked</p>
+      <p>{fix.verify}</p>
+    </div>
+  );
+  const hasManual = breadcrumb !== false || steps !== false || verify !== false;
+  // An in-app fix leads with its button; the manual route folds away under one line instead of repeating it.
+  const manualRoute = !hasManual ? null : apply.kind === "in_app" ? (
+    <details className="fix-manual">
+      <summary>Do it in {fix.settingsPath?.[0] ?? "System Settings"} instead</summary>
+      {breadcrumb}
+      {steps}
+      {verify}
+    </details>
+  ) : (
+    <>
+      {breadcrumb}
+      {steps}
+      {verify}
+    </>
+  );
+
   return (
     <section className="card fix-card" aria-labelledby="fix-heading">
       <div className="fix-card-head">
@@ -135,6 +191,9 @@ export function FixCard({ finding, developer, fixing, watching, busy = false, on
           </span>
         )}
       </div>
+      <p className="fix-meta">
+        {EFFORT_LABELS[fix.effort]} · {SIDE_EFFECT_LABELS[fix.sideEffects]}
+      </p>
 
       {(passedAt !== null || donePass || (watching?.ruleId === finding.ruleId && passedAt === null)) && (
         <p
@@ -160,29 +219,7 @@ export function FixCard({ finding, developer, fixing, watching, busy = false, on
         </p>
       )}
 
-      {fix.settingsPath !== null && (
-        <div className="fix-settings">
-          <p className="label">In {fix.settingsPath[0]}</p>
-          <p className="settings-path">
-            {fix.settingsPath.map((label, index) => (
-              <span key={index}>
-                {index > 0 && (
-                  <>
-                    <span className="path-sep" aria-hidden="true"> › </span>
-                    <span className="visually-hidden">, then </span>
-                  </>
-                )}
-                {label}
-              </span>
-            ))}
-          </p>
-          {fix.settingsPane !== null && apply.kind !== "deep_link" && (
-            <button type="button" className="button button-small" onClick={() => onOpenPane(fix.settingsPane as SettingsPane)} aria-label="Open this settings pane">
-              Open
-            </button>
-          )}
-        </div>
-      )}
+      {manualRoute}
 
       {commands.length > 0 && (
         <div className="fix-commands">
@@ -199,36 +236,7 @@ export function FixCard({ finding, developer, fixing, watching, busy = false, on
         </div>
       )}
 
-      {fix.steps.length > 0 && (
-        <div className="fix-steps">
-          <p className="label">Steps</p>
-          <ol>
-            {fix.steps.map((step, index) => (
-              <li key={index}>{step}</li>
-            ))}
-          </ol>
-        </div>
-      )}
-
       {hint && <p className="muted small fix-terminal-hint">{terminalOnly ? TERMINAL_ONLY_HINT : TERMINAL_HINT}</p>}
-
-      {fix.verify !== null && (
-        <div className="fix-verify">
-          <p className="label">How to check it worked</p>
-          <p>{fix.verify}</p>
-        </div>
-      )}
-
-      <dl className="fix-meta">
-        <div>
-          <dt>Effort</dt>
-          <dd>{EFFORT_LABELS[fix.effort]}</dd>
-        </div>
-        <div>
-          <dt>Side effects</dt>
-          <dd>{SIDE_EFFECT_LABELS[fix.sideEffects]}</dd>
-        </div>
-      </dl>
     </section>
   );
 }

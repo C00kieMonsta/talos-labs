@@ -101,10 +101,10 @@ export const GRADE_LABELS: Readonly<Record<Grade, string>> = {
 };
 
 export const GRADE_SUMMARY: Readonly<Record<Grade, string>> = {
-  good: "Your Mac is in good shape. Keep it that way.",
-  fair: "Your Mac is mostly protected. A few fixes would make it solid.",
-  poor: "Your Mac has gaps worth closing. Start with the fixes below.",
-  at_risk: "Your Mac is exposed. The fixes below make the biggest difference.",
+  good: "Your Mac is in good shape.",
+  fair: "Your Mac is mostly protected.",
+  poor: "Your Mac has gaps worth closing.",
+  at_risk: "Your Mac is exposed.",
 };
 
 export const UNKNOWN_REASON_LABELS: Readonly<Record<UnknownReason, string>> = {

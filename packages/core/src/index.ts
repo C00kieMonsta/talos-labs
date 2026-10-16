@@ -5,6 +5,7 @@ export * from "./domain/finding";
 export * from "./domain/rule";
 export * from "./domain/report";
 export { assertSystemState, isSystemState, SystemStateGuardError, UNAVAILABLE_REASONS } from "./domain/system-state.guard";
+export { toCapabilities, AUTOMATION_STATUSES } from "./domain/capabilities.guard";
 
 export * from "./ports/system-state-port";
 export * from "./ports/explainer-port";

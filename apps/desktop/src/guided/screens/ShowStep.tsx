@@ -19,16 +19,16 @@ export function ShowStep({ step, state, controller, notice }: { step: ShowStepT;
           progress={progress}
           devId={step.ruleId}
           title={strings.headline}
-          body={<p>{strings.why}</p>}
+          body={
+            <p>
+              {strings.why} {QUESTION.ask}
+            </p>
+          }
           primary={{ label: QUESTION.yes, onClick: () => controller.answer("backup_disk", true) }}
           link={{ label: QUESTION.no, onClick: () => controller.answer("backup_disk", false) }}
           explainRuleId={step.ruleId}
           notice={notice}
-        >
-          <div className="guided-muted-card">
-            <p>{QUESTION.ask}</p>
-          </div>
-        </StepFrame>
+        />
       );
     case "watching":
       if (state.stale) {

@@ -120,10 +120,6 @@
   text-align: center;
 }
 
-.score-fine-print + .score-fine-print {
-  margin-top: 4px;
-}
-
 .grid-stats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -309,12 +305,6 @@
   font: 400 12px/1.4 var(--font);
 }
 
-.detail-check {
-  margin: 8px 0 0;
-  color: var(--fg-secondary);
-  font: 400 12px/1.5 var(--font);
-}
-
 .detail > .card,
 .detail > .ai-card-host {
   max-width: 700px;
@@ -379,17 +369,37 @@
   padding: 10px 0;
 }
 
-.ask-form textarea {
-  max-width: none;
-  padding: 10px 12px;
-  font: var(--text-reading);
+/* One exchange per card: the question as body text, the answer behind the stone rule, fine print under it. */
+.chat-exchange .chat-user .model-text p {
+  font: 400 13px/1.62 var(--font);
 }
 
-.ask-form-foot {
+.chat-exchange .chat-user + .chat-assistant {
+  margin-top: 12px;
+}
+
+.chat-badge {
+  margin: 8px 0 0;
+}
+
+/* Kit .field: one 42 px line with the Ask button at its right. */
+.ask-form-row {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-top: var(--space-1);
+  gap: var(--space-1);
+  max-width: 720px;
+}
+
+.ask-form-row input[type="text"] {
+  flex: 1 1 auto;
+  max-width: none;
+  min-height: 42px;
+  padding: 10px 12px;
+}
+
+.ask-count {
+  display: block;
+  margin-top: var(--space-0);
 }
 
 /* Settings: section titles over bordered groups; every direct child of a group is one row. */

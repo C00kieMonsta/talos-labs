@@ -73,7 +73,8 @@ describe("LicenceField", () => {
     expect(screen.getByRole("button", { name: "Checking" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Buy a licence" }));
     expect(onBuy).toHaveBeenCalled();
-    expect(screen.getByText(/Your key arrives by email; paste it here\./)).toBeTruthy();
+    expect(screen.getByText("Your key arrives by email.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Buy a licence" }).closest(".field-row")).not.toBeNull();
     await act(async () => {
       settle({ status: "invalid", reason: "revoked" });
     });

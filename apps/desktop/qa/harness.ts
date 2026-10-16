@@ -229,9 +229,12 @@ export async function walk(page: Page, baseUrl: string, visit: Visit): Promise<v
     await heading(page, "Overview");
     await heading(page, "Next three fixes", 2);
   });
+  // The shot keeps its name from v0.2; the rows now carry no inline action, so it asserts the row shape instead.
   await visit({ name: "overview-inline-actions" }, async () => {
-    const actions = page.locator("section[aria-labelledby='next-fixes'] .finding-card-action");
-    if ((await actions.count()) < 3) throw new Error("the next three fixes should each carry an inline action");
+    const rows = page.locator("section[aria-labelledby='next-fixes'] article.finding-card");
+    if ((await rows.count()) < 3) throw new Error("the next three fixes should be three rows");
+    if ((await rows.locator("button").count()) > 0) throw new Error("a finding row carries no inline action; the row opens the finding");
+    if ((await rows.locator(".finding-card-cost").count()) < 3) throw new Error("each row names how the fix is applied");
   });
   await visit({ name: "findings-dev-machine" }, async () => {
     await nav(page, "Findings");
@@ -279,7 +282,7 @@ export async function walk(page: Page, baseUrl: string, visit: Visit): Promise<v
     await goto("reset=1&fixture=dev-machine&onboarded=1&delay=0");
     await runCheckUp(page);
     await nav(page, "Ask");
-    await heading(page, "Ask");
+    await heading(page, "Ask about your report");
     await page.getByText("AI explanations are part of the full version.").waitFor({ timeout: STEP_TIMEOUT });
   });
 
@@ -288,7 +291,7 @@ export async function walk(page: Page, baseUrl: string, visit: Visit): Promise<v
     await goto(LICENSED);
     await runCheckUp(page);
     await nav(page, "Ask");
-    await heading(page, "Ask");
+    await heading(page, "Ask about your report");
     await page.getByLabel("Your question").fill("Which of these should I do first?");
     await page.locator("form.ask-form").getByRole("button", { name: "Ask" }).click();
     await page.locator(".chat-streaming").getByRole("button", { name: "Stop" }).waitFor({ timeout: STEP_TIMEOUT });
@@ -686,7 +689,10 @@ export async function walkGuided(page: Page, baseUrl: string, visit: Visit): Pro
     await primary(page, "Let's go");
     await blur(page);
     await primary(page, "Fix these for me");
-    await page.getByText("Your Mac is asking for your password. Then I'll get to work.").waitFor({ timeout: STEP_TIMEOUT });
+    // One idea while it runs: the password sentence is headline and body, the status reads "Waiting for macOS", the list is gone.
+    await guidedTitle(page, "Your Mac is asking for your password.");
+    await page.locator(".guided .guided-status").filter({ hasText: "Waiting for macOS" }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator(".guided .guided-list").count()) !== 0) throw new Error("the working batch shows no list");
     await assertGuidedScreen(page, { primaries: 0 });
     if ((await page.locator(".guided .guided-link").count()) !== 0) throw new Error("the batch exposes no cancel while it runs");
   });
@@ -842,6 +848,8 @@ export async function walkGuided(page: Page, baseUrl: string, visit: Visit): Pro
     await primary(page, "Let's go");
     await page.locator(".guided-explain summary").click();
     await page.locator(".guided-explain-body").waitFor({ timeout: STEP_TIMEOUT });
+    // The fold check covers the streamed state, so wait for the "Writing" line to go.
+    await page.locator(".guided-explain-body [role='status']").waitFor({ state: "detached", timeout: STEP_TIMEOUT });
     await assertGuidedScreen(page);
   });
   await visit({ name: "guided-failed" }, async () => {
@@ -892,7 +900,7 @@ export async function walkGuided(page: Page, baseUrl: string, visit: Visit): Pro
     await goto("reset=1&fixture=all-unavailable&onboarded=1&delay=0");
     await primary(page, "Let's go");
     await link(page, "Not now");
-    await guidedTitle(page, "Nothing needs fixing.");
+    await guidedTitle(page, "I couldn't check your Mac.");
     await page.getByText(/^I couldn't check \d+ areas\./).waitFor({ timeout: STEP_TIMEOUT });
     await assertGuidedScreen(page, { primaries: 0 });
   });

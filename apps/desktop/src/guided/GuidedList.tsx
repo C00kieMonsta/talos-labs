@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { ICONS } from "../app/icons";
-import { Icon } from "../components/Icon";
 
 export type GuidedRowIcon = "none" | "pending" | "ok" | "failed" | "bullet";
 
@@ -30,7 +29,7 @@ function RowIcon({ icon }: { icon: GuidedRowIcon }) {
     case "failed":
       return <Bullet state="failed" />;
     case "pending":
-      return <Icon icon={ICONS.spinner} size={16} className="spin" />;
+      return <span className="scan-dot scan-dot-active" aria-hidden="true" />;
     case "bullet":
       return <Bullet state="empty" />;
     case "none":

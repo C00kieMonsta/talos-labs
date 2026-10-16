@@ -43,7 +43,7 @@ export function renderGuided(options: HarnessOptions = {}) {
   const control = {
     memory: options.memory ?? EMPTY_GUIDED_MEMORY,
     focused: true,
-    capabilities: { fullDiskAccess: false, automation: "granted" } as Capabilities,
+    capabilities: { fullDiskAccess: false, automation: "granted", bundled: true } as Capabilities,
     openPane: vi.fn(async () => undefined),
     restart: vi.fn(async () => undefined),
   };

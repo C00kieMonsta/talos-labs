@@ -83,7 +83,7 @@ function dotFor(state: RowState): "pending" | "active" | "passed" | "found" | "r
   }
 }
 
-/** The body under the "Checking your Mac" toolbar: bar, subline, counter and the 17 paced rows. */
+/** The body under the "Checking your Mac" toolbar: bar, subline, counter and the 17 paced rows. A div: the host owns the main landmark. */
 export function Scanning({ pacer, report, guided = false }: { pacer: PacerView; report: ScanReport | null; guided?: boolean }) {
   const counts = countsFor(report);
   const line = subline(pacer);
@@ -100,7 +100,7 @@ export function Scanning({ pacer, report, guided = false }: { pacer: PacerView; 
   );
 
   return (
-    <main className={guided ? "screen scanning scanning-guided" : "screen scanning"} aria-busy={pacer.phase !== "done"}>
+    <div className={guided ? "screen scanning scanning-guided" : "screen scanning"} aria-busy={pacer.phase !== "done"}>
       {!guided && bar}
       <div className="scanning-head">
         <p className="scanning-subline">{line}</p>
@@ -123,14 +123,12 @@ export function Scanning({ pacer, report, guided = false }: { pacer: PacerView; 
             <li key={key} className={`progress-item progress-${state}`} data-section={key}>
               {guided ? <span className={`scan-dot scan-dot-${dotFor(state)}`} aria-hidden="true" /> : <Icon icon={SECTION_ICONS[key]} />}
               <span className="progress-label">{label}</span>
-              <span className="progress-status">
-                {status.icon === null ? (
-                  <span className="progress-dot" aria-hidden="true" />
-                ) : (
-                  !guided && <Icon icon={ICONS[status.icon]} className={status.spin === true ? "spin" : undefined} />
-                )}
-                {status.text.length > 0 && <span>{status.text}</span>}
-              </span>
+              {!guided && (
+                <span className="progress-status">
+                  {status.icon === null ? <span className="progress-dot" aria-hidden="true" /> : <Icon icon={ICONS[status.icon]} className={status.spin === true ? "spin" : undefined} />}
+                  {status.text.length > 0 && <span>{status.text}</span>}
+                </span>
+              )}
             </li>
           );
         })}
@@ -144,11 +142,10 @@ export function Scanning({ pacer, report, guided = false }: { pacer: PacerView; 
       {dimmed && guided && (
         <div className="scan-summary">
           <p className="guided-status">
-            <Icon icon={ICONS.spinner} size={16} className="spin" />
             <span>{PREPARING_COPY}</span>
           </p>
         </div>
       )}
-    </main>
+    </div>
   );
 }

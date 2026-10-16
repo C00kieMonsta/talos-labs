@@ -82,15 +82,12 @@ export function FixSheet(props: FixSheetProps) {
     ));
 
   let body: ReactNode;
-  let actions: ReactNode = null;
+  let actions: ReactNode | undefined = null;
   if (phase === "confirm") {
     if (plan.needsPassphrase) {
-      body = <PassphraseForm keyPath={keyPathFrom(finding.evidence)} onSubmit={(passphrase) => onApply(passphrase)} />;
-      actions = (
-        <button type="button" className="button" onClick={onClose}>
-          Cancel
-        </button>
-      );
+      // The form renders Cancel next to its submit, so the sheet adds no second row.
+      body = <PassphraseForm keyPath={keyPathFrom(finding.evidence)} onSubmit={(passphrase) => onApply(passphrase)} onCancel={onClose} />;
+      actions = undefined;
     } else {
       body = <Confirm plan={plan} developer={developer} note={note} sideEffects={finding.fix.sideEffects} />;
       actions = (

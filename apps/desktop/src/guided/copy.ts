@@ -15,6 +15,9 @@ export const WELCOME = {
   body: "I'll look at your Mac's safety settings and fix what I can. Nothing leaves your Mac.",
   start: "Start",
   what: "What do you look at?",
+  back: "Back",
+  reads: "Disk encryption, firewall, updates, screen lock, network services and browser add-on permissions.",
+  neverReads: "Your documents, photos, messages, passwords, browsing history or anything you type into macOS password dialogs.",
 } as const;
 
 export const SCANNING_TITLE = "Checking your Mac";
@@ -51,6 +54,8 @@ export const STATUS = {
   password: "Your Mac is asking for your password. Then I'll get to work.",
   working: "Working",
   checking: "Checking it worked",
+  /** The batch's status line while the password box is up; the password sentence is the headline then. */
+  waiting: "Waiting for macOS",
 } as const;
 
 export const FIX = {
@@ -116,6 +121,10 @@ export const END = {
   nextTime: "I'll check again next time you open me.",
   partial: "Your Mac is safer than it was.",
   nothing: "Nothing needs fixing.",
+  unreadableAll: "I couldn't check your Mac.",
+  unreadableSome: "Nothing to fix in what I could check.",
+  tryAgain: "I'll try again next time you open me.",
+  didNotChange: "Did not change",
   waiting: "Still waiting",
   locked: "In the full version",
   leftAlone: "Things I left alone",

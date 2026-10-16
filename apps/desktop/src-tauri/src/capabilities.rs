@@ -13,6 +13,8 @@ pub struct Capabilities {
     pub full_disk_access: Option<bool>,
     /// null when System Events is not running or the probe failed; the collector is the probe then.
     pub automation: Option<AutomationStatus>,
+    /// false for a dev build run from a terminal or editor; such a binary is absent from the Full Disk Access list.
+    pub bundled: bool,
 }
 
 pub const PROBE_DIRS: [&str; 6] = [
@@ -32,12 +34,23 @@ pub fn probe_dir(home: &Path) -> Option<PathBuf> {
         .find(|p| std::fs::metadata(p).is_ok())
 }
 
+/// True when the executable sits inside an app bundle.
+pub fn is_bundled(exe: &Path) -> bool {
+    exe.to_string_lossy().contains("/Contents/MacOS/")
+}
+
+/// The running executable's bundle state; a missing path counts as not bundled.
+pub fn bundled() -> bool {
+    std::env::current_exe().is_ok_and(|exe| is_bundled(&exe))
+}
+
 /// Some(true) when the directory lists, Some(false) on EPERM or EACCES, None when nothing to probe.
 pub fn probe(home: &Path) -> Capabilities {
     let Some(dir) = probe_dir(home) else {
         return Capabilities {
             full_disk_access: None,
             automation: None,
+            bundled: true,
         };
     };
     let full_disk_access = match std::fs::read_dir(&dir) {
@@ -50,6 +63,7 @@ pub fn probe(home: &Path) -> Capabilities {
     Capabilities {
         full_disk_access,
         automation: None,
+        bundled: true,
     }
 }
 
@@ -59,9 +73,11 @@ pub fn check() -> Capabilities {
         None => Capabilities {
             full_disk_access: None,
             automation: None,
+            bundled: true,
         },
     };
     caps.automation = crate::automation::check();
+    caps.bundled = bundled();
     caps
 }
 
@@ -77,8 +93,24 @@ mod tests {
             Capabilities {
                 full_disk_access: None,
                 automation: None,
+                bundled: true,
             }
         );
+    }
+
+    #[test]
+    fn bundled_means_inside_contents_macos() {
+        assert!(is_bundled(Path::new(
+            "/Applications/Talos Labs.app/Contents/MacOS/talos-desktop"
+        )));
+        assert!(is_bundled(Path::new(
+            "/Users/me/talos-labs/apps/desktop/src-tauri/target/debug/bundle/macos/Talos Labs.app/Contents/MacOS/talos-desktop"
+        )));
+        assert!(!is_bundled(Path::new(
+            "/Users/me/talos-labs/apps/desktop/src-tauri/target/debug/talos-desktop"
+        )));
+        assert!(!is_bundled(Path::new("/Contents/MacOS")));
+        assert!(!is_bundled(Path::new("Contents/MacOS/talos-desktop")));
     }
 
     #[test]
@@ -86,11 +118,12 @@ mod tests {
         let json = serde_json::to_value(Capabilities {
             full_disk_access: Some(false),
             automation: Some(AutomationStatus::Denied),
+            bundled: false,
         })
         .unwrap();
         assert_eq!(
             json,
-            serde_json::json!({ "fullDiskAccess": false, "automation": "denied" })
+            serde_json::json!({ "fullDiskAccess": false, "automation": "denied", "bundled": false })
         );
     }
 

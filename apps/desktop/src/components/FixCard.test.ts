@@ -111,15 +111,41 @@ describe("FixCard", () => {
     expect(screen.getByRole("button", { name: "Copy command 2" })).toBeTruthy();
   });
 
-  it("labels the path block by the app it starts in", () => {
+  it("folds the manual route of an in-app fix under one line named by the app it starts in", () => {
     render(createElement(FixCard, card(BASE, [], 8, false)));
-    expect(screen.getByText("In System Settings")).toBeTruthy();
+    const details = document.querySelector("details.fix-manual") as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(details.querySelector("summary")?.textContent).toBe("Do it in System Settings instead");
+    expect(details.querySelector(".settings-path")).not.toBeNull();
+    expect(details.querySelector(".fix-steps")).not.toBeNull();
+    expect(screen.queryByText("In System Settings")).toBeNull();
     cleanup();
     const appStore: Fix = { ...BASE, settingsPath: ["App Store", "Settings", "Automatic Updates"], settingsPane: null };
     render(createElement(FixCard, card(appStore, [], 2, false)));
-    expect(screen.getByText("In App Store")).toBeTruthy();
-    expect(screen.queryByText("In System Settings")).toBeNull();
+    expect(screen.getByText("Do it in App Store instead")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Open this settings pane" })).toBeNull();
+  });
+
+  it("shows the path and steps in the open for a manual fix, and only the steps for a deep link", () => {
+    const manual: Fix = { ...BASE, commands: [], verify: "The switch shows on.", apply: { kind: "manual", watch: [], watchEvery: 3, reveal: null } };
+    render(createElement(FixCard, card(manual, [], 8, false)));
+    expect(document.querySelector("details.fix-manual")).toBeNull();
+    expect(document.querySelector("p.settings-path")).not.toBeNull();
+    expect(screen.getByText("Switch it on.")).toBeTruthy();
+    expect(screen.getByText("How to check it worked")).toBeTruthy();
+    cleanup();
+    const deep: Fix = { ...BASE, commands: [], apply: { kind: "deep_link", pane: "firewall", watch: [], watchEvery: 3, reveal: null } };
+    render(createElement(FixCard, card(deep, [], 8, false)));
+    expect(document.querySelector("p.settings-path")).toBeNull();
+    expect(screen.getByText("Switch it on.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open System Settings" })).toBeTruthy();
+  });
+
+  it("states effort and side effects as one fine-print line with no labels", () => {
+    render(createElement(FixCard, card(BASE, [], 8, false)));
+    const meta = document.querySelector(".fix-meta") as HTMLElement;
+    expect(meta.textContent).toBe("About two minutes · No side effects");
+    expect(meta.closest(".fix-action-row + .fix-meta")).not.toBeNull();
   });
 
   it("marks the interactive note so it always lands under the command", () => {
