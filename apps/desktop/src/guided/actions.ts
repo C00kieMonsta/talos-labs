@@ -1,8 +1,8 @@
-import type { GuidedPlan, RuleId } from "@talos/core";
+import type { GuidedPlan, NextAction, RuleId } from "@talos/core";
 import { planLocked } from "@talos/core";
 import { lastReport } from "../scan/machine";
 import type { Core } from "./core";
-import { advance, appendSteps, currentStep, finalPlan, openStep, setStep, writeMemory } from "./core";
+import { advance, appendSteps, currentStep, finalPlan, initialStepState, openStep, setStep, writeMemory } from "./core";
 import { daysAfter } from "./memory";
 import { LATER_FLASH, PAYWALL, QUESTION } from "./copy";
 import { LATER_FLASH_MS, QUESTION_FLASH_MS, THANK_YOU_MS, paced } from "./timing";
@@ -113,4 +113,23 @@ export function licenceAccepted(core: Core): void {
   setTimeout(() => {
     if (core.phase.kind === "step" && core.phase.state.kind === "later_flash") advance(core);
   }, paced(THANK_YOU_MS));
+}
+
+/**
+ * "Do this next" on the end screen. The step goes last in the plan so the way out is the end screen again,
+ * then it runs as its own primary would: the fix starts, the pane opens, the paywall shows. A passphrase step
+ * only opens, since the form has to be filled first.
+ */
+export function doNext(core: Core, action: NextAction, primary: () => void): void {
+  const { phase } = core;
+  if (phase.kind !== "end" || action.step === null) return;
+  const step = action.step;
+  if (!core.extras.some((e) => e.id === step.id)) core.extras.push(step);
+  const steps = [...phase.plan.steps.filter((s) => s.id !== step.id), step];
+  const plan: GuidedPlan = { ...phase.plan, steps };
+  core.ofFloor = Math.max(core.ofFloor, steps.length);
+  core.batchFailures = 0;
+  core.watchSeen = false;
+  core.setPhase({ kind: "step", plan, index: steps.length - 1, state: initialStepState(step), notice: null });
+  if (step.kind === "show" || (step.kind === "fix" && !step.passphrase)) primary();
 }

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 170" preserveAspectRatio="none">
+  <!-- The site hero's horizon (website/index.html): a clay dune and a deeper half-opacity dune in front. Fills are swapped for tokens in components/Hero.tsx. -->
+  <path fill="#EBDFD4" d="M0 130Q330 45 700 122T1400 95V170H0Z"/>
+  <path fill="#D8BBA9" fill-opacity=".5" d="M0 160Q350 108 660 146T1400 120V170H0Z"/>
+</svg>

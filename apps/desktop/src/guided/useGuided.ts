@@ -95,6 +95,7 @@ export function useGuided(scan: ScanController, deps: GuidedDeps): GuidedControl
       answer: (_question, yes) => act.answer(core, yes, () => primary()),
       toggleList: () => act.toggleList(core),
       enterLicence: async () => act.licenceAccepted(core),
+      doNext: (action) => act.doNext(core, action, () => primary()),
     }),
     [phase, progress, core, primary],
   );

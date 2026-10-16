@@ -1135,6 +1135,7 @@ describe("Settings", () => {
     mount({}, { license });
     expect(screen.getByText("9.9.9")).toBeTruthy();
     expect(screen.getByText("Test Benchmark")).toBeTruthy();
+    expect(screen.getByText("taloslabs.si")).toBeTruthy();
     expect(screen.getByText(__BUILD_DATE__)).toBeTruthy();
     expect(screen.getByText(/01HXYZ/)).toBeTruthy();
     expect(screen.getByText(/cafebabe/)).toBeTruthy();

@@ -1,5 +1,7 @@
 # Talos Labs design brief
 
+> Superseded on 2026-10-16. This brief was the input for the Mineral design kit (`Talos-Labs-Mineral-Design-Kit-v1/`). The current design is `docs/DESIGN-V03.md`, `docs/DESIGN-MINERAL.md`, `docs/DESIGN-WARMTH.md` and `docs/DESIGN-AI.md`. Where this file disagrees with them (price, the AI story, Welcome, Settings), they win.
+
 This brief is for the designer who will design every surface of Talos Labs: the Mac app, its icon, the website, the shop page and the licence email. It describes what the product does, who uses it, the flows and states that must exist, and the rules the design cannot break. The visual style is yours to propose, within one direction: it should look and behave like an app Apple ships with macOS.
 
 A working app exists (v0.2, not released). Screenshots of it are listed in section 20. Treat it as a functional prototype: the content, flows and states are settled, the look is not.

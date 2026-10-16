@@ -35,21 +35,22 @@
   cursor: default;
 }
 
-/* The one filled button: rust, the action colour. */
+/* The one filled button: the accent gradient, rustInk to rust (docs/DESIGN-WARMTH.md section 2). */
 .button-primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--gradient-accent);
+  border-color: var(--gradient-accent-start);
   color: var(--accent-fg);
   font-weight: 600;
 }
 
 .button-primary:hover:not(:disabled):not([aria-disabled="true"]) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
+  background: var(--gradient-accent-hover);
+  border-color: var(--gradient-accent-hover-start);
 }
 
 .button-primary:active:not(:disabled):not([aria-disabled="true"]) {
-  background: var(--accent-hover);
+  background: var(--gradient-accent-hover);
+  border-color: var(--gradient-accent-hover-start);
 }
 
 .button-ghost {
@@ -852,6 +853,28 @@ h1[tabindex="-1"]:focus-visible {
   background: var(--bg-inset);
 }
 
+.finding-row:active::before {
+  background: var(--bg-pressed);
+}
+
+/* Severity cue: a 3 px bar on the left edge of the hover fill for failing critical and high rows (DESIGN-WARMTH.md section 7). */
+.finding-rows .finding-fail.finding-sev-critical::after,
+.finding-rows .finding-fail.finding-sev-high::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: -12px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--sev-cue-high);
+  pointer-events: none;
+}
+
+.finding-rows .finding-fail.finding-sev-critical::after {
+  background: var(--sev-cue-critical);
+}
+
 button.finding-row {
   cursor: pointer;
 }
@@ -1374,7 +1397,7 @@ button.finding-row:focus-visible,
   white-space: normal;
 }
 
-/* Progress bar: 4 px track, accent fill. */
+/* Progress bar: 4 px track, the accent gradient as the fill. */
 .progress-bar {
   height: 4px;
   border-radius: 2px;
@@ -1384,7 +1407,7 @@ button.finding-row:focus-visible,
 
 .progress-bar > div {
   height: 100%;
-  background: var(--accent);
+  background: var(--gradient-accent);
   transition: width var(--motion-base) var(--ease-standard);
 }
 

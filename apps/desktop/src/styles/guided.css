@@ -1,10 +1,21 @@
 /* The guided check-up, to the Mineral kit's app.css: 560 px frame, 72 px top, 26/17/16/14 type. Tokens live in tokens.css. */
 
 .guided-content {
+  display: flex;
+  flex-direction: column;
   padding: 0 42px;
 }
 
+/* The horizon band (components/Hero.tsx) bleeds past the column padding; margin-top: auto in base.css keeps it at the foot. */
+.guided-content > .hero-horizon {
+  flex: 0 0 auto;
+  width: calc(100% + 84px);
+  margin-left: -42px;
+  margin-right: -42px;
+}
+
 .guided {
+  flex: 0 0 auto;
   width: min(var(--guided-width), 100%);
   margin: 0 auto;
   padding: 72px 0 40px;
@@ -98,7 +109,7 @@
 
 .guided-bar > div {
   height: 100%;
-  background: var(--accent);
+  background: var(--gradient-accent);
   border-radius: var(--radius-pill);
   transition: width var(--motion-base) var(--ease-standard);
 }
@@ -132,6 +143,19 @@
   margin-top: var(--space-1);
 }
 
+/* The plan's urgency line: the critical icon leads so colour never carries it alone. */
+.guided-body .guided-urgent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.guided-urgent-icon {
+  flex: 0 0 auto;
+  color: var(--sev-critical-fg);
+}
+
 .guided-body .guided-meta-line {
   margin-top: 20px;
   font: var(--text-guided-meta);
@@ -148,19 +172,27 @@
   margin: 0 0 24px;
 }
 
-/* The 56 px status mark above a done headline, with the drawn tick. */
+/* The 56 px status mark above a done headline: the accent gradient disc (GradientDefs) under the drawn tick. */
 .guided-status-mark {
+  position: relative;
   display: grid;
   place-items: center;
   width: 56px;
   height: 56px;
   margin-bottom: 24px;
   border-radius: 50%;
-  background: var(--bg-inset);
-  color: var(--success-fg);
+  background: none;
+  color: var(--accent-fg);
+}
+
+.guided-status-disc {
+  position: absolute;
+  inset: 0;
+  display: block;
 }
 
 .guided-tick {
+  position: relative;
   stroke-dasharray: 80;
   stroke-dashoffset: 0;
   animation: guided-tick 240ms var(--ease-out);
@@ -190,7 +222,7 @@
   flex: 0 0 7px;
 }
 
-/* Primary: 44 px, 220 to 320 wide, rust, deeper on hover. */
+/* Primary: 44 px, 220 to 320 wide, the accent gradient, deeper on hover. */
 .guided-actions {
   margin-top: 28px;
 }
@@ -217,12 +249,13 @@
 }
 
 .guided-primary:hover:not(:disabled):not([aria-disabled="true"]) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
+  background: var(--gradient-accent-hover);
+  border-color: var(--gradient-accent-hover-start);
 }
 
 .guided-primary:active:not(:disabled):not([aria-disabled="true"]) {
-  background: var(--accent-hover);
+  background: var(--gradient-accent-hover);
+  border-color: var(--gradient-accent-hover-start);
 }
 
 .guided-primary:focus-visible {
@@ -443,11 +476,9 @@
   color: var(--fg-secondary);
 }
 
-.guided-licence .field-row .button {
-  display: none;
-}
-
-/* The step's own button is the way to buy; the field's caption would repeat it. */
+/* The step's own button is the way to buy; the field's Buy link and caption would repeat it. */
+.guided-licence .field-row .button,
+.guided-licence .field-row .licence-buy,
 .guided-licence .licence-field > .muted.small {
   display: none;
 }
@@ -462,46 +493,135 @@
   font-weight: 400;
 }
 
-/* End screens: the kit's 20 px spacer, then one 15 px row per group between hairlines. The whole row is the control. */
+/* End screens: the kit's 20 px spacer, then "Do this next" on paper and labelled groups of 44 px rows between hairlines. */
 .guided-end {
   padding-top: 20px;
 }
 
 .guided-summary {
   max-width: 540px;
-  margin: 0;
-  line-height: 1.55;
+  margin: -4px 0 0;
 }
 
-.guided-summary-row {
-  display: block;
-  width: 100%;
+.guided-end-label {
+  margin: 24px 0 4px;
+  font: var(--text-guided-meta);
+  font-weight: 400;
+  color: var(--fg-secondary);
+  letter-spacing: 0;
+}
+
+.guided-summary > .guided-end-group:first-child > .guided-end-label {
+  margin-top: 0;
+}
+
+.guided-end-list {
+  list-style: none;
   margin: 0;
-  padding: 10px 0;
+  padding: 0;
+}
+
+.guided-end-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 10px 6px 10px 0;
   border: 0;
   border-bottom: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   background: none;
   color: var(--fg);
-  font: 400 15px/1.55 var(--font);
+  font: var(--text-guided-list);
+  letter-spacing: -0.1px;
   text-align: left;
   cursor: pointer;
 }
 
-.guided-summary-row small {
-  font-size: 13px;
+.guided-end-list > li:last-child > .guided-end-row {
+  border-bottom-color: transparent;
+}
+
+.guided-end-row:hover {
+  background: var(--bg-inset);
+}
+
+.guided-end-row:active {
+  background: var(--bg-pressed);
+}
+
+.guided-end-row:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.guided-end-row-icon {
+  flex: 0 0 auto;
+  margin-left: 2px;
   color: var(--fg-secondary);
 }
 
-.guided-summary-row:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
+.guided-end-row-text {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-.guided-summary-row:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: -2px;
-  border-radius: var(--radius-sm);
+.guided-end-row-chevron {
+  flex: 0 0 auto;
+  color: var(--fg-secondary);
+}
+
+/* "Do this next": one card on paper with the severity cue on its left edge and the screen's one primary inside. */
+.guided-next-card {
+  position: relative;
+  padding: 16px 20px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+
+.guided-next-card::before {
+  content: "";
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: -1px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: transparent;
+}
+
+.guided-next-critical::before {
+  background: var(--sev-cue-critical);
+}
+
+.guided-next-high::before {
+  background: var(--sev-cue-high);
+}
+
+.guided-next-headline {
+  margin: 0;
+  font: var(--text-guided-list);
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.guided-next-why {
+  margin: 4px 0 0;
+  font: var(--text-guided-meta);
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--fg-secondary);
+}
+
+.guided-next-card > .guided-primary {
+  margin-top: 16px;
+}
+
+.guided-end .guided-link {
+  margin-top: 20px;
 }
 
 .guided .passphrase-form {
@@ -672,6 +792,24 @@
     margin-bottom: 14px;
   }
 
+  .guided-end-label {
+    margin-top: 16px;
+  }
+
+  .guided-end-row {
+    min-height: 40px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  .guided-next-card {
+    padding: 12px 16px 16px;
+  }
+
+  .guided-end .guided-link {
+    margin-top: 12px;
+  }
+
   .scanning-guided .progress-item {
     min-height: 24px;
   }
@@ -680,6 +818,12 @@
 @media (max-width: 960px) {
   .guided-content {
     padding: 0 28px;
+  }
+
+  .guided-content > .hero-horizon {
+    width: calc(100% + 56px);
+    margin-left: -28px;
+    margin-right: -28px;
   }
 }
 

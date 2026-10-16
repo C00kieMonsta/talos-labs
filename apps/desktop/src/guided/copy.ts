@@ -37,6 +37,7 @@ export const PLAN = {
   showWhere: "I'll show you where",
   nothingMyself: "I found nothing to fix myself.",
   allSettings: "They all need a quick visit to System Settings. I'll show you where.",
+  urgent: "One of these is urgent.",
 } as const;
 
 export const SINCE = { title: "Since last time.", carryOn: "Carry on" } as const;
@@ -131,7 +132,13 @@ export const END = {
   technical: "For a technical person",
   checkAgain: "Check again",
   details: "Details",
+  next: "Do this next",
+  unreadable: "Couldn't check",
+  biggestRisk: "That is the biggest risk left.",
 } as const;
+
+/** The "Do this next" button, by what the step does. */
+export const NEXT = { show: "Show me where", fix: "Fix it for me", unlock: "Unlock", details: "Details" } as const;
 
 export const DONE_PREFIX = "Done. ";
 

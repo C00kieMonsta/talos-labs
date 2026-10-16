@@ -38,7 +38,7 @@ export function Guided({ controller, onWelcomeStart }: { controller: GuidedContr
     case "plan":
       return <PlanScreen plan={phase.plan} listOpen={phase.listOpen} same={phase.same} progress={controller.progress} onGo={controller.carryOn} onToggleList={controller.toggleList} />;
     case "end":
-      return <EndScreen plan={phase.plan} fixed={phase.fixed} onCheckAgain={controller.start} />;
+      return <EndScreen plan={phase.plan} fixed={phase.fixed} onCheckAgain={controller.start} onNext={controller.doNext} />;
     case "step": {
       const step = phase.plan.steps[phase.index];
       if (step === undefined) return null;

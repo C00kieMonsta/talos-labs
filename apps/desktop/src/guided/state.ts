@@ -1,4 +1,4 @@
-import type { Capabilities, FixError, GuidedMemory, GuidedPlan, ReportDiff, RuleId, ScanReport, SectionKey, SettingsPane } from "@talos/core";
+import type { Capabilities, FixError, GuidedMemory, GuidedPlan, NextAction, ReportDiff, RuleId, ScanReport, SectionKey, SettingsPane } from "@talos/core";
 import type { Gate } from "../app/gate";
 import type { ScanError } from "../scan/machine";
 import type { PermissionCardState, PermissionKind } from "../scan/useCapabilityPoll";
@@ -49,6 +49,8 @@ export interface GuidedController {
   toggleList(): void;
   /** The paywall's licence field verified the key itself; this carries on and plans the unlocked rules. */
   enterLicence(key: string): Promise<void>;
+  /** "Do this next" on the end screen: reopen the action's step as the last step and run it. */
+  doNext(action: NextAction): void;
 }
 
 export interface GuidedDeps {

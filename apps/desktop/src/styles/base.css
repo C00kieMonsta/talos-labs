@@ -224,3 +224,84 @@ svg {
 .brand-mark {
   color: var(--brand-mark);
 }
+
+/* Warmth pass (docs/DESIGN-WARMTH.md). The canvas gradient and the grain are two fixed layers under .content; they never scroll, never take pointer events and never sit over a card. */
+.content {
+  isolation: isolate;
+}
+
+.content::before,
+.content::after {
+  content: "";
+  position: fixed;
+  top: var(--toolbar-height);
+  right: 0;
+  bottom: 0;
+  left: var(--sidebar-width);
+  z-index: -1;
+  pointer-events: none;
+}
+
+.content::before {
+  background: var(--gradient-canvas);
+}
+
+.content::after {
+  background-image: var(--grain-url);
+  background-size: var(--grain-size);
+  opacity: var(--grain-opacity);
+  mix-blend-mode: var(--grain-blend);
+}
+
+/* The guided shell has no sidebar, so the layers span the full width. */
+.guided-shell .content::before,
+.guided-shell .content::after {
+  left: 0;
+}
+
+/* Hero bands (components/Hero.tsx): decorative, clipped by .content, under the text. */
+.hero {
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.hero-spiral {
+  top: -120px;
+  right: -160px;
+  color: var(--hero-spiral-stroke);
+  opacity: var(--hero-spiral-opacity);
+}
+
+.hero-spiral svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The mark's 1.45 unit stroke would scale with the band; keep it a 1.2 px line at any size. */
+.hero-spiral path {
+  vector-effect: non-scaling-stroke;
+  stroke-width: 1.2px;
+}
+
+.hero-spiral circle {
+  r: 0.5px;
+}
+
+/* The horizon sits in flow at the bottom of the end screen, full bleed, after the last text. */
+.hero-horizon {
+  position: static;
+  display: block;
+  width: 100%;
+  margin-top: auto;
+  color: var(--horizon-1);
+}
+
+.hero-horizon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

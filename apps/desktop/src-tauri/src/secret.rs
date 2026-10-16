@@ -1,6 +1,6 @@
-//! Keychain wrapper over the `keyring` crate. Service "ai.taloslabs.desktop", account = secret name.
+//! Keychain wrapper over the `keyring` crate. Service "si.taloslabs.desktop", account = secret name.
 
-pub const SERVICE: &str = "ai.taloslabs.desktop";
+pub const SERVICE: &str = "si.taloslabs.desktop";
 
 fn valid_name(name: &str) -> bool {
     !name.is_empty()

@@ -235,6 +235,7 @@ export async function walk(page: Page, baseUrl: string, visit: Visit): Promise<v
     if ((await rows.count()) < 3) throw new Error("the next three fixes should be three rows");
     if ((await rows.locator("button").count()) > 0) throw new Error("a finding row carries no inline action; the row opens the finding");
     if ((await rows.locator(".finding-card-cost").count()) < 3) throw new Error("each row names how the fix is applied");
+    if ((await rows.and(page.locator(".finding-fail.finding-sev-critical, .finding-fail.finding-sev-high")).count()) === 0) throw new Error("a critical or high row carries the severity cue class");
   });
   await visit({ name: "findings-dev-machine" }, async () => {
     await nav(page, "Findings");
@@ -592,8 +593,8 @@ async function focus(page: Page): Promise<void> {
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
 }
 
-/** Every guided shot: exactly one primary and at most one link, both above the 600 px fold at 900x600. */
-export async function assertGuidedScreen(page: Page, options: { primaries?: number } = {}): Promise<void> {
+/** Every guided shot: exactly one primary and at most one link, both above the 600 px fold at 900x600. The end screens keep "Check again" under the groups, so `foldLink: false` lets it scroll. */
+export async function assertGuidedScreen(page: Page, options: { primaries?: number; foldLink?: boolean } = {}): Promise<void> {
   const want = options.primaries ?? 1;
   const primaries = await page.locator(".guided .button-primary").count();
   if (primaries !== want) throw new Error(`expected ${want} primary button(s), found ${primaries}`);
@@ -602,7 +603,31 @@ export async function assertGuidedScreen(page: Page, options: { primaries?: numb
   const size = page.viewportSize();
   if (size !== null && size.height <= MIN_HEIGHT) {
     if (primaries > 0) await assertAboveFold(page.locator(".guided .button-primary").first(), "the primary button");
-    if (links > 0) await assertAboveFold(page.locator(".guided .guided-link").first(), "the link");
+    if (links > 0 && options.foldLink !== false) await assertAboveFold(page.locator(".guided .guided-link").first(), "the link");
+  }
+}
+
+/** The end screen's "Do this next" card: the one primary, the cue class, and the spiral and horizon bands around it. */
+async function assertEndScreen(page: Page, next: { label: string; cue: "critical" | "high" | null } | null): Promise<void> {
+  await assertGuidedScreen(page, { primaries: next === null ? 0 : 1, foldLink: false });
+  // The bands are asked for in an effect, so they land a frame after the headline.
+  await page.locator(".guided-content > .hero-spiral").waitFor({ timeout: STEP_TIMEOUT });
+  await page.locator(".guided-content > .hero-horizon").waitFor({ timeout: STEP_TIMEOUT });
+  const cards = await page.locator(".guided-next-card").count();
+  if (next === null) {
+    if (cards !== 0) throw new Error("the end screen shows a next card with nothing to do");
+    return;
+  }
+  if (cards !== 1) throw new Error(`expected one next card, found ${cards}`);
+  const label = (await page.locator(".guided-next-card .button-primary").textContent())?.trim();
+  if (label !== next.label) throw new Error(`the next button reads "${label}", expected "${next.label}"`);
+  const className = (await page.locator(".guided-next-card").getAttribute("class")) ?? "";
+  const cue = className.includes("guided-next-critical") ? "critical" : className.includes("guided-next-high") ? "high" : null;
+  if (cue !== next.cue) throw new Error(`the next card cue is ${cue}, expected ${next.cue}`);
+  const rows = page.locator(".guided-end-row");
+  if ((await rows.count()) > 0) {
+    const box = await rows.first().boundingBox();
+    if (box !== null && box.height < 40) throw new Error(`the first end row is ${box.height} px tall, under 44`);
   }
 }
 
@@ -642,6 +667,7 @@ export async function walkGuided(page: Page, baseUrl: string, visit: Visit): Pro
   await visit({ name: "guided-welcome" }, async () => {
     await goto("reset=1&fixture=dev-machine&delay=0");
     await guidedTitle(page, "Let's check your Mac.");
+    await page.locator(".guided-content > .hero-spiral").waitFor({ timeout: STEP_TIMEOUT });
     await assertGuidedScreen(page);
     if ((await page.getByRole("button", { name: "Skip" }).count()) !== 0) throw new Error("the guided welcome has no Skip");
   });
@@ -660,6 +686,7 @@ export async function walkGuided(page: Page, baseUrl: string, visit: Visit): Pro
     const started = Date.now();
     await goto(DEV, { paced: true });
     await guidedTitle(page, "I found 3 things to fix.");
+    await page.locator(".guided-urgent").filter({ hasText: "One of these is urgent." }).waitFor({ timeout: STEP_TIMEOUT });
     const took = Date.now() - started;
     if (took < 6000) throw new Error(`the plan was reached after ${took} ms, before the 6000 ms floor`);
     await assertGuidedScreen(page);
@@ -877,7 +904,8 @@ export async function walkGuided(page: Page, baseUrl: string, visit: Visit): Pro
     }
     await primary(page, "Show me where");
     await guidedTitle(page, "Your Mac is in good shape.");
-    await assertGuidedScreen(page, { primaries: 0 });
+    // 014 (automatic login, low) is left alone on this fixture; a low rule left alone is not raised again.
+    await assertEndScreen(page, null);
   });
   await visit({ name: "guided-end-partial" }, async () => {
     await goto(`${DEV}&fix=ok&fix_delay=0`);
@@ -889,12 +917,13 @@ export async function walkGuided(page: Page, baseUrl: string, visit: Visit): Pro
     await link(page, "Not now");
     await link(page, "Not now");
     await guidedTitle(page, "Your Mac is safer than it was.");
-    await assertGuidedScreen(page, { primaries: 0 });
+    await page.getByText(/^Your disk is not locked\. That is the biggest risk left\.$/).waitFor({ timeout: STEP_TIMEOUT });
+    await assertEndScreen(page, { label: "Show me where", cue: "critical" });
   });
   await visit({ name: "guided-end-nothing" }, async () => {
     await goto("reset=1&fixture=hardened&onboarded=1&delay=0");
     await guidedTitle(page, "Nothing needs fixing.");
-    await assertGuidedScreen(page, { primaries: 0 });
+    await assertEndScreen(page, null);
   });
   await visit({ name: "guided-end-unreadable" }, async () => {
     await goto("reset=1&fixture=all-unavailable&onboarded=1&delay=0");
@@ -902,7 +931,7 @@ export async function walkGuided(page: Page, baseUrl: string, visit: Visit): Pro
     await link(page, "Not now");
     await guidedTitle(page, "I couldn't check your Mac.");
     await page.getByText(/^I couldn't check \d+ areas\./).waitFor({ timeout: STEP_TIMEOUT });
-    await assertGuidedScreen(page, { primaries: 0 });
+    await assertEndScreen(page, null);
   });
   await visit({ name: "guided-reduced-motion" }, async () => {
     const started = Date.now();

@@ -26,6 +26,7 @@ import { lastReport } from "./scan/machine";
 import { aiUsable as computeAiUsable } from "./settings";
 import type { AppSettings } from "./settings";
 import { Brand } from "./components/Brand";
+import { GradientDefs } from "./components/GradientDefs";
 import { Sidebar } from "./components/Sidebar";
 import type { NavItem, SidebarKey } from "./components/Sidebar";
 import { Icon } from "./components/Icon";
@@ -242,6 +243,7 @@ export default function App() {
   if (!showShell && guidedHome) {
     return (
       <AppContext.Provider value={value}>
+        <GradientDefs />
         <GuidedShell inactive={inactive}>
           <Guided controller={guided} onWelcomeStart={onWelcomeStart} />
         </GuidedShell>
@@ -251,6 +253,7 @@ export default function App() {
   if (!showShell) {
     return (
       <AppContext.Provider value={value}>
+        <GradientDefs />
         <Welcome
           initial={settings.profile}
           onStart={(profile) => {
@@ -266,6 +269,7 @@ export default function App() {
   if (router.route.name === "guided") {
     return (
       <AppContext.Provider value={value}>
+        <GradientDefs />
         {scanning ? (
           <ScanningShell guided inactive={inactive} />
         ) : (
@@ -289,6 +293,7 @@ export default function App() {
 
   return (
     <AppContext.Provider value={value}>
+        <GradientDefs />
       <div className={inactive ? "shell shell-expert window-inactive" : "shell shell-expert"}>
         <ExpertTitlebar scanning={scanning} />
         <div className="expert-shell">

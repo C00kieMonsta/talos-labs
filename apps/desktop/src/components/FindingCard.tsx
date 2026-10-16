@@ -35,7 +35,7 @@ export function FindingCard({
     onOpen(finding.ruleId);
   }
   return (
-    <article className={`finding-row finding-card finding-${finding.status}`} data-rule-id={finding.ruleId}>
+    <article className={`finding-row finding-card finding-${finding.status} finding-sev-${finding.severity}`} data-rule-id={finding.ruleId}>
       <span className={`finding-mark finding-mark-${finding.severity}`} aria-hidden="true">
         <Icon icon={SEVERITY_ICONS[finding.severity]} />
       </span>

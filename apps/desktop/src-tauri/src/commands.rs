@@ -139,7 +139,7 @@ pub fn open_settings_pane(app: AppHandle, pane: String) -> Result<(), String> {
 }
 
 /// Where "Buy" goes. Fixed here so the webview never passes a URL.
-pub const BUY_URL: &str = "https://taloslabs.ai/buy";
+pub const BUY_URL: &str = "https://taloslabs.si/shop";
 
 /// Builds and stores a plan for five minutes. Rejects with the `FixError` string.
 #[tauri::command]
@@ -305,6 +305,11 @@ pub fn license_delete(app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_buy_page_is_the_shop_on_the_product_domain() {
+        assert_eq!(BUY_URL, "https://taloslabs.si/shop");
+    }
 
     #[test]
     fn cancel_scan_stops_a_recheck_in_flight() {

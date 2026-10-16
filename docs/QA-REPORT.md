@@ -263,3 +263,91 @@ Final run: 0 violations across 48 screen and scheme pairs (24 screens, light and
 
 - Round two: `apps/desktop/qa/screenshots/round2/` (96 files, `<screen>-<variant>-<scheme>-<width>.png`).
 - Round one after and baseline sets are unchanged. All three directories are git-ignored.
+
+# Mineral restyle
+
+Date: 16 October 2026.
+Build: Talos Labs v0.1, catalog 0.2.0, core 0.1.0, CIS Apple macOS 26 Tahoe Benchmark v1.0.0.
+
+The app was restyled to the Mineral design kit (`Talos-Labs-Mineral-Design-Kit-v1`, token mapping in `docs/DESIGN-MINERAL.md`). Three fixers (guided, expert, rust) applied the parity, clean-copy, a11y-structure and mandated items. This pass re-ran every check on the merged tree, read the screens against the kit prototype and closed what was left.
+
+## What was compared
+
+- The demo build (`VITE_TALOS_DEMO=1`, port 1490) against the kit prototype (`app/index.html?screen=…&theme=…&width=…`) for welcome, plan, single, batch, show, permission, paywall, end, overview, findings, finding, settings and ask, in light and dark at 1100x760 and 900x600. Prototype captures are in `apps/desktop/qa/scratch/kit-final/` (52 files, git-ignored).
+- Screens read in this pass: Overview, Findings, the free firewall finding, Settings, the guided plan, batch confirm, working and done, show, permission (bundled and `bundled=0`, before and after "Show me where"), paywall and the partial end screen, light and dark at both sizes.
+
+## Checks on the final tree
+
+| Command | Result |
+|---|---|
+| `pnpm -r typecheck` | passes (core and desktop, including `qa/tsconfig.json`) |
+| `pnpm -r test` | core 49 files, 444 tests; desktop 51 files, 475 tests (was 464) |
+| `cargo build`, `cargo test`, `cargo clippy --all-targets -- -D warnings` | build clean; 185 passed, 4 ignored; clippy clean |
+| `pnpm --filter @talos/desktop build` | builds; the 841 kB chunk warning is unchanged |
+| `pnpm exec tsx qa/snap.ts --port 1490 --out qa/screenshots/mineral-final` | 392 screenshots (244 expert, 148 guided), exit 0 |
+| `pnpm exec tsx qa/axe.ts --port 1490` | 0 violations across the expert walk in both schemes; no `region` on scanning |
+| `pnpm scan` | exit 0; score 48, grade poor, 15 pass, 8 fail, 2 review, 6 unknown |
+| Real app | port 1420 was held by the owner's instance, so `src-tauri/target/debug/talos-desktop` ran directly for 20 s: empty log, no panic, killed afterwards |
+
+## Confirmed from the fixers' reports
+
+- Guided: the progress bar fills from `progress.done` and carries `aria-label="Check-up progress"`; the status line uses the static 7 px dot; the batch working step is title plus "Waiting for macOS"; the batch done step has no mark; the end screen is one 15 px row per group with a 13 px item list, no mark, and the new unread titles ("I couldn't check your Mac." / "Nothing to fix in what I could check."); the question, permission and show steps have one body paragraph and no muted card; the welcome columns are one paragraph each; `.guided` is the `main`.
+- Expert: the Next three fixes rows are title, meta line with the cost word, text-only severity tag and chevron, no inline button; the locked AI card is one line plus the licence field with Activate and "Buy a licence"; the finding head is badge plus "Network · CIS 2.2.1"; the fix card shows "About two minutes · No side effects" and folds the manual route; Settings rows have descriptions, `<small data-status>` permission words and a strong plus small licence row; Ask pairs turns into one exchange card; scanning is wrapped in `main.screen-host`.
+- Rust: `Capabilities.bundled` from `current_exe()`; `toCapabilities` in core defaults a missing value to `true`; `bundled=0` in the demo adds the development-build paragraph on the guided permission step (watching state only) and under the Full Disk Access row in Settings. Confirmed on screen in both schemes and sizes.
+
+## Fixed in this pass
+
+- `apps/desktop/qa/harness.ts`: `guided-end-unreadable` waited for "Nothing needs fixing." and timed out; it now waits for "I couldn't check your Mac." (the guided fixer's new title on `all-unavailable`). The `I couldn't check N areas.` row check is unchanged.
+- `apps/desktop/src/styles/guided.css`: the guided paywall hid the Activate button but not the "Buy a licence" link, so the link wrapped onto two lines beside a short input and duplicated the step's own buy button. The guided variant now hides the Activate button, the Buy link and the caption together; the field is the 320 px input under the button, as in the kit. The expert licence field is untouched.
+
+## Remaining differences from the prototype
+
+- Overview rows at 900x600 wrap the meta line ("+20 points when fixed" plus the cost word) to two lines in the 324 px column; the kit shows one small line because it has no cost word. The Overview also keeps the locked AI card and its field, which the kit does not show; at 900 the Activate button and Buy link wrap under the input.
+- The end screen's unreadable row stays the sentence "I couldn't check 1 area." (15 px, no small part) rather than the kit's "I couldn't check · 1 area" split, to keep the string and test id.
+- The reads disclosure on the guided welcome keeps the welcome title and body while open; the kit swaps them for "What Talos Labs checks."
+- The finding page keeps separate "What was found", "Why it matters" and "Done it?" cards, a filled "Turn on…" button with its icon and the "macOS will ask for your password." aside; the kit merges the evidence and why cards and uses an outlined button.
+- Button labels kept as strings: "Rescan" (kit "Check again"), "Open Full Disk Access" and "Open Automation settings" (kit "Open Settings" and "See details").
+- `qa/scratch/expert-measure.ts` still references `.detail-check`, which no longer renders; scratch is git-ignored.
+- Not exercised: the Tauri window beyond the 20 s launch, the real browser launch for AI help, `cargo fmt --check`.
+
+## Screenshots
+
+- `apps/desktop/qa/screenshots/mineral-final/` (392 files, `<screen>-<scheme>-<width>.png`), captured after both fixes above; the guided set was re-shot after the paywall change.
+- Permission step with `bundled=0`: `apps/desktop/qa/scratch/final-bundled/` (16 files). Paywall after the fix: `apps/desktop/qa/scratch/final-paywall/` (4 files). Kit prototype: `apps/desktop/qa/scratch/kit-final/`. All scratch directories are git-ignored.
+- The owner's vite process on port 1420 (pid 94832) was left alone. The demo server this pass started on 1490 was stopped.
+
+## Warmth and urgency
+
+Final check of the warmth pass (docs/DESIGN-WARMTH.md) after both implementers finished: the guided end screen back to labelled groups of 44 px rows with a "Do this next" card and an urgency line, and the moodboard's gradients and grain on the canvas, hero bands, primary buttons, progress fill and score ring.
+
+### Checks on the final tree
+
+| Command | Result |
+|---|---|
+| `pnpm -r typecheck` | clean (core, desktop incl. qa) |
+| `pnpm -r test` | core 50 files, 450 passed; desktop 51 files, 479 passed |
+| `cargo build && cargo test && cargo clippy --all-targets -- -D warnings` (src-tauri) | 186 passed, 4 ignored; clippy clean |
+| `pnpm --filter @talos/desktop build` | built; the 847 kB chunk warning is pre-existing |
+| `pnpm exec tsx qa/snap.ts --port 1493 --out qa/screenshots/warmth` | 392 shots, exit 0, run twice (before and after the token fix below) |
+| `pnpm exec tsx qa/axe.ts --port 1493` | first run: 5 serious `color-contrast` on `.badge-medium` in dark; after the fix 0 violations |
+| `pnpm exec tsx scripts/contrast.ts` | all pairs pass after the fix; the script now follows source order (see below) |
+| `pnpm scan` | exit 0 (listeners, remoteAccess and fileSharing unavailable, unsigned build) |
+| Real app | port 1420 held by the owner's vite (94832) and app (61487); `src-tauri/target/debug/talos-desktop` ran directly for 20 s, empty log, no panic, killed |
+
+### Fixed in this pass
+
+- `apps/desktop/src/styles/tokens.css`: the warmth `:root` block re-declares `--fg-tertiary`, `--notice-fg`, `--sev-medium-fg` and `--grade-fair` for light, but it sits after the dark `@media` block, so dark inherited the light values (`#785a37` on `#312723` is 2.29:1). The dark warmth block now restates the dark values (`#af9788`, `#e3c48b` x3). Computed styles confirmed in both schemes.
+- `apps/desktop/scripts/contrast.ts`: it tagged each `:root` block light or dark and merged light into dark only where dark had no value, which hides the cascade bug above. It now applies every unscoped block to both schemes in source order, so the same bug would fail 13 pairs. `src/styles/CONTRAST.md` regenerated.
+
+### Read on screen
+
+Welcome, plan, end partial, end all done, batch confirm, show, paywall, Overview, Findings, a finding and Settings, light and dark, 1100x760 and 900x600, in `apps/desktop/qa/screenshots/warmth/`. Canvas carries the sand to clay gradient with grain, the spiral and horizon sit on welcome and end only, primaries and the progress fill use the accent gradient, the score ring is the gradient arc on `--ring-track`, cue bars appear on failing critical and high rows and on the high "Do this next" card; cards, inputs, sidebar and strips are flat paper. Group labels and links on the canvas are 13 px `--fg-secondary`, measured at 4.85:1 on the darkest grain point in light and 9.37:1 in dark.
+
+### Open
+
+- Fixed after the pass: the all-done end screen on `dev-machine` showed a "Do this next" card for the low, left-alone TL-MAC-014 next to "Your Mac is in good shape." `nextAction` now raises a left-alone rule only when it is critical or high (spec 6b updated; core 451 tests, desktop 479, guided walk 148 shots re-run in `qa/screenshots/warmth`).
+- A rule with neither a fix nor a pane gets a fourth label, "Details", which the spec does not list.
+- The hover fill on the first end-screen row in some shots is a capture artefact (mouse left over the last link).
+- `--fg-tertiary` is held to a 3:1 floor on the canvas in `scripts/contrast.ts`; it is used for icons and 11 px tags only, not checked here.
+- Not exercised: the Tauri window beyond the 20 s launch, `cargo fmt --check`.
+- The demo server on 1493 was stopped. No git commands were run.

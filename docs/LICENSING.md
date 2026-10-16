@@ -47,7 +47,7 @@ There is no licence form. `LicenceField` (`apps/desktop/src/components/LicenceFi
 - `checking` disables the field.
 - `valid`: "Licensed. Updates until <updatesUntil>" for 800 ms, then the lock is replaced by the content it hid (the fix card, the AI card) and focus moves to it. The sidebar pill reads "Licensed".
 - `invalid`: the reason labels from the table above sit under the field with `role="alert"`; focus stays in the field.
-- "Buy a licence" calls the `open_buy_page` command, which opens one fixed URL chosen in Rust; the webview never passes a URL. The field stays where it is so the key can be pasted on return. The caption reads "Opens the Talos Labs shop in your browser. Your key arrives by email; paste it here." That web link is the one step outside the app.
+- "Buy a licence" calls the `open_buy_page` command, which opens one fixed URL chosen in Rust, `https://taloslabs.si/shop`; the webview never passes a URL. The field stays where it is so the key can be pasted on return. The caption reads "Opens the Talos Labs shop in your browser. Your key arrives by email; paste it here." That web link is the one step outside the app.
 
 The demo build accepts `TL1.DEMO` for typed entry and a second key that matches the paste regex, so the QA harness exercises both paths (`apps/desktop/qa/README.md`). The behaviour is specified in DESIGN-V02.md section 6, "Licence entry".
 

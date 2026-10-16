@@ -483,6 +483,7 @@ function AboutSection() {
   const rows: readonly [string, ReactNode][] = [
     ["Version", APP_VERSION],
     ["Core", CORE_VERSION],
+    ["Website", "taloslabs.si"],
     ["Catalogue", catalog.version],
     ["Benchmark", catalog.cisEdition],
     ["Build date", __BUILD_DATE__],

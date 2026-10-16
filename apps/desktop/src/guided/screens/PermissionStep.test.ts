@@ -20,6 +20,7 @@ function controller(state: StepState): GuidedController {
     start: vi.fn(),
     carryOn: vi.fn(),
     primary: vi.fn(),
+    doNext: vi.fn(),
     later: vi.fn(),
     next: vi.fn(),
     answer: vi.fn(),

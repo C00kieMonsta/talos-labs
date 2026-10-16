@@ -1,6 +1,6 @@
 # Talos Labs
 
-Talos Labs is a desktop app you buy once. It reads the security settings of the Mac it runs on, judges them against the CIS Apple macOS Benchmark, explains to a non-expert what is wrong and why it matters for them, and fixes most of it in place. There is no account, no server and no background agent. The scan runs locally, the AI runs on this Mac, and the report stays on the machine.
+Talos Labs is a desktop app you buy once. It reads the security settings of the Mac it runs on, judges them against the CIS Apple macOS Benchmark, explains to a non-expert what is wrong and why it matters for them, and fixes most of it in place. There is no account, no server and no background agent. The scan runs locally, the AI runs on this Mac, and the report stays on the machine. Talos Labs lives at taloslabs.si; the shop is https://taloslabs.si/shop.
 
 ## The check-up
 

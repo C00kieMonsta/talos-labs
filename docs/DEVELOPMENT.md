@@ -255,7 +255,7 @@ tccutil reset SystemPolicyAllFiles com.apple.Terminal
 tccutil reset AppleEvents com.apple.Terminal
 ```
 
-Use `ai.taloslabs.desktop` instead of `com.apple.Terminal` for the app bundle.
+Use `si.taloslabs.desktop` instead of `com.apple.Terminal` for the app bundle.
 
 The app also probes the Automation grant without prompting (`automation.rs`, `AEDeterminePermissionToAutomateTarget` against System Events) so the permission card can tell "not asked yet" from "denied". When System Events is not running the probe answers `null` and the collector result is used instead. The flow is in DESIGN-V02.md section 6.
 

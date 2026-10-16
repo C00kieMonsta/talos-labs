@@ -1,4 +1,4 @@
-import type { Finding, GuidedPlan, GuidedStep, GuidedStrings, RuleId, ScanReport } from "@talos/core";
+import type { Finding, GuidedPlan, GuidedStep, GuidedStrings, RuleId, ScanReport, Severity } from "@talos/core";
 import { MACOS_CATALOG } from "@talos/core";
 
 /** The guided strings of a rule, from the catalog, so a rule that just passed can still be named. */
@@ -6,6 +6,13 @@ export function guidedFor(ruleId: RuleId): GuidedStrings {
   const rule = MACOS_CATALOG.rules.find((r) => r.id === ruleId);
   if (rule === undefined) throw new Error(`unknown rule ${ruleId}`);
   return rule.guided;
+}
+
+/** A rule's severity from the catalog. */
+export function severityFor(ruleId: RuleId): Severity {
+  const rule = MACOS_CATALOG.rules.find((r) => r.id === ruleId);
+  if (rule === undefined) throw new Error(`unknown rule ${ruleId}`);
+  return rule.severity;
 }
 
 /** A finding's pane from the catalog, for a rule that may have left the report. */

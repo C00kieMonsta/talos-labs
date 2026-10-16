@@ -1,10 +1,12 @@
 import { useState } from "react";
+import { useGuidedHero } from "./GuidedShell";
 import { StepFrame } from "./StepFrame";
 import { WELCOME } from "./copy";
 
 /** First launch on the guided home. "Start" saves the default profile and starts the paced scan. */
 export function GuidedWelcome({ onStart }: { onStart(): void }) {
   const [open, setOpen] = useState(false);
+  useGuidedHero(true, false);
   return (
     <StepFrame
       progress={null}

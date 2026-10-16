@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import type { RuleId } from "@talos/core";
 import { useApp } from "../app/context";
+import { MARK_GRADIENT_FILL } from "../components/GradientDefs";
 import { CheckIcon } from "../components/icons";
 import { ExplainPanel } from "./ExplainPanel";
 
@@ -91,6 +92,9 @@ export function StepFrame(props: StepFrameProps) {
       )}
       {((done === true && mark !== false) || mark === true) && (
         <div className="guided-status-mark" aria-hidden="true">
+          <svg className="guided-status-disc" width="56" height="56" viewBox="0 0 56 56" aria-hidden="true" focusable="false">
+            <circle cx="28" cy="28" r="28" fill={MARK_GRADIENT_FILL} />
+          </svg>
           <CheckIcon size={28} strokeWidth={1.75} className="guided-tick" aria-hidden="true" focusable="false" />
         </div>
       )}

@@ -35,6 +35,12 @@ describe("FindingCard", () => {
     expect(article.querySelector(".finding-mark svg")).not.toBeNull();
   });
 
+  it("names its severity on the row so the cue bar can follow it", () => {
+    render(createElement(FindingCard, { finding: fail, onOpen: vi.fn() }));
+    const article = document.querySelector("article.finding-card") as HTMLElement;
+    expect(article.classList.contains(`finding-sev-${fail.severity}`)).toBe(true);
+  });
+
   it("shows the unknown reason and no button for an unknown finding", () => {
     render(createElement(FindingCard, { finding: unknown, onOpen: vi.fn() }));
     expect(screen.getByText("Needs Full Disk Access")).toBeTruthy();

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, waitFor } from "@testing-library/react";
 import type { BatchOutcome, FixOutcome } from "@talos/core";
-import { DEV_MACHINE, HARDENED } from "@talos/core";
+import { DEV_MACHINE, HARDENED, nextAction } from "@talos/core";
 import { fakeAdapters, fakeBatchPlan, fakeFixPort, fakePlan, fakeSystemState } from "../app/testing";
 import { renderGuided } from "./testing";
 import { AUTO_ADVANCE_MS, AUTO_ADVANCE_REDUCED_MS, LATER_FLASH_MS, resetLaunchGuard } from "./timing";
@@ -172,5 +172,41 @@ describe("guided steps", () => {
       await vi.advanceTimersByTimeAsync(LATER_FLASH_MS);
     });
     expect(stepId(h)).toBe("batch");
+  });
+
+  it("'Do this next' on the end screen reopens the rule's step as the last step, runs it, and 'Do this later' returns to the end", async () => {
+    vi.useFakeTimers();
+    const h = renderGuided();
+    await toFirstStep(h);
+    for (let i = 0; i < 3; i += 1) {
+      act(() => h.hook.result.current.guided.later());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(LATER_FLASH_MS);
+      });
+    }
+    act(() => h.hook.result.current.guided.later());
+    act(() => h.hook.result.current.guided.later());
+    const end = h.hook.result.current.guided.phase;
+    expect(end.kind).toBe("end");
+    if (end.kind !== "end") return;
+    expect(end.plan.later).toEqual(["TL-MAC-001", "TL-MAC-002", "TL-MAC-010"]);
+    const scan = h.hook.result.current.scan.scan;
+    const next = scan.kind === "ready" ? nextAction(end.plan, scan.report) : null;
+    expect(next).toMatchObject({ ruleId: "TL-MAC-001", kind: "show", severity: "critical" });
+    if (next === null) return;
+    h.control.openPane.mockClear();
+    act(() => h.hook.result.current.guided.doNext(next));
+    expect(stepId(h)).toBe("show:TL-MAC-001");
+    expect(stepState(h)?.kind).toBe("watching");
+    expect(h.control.openPane).toHaveBeenCalledWith("filevault");
+    const { phase, progress } = h.hook.result.current.guided;
+    expect(phase.kind === "step" && phase.index).toBe(4);
+    expect(phase.kind === "step" && phase.plan.steps.map((s) => s.id)).toEqual(["fix:TL-MAC-002", "show:TL-MAC-010", "permission:full_disk_access", "paywall", "show:TL-MAC-001"]);
+    expect(progress).toEqual({ done: 4, of: 5 });
+    act(() => h.hook.result.current.guided.later());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LATER_FLASH_MS);
+    });
+    expect(h.hook.result.current.guided.phase.kind).toBe("end");
   });
 });

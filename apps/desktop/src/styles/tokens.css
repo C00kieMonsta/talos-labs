@@ -165,3 +165,80 @@
     --motion-slow: 0ms;
   }
 }
+
+/* Warmth pass (docs/DESIGN-WARMTH.md): gradients, grain, hero bands, severity cues. Stops are separate hex tokens so scripts/contrast.ts can measure them. */
+:root {
+  /* Canvas: sand at the top to a warm clay at the bottom. Painted by .content::before in base.css. */
+  --gradient-canvas-start: #f5efe8;
+  --gradient-canvas-end: #f2e9e0;
+  --gradient-canvas: linear-gradient(180deg, var(--gradient-canvas-start) 0%, var(--gradient-canvas-end) 100%);
+
+  /* Grain: the kit tile carries its own 2 to 5 percent alpha, so opacity 1 is about a 5 percent peak darkening. Canvas and hero bands only. */
+  --grain-url: url("../../brand/mineral/grain/grain-overlay.png");
+  --grain-size: 512px 512px;
+  --grain-opacity: 1;
+  --grain-blend: multiply;
+
+  /* Accent: rust ink to rust at 135deg for primary buttons, the progress fill and the done mark. Hover one step deeper. */
+  --gradient-accent-start: #87402d;
+  --gradient-accent-end: #aa563d;
+  --gradient-accent: linear-gradient(135deg, var(--gradient-accent-start), var(--gradient-accent-end));
+  --gradient-accent-hover-start: #693122;
+  --gradient-accent-hover-end: #87402d;
+  --gradient-accent-hover: linear-gradient(135deg, var(--gradient-accent-hover-start), var(--gradient-accent-hover-end));
+
+  /* Score ring arc: top to bottom once the arc is rotated to start at 12 o'clock. The end stop is as light as 3:1 on the track allows. */
+  --gradient-ring-start: #87402d;
+  --gradient-ring-mid: #aa563d;
+  --gradient-ring-end: #bb6a4c;
+  --ring-track: #ebe2d9;
+
+  /* Hero bands: the kit spiral in rust, and the two horizon curves from the site. */
+  --hero-spiral-stroke: #aa563d;
+  --hero-spiral-opacity: 0.1;
+  --horizon-1: #ebdfd4;
+  --horizon-2: #d8bba9;
+
+  /* Severity cue bars on the "Do this next" card and the Overview rows. Same hex as --sev-*-fg; kept separate so the cue can be tuned alone. */
+  --sev-cue-critical: #9b403b;
+  --sev-cue-high: #6e2a1f;
+
+  /* Two kit colours darkened one more step so they clear their floors at the bottom of the canvas gradient with grain composited. */
+  --fg-tertiary: #927968;
+  --notice-fg: #785a37;
+  --sev-medium-fg: #785a37;
+  --grade-fair: #785a37;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --gradient-canvas-start: #241b18;
+    --gradient-canvas-end: #1b1411;
+    --grain-opacity: 0.75;
+    --grain-blend: screen;
+
+    --gradient-accent-start: #e6b49d;
+    --gradient-accent-end: #d49a80;
+    --gradient-accent-hover-start: #f0cab7;
+    --gradient-accent-hover-end: #e6b49d;
+
+    --gradient-ring-start: #e6b49d;
+    --gradient-ring-mid: #d9906f;
+    --gradient-ring-end: #f3d9c8;
+    --ring-track: #58483f;
+
+    --hero-spiral-stroke: #e6b49d;
+    --hero-spiral-opacity: 0.12;
+    --horizon-1: #2f2521;
+    --horizon-2: #3a2e29;
+
+    --sev-cue-critical: #f1aaa4;
+    --sev-cue-high: #eca48c;
+
+    /* The light block above re-declares these four after the dark block, so dark must restate its own values here. */
+    --fg-tertiary: #af9788;
+    --notice-fg: #e3c48b;
+    --sev-medium-fg: #e3c48b;
+    --grade-fair: #e3c48b;
+  }
+}
