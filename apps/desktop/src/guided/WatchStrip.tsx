@@ -5,7 +5,7 @@ import { Icon } from "../components/Icon";
 export function WatchStrip({ text }: { text: string }) {
   return (
     <p className="guided-status guided-watch" role="status">
-      <Icon icon={ICONS.rescan} size={20} className="spin" />
+      <Icon icon={ICONS.rescan} size={16} className="spin" />
       <span>{text}</span>
     </p>
   );

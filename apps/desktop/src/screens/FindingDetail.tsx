@@ -66,6 +66,7 @@ interface DetailView {
   readonly points: number;
   readonly explanation: string;
   readonly fix: Finding["fix"];
+  readonly guided: Finding["guided"];
 }
 
 function fromRule(rule: Rule, status: RuleStatus, evidence: readonly Evidence[]): DetailView {
@@ -83,6 +84,7 @@ function fromRule(rule: Rule, status: RuleStatus, evidence: readonly Evidence[])
     points: 0,
     explanation: rule.explanation,
     fix: rule.fix,
+    guided: rule.guided,
   };
 }
 
@@ -98,10 +100,10 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
 
   if (view === null) {
     return (
-      <main className="screen detail">
+      <div className="screen detail">
         <h1>Check not found</h1>
         <p className="muted">This check is not in the current report.</p>
-      </main>
+      </div>
     );
   }
 
@@ -118,7 +120,7 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
   const lastRecheck = scan.scan.kind === "ready" ? scan.scan.lastRecheck : null;
   const checkedAgain = lastRecheck !== null && view.requires.includes(lastRecheck.key) ? lastRecheck : null;
   const lead = EXPLANATION_LEAD[view.status];
-  const fixing = scan.scan.kind === "ready" && scan.scan.fixing?.plan.ruleId === view.ruleId ? scan.scan.fixing : null;
+  const fixing = scan.scan.kind === "ready" && scan.scan.fixing?.kind === "single" && scan.scan.fixing.plan.ruleId === view.ruleId ? scan.scan.fixing : null;
   const watching = scan.scan.kind === "ready" || scan.scan.kind === "rechecking" ? scan.scan.watching : null;
   const busy = scan.scan.kind === "ready" && scan.scan.fixing !== null && fixing === null;
   // The rule has left the report once it passes; the strip still says so, with the time of the read.
@@ -130,15 +132,15 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
         : null;
 
   return (
-    <main className="screen detail">
+    <div className="screen detail">
       <header className="detail-head">
-        <div className="finding-card-head">
-          <span className={`status status-${view.status}`}>{STATUS_LABELS[view.status]}</span>
+        <h1>{view.headline}</h1>
+        <div className="detail-meta">
           <SeverityBadge severity={view.severity} />
+          <span className={`status status-${view.status}`}>{STATUS_LABELS[view.status]}</span>
           <span className="muted small">{CATEGORY_LABELS[view.category]}</span>
           {view.cis !== null && <span className="muted small">CIS {view.cis}</span>}
         </div>
-        <h1>{view.headline}</h1>
         {view.headline !== view.title && (
           <p className="muted detail-check">
             What we check: {view.title}. Result: {STATUS_LABELS[view.status]}.
@@ -211,7 +213,7 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
         />
       )}
       <FixFlow />
-    </main>
+    </div>
   );
 }
 

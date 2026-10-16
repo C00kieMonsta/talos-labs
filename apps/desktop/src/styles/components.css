@@ -1,6 +1,6 @@
-/* Shared components. Anatomy from docs/DESIGN-V02.md section 2. */
+/* Shared components. Measurements from the Mineral kit's app/app.css (expert classes). */
 
-/* Buttons: 32 px default, 28 px small, icon buttons 28 px square. */
+/* Buttons: 32 px default, 28 px small, bordered on paper. The kit has no shadows and no gradients. */
 .button {
   display: inline-flex;
   align-items: center;
@@ -9,7 +9,7 @@
   min-height: var(--control);
   padding: 0 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border);
   background: var(--bg-elevated);
   color: var(--fg);
   font: var(--text-body);
@@ -18,18 +18,15 @@
   white-space: nowrap;
   transition:
     background var(--motion-fast) var(--ease-standard),
-    border-color var(--motion-fast) var(--ease-standard),
-    transform var(--motion-fast) var(--ease-standard);
+    border-color var(--motion-fast) var(--ease-standard);
 }
 
 .button:hover:not(:disabled):not([aria-disabled="true"]) {
-  background: var(--bg-hover);
-  border-color: var(--border-strong);
+  background: var(--bg-inset);
 }
 
 .button:active:not(:disabled):not([aria-disabled="true"]) {
   background: var(--bg-pressed);
-  transform: translateY(0.5px);
 }
 
 .button:disabled,
@@ -38,6 +35,7 @@
   cursor: default;
 }
 
+/* The one filled button: rust, the action colour. */
 .button-primary {
   background: var(--accent);
   border-color: var(--accent);
@@ -46,21 +44,16 @@
 }
 
 .button-primary:hover:not(:disabled):not([aria-disabled="true"]) {
-  background: color-mix(in srgb, var(--accent) 92%, black);
-  border-color: color-mix(in srgb, var(--accent) 92%, black);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .button-primary:active:not(:disabled):not([aria-disabled="true"]) {
-  background: color-mix(in srgb, var(--accent) 86%, black);
-}
-
-.button-primary:focus-visible {
-  box-shadow: 0 0 0 4px var(--focus-halo);
+  background: var(--accent-hover);
 }
 
 .button-ghost {
   background: transparent;
-  border-color: var(--border);
 }
 
 .button-danger {
@@ -73,11 +66,43 @@
 .button-small {
   min-height: var(--control-sm);
   padding: 0 10px;
+  font: var(--text-meta);
 }
 
+/* Kit .toolbar-button: 12 px text on paper with a hairline, inset on hover. */
+.toolbar-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  font: 400 12px/1.3 var(--font);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+
+.toolbar-button:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--bg-inset);
+}
+
+.toolbar-button:disabled,
+.toolbar-button[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.toolbar-button svg {
+  color: var(--fg-secondary);
+}
+
+/* Kit .icon-button: 32 px square, no border, inset on hover. */
 .icon-button {
-  width: var(--control-sm);
-  min-height: var(--control-sm);
+  width: var(--control);
+  min-height: var(--control);
   padding: 0;
   background: transparent;
   border-color: transparent;
@@ -85,11 +110,42 @@
 }
 
 .icon-button:hover:not(:disabled):not([aria-disabled="true"]) {
-  background: var(--bg-hover);
+  background: var(--bg-inset);
   border-color: transparent;
   color: var(--fg);
 }
 
+/* Text actions: the title strip's "‹ Check-up" and "Settings", the page head's "‹ Findings". */
+.subtle-button,
+.titlebar-link,
+.toolbar-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 0;
+  border: 0;
+  background: none;
+  color: var(--fg-secondary);
+  font: var(--text-body);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.subtle-button:hover,
+.titlebar-link:hover,
+.toolbar-back:hover {
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.toolbar-back svg {
+  width: 14px;
+  height: 14px;
+  margin-left: -2px;
+}
+
+/* Inline text link inside a sentence. Underlined on hover only. */
 .link-button {
   background: none;
   border: 0;
@@ -98,22 +154,40 @@
   font: inherit;
   cursor: pointer;
   text-align: left;
+}
+
+.link-button:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
-/* Cards: level 1, hairline border, inset highlight in dark. */
-.card {
+/* Cards: paper, hairline, 12 px radius, 22 px padding. No shadow, no highlight. */
+.card,
+.expert-card {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: var(--space-2);
-  box-shadow: var(--card-highlight);
+  padding: 22px;
   margin-bottom: var(--space-2);
 }
 
-.card > :last-child {
+.card > :last-child,
+.expert-card > :last-child {
   margin-bottom: 0;
+}
+
+.card > h2,
+.expert-card > h2,
+.card .section-head h2 {
+  margin: 0 0 12px;
+  font: 600 16px/1.3 var(--font);
+  letter-spacing: -0.2px;
+}
+
+.card > h3 {
+  margin: 0 0 6px;
+  font: var(--text-body);
+  font-weight: 600;
 }
 
 .card-muted {
@@ -121,12 +195,12 @@
 }
 
 .card-good {
-  border-color: var(--grade-good);
+  border-color: var(--success-fg);
 }
 
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-2);
   margin-bottom: var(--space-2);
 }
@@ -135,15 +209,34 @@
   margin-bottom: 0;
 }
 
-/* Badges pair a word with an icon; the colour never carries the meaning alone. */
+.expert-text {
+  font: 400 13px/1.62 var(--font);
+  max-width: 650px;
+}
+
+.fine-print {
+  margin: 0;
+  color: var(--fg-secondary);
+  font: 400 12px/1.5 var(--font);
+}
+
+.label-overline {
+  margin: 20px 0 8px;
+  color: var(--fg-secondary);
+  font: 400 12px/1.4 var(--font);
+}
+
+/* Badges: bordered, no fill, 11 px, the severity word always next to its icon. */
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
-  font: var(--text-caption);
-  font-weight: 600;
+  gap: 5px;
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  color: var(--fg-secondary);
+  font: 400 11px/1.2 var(--font);
   white-space: nowrap;
   vertical-align: middle;
 }
@@ -154,58 +247,51 @@
 }
 
 .badge-critical {
-  background: var(--sev-critical-bg);
   color: var(--sev-critical-fg);
+  border-color: var(--sev-critical-fg);
 }
 
 .badge-high {
-  background: var(--sev-high-bg);
   color: var(--sev-high-fg);
+  border-color: var(--sev-high-fg);
 }
 
 .badge-medium {
-  background: var(--sev-medium-bg);
   color: var(--sev-medium-fg);
+  border-color: var(--sev-medium-fg);
 }
 
-.badge-low {
-  background: var(--sev-low-bg);
-  color: var(--sev-low-fg);
+.row-tag {
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
 }
 
-.badge-info,
-.badge-incomplete,
-.badge-rank,
-.badge-ai {
-  background: var(--sev-info-bg);
-  color: var(--sev-info-fg);
-}
-
-/* Pills: neutral 20 px chips for counts, points and the licence state. */
+/* Pills: 11 px rounded chips for the licence state and permission words. */
 .pill {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 20px;
-  padding: 0 8px;
+  padding: 2px 9px;
+  border: 1px solid var(--border);
   border-radius: var(--radius-pill);
-  background: var(--bg-inset);
+  background: none;
   color: var(--fg-secondary);
-  font: var(--text-caption);
+  font: 400 11px/1.4 var(--font);
   white-space: nowrap;
 }
 
 .pill-accent {
-  background: var(--sev-low-bg);
-  color: var(--sev-low-fg);
+  color: var(--success-fg);
+  border-color: var(--success-fg);
 }
 
 .points-pill {
   color: var(--success-fg);
-  font: var(--text-body);
+  font: var(--text-meta);
   font-weight: 600;
 }
 
+/* Status words: a word next to its icon, never colour alone. */
 .status {
   font: var(--text-body);
   font-weight: 600;
@@ -227,34 +313,32 @@
   color: var(--success-fg);
 }
 
-/* Sidebar rows. The brand row sits at y 52, nav rows from y 88. */
-.sidebar-brand {
+/* Title strip: the brand after the traffic lights, text actions at the right. Spans both columns. */
+.titlebar {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  height: 36px;
-  padding: 0 var(--space-2);
-  color: var(--fg-secondary);
-  font: var(--text-body);
-  font-weight: 600;
+  gap: 22px;
+  padding: 0 22px 0 86px;
+  background: var(--bg-canvas);
+  border-bottom: 1px solid var(--border);
 }
 
-.sidebar-mark {
-  display: inline-flex;
+.top-actions {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  background: var(--accent);
-  color: #ffffff;
+  gap: 20px;
+  margin-left: auto;
+}
+
+/* Sidebar: 220 px solid clay-sand column, 34 px rows, Settings and the licence pill at the foot. */
+.sidebar {
+  padding: 20px 12px;
 }
 
 .sidebar-nav {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 var(--space-1);
 }
 
 .sidebar-nav ul,
@@ -264,116 +348,114 @@
   padding: 0;
 }
 
-.nav-row {
+.sidebar-row {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: 11px;
   width: 100%;
-  height: var(--control-sm);
-  padding: 0 var(--space-1);
+  height: 34px;
+  margin: 3px 0;
+  padding: 7px 12px;
   border: 0;
   border-radius: var(--radius-sm);
   background: none;
-  color: var(--fg);
+  color: var(--fg-secondary);
   font: var(--text-body);
-  font-weight: 500;
   text-align: left;
   cursor: pointer;
   transition: background var(--motion-fast) var(--ease-standard);
 }
 
-.nav-row svg {
-  color: var(--fg-secondary);
+.sidebar-row svg {
+  width: 16px;
+  height: 16px;
+  color: currentColor;
 }
 
-.nav-row:hover {
-  background: var(--bg-hover);
+.sidebar-row:hover {
+  background: var(--bg-inset);
 }
 
-.nav-row.active {
+.sidebar-row.active {
   background: var(--sidebar-selection);
-}
-
-.nav-row.active svg {
-  color: var(--accent);
-}
-
-.window-inactive .nav-row.active svg {
-  color: var(--fg-secondary);
+  color: var(--fg);
+  font-weight: 600;
 }
 
 .sidebar-foot {
-  padding: var(--space-1);
   display: flex;
   flex-direction: column;
-  gap: var(--space-0);
+  gap: var(--space-1);
+  margin-top: auto;
 }
 
 .licence-pill {
   cursor: pointer;
-  border: 0;
-  margin: 0 var(--space-1) var(--space-0);
+  margin: 0 0 0 12px;
   align-self: flex-start;
 }
 
-/* Toolbar: the 52 px strip at the top of the content column. */
-.toolbar {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+/* Page head: h1 21/600 with its meta line, bordered buttons on the right, 27 px below. */
+.expert-head {
   display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  height: var(--toolbar-height);
-  padding: 0 var(--space-3);
-  background: var(--bg-canvas);
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  max-width: 870px;
+  margin-bottom: 27px;
 }
 
-.toolbar h1 {
-  flex: 1 1 auto;
+.expert-head-text {
   min-width: 0;
-  margin: 0;
-  font: 600 15px/1.3 var(--font);
-  letter-spacing: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.expert-head h1 {
+  margin: 0 0 6px;
+  font: 600 21px/1.25 var(--font);
+  letter-spacing: -0.55px;
+}
+
+.expert-head .toolbar-back + h1 {
+  margin-top: 15px;
+}
+
+.expert-head-bare {
+  margin-bottom: 0;
 }
 
 .toolbar-subtitle {
   margin: 0;
   color: var(--fg-secondary);
-  font: var(--text-meta);
-  white-space: nowrap;
-}
-
-.toolbar-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  min-height: var(--control-sm);
-  padding: 0 var(--space-1) 0 var(--space-0);
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: none;
-  color: var(--accent);
-  font: var(--text-body);
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.toolbar-back:hover {
-  background: var(--bg-hover);
+  font: 400 12px/1.4 var(--font);
 }
 
 .toolbar-actions {
   display: flex;
   align-items: center;
-  gap: var(--space-0);
+  flex: 0 0 auto;
+  gap: var(--space-1);
   margin-left: auto;
 }
 
-/* Sheets: level 2, 480 px, 16 px under the toolbar, centred in the content column. */
+/* Screens portal their head controls (the Findings filters) into this slot. */
+.toolbar-slot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.toolbar-slot:empty {
+  display: none;
+}
+
+.toolbar-slot select {
+  min-height: 0;
+  padding: 7px 26px 7px 12px;
+  border-color: var(--border);
+  font: 400 12px/1.3 var(--font);
+}
+
+/* Sheets: 480 px over a scrim, 16 px radius, the one shadow in the app. 200 ms opacity, no transform. */
 .scrim {
   position: absolute;
   inset: 0;
@@ -382,7 +464,7 @@
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding-top: calc(var(--toolbar-height) + var(--space-2));
+  padding-top: var(--space-5);
   animation: fade-in var(--motion-base) var(--ease-standard);
 }
 
@@ -394,9 +476,9 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sheet), var(--card-highlight);
+  box-shadow: var(--shadow-sheet);
   padding: var(--space-3);
-  animation: drop-in var(--motion-base) var(--ease-out);
+  animation: fade-in var(--motion-base) var(--ease-standard);
 }
 
 .sheet-head {
@@ -447,17 +529,6 @@
   }
 }
 
-@keyframes drop-in {
-  from {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
 /* Status strips: one line of meta text with a leading icon. */
 .status-strip {
   display: flex;
@@ -493,7 +564,7 @@
   }
 }
 
-/* Alerts and notices. */
+/* Alerts and notices: a tinted line, never a filled block of colour. */
 [role="alert"],
 .alert {
   color: var(--danger);
@@ -502,6 +573,7 @@
 .notice {
   background: var(--notice-bg);
   color: var(--notice-fg);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: var(--space-1) var(--space-2);
   font: var(--text-body);
@@ -512,16 +584,19 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-1);
-  margin: 0 var(--space-3) var(--space-2);
+  margin: 0 30px var(--space-2);
   padding: var(--space-1) var(--space-2);
   background: var(--notice-bg);
   color: var(--notice-fg);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   font: var(--text-body);
 }
 
 .banner .link-button {
   color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 /* Skeletons: inset bars with a 1.2 s shimmer. */
@@ -556,20 +631,25 @@
   }
 }
 
-/* Inputs: 32 px, strong border. */
+/* Inputs: paper with a hairline, 7 px radius. */
 input[type="text"],
 input[type="password"],
 textarea,
 select {
   min-height: var(--control);
-  padding: 4px 10px;
-  border: 1px solid var(--border-strong);
+  padding: 4px 12px;
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-elevated);
   color: var(--fg);
   font: var(--text-body);
   width: 100%;
   max-width: 480px;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--fg-secondary);
 }
 
 select {
@@ -588,13 +668,31 @@ input[aria-invalid="true"] {
 fieldset {
   border: 0;
   padding: 0;
-  margin: var(--space-2) 0;
+  margin: 0;
 }
 
+/* A floated legend sits inside the fieldset's padding instead of on its border line. */
 legend {
+  float: left;
+  width: 100%;
   font-weight: 600;
   margin-bottom: 4px;
   padding: 0;
+}
+
+legend + * {
+  clear: both;
+}
+
+fieldset::after {
+  content: "";
+  display: block;
+  clear: both;
+}
+
+input[type="radio"],
+input[type="checkbox"]:not([role="switch"]) {
+  accent-color: var(--accent);
 }
 
 fieldset label,
@@ -603,6 +701,42 @@ fieldset label,
   align-items: center;
   gap: var(--space-1);
   padding: 4px 0;
+}
+
+/* Switch: 39 x 23, rust when on, clay when off; a real checkbox so it stays keyboard-accessible. */
+input[role="switch"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: none;
+  width: 39px;
+  height: 23px;
+  margin: 0;
+  border: 0;
+  border-radius: 50px;
+  background: var(--bg-hover);
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+
+input[role="switch"]::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  transition: transform var(--motion-fast) var(--ease-standard);
+}
+
+input[role="switch"]:checked {
+  background: var(--accent);
+}
+
+input[role="switch"]:checked::after {
+  transform: translateX(16px);
 }
 
 .field-row {
@@ -618,6 +752,7 @@ fieldset label,
 
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-1);
   margin-top: var(--space-2);
 }
@@ -658,146 +793,204 @@ h1[tabindex="-1"]:focus-visible {
   overflow-wrap: anywhere;
 }
 
-.evidence tr:last-child td {
+.evidence tbody th {
+  font: var(--text-body);
+  color: var(--fg);
+  padding: 6px var(--space-1) 6px 0;
+}
+
+.evidence tr:last-child td,
+.evidence tbody tr:last-child th {
   border-bottom: 0;
 }
 
-/* Finding card: an article whose headline link stretches over the card. */
-.finding-card {
-  position: relative;
+/*
+ * Finding rows: a column of rows under a card heading. 27 px severity mark, the headline at 13/600 over
+ * its points or reason line, the action and the severity tag at the right, a chevron where the row opens.
+ * The hover fill is a pseudo-element so the hairline separators keep the content width.
+ */
+.finding-rows {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-2);
-  margin-bottom: 0;
-  text-align: left;
-  transition:
-    background var(--motion-fast) var(--ease-standard),
-    border-color var(--motion-fast) var(--ease-standard),
-    transform var(--motion-fast) var(--ease-standard);
 }
 
-.finding-card:hover {
-  background: var(--bg-hover);
-  border-color: var(--border-strong);
-}
-
-.finding-card:active {
-  background: var(--bg-pressed);
-  transform: scale(0.99);
-}
-
-.finding-card:focus-within {
-  border-color: var(--border-strong);
-}
-
-.finding-card-head {
+.finding-row {
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  flex-wrap: wrap;
-  padding-right: var(--space-3);
-}
-
-.finding-card-category {
-  font: var(--text-meta);
-  color: var(--fg-secondary);
-}
-
-.finding-card-title {
-  display: block;
-  font: 600 15px/1.3 var(--font);
+  gap: 15px;
+  width: 100%;
+  margin: 0;
+  padding: 16px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: none;
   color: var(--fg);
-  text-decoration: none;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  padding-right: var(--space-3);
+  font: var(--text-body);
+  text-align: left;
 }
 
+.finding-row:first-child {
+  border-top: 0;
+}
+
+.finding-row::before {
+  content: "";
+  position: absolute;
+  inset: 6px -12px;
+  z-index: -1;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+
+.finding-row:hover::before,
+.finding-row:focus-within::before {
+  background: var(--bg-inset);
+}
+
+button.finding-row {
+  cursor: pointer;
+}
+
+button.finding-row:focus-visible,
+.finding-row:has(.finding-card-title:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+}
+
+.finding-mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 27px;
+  height: 27px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font: var(--text-meta);
+  font-weight: 600;
+}
+
+.finding-mark svg {
+  width: 14px;
+  height: 14px;
+}
+
+.finding-mark-critical {
+  color: var(--sev-critical-fg);
+  border-color: var(--sev-critical-fg);
+}
+
+.finding-mark-high {
+  color: var(--sev-high-fg);
+  border-color: var(--sev-high-fg);
+}
+
+.finding-mark-medium {
+  color: var(--sev-medium-fg);
+  border-color: var(--sev-medium-fg);
+}
+
+.finding-mark-pass {
+  color: var(--success-fg);
+  border-color: var(--success-fg);
+}
+
+.finding-row-content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.finding-card-title,
+.finding-row-title {
+  display: block;
+  color: var(--fg);
+  font: 600 13px/1.4 var(--font);
+  text-decoration: none;
+}
+
+/* The headline link stretches over the row, so the whole row opens the finding. */
 .finding-card-title::after {
   content: "";
   position: absolute;
   inset: 0;
   z-index: 1;
-  border-radius: inherit;
 }
 
 .finding-card-title:focus-visible {
   outline: none;
 }
 
-.finding-card:has(.finding-card-title:focus-visible) {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
-
-.finding-card-points {
-  margin: 0;
-  color: var(--success-fg);
-  font: var(--text-body);
-  font-weight: 600;
-}
-
-.finding-card-reason {
-  margin: 0;
-  color: var(--fg-secondary);
-  font: var(--text-meta);
-}
-
-.finding-card-foot {
+.finding-row-meta,
+.finding-card-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-1);
-  margin-top: auto;
+  gap: 4px 12px;
+  margin-top: 5px;
+  color: var(--fg-secondary);
+  font: 400 12px/1.35 var(--font);
+}
+
+.finding-row-meta p,
+.finding-card-head p {
+  margin: 0;
 }
 
 .finding-card-cost {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-0);
-  margin-left: auto;
-  color: var(--fg-secondary);
-  font: var(--text-meta);
+  gap: 4px;
 }
 
 .finding-card-cost svg {
+  width: 12px;
+  height: 12px;
   color: var(--fg-tertiary);
 }
 
-/* The inline action sits above the stretched link so it stays clickable. */
+.finding-card-foot,
+.finding-row-trail {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 10px;
+}
+
+/* The action sits above the stretched link so it stays clickable; in the meta line it is 28 px. */
 .finding-card-action {
   position: relative;
   z-index: 2;
+  padding: 5px 10px;
+}
+
+.finding-card-action svg {
+  width: 12px;
+  height: 12px;
 }
 
 .finding-card-chevron {
-  position: absolute;
-  top: var(--space-2);
-  right: 12px;
+  flex: none;
+  width: 16px;
+  height: 16px;
   color: var(--fg-tertiary);
-  opacity: 0;
-  transition: opacity var(--motion-fast) var(--ease-standard);
-}
-
-.finding-card:hover .finding-card-chevron,
-.finding-card:focus-within .finding-card-chevron {
-  opacity: 1;
 }
 
 .finding-card-skeleton {
-  min-height: 120px;
+  min-height: 60px;
 }
 
-/* Fix card: heading with the points pill, reading-size summary, action row, then details. */
+/* Fix card: heading with the points line, the summary, the action row, then the fine print. */
 .fix-card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  margin-bottom: var(--space-1);
+  margin-bottom: 12px;
 }
 
 .fix-card-head h2,
@@ -806,7 +999,8 @@ h1[tabindex="-1"]:focus-visible {
 }
 
 .fix-summary {
-  font: var(--text-reading);
+  font: 400 13px/1.62 var(--font);
+  max-width: 650px;
   margin-bottom: var(--space-2);
 }
 
@@ -825,10 +1019,6 @@ h1[tabindex="-1"]:focus-visible {
   font: var(--text-meta);
 }
 
-.fix-action-caption svg {
-  color: var(--fg-tertiary);
-}
-
 .fix-settings,
 .settings-path {
   display: flex;
@@ -837,6 +1027,13 @@ h1[tabindex="-1"]:focus-visible {
   gap: var(--space-0);
   margin: var(--space-2) 0 0;
   font: var(--text-body);
+}
+
+/* The "In System Settings" label sits above the breadcrumb, not beside it. */
+.fix-settings {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-0);
 }
 
 .path-sep {
@@ -850,28 +1047,30 @@ h1[tabindex="-1"]:focus-visible {
   margin-top: var(--space-2);
 }
 
-.fix-steps summary {
-  cursor: pointer;
-  font-weight: 600;
-}
-
 .fix-steps ol,
 .fix-steps p,
 .fix-verify p {
-  font: var(--text-reading);
+  font: 400 13px/1.62 var(--font);
+  max-width: 650px;
 }
 
+/* Effort and side effects as one fine-print line. */
 .fix-meta {
-  display: grid;
-  grid-template-columns: 140px 1fr;
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--space-0) var(--space-2);
   margin-bottom: 0;
+  color: var(--fg-secondary);
+  font: 400 12px/1.5 var(--font);
 }
 
-.fix-meta dt {
-  color: var(--fg-secondary);
-  font: var(--text-meta);
-  line-height: 1.46;
+.fix-meta > div {
+  display: inline-flex;
+  gap: var(--space-0);
+}
+
+.fix-meta dt::after {
+  content: ":";
 }
 
 .fix-meta dd {
@@ -907,23 +1106,35 @@ h1[tabindex="-1"]:focus-visible {
   margin: var(--space-0) 0 0;
 }
 
-/* AI card: 20 px Sparkles, model text at reading size, a status line below. */
+.monospace {
+  font: 400 12px/1.6 var(--mono);
+  color: var(--fg-secondary);
+}
+
+/* AI card: 20 px sparkle, the model text as the kit's ai-indicator (stone left border), fine print below. */
 .ai-card {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr);
-  gap: var(--space-1) var(--space-2);
+  gap: var(--space-1) 14px;
+  align-items: start;
 }
 
 .ai-card > svg {
-  color: var(--accent);
-  margin-top: 2px;
+  color: var(--fg-secondary);
+  margin-top: 6px;
 }
 
 .ai-card-head {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-2);
   flex-wrap: wrap;
+  min-height: 32px;
+}
+
+.ai-card-head p {
+  margin: 0;
+  font: var(--text-body);
 }
 
 .ai-card-head h2,
@@ -932,10 +1143,33 @@ h1[tabindex="-1"]:focus-visible {
   flex: 1 1 auto;
 }
 
-.ai-body {
+.ai-body,
+.ai-indicator {
   grid-column: 2;
-  font: var(--text-reading);
+  border-left: 2px solid var(--fg-tertiary);
+  padding-left: 14px;
+  color: var(--fg-secondary);
+  font: 400 13px/1.5 var(--font);
   white-space: pre-wrap;
+}
+
+.ai-body p,
+.ai-indicator p {
+  margin: 0 0 var(--space-1);
+}
+
+.ai-body > :last-child {
+  margin-bottom: 0;
+}
+
+.ai-body .label {
+  margin: 12px 0 4px;
+  font: 400 12px/1.4 var(--font);
+  color: var(--fg-secondary);
+}
+
+.ai-body .label:first-child {
+  margin-top: 0;
 }
 
 .ai-card-foot {
@@ -943,15 +1177,91 @@ h1[tabindex="-1"]:focus-visible {
   display: flex;
   align-items: center;
   gap: var(--space-1);
+  margin: 0;
   color: var(--fg-secondary);
-  font: var(--text-meta);
+  font: 400 12px/1.5 var(--font);
 }
 
-/* Permission card: inset surface, 20 px leading icon, the button on its own row. */
+.ai-card-extra {
+  grid-column: 2;
+}
+
+/* Suggested order: numbered rows, the reason under the headline, no list markers. */
+.suggested-order {
+  white-space: normal;
+  border-left: 0;
+  padding-left: 0;
+  color: var(--fg);
+}
+
+.suggested-order ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.suggested-order .finding-row {
+  padding: 10px 0;
+}
+
+/* Permission rows: inside the Couldn't check card each item is one row, the button at the right. */
+.couldnt-check .card-grid {
+  gap: 0;
+  margin-bottom: 0;
+}
+
+.couldnt-check .card-grid > .card {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 4px 14px;
+  align-items: center;
+  margin: 0;
+  padding: 14px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: none;
+}
+
+.couldnt-check .card-grid > .card:first-child {
+  border-top: 0;
+}
+
+.couldnt-check .card-grid > .card > svg {
+  grid-column: 1;
+  grid-row: 1;
+  color: var(--fg-secondary);
+}
+
+.couldnt-check .card-grid > .card > h3,
+.couldnt-check .card-grid > .card > p {
+  grid-column: 2;
+  margin: 0;
+}
+
+.couldnt-check .card-grid > .card > h3 {
+  font: 600 13px/1.3 var(--font);
+}
+
+.couldnt-check .card-grid > .card > p {
+  color: var(--fg-secondary);
+  font: 400 12px/1.5 var(--font);
+}
+
+/* As in the kit, the button sits under the text. */
+.couldnt-check .card-grid > .card > .button,
+.couldnt-check .card-grid > .card > .toolbar-button {
+  grid-column: 2;
+  justify-self: start;
+  margin-top: 6px;
+}
+
+/* A permission card on its own (a finding) keeps the row anatomy on the inset surface. */
 .permission {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr);
-  gap: var(--space-0) var(--space-2);
+  gap: var(--space-0) 14px;
+  align-items: start;
 }
 
 .permission > svg {
@@ -963,11 +1273,13 @@ h1[tabindex="-1"]:focus-visible {
 .permission > h3,
 .permission > p,
 .permission > .actions,
-.permission > .button {
+.permission > .button,
+.permission > .toolbar-button {
   grid-column: 2;
 }
 
-.permission > .button {
+.permission > .button,
+.permission > .toolbar-button {
   justify-self: start;
   margin-top: var(--space-1);
 }
@@ -1045,6 +1357,23 @@ h1[tabindex="-1"]:focus-visible {
   color: var(--fg-secondary);
 }
 
+/* The status text stays at full colour so it keeps 4.5:1 while the rest of the row dims. */
+.progress-dimmed .progress-item:not(.progress-preparing) > svg,
+.progress-dimmed .progress-item:not(.progress-preparing) .progress-label {
+  opacity: 0.7;
+}
+
+/* The prompting row carries the Automation sentence, so it may wrap. */
+.progress-item.progress-prompting {
+  height: auto;
+  min-height: 28px;
+  align-items: start;
+}
+
+.progress-item.progress-prompting .progress-label {
+  white-space: normal;
+}
+
 /* Progress bar: 4 px track, accent fill. */
 .progress-bar {
   height: 4px;
@@ -1072,6 +1401,9 @@ h1[tabindex="-1"]:focus-visible {
 }
 
 .licence-valid {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   color: var(--success-fg);
 }
 
@@ -1097,8 +1429,14 @@ h1[tabindex="-1"]:focus-visible {
   padding: var(--space-2);
 }
 
+.lock-panel > svg {
+  color: var(--fg-secondary);
+}
+
 .lock-title {
-  font: var(--text-title3);
+  margin: 0;
+  font: 600 16px/1.3 var(--font);
+  letter-spacing: -0.2px;
 }
 
 .lock-lines {
@@ -1106,27 +1444,7 @@ h1[tabindex="-1"]:focus-visible {
   color: var(--fg-secondary);
 }
 
-/* Screens portal their toolbar controls (the Findings filters) into this slot. */
-.toolbar-slot {
-  display: flex;
-  align-items: center;
-  gap: var(--space-0);
-}
-
-.toolbar-slot:empty {
-  display: none;
-}
-
-.sidebar-mark-icon {
-  width: 14px;
-  height: 14px;
-}
-
-/* Flows: the licence field under a locked AI card, the model caret, and the blurred lock body. */
-.ai-card-extra {
-  grid-column: 2;
-}
-
+/* The model caret while text streams. */
 .caret {
   display: inline-block;
   width: 1px;
@@ -1149,14 +1467,6 @@ h1[tabindex="-1"]:focus-visible {
   }
 }
 
-.lock .lock-body {
-  padding: var(--space-2);
-}
-
-.lock .lock-panel {
-  padding: var(--space-2);
-}
-
 .passphrase-form .field-row {
   display: grid;
   gap: var(--space-0);
@@ -1177,38 +1487,13 @@ h1[tabindex="-1"]:focus-visible {
 p.status[data-state] {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-1);
+  font-weight: 400;
 }
 
-.suggested-order ol {
-  margin: 0 0 var(--space-1);
-  padding-left: var(--space-3);
-}
-
-.progress-dimmed .progress-item:not(.progress-preparing) {
-  opacity: 0.7;
-}
-
-/* The ring's svg rule must not size the small grade glyph in the centre. */
+/* The grade glyph in the centre of the ring, when a screen shows one, stays 16 px. */
 .score-meter-grade svg {
   width: 16px;
   height: 16px;
-}
-
-/* The "In System Settings" label sits above the breadcrumb, not beside it. */
-.fix-settings {
-  display: grid;
-  justify-items: start;
-  gap: var(--space-0);
-}
-
-/* The prompting row carries the Automation sentence, so it may wrap. */
-.progress-item.progress-prompting {
-  height: auto;
-  min-height: 28px;
-  align-items: start;
-}
-
-.progress-item.progress-prompting .progress-label {
-  white-space: normal;
 }

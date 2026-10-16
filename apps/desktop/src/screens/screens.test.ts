@@ -9,10 +9,11 @@ import { buildGate } from "../app/gate";
 import type { Gate } from "../app/gate";
 import { StatefulProvider, fakeAdapters, fakeContextValue, fakeFinding, fakePlan, fakeReport } from "../app/testing";
 import type { ExplainerProvider } from "../settings";
-import type { ExplainState, FixingState, LastRecheck, ReadyState, WatchingState } from "../scan/machine";
+import type { ExplainState, FixingState, LastRecheck, ReadyState, SingleFixingState, WatchingState } from "../scan/machine";
 import type { PacerView, RowState } from "../scan/useScanPacer";
 import { Scanning, PROMPTING_ROW_COPY } from "./Scanning";
 import { SECTION_PROGRESS_LABELS } from "../app/labels";
+import { GUIDED_SECTION_LABELS } from "../guided/copy";
 import { Welcome } from "./Welcome";
 import { Findings } from "./Findings";
 import { FindingDetail } from "./FindingDetail";
@@ -62,6 +63,7 @@ function rule(id: Rule["id"], title: string, failTitle: string): Rule {
       apply: { kind: "manual", watch: [], watchEvery: 0, reveal: null },
     },
     evaluate: () => ({ status: "pass", evidence: [] }),
+    guided: { headline: failTitle, why: "It matters.", verb: "Details", done: "Done. Sorted.", where: null },
   };
 }
 
@@ -155,6 +157,41 @@ describe("Scanning", () => {
   });
 });
 
+describe("Scanning (guided)", () => {
+  it("counts things to fix, names checking rows with the guided labels, and draws a dot per row", () => {
+    const view = pacer({
+      rows: ROWS({ diskEncryption: "attention", firewall: "fine", browsers: "unavailable", ssh: "checking", dotfiles: "review" }),
+      revealed: 3,
+      found: { attention: 2, review: 1 },
+      progress: 3 / 17,
+    });
+    render(createElement(Scanning, { pacer: view, report: null, guided: true }));
+    expect(screen.getByText("2 things to fix so far")).toBeTruthy();
+    expect(screen.queryByText(/found so far/)).toBeNull();
+    expect(screen.getByText(GUIDED_SECTION_LABELS.ssh)).toBeTruthy();
+    expect(screen.queryByText(SECTION_PROGRESS_LABELS.ssh)).toBeNull();
+    expect(screen.getByText("Checking")).toBeTruthy();
+    expect(screen.getByText("Couldn't check")).toBeTruthy();
+    expect(document.querySelectorAll(".scan-dot").length).toBe(17);
+    expect(document.querySelector("[data-section='diskEncryption'] .scan-dot")?.className).toBe("scan-dot scan-dot-found");
+    expect(document.querySelector("[data-section='firewall'] .scan-dot")?.className).toBe("scan-dot scan-dot-passed");
+    expect(document.querySelector("[data-section='ssh'] .scan-dot")?.className).toBe("scan-dot scan-dot-active");
+    expect(document.querySelector("[data-section='backup'] .scan-dot")?.className).toBe("scan-dot scan-dot-pending");
+    expect(screen.queryByRole("heading")).toBeNull();
+  });
+
+  it("reads one thing in the singular, nothing at zero, and moves the preparing line under the grid", () => {
+    const { rerender } = render(createElement(Scanning, { pacer: pacer({ found: { attention: 1, review: 3 } }), report: null, guided: true }));
+    expect(screen.getByText("1 thing to fix so far")).toBeTruthy();
+    rerender(createElement(Scanning, { pacer: pacer({ found: { attention: 0, review: 3 } }), report: null, guided: true }));
+    expect(screen.getByText("Nothing found yet")).toBeTruthy();
+    rerender(createElement(Scanning, { pacer: pacer({ revealed: 17, phase: "preparing", progress: 1 }), report: null, guided: true }));
+    expect(document.querySelector(".scan-summary .guided-status")?.textContent).toBe("Preparing your report");
+    expect(document.querySelector(".progress-preparing")).toBeNull();
+    expect(document.querySelector(".progress-dimmed")).not.toBeNull();
+  });
+});
+
 describe("Welcome", () => {
   it("preselects the defaults, builds a profile from the controls, and can be skipped", () => {
     const onStart = vi.fn();
@@ -234,10 +271,10 @@ describe("Findings", () => {
     expect(screen.getByRole("region", { name: "Needs fixing, 2 items" })).toBeTruthy();
   });
 
-  it("underlines the passed title only, not the badge before it", () => {
+  it("renders each passed check as one row with the badge and the title", () => {
     const value = fakeContextValue({ adapters: fakeAdapters(), license: NONE, gate: stubGate(false), catalog, scanState: { kind: "idle", report: null, last: report } });
     render(createElement(AppContext.Provider, { value }, createElement(Findings)));
-    const row = document.querySelector(".passed-list .link-button") as HTMLButtonElement;
+    const row = document.querySelector(".passed-list .finding-row") as HTMLButtonElement;
     expect(row.querySelector(".badge")).not.toBeNull();
     expect(row.querySelector(".passed-title")?.textContent).toBe("Quiet to probes");
   });
@@ -397,7 +434,7 @@ describe("Overview", () => {
 
   it("opens the confirmation sheet for the fix the scan state holds", () => {
     const plan: FixPlan = fakePlan({ ruleId: "TL-MAC-002", recheck: ["firewall"] });
-    const fixing: FixingState = { plan, phase: "confirm", step: 0, of: 1, error: null, result: null };
+    const fixing: FixingState = { kind: "single", plan, phase: "confirm", step: 0, of: 1, error: null, result: null };
     const value = readyContext({ state: DEV_MACHINE, license: VALID, fixing });
     render(createElement(AppContext.Provider, { value }, createElement(Overview)));
     const sheet = screen.getByRole("dialog");
@@ -484,7 +521,7 @@ describe("FindingDetail", () => {
     expect(screen.getByRole("heading", { name: "Check again" })).toBeTruthy();
     expect(screen.queryByText("Done it?")).toBeNull();
     expect(screen.getByRole("button", { name: "Open Full Disk Access" })).toBeTruthy();
-    const main = document.querySelector("main") as HTMLElement;
+    const main = document.querySelector(".screen") as HTMLElement;
     expect(main.querySelector("header + .permission")).not.toBeNull();
     cleanup();
     renderDetail(readyContext({ state: DEV_MACHINE, license: VALID }), "TL-MAC-028");
@@ -691,7 +728,7 @@ describe("FindingDetail", () => {
 
   it("renders the fix sheet states: user-level confirm, running, done with points, and an error with its actions", () => {
     const plan: FixPlan = fakePlan({ ruleId: "TL-MAC-002", needsPassword: false, lines: [{ text: "defaults write x", privilege: "user" }] });
-    const confirm: FixingState = { plan, phase: "confirm", step: 0, of: 1, error: null, result: null };
+    const confirm: SingleFixingState = { kind: "single", plan, phase: "confirm", step: 0, of: 1, error: null, result: null };
     const { rerender } = renderDetail(readyContext({ state: DEV_MACHINE, license: VALID, fixing: confirm }), "TL-MAC-002");
     expect(screen.getByRole("dialog").textContent).toContain(NO_PASSWORD_SENTENCE);
     expect(screen.getByRole("button", { name: "Turn on" })).toBeTruthy();
@@ -948,7 +985,8 @@ describe("Settings", () => {
   });
 
   it("collapses the profile to one line and expands the controls on Edit", () => {
-    const { value } = mount({}, { settings: { ...DEFAULT_SETTINGS, onboarded: true, profile: { role: "freelancer", technical: "medium", handlesClientData: true, laptopLeavesHome: true } } });
+    // v0.3 moved "About you" under Developer mode.
+    const { value } = mount({}, { settings: { ...DEFAULT_SETTINGS, onboarded: true, developer: { ...DEFAULT_SETTINGS.developer, enabled: true }, profile: { role: "freelancer", technical: "medium", handlesClientData: true, laptopLeavesHome: true } } });
     expect(screen.getByText("Freelancer, somewhat technical, client data, laptop leaves home")).toBeTruthy();
     expect(screen.queryByLabelText("As a freelancer")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));

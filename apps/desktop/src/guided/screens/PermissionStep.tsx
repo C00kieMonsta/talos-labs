@@ -15,7 +15,10 @@ export function PermissionStep({ state, controller, notice }: { state: StepState
   }
   if (state.kind === "permission") {
     return (
-      <StepFrame progress={progress} devId={devId} title={PERMISSION.opened} body={<p>{PERMISSION.where}</p>} link={{ label: PERMISSION.notNow, onClick: controller.later }} notice={notice} className="guided-permission-watching">
+      <StepFrame progress={progress} devId={devId} title={PERMISSION.opened} link={{ label: PERMISSION.notNow, onClick: controller.later }} notice={notice} className="guided-permission-watching">
+        <div className="guided-muted-card">
+          <p>{PERMISSION.where}</p>
+        </div>
         <WatchStrip text={SHOW.notice} />
       </StepFrame>
     );

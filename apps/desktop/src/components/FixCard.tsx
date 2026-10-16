@@ -77,7 +77,7 @@ export function FixCard({ finding, developer, fixing, watching, busy = false, on
   useEffect(() => {
     if (passedAt !== null) strip.current?.focus();
   }, [passedAt]);
-  const donePass = fixing?.plan.ruleId === finding.ruleId && fixing.phase === "done" && fixing.result === "pass";
+  const donePass = fixing?.kind === "single" && fixing.plan.ruleId === finding.ruleId && fixing.phase === "done" && fixing.result === "pass";
 
   return (
     <section className="card fix-card" aria-labelledby="fix-heading">

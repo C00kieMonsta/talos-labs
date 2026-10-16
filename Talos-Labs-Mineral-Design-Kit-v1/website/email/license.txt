@@ -1,0 +1,16 @@
+Talos Labs
+
+Your licence key
+
+Thank you for choosing Talos Labs. Your licence key is:
+
+{{LICENSE_KEY}}
+
+Open Talos Labs → Settings → Licence, then paste the key.
+There is no account or sign-in.
+
+Plan: {{PLAN_NAME}}
+Seats: {{SEAT_COUNT}}
+Updates until: {{UPDATES_UNTIL}}
+
+Talos Labs — A calm check-up for your Mac.

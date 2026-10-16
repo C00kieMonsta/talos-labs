@@ -38,13 +38,13 @@ export function useGuidedEffects(core: Core, scan: ScanController, deps: GuidedD
     core.inScan = false;
     if (state.kind === "failed") {
       if (state.error === "cancelled") {
-        if (phase.kind !== "stopped") core.setPhase({ kind: "stopped" });
+        if (phase.kind !== "stopped" || phase.cancelled !== true) core.setPhase({ kind: "stopped", cancelled: true });
       } else if (phase.kind !== "failed" || phase.error !== state.error) core.setPhase({ kind: "failed", error: state.error });
       return;
     }
     if (state.kind === "idle") {
       // A first check-up cancelled during its reveal leaves the machine idle with nothing held.
-      if (wasScanning && phase.kind === "scanning") core.setPhase({ kind: "stopped" });
+      if (wasScanning && phase.kind === "scanning") core.setPhase({ kind: "stopped", cancelled: true });
       else if (phase.kind === "welcome") core.setPhase({ kind: "scanning" });
       return;
     }

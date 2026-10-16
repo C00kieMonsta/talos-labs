@@ -91,20 +91,25 @@ function AiIcon({ state }: { state: AiAvailability }) {
   }
 }
 
+/** A section title over a bordered group; each direct child of the group is one 64 px row. */
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
-    <section className="card" aria-labelledby={`${id}-heading`}>
-      <h2 id={`${id}-heading`}>{title}</h2>
-      {children}
+    <section className="settings-section" aria-labelledby={`${id}-heading`}>
+      <h2 id={`${id}-heading`} className="section-title">
+        {title}
+      </h2>
+      <div className="settings-group">{children}</div>
     </section>
   );
 }
 
 function Switch({ label, checked, onChange }: { label: string; checked: boolean; onChange(next: boolean): void }) {
   return (
-    <label className="toggle">
+    <label className="toggle setting-row">
+      <span className="setting-text">
+        <strong>{label}</strong>
+      </span>
       <input type="checkbox" role="switch" aria-checked={checked} checked={checked} onChange={(event) => onChange(event.target.checked)} />
-      <span>{label}</span>
     </label>
   );
 }
@@ -183,7 +188,7 @@ function AiSection({ aiAvailability, onAiAction }: Pick<SettingsProps, "aiAvaila
           {state === null ? <LoaderCircle size={16} className="spin" aria-hidden="true" /> : <AiIcon state={state} />}{" "}
           <span>{label === null ? "Checking" : label.word}</span>
           {state !== null && label !== null && label.action !== null && (
-            <button type="button" className="button button-small" onClick={() => onAiAction(state)}>
+            <button type="button" className="toolbar-button" onClick={() => onAiAction(state)}>
               {label.action}
             </button>
           )}
@@ -203,9 +208,9 @@ function AboutYouSection() {
       {editing ? (
         <ProfileForm value={profile} onChange={(next) => updateSettings({ profile: next })} idPrefix="settings" />
       ) : (
-        <p className="field-row">
-          <span>{summariseProfile(profile)}</span>
-          <button type="button" className="button button-small" onClick={() => setEditing(true)}>
+        <p className="setting-row">
+          <span className="setting-text">{summariseProfile(profile)}</span>
+          <button type="button" className="toolbar-button" onClick={() => setEditing(true)}>
             Edit
           </button>
         </p>
@@ -218,18 +223,20 @@ function PermissionsSection({ capabilities, onPermission }: Pick<SettingsProps, 
   const kinds: readonly PermissionKind[] = ["full_disk_access", "automation"];
   return (
     <Section id="permissions" title="Permissions">
-      <ul className="plain-list">
+      <ul className="setting-rows">
         {kinds.map((kind) => {
           const status = capabilities === null ? null : permissionStatus(capabilities, kind);
           const action = status === null ? null : permissionAction(kind, status);
           return (
-            <li key={kind} className="field-row">
-              <span>{PERMISSION_TITLES[kind]}</span>
-              <span className={status === "granted" ? "pill pill-accent" : "pill"} data-status={status ?? "checking"}>
-                {status === null ? "Checking" : PERMISSION_STATUS_LABELS[status]}
+            <li key={kind} className="setting-row">
+              <span className="setting-text">
+                <strong>{PERMISSION_TITLES[kind]}</strong>
+                <span className={status === "granted" ? "pill pill-accent" : "pill"} data-status={status ?? "checking"}>
+                  {status === null ? "Checking" : PERMISSION_STATUS_LABELS[status]}
+                </span>
               </span>
               {status !== null && action !== null && (
-                <button type="button" className="button button-small" onClick={() => onPermission(kind, status)}>
+                <button type="button" className="toolbar-button" onClick={() => onPermission(kind, status)}>
                   {action}
                 </button>
               )}
@@ -268,12 +275,14 @@ function LicenceSection({ onBuy }: Pick<SettingsProps, "onBuy">) {
     const { plan, seats, updatesUntil } = license.payload;
     return (
       <Section id="licence" title="Licence">
-        <p ref={licensedLine} tabIndex={-1}>
-          Licensed, {plan} plan, {seats} {seats === 1 ? "seat" : "seats"}, updates until {updatesUntil}
-        </p>
-        <button type="button" className="button button-ghost" onClick={() => void remove()} disabled={busy}>
-          Remove
-        </button>
+        <div className="setting-row">
+          <p ref={licensedLine} tabIndex={-1} className="setting-text">
+            Licensed, {plan} plan, {seats} {seats === 1 ? "seat" : "seats"}, updates until {updatesUntil}
+          </p>
+          <button type="button" className="toolbar-button" onClick={() => void remove()} disabled={busy}>
+            Remove
+          </button>
+        </div>
       </Section>
     );
   }
@@ -491,13 +500,13 @@ function licenceLine(license: LicenseState): ReactNode {
 
 export function Settings({ aiAvailability, onAiAction, capabilities, onPermission, onBuy, guided }: SettingsProps) {
   return (
-    <main className="screen settings">
+    <div className="screen settings">
       <CheckUpSection />
       <AiSection aiAvailability={aiAvailability} onAiAction={onAiAction} />
       <PermissionsSection capabilities={capabilities} onPermission={onPermission} />
       <LicenceSection onBuy={onBuy} />
       <DeveloperSection guided={guided} />
       <AboutSection />
-    </main>
+    </div>
   );
 }

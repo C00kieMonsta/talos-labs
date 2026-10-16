@@ -25,8 +25,10 @@ import { SCANNING_TITLE } from "./guided/copy";
 import { lastReport } from "./scan/machine";
 import { aiUsable as computeAiUsable } from "./settings";
 import type { AppSettings } from "./settings";
+import { Brand } from "./components/Brand";
 import { Sidebar } from "./components/Sidebar";
 import type { NavItem, SidebarKey } from "./components/Sidebar";
+import { Icon } from "./components/Icon";
 import { Toolbar } from "./components/Toolbar";
 import type { ToolbarAction } from "./components/Toolbar";
 import { ScreenErrorBoundary } from "./components/ScreenErrorBoundary";
@@ -287,19 +289,20 @@ export default function App() {
 
   return (
     <AppContext.Provider value={value}>
-      <div className={inactive ? "shell window-inactive" : "shell"}>
-        <Sidebar
-          items={items}
-          current={current}
-          license={license}
-          dimmed={scanning}
-          onSelect={(name) => router.navigate(NAV_ROUTES[name])}
-        />
-        <div className="content">
-          {scanning ? (
-            <ScanningShell guided={false} inactive={inactive} />
-          ) : (
-            <>
+      <div className={inactive ? "shell shell-expert window-inactive" : "shell shell-expert"}>
+        <ExpertTitlebar scanning={scanning} />
+        <div className="expert-shell">
+          <Sidebar
+            items={items}
+            current={current}
+            license={license}
+            dimmed={scanning}
+            onSelect={(name) => router.navigate(NAV_ROUTES[name])}
+          />
+          <div className="content">
+            {scanning ? (
+              <ScanningShell guided={false} inactive={inactive} />
+            ) : (
               <ScreenErrorBoundary
                 resetKey={routeKey(router.route)}
                 onRescan={() => void scan.start()}
@@ -307,11 +310,38 @@ export default function App() {
               >
                 <Screen launchKey={launchKey} guided={guided} onResetMemory={() => saveMemory(EMPTY_GUIDED_MEMORY)} />
               </ScreenErrorBoundary>
-            </>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </AppContext.Provider>
+  );
+}
+
+/**
+ * The 52 px strip across the expert shell: the brand after the traffic lights, text actions on the right.
+ * "‹ Check-up" leads back to the guided home; a finding keeps its own "‹ Findings" in the page head instead.
+ */
+function ExpertTitlebar({ scanning }: { scanning: boolean }) {
+  const { router, settings } = useApp();
+  const showCheckup = settings.guided.home && router.route.name !== "finding";
+  return (
+    <header className="titlebar title-strip" data-tauri-drag-region="true">
+      <Brand />
+      {!scanning && (
+        <div className="top-actions">
+          {showCheckup && (
+            <button type="button" className="toolbar-back" onClick={() => router.navigate({ name: "guided" })}>
+              <Icon icon={ICONS.chevronLeft} />
+              <span>{CHECKUP_LABEL}</span>
+            </button>
+          )}
+          <button type="button" className="titlebar-link" onClick={() => router.navigate({ name: "settings" })}>
+            Settings
+          </button>
+        </div>
+      )}
+    </header>
   );
 }
 
@@ -343,7 +373,7 @@ function ScanningShell({ guided, inactive }: { guided: boolean; inactive: boolea
   if (guided) {
     return (
       <GuidedShell title={SCANNING_TITLE} actions={actions} inactive={inactive}>
-        <Scanning pacer={pacer} report={report} />
+        <Scanning pacer={pacer} report={report} guided />
       </GuidedShell>
     );
   }
@@ -384,11 +414,9 @@ function Banners() {
 
 /** Toolbar contents per route. Screens that own their h1 (a finding) get no title here. */
 function RouteToolbar({ route }: { route: Route }) {
-  const { scan, router, settings } = useApp();
+  const { scan, router } = useApp();
   const report = lastReport(scan.scan);
   const rescan: ToolbarAction = { label: "Rescan", icon: ICONS.rescan, onClick: () => void scan.start() };
-  // With the guided home on, every expert screen but a finding leads back to the check-up.
-  const checkup = settings.guided.home ? { label: CHECKUP_LABEL, onClick: () => router.navigate({ name: "guided" }) } : undefined;
   switch (route.name) {
     case "guided":
       return null;
@@ -397,28 +425,27 @@ function RouteToolbar({ route }: { route: Route }) {
         <Toolbar
           title="Overview"
           subtitle={report === null ? undefined : `Last check-up ${formatDateTime(report.scannedAt)}`}
-          back={checkup}
           actions={[rescan]}
         />
       );
     case "findings":
       return (
-        <Toolbar title="Findings" back={checkup} actions={[rescan]}>
+        <Toolbar title="Findings" actions={[rescan]}>
           <div id="toolbar-slot" className="toolbar-slot" />
         </Toolbar>
       );
     case "finding":
       return <Toolbar back={{ label: "Findings", onClick: () => router.back() }} />;
     case "ask":
-      return <Toolbar title="Ask" back={checkup} />;
+      return <Toolbar title="Ask" />;
     case "settings":
-      return <Toolbar title="Settings" back={checkup} />;
+      return <Toolbar title="Settings" />;
   }
 }
 
 function Screen({ launchKey, guided, onResetMemory }: { launchKey: { current: string | null | undefined }; guided: GuidedController; onResetMemory(): void }) {
   const { route, lastMove } = useApp().router;
-  const host = useRef<HTMLDivElement>(null);
+  const host = useRef<HTMLElement>(null);
   const key = routeKey(route);
   // Read inside the effect without re-running it on every render.
   const moveRef = useRef<{ route: Route; lastMove: RouteMove }>({ route, lastMove });
@@ -445,12 +472,13 @@ function Screen({ launchKey, guided, onResetMemory }: { launchKey: { current: st
     heading.focus();
   }, [key, launchKey]);
 
+  // The host is the main landmark, so the page head and banners sit inside it with the screen body.
   return (
-    <div ref={host} className="screen-host">
+    <main ref={host} className="screen-host">
       <RouteToolbar route={route} />
       <Banners />
       {screenFor(route, guided, onResetMemory)}
-    </div>
+    </main>
   );
 }
 

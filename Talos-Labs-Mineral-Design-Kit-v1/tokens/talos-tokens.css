@@ -1,0 +1,21 @@
+/* Talos Labs mineral, v1. The macOS app uses the system font; no font is bundled. */
+:root,[data-theme="light"] {
+ --font: -apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,"Helvetica Neue",Arial,sans-serif;
+ --canvas:#F5EFE8; --card:#FFFCF8; --sidebar:#F0E7DF; --inset:#EBDFD4;
+ --fg:#2C211C; --fg-secondary:#756158; --border:#D6C6B9;
+ --accent:#87402D; --accent-hover:#693122; --accent-contrast:#FFFFFF;
+ --success-fg:#32624E; --review-fg:#83643F; --critical-fg:#9B403B;
+ --focus:#A55C44; --grain-opacity:.045;
+ --radius-control:7px; --radius-card:12px; --radius-sheet:16px;
+ --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px;
+ --space-5:24px; --space-6:32px; --space-7:40px; --space-8:48px;
+ --motion-fast:150ms; --motion-base:200ms; --motion-slow:250ms;
+}
+[data-theme="dark"] {
+ --canvas:#241B18; --card:#312723; --sidebar:#2B211E; --inset:#41352F;
+ --fg:#F6EDE6; --fg-secondary:#C8B8AD; --border:#58483F;
+ --accent:#E6B49D; --accent-hover:#F0CAB7; --accent-contrast:#241B18;
+ --success-fg:#A6D5B6; --review-fg:#E3C48B; --critical-fg:#F1AAA4;
+ --focus:#E3AD92; --grain-opacity:0;
+}
+@media (prefers-reduced-motion: reduce) {*,*:before,*:after { animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important; }}

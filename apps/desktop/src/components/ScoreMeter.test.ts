@@ -16,14 +16,15 @@ describe("ScoreMeter", () => {
     expect(meter.getAttribute("aria-valuenow")).toBe("38");
     expect(meter.getAttribute("aria-valuetext")).toBe("38 out of 100, at risk");
     expect(screen.getByText("At risk")).toBeTruthy();
-    expect(document.querySelectorAll(".score-meter-tick").length).toBe(3);
-    expect(document.querySelector(".score-meter-cap")).toBeNull();
+    // The kit ring: track and fill only, no tick marks and no glyph inside.
+    expect(document.querySelectorAll("line").length).toBe(0);
+    expect(document.querySelector(".score-meter svg use, .score-meter-grade svg")).toBeNull();
   });
 
-  it("marks 59 when the score is capped by a critical issue", () => {
+  it("reads the critical cap out with the value and draws nothing extra for it", () => {
     render(createElement(ScoreMeter, { value: 59, grade: "poor", cappedByCritical: true }));
-    expect(document.querySelector(".score-meter-cap")).toBeTruthy();
-    expect(screen.getByText("Capped by a critical issue")).toBeTruthy();
+    expect(screen.getByRole("meter").getAttribute("aria-valuetext")).toBe("59 out of 100, poor, capped by a critical issue");
+    expect(document.querySelectorAll("line").length).toBe(0);
   });
 
   it("animates the ring from empty to the value on first mount", () => {
@@ -42,5 +43,6 @@ describe("ScoreMeter", () => {
     render(createElement(ScoreMeter, { value: null, grade: null }));
     expect(screen.queryByRole("meter")).toBeNull();
     expect(screen.getByRole("img", { name: "No score yet" })).toBeTruthy();
+    expect(document.querySelector(".score-meter-null svg")).toBeNull();
   });
 });

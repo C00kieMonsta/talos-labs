@@ -16,7 +16,7 @@ export function GuidedWelcome({ onStart }: { onStart(): void }) {
       className="guided-welcome"
     >
       {open && (
-        <div className="guided-reads two-col">
+        <div className="guided-reads read-columns">
           <section aria-labelledby="guided-reads">
             <h2 id="guided-reads">Reads</h2>
             <ul className="plain-list">

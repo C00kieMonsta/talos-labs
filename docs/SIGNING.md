@@ -67,6 +67,7 @@ The `bundle` keys that matter. Defaults are from the config schema shipped with 
   "externalBin": ["binaries/talos-ai"],
   "macOS": {
     "minimumSystemVersion": "26.0",
+    "dmg": { "background": "assets/dmg-background.png" },
     "hardenedRuntime": true,
     "entitlements": null,
     "signingIdentity": null,
@@ -77,6 +78,7 @@ The `bundle` keys that matter. Defaults are from the config schema shipped with 
 
 - `externalBin`: the `talos-ai` helper (DESIGN-V02.md section 4, "Build and bundling"). Tauri looks for `src-tauri/binaries/talos-ai-<target triple>`, copies it into `Contents/MacOS/talos-ai` and signs it with the same identity and hardened runtime as the app. FoundationModels needs no entitlement. `beforeBuildCommand` runs the sidecar build so the files exist; `pnpm --filter @talos/desktop sidecar:build` is the same script for CI and for a fresh clone.
 - `minimumSystemVersion`: `26.0`. FoundationModels and the catalog's Settings paths need macOS 26; the collector commands and fix commands were verified on macOS 26 and 27 (`docs/RULES.md`). Tauri writes it into `LSMinimumSystemVersion`, so an older Mac refuses to open the app rather than failing inside it.
+- `dmg.background`: `apps/desktop/src-tauri/assets/dmg-background.png`, the Mineral installer background (1320 x 800 PNG, copied from `apps/desktop/brand/mineral/installer/`). The path is relative to `src-tauri/`.
 - `hardenedRuntime`: default `true`. Notarisation requires it. Leave it on.
 - `entitlements`: default none. The app runs no JIT and loads no unsigned code, so no entitlements file is expected. One open point: under the hardened runtime an app that sends Apple Events may need `com.apple.security.automation.apple-events`. The login-items collector sends them through a child `osascript` process, and the fix engine's administrator dialog goes through `osascript` too. If a signed build is denied without a prompt, add an entitlements plist with that key set to true and point `entitlements` at it. Not yet verified on a signed build.
 - `signingIdentity`: same as `APPLE_SIGNING_IDENTITY`. Keep it `null` in the committed config and use the variable, so the repo carries no team-specific value.

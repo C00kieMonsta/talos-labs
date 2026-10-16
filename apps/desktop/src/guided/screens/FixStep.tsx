@@ -21,9 +21,12 @@ export function FixStep({ step, state, controller, notice }: { step: FixStepT; s
   const needsPassword = finding?.fix.apply.kind === "in_app" ? finding.fix.apply.needsPassword : true;
   const keyPath = step.choice.kind === "ssh_key" ? step.choice.path : null;
   const body = (
-    <p>
-      {strings.why} {FIX.canFix} {needsPassword ? FIX.password : FIX.noPassword}
-    </p>
+    <>
+      <p>
+        {strings.why} {FIX.canFix}
+      </p>
+      <p className="guided-meta-line">{needsPassword ? FIX.password : FIX.noPassword}</p>
+    </>
   );
   switch (state.kind) {
     case "working":

@@ -1,14 +1,15 @@
-/* The guided check-up. Tokens live under .guided so the expert screens keep the v0.2 scale. */
+/* The guided check-up, to the Mineral kit's app.css: 560 px frame, 72 px top, 26/17/16/14 type. Tokens live in tokens.css. */
+
+.guided-content {
+  padding: 0 42px;
+}
 
 .guided {
-  --text-guided-title: 600 26px/1.2 var(--font);
-  --text-guided-body: 400 17px/1.5 var(--font);
-  --text-guided-list: 400 16px/1.45 var(--font);
-  --text-guided-meta: 500 14px/1.3 var(--font);
-  max-width: 560px;
+  width: min(var(--guided-width), 100%);
   margin: 0 auto;
-  padding: 72px var(--space-3) var(--space-6);
+  padding: 72px 0 40px;
   font: var(--text-guided-body);
+  letter-spacing: -0.15px;
   color: var(--fg);
 }
 
@@ -21,22 +22,10 @@
 .guided-strip {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: 0 var(--space-2) 0 86px;
+  gap: 22px;
+  padding: 0 22px 0 86px;
   background: var(--bg-canvas);
   border-bottom: 1px solid var(--border);
-}
-
-.no-vibrancy .guided-strip {
-  background: var(--bg-sidebar-fallback);
-}
-
-.guided-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  font: var(--text-body);
-  font-weight: 600;
 }
 
 .guided-strip-title {
@@ -50,26 +39,25 @@
   margin-left: auto;
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: 20px;
 }
 
 .guided-strip-link {
   min-height: 32px;
-  padding: 0 var(--space-1);
+  padding: 5px 0;
   border: 0;
   background: none;
-  color: var(--accent);
+  color: var(--fg-secondary);
   font: var(--text-body);
-  font-weight: 500;
   cursor: pointer;
   border-radius: var(--radius-sm);
 }
 
-.guided-content .scanning {
-  max-width: 560px;
+.guided-strip-link:hover {
+  text-decoration: underline;
 }
 
-/* Step frame. */
+/* Step frame: a 200 ms crossfade, no transform. */
 .guided-step {
   animation: guided-in var(--motion-base) var(--ease-out);
 }
@@ -83,49 +71,96 @@
   }
 }
 
+/* Progress: the meta line, then a 3 px track with the rust fill. */
 .guided-progress {
-  margin-bottom: var(--space-2);
+  margin-bottom: 40px;
 }
 
 .guided-meta {
+  margin: 0;
   font: var(--text-guided-meta);
   color: var(--fg-secondary);
-  margin: 0;
+}
+
+.guided-progress .guided-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: 0 0 13px;
 }
 
 .guided-bar {
   height: 3px;
-  margin-top: 6px;
-  background: var(--bg-inset);
-  border-radius: 2px;
+  background: var(--border);
+  border-radius: var(--radius-pill);
   overflow: hidden;
 }
 
 .guided-bar > div {
   height: 100%;
   background: var(--accent);
+  border-radius: var(--radius-pill);
   transition: width var(--motion-base) var(--ease-standard);
 }
 
+/* Headline and sentences. */
 .guided-title {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-1);
-  margin: 0 0 var(--space-2);
+  margin: 0 0 16px;
   font: var(--text-guided-title);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.95px;
   outline: none;
-}
-
-.guided-title:focus-visible {
-  box-shadow: 0 0 0 4px var(--focus-halo);
   border-radius: var(--radius-sm);
 }
 
-.guided-tick {
-  flex: 0 0 auto;
-  margin-top: 3px;
+.guided-title:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.guided-body {
+  max-width: 505px;
+  margin: 0 0 28px;
+  font: var(--text-guided-body);
+  letter-spacing: -0.15px;
+}
+
+.guided-body p {
+  margin: 0;
+}
+
+.guided-body p + p {
+  margin-top: var(--space-1);
+}
+
+.guided-body .guided-meta-line {
+  margin-top: 20px;
+  font: var(--text-guided-meta);
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--fg-secondary);
+}
+
+.guided-notice {
+  font: var(--text-guided-meta);
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--fg-secondary);
+  margin: 0 0 24px;
+}
+
+/* The 56 px status mark above a done headline, with the drawn tick. */
+.guided-status-mark {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 24px;
+  border-radius: 50%;
+  background: var(--bg-inset);
   color: var(--success-fg);
+}
+
+.guided-tick {
   stroke-dasharray: 80;
   stroke-dashoffset: 0;
   animation: guided-tick 240ms var(--ease-out);
@@ -140,121 +175,203 @@
   }
 }
 
-.guided-body p {
-  margin: 0 0 var(--space-1);
-}
-
-.guided-notice {
-  font: var(--text-guided-meta);
-  color: var(--fg-secondary);
-  margin: 0 0 var(--space-2);
-}
-
+/* Status line: a small icon and a sentence. */
 .guided-status {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  margin: var(--space-2) 0 0;
-  font: var(--text-guided-list);
+  margin: 12px 0 0;
+  font: var(--text-guided-meta);
+  font-weight: 400;
   color: var(--fg-secondary);
 }
 
+.guided-status > svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+/* Primary: 44 px, 220 to 320 wide, rust, deeper on hover. */
 .guided-actions {
-  margin-top: var(--space-3);
+  margin-top: 28px;
+}
+
+.guided-list + .guided-actions,
+.guided-status + .guided-actions,
+.guided-muted-card + .guided-actions,
+.guided-explain + .guided-actions,
+.guided-dev + .guided-actions {
+  margin-top: 24px;
+}
+
+.guided-body + .guided-actions {
+  margin-top: 0;
 }
 
 .guided-primary {
-  min-height: 44px;
+  width: 100%;
+  min-width: 220px;
   max-width: 320px;
-  padding: 0 var(--space-3);
-  font: var(--text-guided-body);
-  font-weight: 600;
+  min-height: var(--control-guided);
+  padding: 10px 18px;
+  border-radius: var(--radius-sm);
+  font: var(--text-guided-button);
+  line-height: 1.2;
 }
 
-.guided-link,
-.guided-text-button {
-  display: inline-block;
+.guided-primary:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.guided-primary:active:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--accent-hover);
+}
+
+.guided-primary:focus-visible {
+  box-shadow: none;
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+/* The one text link under the primary. */
+.guided-link {
+  display: block;
   min-height: 32px;
-  margin-top: var(--space-1);
-  padding: 0;
+  margin: 13px 0 0;
+  padding: 8px 0;
   border: 0;
   background: none;
   color: var(--fg-secondary);
   font: var(--text-guided-meta);
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+}
+
+.guided-link:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.guided-link:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.guided-text-button {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 
-.guided-text-button {
-  color: var(--accent);
-  margin: 0;
-  min-height: 0;
-  font: inherit;
-}
-
 .guided-link:focus-visible,
 .guided-text-button:focus-visible {
   outline: 2px solid var(--focus);
-  outline-offset: 2px;
+  outline-offset: 3px;
   border-radius: var(--radius-sm);
 }
 
-/* Lists. */
+/* Lists: 16 px rows with hairlines and the 17 px circle bullet. */
 .guided-list {
   list-style: none;
-  margin: var(--space-2) 0 0;
+  max-width: 525px;
+  margin: 20px 0 29px;
   padding: 0;
+}
+
+.guided-body + .guided-list {
+  margin-top: -8px;
 }
 
 .guided-row {
   display: flex;
   align-items: flex-start;
-  gap: var(--space-1);
-  padding: 6px 0;
+  gap: 14px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border);
   font: var(--text-guided-list);
 }
 
-.guided-row > svg,
-.guided-icon-slot,
+.guided-row:last-child {
+  border-bottom: 0;
+}
+
+.guided-row-text {
+  display: block;
+  min-width: 0;
+}
+
+.guided-bullet,
+.guided-icon-slot {
+  flex: 0 0 17px;
+  width: 17px;
+  height: 17px;
+  margin-top: 3px;
+}
+
 .guided-bullet {
-  flex: 0 0 20px;
-  width: 20px;
-  margin-top: 2px;
-  text-align: center;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
 }
 
-.guided-row-ok {
+.guided-bullet-done {
   color: var(--success-fg);
+  border-color: var(--success-fg);
 }
 
-.guided-row-failed {
+.guided-bullet-failed {
+  color: var(--fg-secondary);
+  border-color: var(--fg-secondary);
+}
+
+.guided-row > svg {
+  flex: 0 0 16px;
+  margin-top: 4px;
+  color: var(--accent);
+}
+
+.guided-row-failed .guided-row-text {
   color: var(--fg-secondary);
 }
 
 .guided-tag {
-  margin-left: auto;
-  padding-left: var(--space-1);
-  font: var(--text-guided-meta);
+  display: block;
+  margin-top: 1px;
+  font: var(--text-body);
   color: var(--fg-secondary);
-  white-space: nowrap;
 }
 
 /* Disclosures. */
 .guided-explain,
 .guided-dev {
-  margin-top: var(--space-2);
+  margin-top: 20px;
   font: var(--text-guided-list);
 }
 
 .guided-explain summary,
 .guided-dev summary {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
   cursor: pointer;
   color: var(--accent);
   font: var(--text-guided-meta);
-  min-height: 32px;
-  display: flex;
-  align-items: center;
+}
+
+.guided-explain summary:focus-visible,
+.guided-dev summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
 }
 
 .guided-explain-body {
@@ -265,23 +382,99 @@
   margin-right: var(--space-2);
 }
 
-.guided-reads {
-  margin-top: var(--space-2);
-  font: var(--text-guided-list);
+/* The muted card: the backup question and the permission instructions. */
+.guided-muted-card {
+  max-width: 510px;
+  margin: 0 0 24px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
 }
 
-.guided-reads h2 {
+.guided-muted-card p {
+  margin: 0;
   font: var(--text-guided-meta);
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.guided-muted-card h3 {
+  margin: 0 0 10px;
+  font: 600 15px/1.3 var(--font);
+}
+
+.guided-body + .guided-muted-card {
+  margin-top: -10px;
+}
+
+/* Reads and never reads: two columns between hairlines. */
+.read-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 22px;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.read-columns h2 {
+  margin: 0 0 7px;
+  font: 600 13px/1.3 var(--font);
+  color: var(--fg);
+}
+
+.read-columns .plain-list {
+  margin: 0;
+  padding-left: 14px;
+  font: 400 12px/1.45 var(--font);
   color: var(--fg-secondary);
-  margin: 0 0 var(--space-1);
 }
 
+.read-columns .plain-list li {
+  margin-bottom: 3px;
+}
+
+.guided-reads {
+  margin-top: -8px;
+}
+
+/* The licence field under the paywall button: 42 px, the width of the button. */
 .guided-licence {
-  margin-top: var(--space-2);
+  margin-top: var(--space-1);
 }
 
-.guided-licence input {
-  font: var(--text-guided-list);
+.guided-licence .licence-field {
+  gap: var(--space-1);
+}
+
+.guided-licence .field-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--space-1);
+  max-width: 320px;
+}
+
+.guided-licence .field-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 42px;
+  min-height: 42px;
+  padding: 10px 12px;
+  border-color: var(--border);
+  border-radius: var(--radius-sm);
+  font: var(--text-guided-meta);
+  font-weight: 400;
+}
+
+.guided-licence input::placeholder {
+  color: var(--fg-secondary);
+}
+
+.guided-licence .field-row .button {
+  min-height: 42px;
+  border-radius: var(--radius-sm);
 }
 
 /* The step's own button is the way to buy; the field's caption would repeat it. */
@@ -289,12 +482,85 @@
   display: none;
 }
 
-.guided-paywall .guided-row {
-  padding: 3px 0;
+.guided-licence .licence-valid {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 42px;
+  margin: 0;
+  font: var(--text-guided-meta);
+  font-weight: 400;
 }
 
-.guided-end-lines p {
-  margin: 0 0 var(--space-1);
+/* End screens: labelled groups of 15 px rows between hairlines. The whole row is the control. */
+.guided-summary {
+  max-width: 540px;
+  margin: -4px 0 0;
+}
+
+.guided-summary-group + .guided-summary-group {
+  margin-top: 20px;
+}
+
+.guided-summary-label {
+  margin: 0 0 2px;
+  font: var(--text-guided-meta);
+  color: var(--fg-secondary);
+  letter-spacing: 0;
+}
+
+.guided-summary-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.guided-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 10px 6px 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: none;
+  color: var(--fg);
+  font: 400 15px/1.55 var(--font);
+  letter-spacing: -0.1px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.guided-summary-row:hover {
+  background: var(--bg-inset);
+}
+
+.guided-summary-row:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+}
+
+.guided-summary-row > svg:first-child {
+  flex: 0 0 auto;
+  color: var(--fg-secondary);
+}
+
+.guided-summary-row-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.guided-summary-row-chevron {
+  flex: 0 0 auto;
+  color: var(--fg-tertiary);
+}
+
+.guided-end .guided-link {
+  margin-top: 20px;
 }
 
 .guided .passphrase-form {
@@ -305,10 +571,224 @@
   margin-top: var(--space-2);
 }
 
+/* Guided scanning: the subline and counter on one line, the 3 px track, two columns of dotted rows. */
+.guided .scanning {
+  max-width: none;
+  padding: 0;
+}
+
+.scanning-guided .scanning-head {
+  display: flex;
+  justify-content: flex-start;
+  align-items: baseline;
+  gap: 0;
+  margin: 0 0 22px;
+  font: var(--text-guided-meta);
+  font-weight: 400;
+  color: var(--fg-secondary);
+}
+
+.scanning-guided .scanning-subline,
+.scanning-guided .counter-tile {
+  margin: 0;
+  font: inherit;
+  color: inherit;
+}
+
+.scanning-guided .counter-tile::before {
+  content: "·";
+  padding: 0 9px;
+}
+
+.scanning-guided .progress-bar {
+  height: 3px;
+  margin: 0 0 19px;
+  background: var(--border);
+  border-radius: var(--radius-pill);
+}
+
+.scanning-guided .progress-bar > div {
+  border-radius: var(--radius-pill);
+}
+
+.scanning-guided .progress-list {
+  list-style: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(9, auto);
+  column-gap: var(--space-3);
+  margin: 17px 0 0;
+  padding: 0;
+}
+
+.scanning-guided .progress-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: auto;
+  min-height: 27px;
+  min-width: 0;
+  font: var(--text-body);
+  color: var(--fg-secondary);
+}
+
+.scanning-guided .progress-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scanning-guided .progress-status {
+  font: var(--text-meta);
+  color: var(--fg);
+}
+
+.scanning-guided .progress-status .progress-dot {
+  display: none;
+}
+
+.scanning-guided .progress-item.progress-prompting {
+  min-height: 27px;
+  align-items: start;
+  padding-top: 7px;
+}
+
+.scanning-guided .progress-item.progress-prompting .scan-dot {
+  margin-top: 5px;
+}
+
+.scan-dot {
+  flex: 0 0 7px;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--fg-secondary);
+  border-radius: 50%;
+}
+
+.scan-dot-passed {
+  background: var(--success-fg);
+  border-color: var(--success-fg);
+}
+
+.scan-dot-active {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.scan-dot-found {
+  background: var(--sev-critical-fg);
+  border-color: var(--sev-critical-fg);
+}
+
+.scan-dot-review {
+  background: var(--fg-secondary);
+}
+
+.scan-dot-unavailable {
+  border-style: dashed;
+}
+
+.scanning-guided .progress-dimmed .progress-item .scan-dot,
+.scanning-guided .progress-dimmed .progress-item .progress-label {
+  opacity: 0.7;
+}
+
+.scan-summary {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.scan-summary .guided-status {
+  margin: 0;
+}
+
+/* Short windows: the kit's 700 px rules. */
+@media (max-height: 700px) {
+  .guided {
+    padding-top: 42px;
+  }
+
+  .guided-progress {
+    margin-bottom: 29px;
+  }
+
+  .guided-title {
+    margin-bottom: 12px;
+  }
+
+  .guided-body {
+    margin-bottom: 20px;
+  }
+
+  .guided-list {
+    margin: 10px 0 18px;
+  }
+
+  .guided-row {
+    padding: 7px 0;
+  }
+
+  .guided-status-mark {
+    margin-bottom: 16px;
+  }
+
+  .guided-end .guided-status-mark {
+    width: 44px;
+    height: 44px;
+    margin-bottom: 12px;
+  }
+
+  .guided-end .guided-tick {
+    width: 22px;
+    height: 22px;
+  }
+
+  .guided-end .guided-body {
+    margin-bottom: 14px;
+  }
+
+  .guided-summary-group + .guided-summary-group {
+    margin-top: 8px;
+  }
+
+  .guided-summary-label {
+    margin-bottom: 0;
+  }
+
+  .guided-summary-row {
+    min-height: 34px;
+    padding-top: 5px;
+    padding-bottom: 5px;
+  }
+
+  .guided-end .guided-link {
+    margin-top: 8px;
+  }
+
+  .guided-muted-card {
+    margin-bottom: 18px;
+  }
+
+  .scanning-guided .progress-item {
+    min-height: 24px;
+  }
+}
+
+@media (max-width: 960px) {
+  .guided-content {
+    padding: 0 28px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .guided-step,
   .guided-tick,
-  .guided .spin {
+  .guided .spin,
+  .scanning-guided .spin {
     animation: none;
   }
 }

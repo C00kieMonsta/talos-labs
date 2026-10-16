@@ -1,17 +1,17 @@
-import type { Finding, Prioritisation, RuleId, ScanReport, Severity, UnknownReason } from "@talos/core";
+import type { Finding, Prioritisation, RuleId, ScanReport, UnknownReason } from "@talos/core";
 import { AiCard, useAiCardFlow } from "../components/AiCard";
 import { FindingCard } from "../components/FindingCard";
 import { choiceFor, pathChoices } from "../components/FixCard";
 import { FixFlow } from "../components/FixSheet";
 import { PermissionCard } from "../components/PermissionCard";
 import { ScoreMeter } from "../components/ScoreMeter";
-import { GRADE_SUMMARY, SEVERITY_LABELS, SOCKET_TABLE_COPY, UNKNOWN_REASON_LABELS, paneForReason } from "../app/labels";
+import { Icon } from "../components/Icon";
+import { ICONS } from "../app/icons";
+import { GRADE_SUMMARY, SOCKET_TABLE_COPY, UNKNOWN_REASON_LABELS, paneForReason } from "../app/labels";
 import { useApp } from "../app/context";
 import { hiddenBySocketTable } from "../app/network-checks";
 import { lastReport } from "../scan/machine";
 import type { PermissionKind } from "../scan/useCapabilityPoll";
-
-const COUNTED: readonly Severity[] = ["critical", "high", "medium", "low"];
 
 function groupByPermission(findings: readonly Finding[]): Map<PermissionKind, Finding[]> {
   const groups = new Map<PermissionKind, Finding[]>();
@@ -45,13 +45,13 @@ export function Overview() {
 
   if (report === null) {
     return (
-      <main className="screen overview">
+      <div className="screen overview">
         <h1>Overview</h1>
         <p className="lead">Run a check-up to see how your Mac is doing.</p>
         <button type="button" className="button button-primary" onClick={() => void scan.start()}>
           Run check-up
         </button>
-      </main>
+      </div>
     );
   }
 
@@ -97,32 +97,41 @@ export function SuggestedOrderBody({ report, priority, onOpen }: { report: ScanR
   const then = priority.order.filter((id) => !startWith.includes(id));
   const seen = new Set<string>([...startWith, ...then]);
   const omitted = report.findings.filter((f) => f.status !== "unknown" && !seen.has(f.ruleId)).map((f) => f.ruleId);
-  const item = (id: RuleId, withReason: boolean) => (
+  // Each entry is one row: the rank in the mark, the headline, the model's reason under it, a chevron.
+  const item = (id: RuleId, position: number, withReason: boolean) => (
     <li key={id}>
-      <button type="button" className="link-button" data-rule-id={id} onClick={() => onOpen(id)}>
-        {headline(id)}
+      <button type="button" className="finding-row suggested-row" data-rule-id={id} onClick={() => onOpen(id)}>
+        <span className="finding-mark" aria-hidden="true">
+          {position}
+        </span>
+        <span className="finding-row-content">
+          <span className="finding-row-title">{headline(id)}</span>
+          {withReason && reason(id) !== null && <span className="finding-row-meta">{reason(id)}</span>}
+        </span>
+        <Icon icon={ICONS.chevronRight} className="finding-card-chevron" />
       </button>
-      {withReason && reason(id) !== null && <p className="muted small">{reason(id)}</p>}
     </li>
   );
   return (
     <div className="ai-body suggested-order">
       {startWith.length > 0 && (
         <>
-          <p className="label">Start with</p>
-          <ol>{startWith.map((id) => item(id, true))}</ol>
+          <p className="label-overline">Start with</p>
+          <ol>{startWith.map((id, index) => item(id, index + 1, true))}</ol>
         </>
       )}
       {then.length > 0 && (
         <>
-          <p className="label">Then</p>
-          <ol start={startWith.length + 1}>{then.map((id) => item(id, false))}</ol>
+          <p className="label-overline">Then</p>
+          <ol start={startWith.length + 1}>{then.map((id, index) => item(id, startWith.length + index + 1, false))}</ol>
         </>
       )}
       {omitted.length > 0 && (
         <>
-          <p className="label">Then, in points order</p>
-          <ol start={startWith.length + then.length + 1}>{omitted.map((id) => item(id, false))}</ol>
+          <p className="label-overline">Then, in points order</p>
+          <ol start={startWith.length + then.length + 1}>
+            {omitted.map((id, index) => item(id, startWith.length + then.length + index + 1, false))}
+          </ol>
         </>
       )}
     </div>
@@ -162,98 +171,111 @@ function OverviewBody({
   const networkHidden = unknown.filter((f) => hiddenBySocketTable(report, f));
   const otherUnknown = groupByReason(unknown.filter((f) => paneForReason(f.unknownReason) === null && !hiddenBySocketTable(report, f)));
   const nextThree = freeFixes.map((id) => failing.find((f) => f.ruleId === id)).filter((f): f is Finding => f !== undefined);
-  const counts = COUNTED.map((severity) => ({ severity, count: failing.filter((f) => f.severity === severity).length }));
+  const review = report.findings.filter((f) => f.status === "review");
+  const tiles = [
+    { label: "Needs fixing", count: failing.length },
+    { label: "Worth a look", count: review.length },
+    { label: "Couldn't check", count: unknown.length },
+  ];
   const { score } = report;
 
   return (
-    <main className="screen overview">
-      {score.value === null || score.grade === null ? (
-        <section className="card" aria-labelledby="no-score">
-          <h2 id="no-score">Nothing could be checked</h2>
-          <p>Every area was out of reach, so there is no score yet. Grant any permissions listed below, then run the check-up again.</p>
-        </section>
-      ) : (
-        <section className="score-panel card" aria-labelledby="score-heading">
-          <ScoreMeter value={score.value} grade={score.grade} cappedByCritical={score.cappedByCritical} />
-          <div className="score-text">
-            <h2 id="score-heading">{GRADE_SUMMARY[score.grade]}</h2>
-            {!score.complete && (
-              <p>
-                <span className="badge badge-incomplete">Incomplete</span>{" "}
-                <span className="muted">Some areas could not be checked. They are not counted, so the real score may be lower than this.</span>
+    <div className="screen overview">
+      <div className="expert-grid">
+        {score.value === null || score.grade === null ? (
+          <section className="card score-card" aria-labelledby="no-score">
+            <h2 id="no-score">Nothing could be checked</h2>
+            <p>Every area was out of reach, so there is no score yet. Grant any permissions listed below, then run the check-up again.</p>
+          </section>
+        ) : (
+          <section className="card score-card" aria-labelledby="score-heading">
+            <ScoreMeter value={score.value} grade={score.grade} cappedByCritical={score.cappedByCritical} />
+            <h2 id="score-heading" className="score-description">
+              {GRADE_SUMMARY[score.grade]}
+            </h2>
+            {(!score.complete || score.cappedByCritical) && (
+              <p className="fine-print score-fine-print score-status">
+                {!score.complete && <span>Incomplete</span>}
+                {!score.complete && score.cappedByCritical && <span aria-hidden="true"> · </span>}
+                {score.cappedByCritical && <span>Capped by a critical issue</span>}
               </p>
             )}
-            {score.cappedByCritical && <p className="muted">A critical issue caps the score at 59 until it is fixed.</p>}
-            <ul className="counts" aria-label="Issues by severity">
-              {counts.map(({ severity, count }) => (
-                <li key={severity} className={`count count-${severity}`}>
-                  <span className="count-number">{count}</span>
-                  <span className="count-label">{SEVERITY_LABELS[severity]}</span>
+            {!score.complete && (
+              <p className="fine-print score-fine-print">Some areas could not be checked. They are not counted, so the real score may be lower than this.</p>
+            )}
+            {score.cappedByCritical && <p className="fine-print score-fine-print">A critical issue caps the score at 59 until it is fixed.</p>}
+            <ul className="grid-stats" aria-label="Checks by status">
+              {tiles.map(({ label, count }) => (
+                <li key={label}>
+                  <b>{count}</b>
+                  <small>{label}</small>
                 </li>
               ))}
             </ul>
-          </div>
-        </section>
-      )}
+          </section>
+        )}
 
-      {aiEnabled && score.value !== null && failing.length > 0 && <OverviewAiCard report={report} onOpen={onOpenFinding} />}
+        <div className="expert-column">
+          {nextThree.length > 0 && (
+            <section className="card" aria-labelledby="next-fixes">
+              <div className="section-head">
+                <h2 id="next-fixes">Next three fixes</h2>
+                <button type="button" className="toolbar-button" onClick={onAll}>
+                  See everything
+                </button>
+              </div>
+              <div className="finding-rows">
+                {nextThree.map((finding) => (
+                  <FindingCard key={finding.ruleId} finding={finding} onOpen={onOpenFinding} onAction={onAction} />
+                ))}
+              </div>
+            </section>
+          )}
 
-      {nextThree.length > 0 && (
-        <section aria-labelledby="next-fixes">
-          <div className="section-head">
-            <h2 id="next-fixes">Next three fixes</h2>
-            <button type="button" className="button button-ghost" onClick={onAll}>
-              See everything
-            </button>
-          </div>
-          <div className="card-grid">
-            {nextThree.map((finding) => (
-              <FindingCard key={finding.ruleId} finding={finding} onOpen={onOpenFinding} onAction={onAction} />
-            ))}
-          </div>
-        </section>
-      )}
+          {aiEnabled && score.value !== null && failing.length > 0 && <OverviewAiCard report={report} onOpen={onOpenFinding} />}
 
-      {failing.length === 0 && score.value !== null && (
-        <section className="card card-good" aria-labelledby="all-good">
-          <h2 id="all-good">Nothing needs fixing</h2>
-          <p>Every check that could run passed. Rescan now and then to keep it that way.</p>
-        </section>
-      )}
+          {failing.length === 0 && score.value !== null && (
+            <section className="card card-good" aria-labelledby="all-good">
+              <h2 id="all-good">Nothing needs fixing</h2>
+              <p>Every check that could run passed. Rescan now and then to keep it that way.</p>
+            </section>
+          )}
 
-      {(permissions.size > 0 || networkHidden.length > 0 || otherUnknown.length > 0) && (
-        <section aria-labelledby="couldnt-check">
-          <h2 id="couldnt-check">Couldn't check</h2>
-          <div className="card-grid">
-            {[...permissions.entries()].map(([kind, findings]) => (
-              <PermissionCard key={kind} kind={kind} affected={findings.map((f) => f.title)} capabilities={capabilities} />
-            ))}
-            {networkHidden.length > 0 && (
-              <section className="card card-muted" aria-labelledby="unsigned-build">
-                <h3 id="unsigned-build">Network checks are unavailable in this build</h3>
-                <p>{SOCKET_TABLE_COPY}</p>
-                <p className="muted">Affects: {networkHidden.map((f) => f.title).join(", ")}</p>
-              </section>
-            )}
-            {otherUnknown.map((group) => {
-              const label = group.reason === null ? NO_REASON_LABEL : UNKNOWN_REASON_LABELS[group.reason];
-              const id = `reason-${group.reason ?? "none"}`;
-              const count = group.findings.length;
-              return (
-                <section key={id} className="card card-muted" aria-labelledby={id}>
-                  <h3 id={id}>{label}</h3>
-                  <p className="muted">
-                    Affects {count} {count === 1 ? "check" : "checks"}: {group.findings.map((f) => f.title).join(", ")}
-                  </p>
-                  <button type="button" className="button button-ghost" onClick={onAll}>
-                    See in Findings
-                  </button>
-                </section>
-              );
-            })}
-          </div>
-        </section>
-      )}
-    </main>
+          {(permissions.size > 0 || networkHidden.length > 0 || otherUnknown.length > 0) && (
+            <section className="card couldnt-check" aria-labelledby="couldnt-check">
+              <h2 id="couldnt-check">Couldn't check</h2>
+              <div className="card-grid">
+                {[...permissions.entries()].map(([kind, findings]) => (
+                  <PermissionCard key={kind} kind={kind} affected={findings.map((f) => f.title)} capabilities={capabilities} />
+                ))}
+                {networkHidden.length > 0 && (
+                  <section className="card card-muted" aria-labelledby="unsigned-build">
+                    <h3 id="unsigned-build">Network checks are unavailable in this build</h3>
+                    <p>{SOCKET_TABLE_COPY}</p>
+                    <p className="muted">Affects: {networkHidden.map((f) => f.title).join(", ")}</p>
+                  </section>
+                )}
+                {otherUnknown.map((group) => {
+                  const label = group.reason === null ? NO_REASON_LABEL : UNKNOWN_REASON_LABELS[group.reason];
+                  const id = `reason-${group.reason ?? "none"}`;
+                  const count = group.findings.length;
+                  return (
+                    <section key={id} className="card card-muted" aria-labelledby={id}>
+                      <h3 id={id}>{label}</h3>
+                      <p className="muted">
+                        Affects {count} {count === 1 ? "check" : "checks"}: {group.findings.map((f) => f.title).join(", ")}
+                      </p>
+                      <button type="button" className="toolbar-button" onClick={onAll}>
+                        See in Findings
+                      </button>
+                    </section>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

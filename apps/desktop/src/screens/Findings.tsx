@@ -5,6 +5,8 @@ import type { Category, Finding, Rule, RuleId, ScanReport, Severity } from "@tal
 import { AiCard, useAiCardFlow } from "../components/AiCard";
 import { FindingCard } from "../components/FindingCard";
 import { SeverityBadge } from "../components/SeverityBadge";
+import { Icon } from "../components/Icon";
+import { ICONS } from "../app/icons";
 import { CATEGORY_LABELS, CATEGORY_ORDER, SEVERITY_LABELS, SEVERITY_ORDER, SOCKET_TABLE_LABEL } from "../app/labels";
 import { useApp } from "../app/context";
 import type { CategoryFilter, SeverityFilter } from "../app/router";
@@ -44,10 +46,10 @@ export function Findings() {
 
   if (report === null) {
     return (
-      <main className="screen findings">
+      <div className="screen findings">
         <h1>Findings</h1>
         <p className="lead">Run a check-up to see findings.</p>
-      </main>
+      </div>
     );
   }
 
@@ -86,7 +88,7 @@ export function Findings() {
   const showAside = settings.explainer.aiEnabled && (live || order !== null) && report.findings.some((f) => f.status !== "unknown");
 
   return (
-    <main className="screen findings">
+    <div className="screen findings">
       <ToolbarSlot>
           <label>
             <span className="visually-hidden">Filter by severity</span>
@@ -127,7 +129,7 @@ export function Findings() {
               <Group title="Worth a look" empty="Nothing to look at." findings={worthALook} rankOf={rankOf} reasonFor={reasonFor} onOpen={open} />
               <Group title="Couldn't check" empty="Everything could be checked." findings={couldntCheck} rankOf={rankOf} reasonFor={reasonFor} onOpen={open} />
 
-              <section aria-labelledby="group-passed">
+              <section className="card" aria-labelledby="group-passed">
                 <h2 id="group-passed">Passed</h2>
                 {passed.length === 0 ? (
                   <p className="muted">{filtered ? "No passing checks match the filters." : "No checks passed."}</p>
@@ -135,8 +137,17 @@ export function Findings() {
                   <ul className="passed-list">
                     {passed.map((rule) => (
                       <li key={rule.id}>
-                        <button type="button" className="link-button" data-rule-id={rule.id} onClick={() => open(rule.id)}>
-                          <SeverityBadge severity={rule.severity} /> <span className="passed-title">{rule.title}</span>
+                        <button type="button" className="finding-row passed-row" data-rule-id={rule.id} onClick={() => open(rule.id)}>
+                          <span className="finding-mark finding-mark-pass" aria-hidden="true">
+                            <Icon icon={ICONS.check} />
+                          </span>
+                          <span className="finding-row-content">
+                            <span className="passed-title">{rule.title}</span>
+                          </span>
+                          <span className="finding-row-trail">
+                            <SeverityBadge severity={rule.severity} />
+                          </span>
+                          <Icon icon={ICONS.chevronRight} className="finding-card-chevron" />
                         </button>
                       </li>
                     ))}
@@ -154,7 +165,7 @@ export function Findings() {
 
         {showAside && <SuggestedOrder report={report} onOpen={open} />}
       </div>
-    </main>
+    </div>
   );
 }
 
@@ -199,7 +210,7 @@ function Group({
   const id = `group-${title.toLowerCase().replace(/[^a-z]+/g, "-")}`;
   const count = findings.length;
   return (
-    <section aria-labelledby={id}>
+    <section className="card" aria-labelledby={id}>
       {/* Reads as "Needs fixing, 9 items"; the visible number alone would be heard as part of the title. */}
       <h2 id={id}>
         <span className="visually-hidden">
@@ -212,7 +223,7 @@ function Group({
       {findings.length === 0 ? (
         <p className="muted">{empty}</p>
       ) : (
-        <div className="card-grid">
+        <div className="finding-rows">
           {findings.map((finding) => {
             const rank = rankOf.get(finding.ruleId);
             const reasonLabel = reasonFor(finding);

@@ -46,7 +46,7 @@ export function Welcome({
         <p className="lead">{WELCOME_LEAD}</p>
       </header>
 
-      <div className="two-col">
+      <div className="two-col read-columns">
         <section aria-labelledby="reads">
           <h2 id="reads">Reads</h2>
           <ul className="plain-list">

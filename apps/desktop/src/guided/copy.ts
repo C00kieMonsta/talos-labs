@@ -19,6 +19,8 @@ export const WELCOME = {
 
 export const SCANNING_TITLE = "Checking your Mac";
 export const STOPPED = { title: "I stopped before finishing.", button: "Check again" } as const;
+/** The guided home with the automatic check-up switched off, or reached before any check-up ran. */
+export const READY = { title: "Ready when you are.", body: "I'll look at your Mac's safety settings and fix what I can.", button: "Check my Mac" } as const;
 export const FAILED = {
   title: "I couldn't finish checking.",
   body: "Something went wrong on my side, not yours. Nothing was changed.",

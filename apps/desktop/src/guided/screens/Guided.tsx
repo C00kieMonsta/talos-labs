@@ -5,7 +5,7 @@ import { EndScreen } from "../EndScreen";
 import { GuidedWelcome } from "../GuidedWelcome";
 import { SinceScreen } from "../SinceScreen";
 import { StepFrame } from "../StepFrame";
-import { FAILED, STOPPED } from "../copy";
+import { FAILED, READY, STOPPED } from "../copy";
 import { BatchStep } from "./BatchStep";
 import { FixStep } from "./FixStep";
 import { PaywallStep } from "./PaywallStep";
@@ -15,15 +15,18 @@ import { ShowStep } from "./ShowStep";
 
 /** One screen per phase. The scanning phase is drawn by App.tsx, which owns the pacer. */
 export function Guided({ controller, onWelcomeStart }: { controller: GuidedController; onWelcomeStart(): void }) {
-  const { settings } = useApp();
+  const { settings, scan } = useApp();
   const { phase } = controller;
   switch (phase.kind) {
     case "welcome":
       return <GuidedWelcome onStart={onWelcomeStart} />;
     case "scanning":
       return null;
-    case "stopped":
-      return <StepFrame progress={null} title={STOPPED.title} primary={{ label: STOPPED.button, onClick: controller.start }} className="guided-stopped" />;
+    case "stopped": {
+      const cancelled = phase.cancelled === true || (scan.scan.kind === "failed" && scan.scan.error === "cancelled");
+      if (cancelled) return <StepFrame progress={null} title={STOPPED.title} primary={{ label: STOPPED.button, onClick: controller.start }} className="guided-stopped" />;
+      return <StepFrame progress={null} title={READY.title} body={<p>{READY.body}</p>} primary={{ label: READY.button, onClick: controller.start }} className="guided-ready" />;
+    }
     case "failed":
       return (
         <StepFrame progress={null} title={FAILED.title} body={<p>{FAILED.body}</p>} primary={{ label: FAILED.button, onClick: controller.start }} className="guided-failed">

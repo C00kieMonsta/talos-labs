@@ -11,7 +11,7 @@ body,
 #root {
   height: 100%;
   margin: 0;
-  background: transparent;
+  background: var(--bg-canvas);
 }
 
 body {
@@ -75,7 +75,7 @@ svg {
 
 :focus-visible {
   outline: 2px solid var(--focus);
-  outline-offset: 2px;
+  outline-offset: 3px;
 }
 
 /* Headings and notes focused by script, not by Tab, show no ring. */
@@ -95,7 +95,7 @@ svg {
   border: 0;
 }
 
-/* Shell: the sidebar paints nothing so the window material shows through. */
+/* Shell: solid mineral surfaces, hairline borders, no window material. */
 .shell {
   display: grid;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
@@ -107,17 +107,9 @@ svg {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: transparent;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
   transition: opacity var(--motion-base) var(--ease-standard);
-}
-
-/* Fallback when the window material is not available: the browser demo and any build without vibrancy. */
-.no-vibrancy .sidebar {
-  background: var(--bg-sidebar-fallback);
-}
-
-html.no-vibrancy {
-  background: var(--bg-canvas);
 }
 
 .sidebar.sidebar-dimmed,
@@ -143,6 +135,8 @@ html.no-vibrancy {
 .title-strip {
   flex: 0 0 var(--toolbar-height);
   height: var(--toolbar-height);
+  background: var(--bg-canvas);
+  border-bottom: 1px solid var(--border);
   -webkit-user-select: none;
   user-select: none;
 }
@@ -213,4 +207,20 @@ html.no-vibrancy {
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Brand row: the spiral mark and the wordmark at 13/600, used in the title strip and the sidebar. */
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font: var(--text-body);
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+.brand-mark {
+  color: var(--brand-mark);
 }

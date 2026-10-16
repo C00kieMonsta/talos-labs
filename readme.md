@@ -19,6 +19,12 @@ Code collects and judges. The LLM explains. Fixes come from a fixed table.
 
 The boundaries are described in [docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md).
 
+## Design
+
+The look follows the Mineral design kit at `Talos-Labs-Mineral-Design-Kit-v1/`: warm sand, paper and clay surfaces, hairline borders, the system font, a rust accent that is only ever an action colour, and a status that always has a word and an icon. The app icon is the Mineral spiral, generated from `apps/desktop/brand/mineral/app-icon/icon-1024.png`. Tokens, the severity and grade colours with their contrast numbers, and the icon policy are in [docs/DESIGN-MINERAL.md](docs/DESIGN-MINERAL.md).
+
+<img src="apps/desktop/brand/mineral/app-icon/icon-1024.png" width="96" alt="Talos Labs app icon: a thin spiral on a sand square">
+
 ## Requirements
 
 - macOS 26 or later. The app is a universal build and runs on Apple silicon and Intel.

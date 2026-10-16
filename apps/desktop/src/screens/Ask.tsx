@@ -39,25 +39,25 @@ export function Ask() {
 
   if (!settings.explainer.aiEnabled) {
     return (
-      <main className="screen ask">
+      <div className="screen ask">
         <p className="muted">{AI_OFF_COPY}</p>
-      </main>
+      </div>
     );
   }
 
   if (!usable) {
     return (
-      <main className="screen ask">
+      <div className="screen ask">
         <AiCard kind="ask" title="Ask" state={flow.state} {...flow.handlers} />
-      </main>
+      </div>
     );
   }
 
   if (report === null) {
     return (
-      <main className="screen ask">
+      <div className="screen ask">
         <p className="muted">Run a check-up first. Questions are answered from your report.</p>
-      </main>
+      </div>
     );
   }
 
@@ -88,7 +88,7 @@ export function Ask() {
   const headlineOf = (id: RuleId) => report?.findings.find((f) => f.ruleId === id)?.headline ?? id;
 
   return (
-    <main className="screen ask">
+    <div className="screen ask">
       <p className="muted">Questions are answered from this report only. {AI_BADGE}</p>
 
       <div className="chat" role="log" aria-live="polite" aria-label="Conversation">
@@ -102,8 +102,11 @@ export function Ask() {
               <ul className="related">
                 {message.related.map((id) => (
                   <li key={id}>
-                    <button type="button" className="link-button" data-rule-id={id} onClick={() => router.navigate({ name: "finding", ruleId: id })}>
-                      {headlineOf(id)}
+                    <button type="button" className="finding-row related-row" data-rule-id={id} onClick={() => router.navigate({ name: "finding", ruleId: id })}>
+                      <span className="finding-row-content">
+                        <span className="finding-row-title">{headlineOf(id)}</span>
+                      </span>
+                      <Icon icon={ICONS.chevronRight} className="finding-card-chevron" />
                     </button>
                   </li>
                 ))}
@@ -159,6 +162,6 @@ export function Ask() {
           </button>
         </div>
       </form>
-    </main>
+    </div>
   );
 }

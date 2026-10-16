@@ -861,9 +861,12 @@ export async function walkGuided(page: Page, baseUrl: string, visit: Visit): Pro
     await primary(page, "Yes, show me where");
     await guidedTitle(page, "Your disk is not locked");
     await primary(page, "Show me where");
-    await guidedTitle(page, "An update is waiting");
-    await primary(page, "Show me where");
-    await guidedTitle(page, "Can I check your web browser too?");
+    // The batch's recheck of the updates area clears 010 on this fixture, so the update step may already be gone.
+    await guidedTitle(page, /An update is waiting|Can I check your web browser too\?/);
+    if ((await page.locator(".guided h1").filter({ hasText: "An update is waiting" }).count()) > 0) {
+      await primary(page, "Show me where");
+      await guidedTitle(page, "Can I check your web browser too?");
+    }
     await primary(page, "Show me where");
     await guidedTitle(page, "Your Mac is in good shape.");
     await assertGuidedScreen(page, { primaries: 0 });

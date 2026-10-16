@@ -1,4 +1,4 @@
-/* Design tokens. Values from docs/DESIGN-V02.md section 2. */
+/* Design tokens. Values from the Mineral design kit (brand/mineral, tokens/talos-tokens.css). Contrast table: CONTRAST.md. */
 
 :root {
   color-scheme: light dark;
@@ -6,16 +6,23 @@
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* Each text token is a font shorthand; apply with font: var(--text-*). */
+  /* Each text token is a font shorthand; apply with font: var(--text-*). Expert sizes 13/11/12/17/20. */
   --text-caption: 500 11px/1.3 var(--font);
-  --text-meta: 500 12px/1.3 var(--font);
-  --text-body: 400 13px/1.46 var(--font);
+  --text-meta: 500 12px/1.35 var(--font);
+  --text-body: 400 13px/1.45 var(--font);
   --text-reading: 400 14px/1.5 var(--font);
-  --text-title3: 600 17px/1.3 var(--font);
-  --text-title2: 600 20px/1.25 var(--font);
-  --text-title1: 700 28px/1.15 var(--font);
-  --text-hero: 700 48px/1 var(--font);
+  --text-title3: 600 17px/1.25 var(--font);
+  --text-title2: 600 20px/1.2 var(--font);
+  --text-title1: 600 28px/1.15 var(--font);
+  --text-hero: 600 48px/1 var(--font);
   --text-mono: 400 12px/1.5 var(--mono);
+
+  /* Guided scale from tokens/type-scale.json: 26/17/16/14, button 17. */
+  --text-guided-title: 600 26px/1.2 var(--font);
+  --text-guided-body: 400 17px/1.5 var(--font);
+  --text-guided-list: 400 16px/1.45 var(--font);
+  --text-guided-meta: 500 14px/1.3 var(--font);
+  --text-guided-button: 600 17px/1.25 var(--font);
 
   --space-0: 4px;
   --space-1: 8px;
@@ -26,9 +33,9 @@
   --space-6: 48px;
   --space-8: 64px;
 
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  --radius-sm: 7px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
   --radius-pill: 999px;
 
   --motion-fast: 150ms;
@@ -39,104 +46,115 @@
 
   --control-sm: 28px;
   --control: 32px;
+  --control-guided: 44px;
   --toolbar-height: 52px;
   --sidebar-width: 220px;
+  --guided-width: 560px;
   --body-max: 880px;
 
-  --bg-canvas: #f5f5f7;
-  --bg-elevated: #ffffff;
-  --bg-inset: #ededf0;
-  --bg-hover: #f2f2f5;
-  --bg-pressed: #e6e6ea;
-  --bg-sidebar-fallback: #ececee;
-  --fg: #1d1d1f;
-  --fg-secondary: #636366;
-  --fg-tertiary: #86868b;
-  --border: #d9d9de;
-  --border-strong: #a9a9b0;
-  --accent: #1f5fa8;
+  /* Surfaces: sand, paper, clay. Hairline borders, no shadows except the sheet's. */
+  --bg-canvas: #f5efe8;
+  --bg-elevated: #fffcf8;
+  --bg-inset: #ebdfd4;
+  --bg-sidebar: #f0e7df;
+  --bg-sidebar-fallback: var(--bg-sidebar);
+  --bg-hover: #e5d8cb;
+  --bg-pressed: #ddd0c4;
+  --fg: #2c211c;
+  /* Kit secondary #756158 darkened one step so it clears 4.5:1 on clay and the hover step. */
+  --fg-secondary: #6f5b52;
+  /* Stone, darkened one step so icons clear 3:1. Icons and decorative strokes only, never text. */
+  --fg-tertiary: #9e8575;
+  --border: #d6c6b9;
+  --border-strong: #79665c;
+  --brand-mark: #35241f;
+  /* Rust is the action colour. It is never a severity colour. */
+  --accent: #87402d;
+  --accent-hover: #693122;
   --accent-fg: #ffffff;
-  --sidebar-selection: rgba(31, 95, 168, 0.14);
-  --sidebar-selection-inactive: rgba(0, 0, 0, 0.08);
-  --focus: #2f7ddb;
-  --focus-halo: rgba(47, 125, 219, 0.25);
-  --success-fg: #15703a;
-  --notice-bg: #fff4d6;
-  --notice-fg: #6b4e00;
-  --danger: #c62828;
+  --sidebar-selection: #ebdfd4;
+  --sidebar-selection-inactive: #e6ddd4;
+  --focus: #a55c44;
+  --focus-halo: rgba(165, 92, 68, 0.25);
+  --success-fg: #32624e;
+  --notice-bg: #f6ecde;
+  --notice-fg: #83643f;
+  --danger: #9b403b;
   --danger-fg: #ffffff;
-  --scrim: rgba(0, 0, 0, 0.18);
-  --shadow-sheet: 0 12px 32px rgba(0, 0, 0, 0.14);
+  --scrim: rgba(44, 33, 28, 0.2);
+  --shadow-sheet: 0 12px 32px rgba(53, 36, 31, 0.16);
   --card-highlight: none;
 
-  --sev-critical-fg: #a11c1c;
-  --sev-critical-bg: #fce9e9;
-  --sev-high-fg: #993d00;
-  --sev-high-bg: #fdeadc;
-  --sev-medium-fg: #6f4d00;
-  --sev-medium-bg: #fbf0c9;
-  --sev-low-fg: #1d4f8c;
-  --sev-low-bg: #e4edf9;
-  --sev-info-fg: #4b4b55;
-  --sev-info-bg: #ebebef;
+  --sev-critical-fg: #9b403b;
+  --sev-critical-bg: #f7e4e1;
+  --sev-high-fg: #6e2a1f;
+  --sev-high-bg: #f5e6de;
+  --sev-medium-fg: #83643f;
+  --sev-medium-bg: #f6ecde;
+  --sev-low-fg: #6f5d53;
+  --sev-low-bg: #ebdfd4;
+  --sev-info-fg: #6b5c55;
+  --sev-info-bg: #ebdfd4;
 
-  --grade-good: #1d8a4a;
-  --grade-good-track: #d4efdf;
-  --grade-fair: #a36a00;
-  --grade-fair-track: #fbe9bf;
-  --grade-poor: #c2410c;
-  --grade-poor-track: #fde0cf;
-  --grade-at_risk: #b42318;
-  --grade-at_risk-track: #fbd5d1;
+  --grade-good: #32624e;
+  --grade-good-track: #d5e6dc;
+  --grade-fair: #83643f;
+  --grade-fair-track: #efe3cf;
+  --grade-poor: #9a5a1f;
+  --grade-poor-track: #f3e2cc;
+  --grade-at_risk: #9b403b;
+  --grade-at_risk-track: #f2d8d4;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg-canvas: #1c1c1e;
-    --bg-elevated: #2c2c2e;
-    --bg-inset: #3a3a3c;
-    --bg-hover: #333336;
-    --bg-pressed: #3d3d41;
-    --bg-sidebar-fallback: #242426;
-    --fg: #f5f5f7;
-    --fg-secondary: #aeaeb2;
-    --fg-tertiary: #8e8e93;
-    --border: #3f3f44;
-    --border-strong: #6b6b72;
-    --accent: #7cb4f3;
-    --accent-fg: #0b1b2e;
-    --sidebar-selection: rgba(124, 180, 243, 0.22);
-    --sidebar-selection-inactive: rgba(255, 255, 255, 0.1);
-    --focus: #8fc0ff;
-    --focus-halo: rgba(143, 192, 255, 0.3);
-    --success-fg: #4fd38a;
-    --notice-bg: #3a2f10;
-    --notice-fg: #f3d98a;
-    --danger: #ff8a80;
-    --danger-fg: #1c1c1e;
-    --scrim: rgba(0, 0, 0, 0.4);
-    --shadow-sheet: 0 12px 32px rgba(0, 0, 0, 0.55);
-    --card-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    --bg-canvas: #241b18;
+    --bg-elevated: #312723;
+    --bg-inset: #41352f;
+    --bg-sidebar: #2b211e;
+    --bg-hover: #3a2e29;
+    --bg-pressed: #41352f;
+    --fg: #f6ede6;
+    --fg-secondary: #c8b8ad;
+    --fg-tertiary: #af9788;
+    --border: #58483f;
+    --border-strong: #8c7a6e;
+    --brand-mark: #fffcf8;
+    --accent: #e6b49d;
+    --accent-hover: #f0cab7;
+    --accent-fg: #241b18;
+    --sidebar-selection: #41352f;
+    --sidebar-selection-inactive: #382d28;
+    --focus: #e3ad92;
+    --focus-halo: rgba(227, 173, 146, 0.3);
+    --success-fg: #a6d5b6;
+    --notice-bg: #3f3322;
+    --notice-fg: #e3c48b;
+    --danger: #f1aaa4;
+    --danger-fg: #241b18;
+    --scrim: rgba(0, 0, 0, 0.45);
+    --shadow-sheet: 0 12px 32px rgba(0, 0, 0, 0.5);
+    --card-highlight: none;
 
-    --sev-critical-fg: #ff8a80;
-    --sev-critical-bg: #3a1b1b;
-    --sev-high-fg: #ffb27a;
-    --sev-high-bg: #3b2512;
-    --sev-medium-fg: #f0d070;
-    --sev-medium-bg: #352c10;
-    --sev-low-fg: #8fc0f5;
-    --sev-low-bg: #17283d;
-    --sev-info-fg: #c7c7cc;
-    --sev-info-bg: #3a3a3c;
+    --sev-critical-fg: #f1aaa4;
+    --sev-critical-bg: #4a2a28;
+    --sev-high-fg: #eca48c;
+    --sev-high-bg: #452b22;
+    --sev-medium-fg: #e3c48b;
+    --sev-medium-bg: #3f3322;
+    --sev-low-fg: #c8b8ad;
+    --sev-low-bg: #41352f;
+    --sev-info-fg: #b9a396;
+    --sev-info-bg: #41352f;
 
-    --grade-good: #4fd38a;
-    --grade-good-track: #143425;
-    --grade-fair: #f2c14e;
-    --grade-fair-track: #3a2e0f;
-    --grade-poor: #f58a5b;
-    --grade-poor-track: #3d2214;
-    --grade-at_risk: #f47b73;
-    --grade-at_risk-track: #3e1c1a;
+    --grade-good: #a6d5b6;
+    --grade-good-track: #1f3a2e;
+    --grade-fair: #e3c48b;
+    --grade-fair-track: #3f3322;
+    --grade-poor: #e8a371;
+    --grade-poor-track: #45301e;
+    --grade-at_risk: #f1aaa4;
+    --grade-at_risk-track: #4a2a28;
   }
 }
 

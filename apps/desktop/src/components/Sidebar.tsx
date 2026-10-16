@@ -12,8 +12,8 @@ export interface NavItem {
 }
 
 /**
- * The left column. Paints nothing so the window material shows through. The title strip at the top
- * is a drag region that leaves room for the traffic lights.
+ * The 220 px left column under the title strip: 34 px rows with a kit icon, Settings and the
+ * licence pill at the foot. The brand lives in the title strip above.
  */
 export function Sidebar({
   items,
@@ -32,13 +32,6 @@ export function Sidebar({
   const licensed = license.status === "valid";
   return (
     <aside className={dimmed ? "sidebar sidebar-dimmed" : "sidebar"} inert={dimmed || undefined}>
-      <div className="title-strip" data-tauri-drag-region="true" />
-      <div className="sidebar-brand">
-        <span className="sidebar-mark" aria-hidden="true">
-          <Icon icon={ICONS.brand} size={16} className="sidebar-mark-icon" />
-        </span>
-        <span>Talos Labs</span>
-      </div>
       <nav className="sidebar-nav" aria-label="Main">
         <ul>
           {items.map((item) => (
@@ -82,11 +75,11 @@ function NavRow({
   return (
     <button
       type="button"
-      className={active ? "nav-row active" : "nav-row"}
+      className={active ? "nav-row sidebar-row active" : "nav-row sidebar-row"}
       aria-current={active ? "page" : undefined}
       onClick={() => onSelect(name)}
     >
-      <Icon icon={name === "checkup" ? ICONS.brand : NAV_ICONS[name]} />
+      <Icon icon={name === "checkup" ? ICONS.checkup : NAV_ICONS[name]} />
       <span>{label}</span>
     </button>
   );

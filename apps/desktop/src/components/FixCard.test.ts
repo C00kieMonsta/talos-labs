@@ -27,7 +27,7 @@ const NO_DEV = { ...DEV, enabled: false };
 function card(fix: Fix, evidence: readonly Evidence[], points: number, developerMode: boolean) {
   const status = "fail" as const;
   return {
-    finding: { ruleId: "TL-MAC-001" as const, title: "Your firewall is on", headline: "Firewall is off", severity: "high" as const, category: "network" as const, cis: null, requires: ["firewall" as const], status, evidence, unknownReason: null, points, explanation: "x", fix },
+    finding: { ruleId: "TL-MAC-001" as const, title: "Your firewall is on", headline: "Firewall is off", severity: "high" as const, category: "network" as const, cis: null, requires: ["firewall" as const], status, evidence, unknownReason: null, points, explanation: "x", fix, guided: { headline: "Firewall is off", why: "It matters.", verb: "Turn it on", done: "Done. Firewall on.", where: null } },
     developer: developerMode ? DEV : NO_DEV,
     fixing: null,
     watching: null,

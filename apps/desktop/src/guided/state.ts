@@ -7,7 +7,8 @@ import type { AppSettings } from "../settings";
 export type GuidedPhase =
   | { readonly kind: "welcome" }
   | { readonly kind: "scanning" }
-  | { readonly kind: "stopped" }
+  /** `cancelled` is true after a cancelled check-up; false when the guide is waiting with the automatic check-up off. */
+  | { readonly kind: "stopped"; readonly cancelled?: boolean }
   | { readonly kind: "failed"; readonly error: ScanError }
   | { readonly kind: "since"; readonly diff: ReportDiff; readonly plan: GuidedPlan }
   /** `same` is true when a previous report exists and nothing changed. */
@@ -76,7 +77,7 @@ export function stepBusy(phase: GuidedPhase): boolean {
 }
 
 /** The progress line of a step reads "1 of 5" on the first step; the bar fills the steps already done. */
-export function stepProgress(controller: GuidedController): { done: number; of: number } {
+export function stepProgress(controller: GuidedController): { done: number; of: number; completed: number } {
   const { done, of } = controller.progress;
-  return { done: Math.min(done + 1, of), of };
+  return { done: Math.min(done + 1, of), of, completed: done };
 }

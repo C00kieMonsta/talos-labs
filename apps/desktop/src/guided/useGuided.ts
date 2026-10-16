@@ -13,7 +13,8 @@ export type { GuidedController, GuidedDeps, GuidedPhase, StepState } from "./sta
 
 /** The guided controller: phase transitions, memory writes and timers on top of the scan machine. */
 export function useGuided(scan: ScanController, deps: GuidedDeps): GuidedController {
-  const [phase, setPhaseState] = useState<GuidedPhase>(() => (deps.settings.onboarded ? { kind: "scanning" } : { kind: "welcome" }));
+  // With the automatic check-up off, the guide waits on its "Ready when you are." screen instead of a spinner.
+  const [phase, setPhaseState] = useState<GuidedPhase>(() => (!deps.settings.onboarded ? { kind: "welcome" } : deps.settings.guided.autoScan ? { kind: "scanning" } : { kind: "stopped" }));
   const coreRef = useRef<Core | null>(null);
   if (coreRef.current === null) {
     const core: Core = {

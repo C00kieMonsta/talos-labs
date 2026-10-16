@@ -4,7 +4,7 @@ import { SEVERITY_WEIGHT } from "@talos/core";
 import { ICONS } from "../app/icons";
 import { SIDE_EFFECT_LABELS } from "../app/labels";
 import type { DeveloperSettings } from "../settings";
-import type { FixingState } from "../scan/machine";
+import type { SingleFixingState } from "../scan/machine";
 import { useApp } from "../app/context";
 import { choiceFor, pathChoices } from "./FixCard";
 import { Icon } from "./Icon";
@@ -27,7 +27,7 @@ import {
 
 export interface FixSheetProps {
   finding: Finding;
-  fixing: FixingState;
+  fixing: SingleFixingState;
   developer: DeveloperSettings;
   onApply(passphrase?: string): void;
   /** Stops a running apply. */
@@ -229,6 +229,7 @@ function passedFinding(catalog: RuleCatalog, ruleId: RuleId): Finding | null {
     points: SEVERITY_WEIGHT[rule.severity],
     explanation: rule.explanation,
     fix: rule.fix,
+    guided: rule.guided,
   };
 }
 
@@ -238,6 +239,7 @@ export function FixFlow() {
   const state = scan.scan;
   if (state.kind !== "ready" || state.fixing === null) return null;
   const { fixing } = state;
+  if (fixing.kind !== "single") return null;
   const finding = state.report.findings.find((f) => f.ruleId === fixing.plan.ruleId) ?? passedFinding(catalog, fixing.plan.ruleId);
   if (finding === null) return null;
   const retry = () => {
