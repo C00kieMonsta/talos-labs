@@ -1,3 +1,4 @@
+import type { GuidedStrings } from "./rule";
 import type { SectionKey, UnavailableReason } from "./system-state";
 
 export type Severity = "critical" | "high" | "medium" | "low" | "info";
@@ -186,4 +187,6 @@ export interface Finding {
   /** Authored plain-language text. Shown with no LLM. */
   readonly explanation: string;
   readonly fix: Fix;
+  /** Guided-flow copy, copied from the rule. */
+  readonly guided: GuidedStrings;
 }

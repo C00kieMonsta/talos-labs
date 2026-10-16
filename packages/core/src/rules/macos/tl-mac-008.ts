@@ -14,6 +14,13 @@ export const TL_MAC_008: Rule = {
   evidenceVocabulary: { autoInstallOs: TRI_VOCABULARY },
   explanation:
     "Apple fixes security holes in macOS with each update, and attackers start using those holes as soon as the fix is public. With automatic installs on, your Mac applies updates overnight while it is plugged in. With it off, you stay exposed until you do it by hand.",
+  guided: {
+    headline: "macOS updates do not install on their own",
+    why: "A Mac that updates itself stays safe without you thinking about it.",
+    verb: "Turn it on",
+    done: "Done. macOS updates install on their own.",
+    where: null,
+  },
   fix: {
     summary: "Turn on automatic installation of macOS updates.",
     settingsPath: ["System Settings", "General", "Software Update"],

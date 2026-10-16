@@ -3,6 +3,7 @@
 exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
 [
   {
+    "batchable": false,
     "choice": null,
     "kind": "deep_link",
     "needsPassword": false,
@@ -15,6 +16,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     ],
   },
   {
+    "batchable": true,
     "choice": "none",
     "kind": "in_app",
     "needsPassword": true,
@@ -27,6 +29,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     "watch": [],
   },
   {
+    "batchable": true,
     "choice": "none",
     "kind": "in_app",
     "needsPassword": true,
@@ -39,6 +42,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     "watch": [],
   },
   {
+    "batchable": false,
     "choice": null,
     "kind": "deep_link",
     "needsPassword": false,
@@ -51,6 +55,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     ],
   },
   {
+    "batchable": false,
     "choice": null,
     "kind": "manual",
     "needsPassword": false,
@@ -61,6 +66,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     "watch": [],
   },
   {
+    "batchable": false,
     "choice": null,
     "kind": "deep_link",
     "needsPassword": false,
@@ -73,6 +79,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     ],
   },
   {
+    "batchable": true,
     "choice": "none",
     "kind": "in_app",
     "needsPassword": true,
@@ -85,6 +92,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     "watch": [],
   },
   {
+    "batchable": true,
     "choice": "none",
     "kind": "in_app",
     "needsPassword": true,
@@ -97,6 +105,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     "watch": [],
   },
   {
+    "batchable": true,
     "choice": "none",
     "kind": "in_app",
     "needsPassword": true,
@@ -109,6 +118,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     "watch": [],
   },
   {
+    "batchable": false,
     "choice": null,
     "kind": "deep_link",
     "needsPassword": false,
@@ -121,6 +131,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     ],
   },
   {
+    "batchable": true,
     "choice": "none",
     "kind": "in_app",
     "needsPassword": true,
@@ -133,6 +144,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     "watch": [],
   },
   {
+    "batchable": false,
     "choice": null,
     "kind": "deep_link",
     "needsPassword": false,
@@ -145,6 +157,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     ],
   },
   {
+    "batchable": true,
     "choice": "none",
     "kind": "in_app",
     "needsPassword": false,
@@ -157,6 +170,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     "watch": [],
   },
   {
+    "batchable": false,
     "choice": null,
     "kind": "deep_link",
     "needsPassword": false,
@@ -169,6 +183,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     ],
   },
   {
+    "batchable": true,
     "choice": "none",
     "kind": "in_app",
     "needsPassword": true,
@@ -181,6 +196,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     "watch": [],
   },
   {
+    "batchable": true,
     "choice": "none",
     "kind": "in_app",
     "needsPassword": true,
@@ -193,6 +209,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     "watch": [],
   },
   {
+    "batchable": false,
     "choice": null,
     "kind": "manual",
     "needsPassword": false,
@@ -203,6 +220,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     "watch": [],
   },
   {
+    "batchable": false,
     "choice": null,
     "kind": "deep_link",
     "needsPassword": false,
@@ -215,6 +233,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     ],
   },
   {
+    "batchable": true,
     "choice": "none",
     "kind": "in_app",
     "needsPassword": true,
@@ -228,6 +247,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     "watch": [],
   },
   {
+    "batchable": true,
     "choice": "none",
     "kind": "in_app",
     "needsPassword": true,
@@ -241,6 +261,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     "watch": [],
   },
   {
+    "batchable": true,
     "choice": "none",
     "kind": "in_app",
     "needsPassword": true,
@@ -254,6 +275,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     "watch": [],
   },
   {
+    "batchable": false,
     "choice": "share",
     "kind": "in_app",
     "needsPassword": true,
@@ -267,6 +289,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     "watch": [],
   },
   {
+    "batchable": false,
     "choice": null,
     "kind": "deep_link",
     "needsPassword": false,
@@ -279,6 +302,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     ],
   },
   {
+    "batchable": false,
     "choice": null,
     "kind": "manual",
     "needsPassword": false,
@@ -291,6 +315,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     ],
   },
   {
+    "batchable": false,
     "choice": null,
     "kind": "deep_link",
     "needsPassword": false,
@@ -303,6 +328,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     ],
   },
   {
+    "batchable": false,
     "choice": null,
     "kind": "deep_link",
     "needsPassword": false,
@@ -315,6 +341,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     ],
   },
   {
+    "batchable": false,
     "choice": null,
     "kind": "deep_link",
     "needsPassword": false,
@@ -327,6 +354,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     ],
   },
   {
+    "batchable": false,
     "choice": null,
     "kind": "manual",
     "needsPassword": false,
@@ -339,6 +367,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     ],
   },
   {
+    "batchable": false,
     "choice": "ssh_key",
     "kind": "in_app",
     "needsPassword": false,
@@ -351,6 +380,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     "watch": [],
   },
   {
+    "batchable": true,
     "choice": "all_ssh_keys",
     "kind": "in_app",
     "needsPassword": false,
@@ -363,6 +393,7 @@ exports[`packages/core/fixtures/fix-catalog.json > matches the snapshot 1`] = `
     "watch": [],
   },
   {
+    "batchable": false,
     "choice": null,
     "kind": "manual",
     "needsPassword": false,

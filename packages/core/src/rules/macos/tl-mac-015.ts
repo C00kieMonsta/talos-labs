@@ -14,6 +14,13 @@ export const TL_MAC_015: Rule = {
   evidenceVocabulary: { guestEnabled: TRI_VOCABULARY },
   explanation:
     "The Guest account lets anyone use your Mac without a password. On a laptop that is a way in for anyone who picks it up. Unless you have a specific need for it, keep it off.",
+  guided: {
+    headline: "The Guest account is on",
+    why: "Anyone can use your Mac without a password.",
+    verb: "Turn it off",
+    done: "Done. The Guest account is off.",
+    where: null,
+  },
   fix: {
     summary: "Turn off guest login in Users & Groups.",
     settingsPath: ["System Settings", "Users & Groups", "Guest User"],

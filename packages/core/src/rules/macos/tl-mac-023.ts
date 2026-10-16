@@ -15,6 +15,13 @@ export const TL_MAC_023: Rule = {
   evidenceVocabulary: {},
   explanation:
     "Some programs on this Mac are set to start on their own, in the background, every time you log in or the Mac starts. Most are harmless helpers from apps you installed, but this is also the usual way malware makes sure it keeps running. It is worth looking down the list once and removing anything you do not recognise or no longer use.",
+  guided: {
+    headline: "Some programs start on their own",
+    why: "Most are fine. It is worth a look in case one is unwanted.",
+    verb: "Show me where",
+    done: "Done. You have had a look.",
+    where: "Under \"Allow in the Background\", switch off anything you do not recognise.",
+  },
   fix: {
     summary: "Review the background items and remove any you do not recognise.",
     settingsPath: ["System Settings", "General", "Login Items & Extensions", "Allow in the Background"],

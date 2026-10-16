@@ -18,6 +18,13 @@ export const TL_MAC_028: Rule = {
   evidenceVocabulary: { browser: BROWSER_VOCABULARY, uncheckedBrowser: BROWSER_VOCABULARY },
   explanation:
     "A browser extension on this Mac is allowed to read and change every website you visit, including your bank and your email. Extensions are sold and updated by people you have never met, and a popular one can turn bad overnight. Limiting each extension to the sites it needs, or to run only when you click it, keeps the damage small if that happens.",
+  guided: {
+    headline: "A browser add-on can see every site you visit",
+    why: "It can see what you type on any page, including your bank.",
+    verb: "Details",
+    done: "Done. The add-on is limited.",
+    where: null,
+  },
   fix: {
     summary: "Limit each extension to the sites it needs, or set it to run only when you click it.",
     settingsPath: null,

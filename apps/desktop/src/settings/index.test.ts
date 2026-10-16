@@ -12,6 +12,7 @@ describe("settings defaults", () => {
       profile: { role: "individual", technical: "low", handlesClientData: false, laptopLeavesHome: true },
       onboarded: false,
       developer: { enabled: false, showCommands: true, showPlanExpanded: true },
+      guided: { home: true, autoScan: true },
     });
   });
 
@@ -27,15 +28,16 @@ describe("settings round trip", () => {
       profile: { role: "small_business", technical: "high", handlesClientData: true, laptopLeavesHome: false },
       onboarded: true,
       developer: { enabled: true, showCommands: false, showPlanExpanded: false },
+      guided: { home: false, autoScan: false },
     };
     saveSettings(next);
     expect(loadSettings()).toEqual(next);
   });
 
-  it("stores only the four top-level keys as JSON", () => {
+  it("stores only the five top-level keys as JSON", () => {
     saveSettings(DEFAULT_SETTINGS);
     const raw = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) ?? "null") as Record<string, unknown>;
-    expect(Object.keys(raw).sort()).toEqual(["developer", "explainer", "onboarded", "profile"]);
+    expect(Object.keys(raw).sort()).toEqual(["developer", "explainer", "guided", "onboarded", "profile"]);
     expect(JSON.stringify(raw)).not.toContain("apiKey");
   });
 });
@@ -93,7 +95,15 @@ describe("tolerant parsing", () => {
       profile: { role: "individual", technical: "medium", handlesClientData: false, laptopLeavesHome: false },
       onboarded: true,
       developer: { enabled: true, showCommands: false, showPlanExpanded: true },
+      guided: { home: true, autoScan: true },
     });
+  });
+
+  it("fills the guided block for a v0.2 value and repairs it field by field", () => {
+    expect(parseSettings({ onboarded: true }).guided).toEqual({ home: true, autoScan: true });
+    expect(parseSettings({ guided: { home: false } }).guided).toEqual({ home: false, autoScan: true });
+    expect(parseSettings({ guided: { autoScan: false, home: "yes" } }).guided).toEqual({ home: true, autoScan: false });
+    expect(parseSettings({ guided: "off" }).guided).toEqual({ home: true, autoScan: true });
   });
 
   it("drops unknown keys and non-object shapes", () => {

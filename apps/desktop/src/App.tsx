@@ -1,24 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AiAvailability, Capabilities, LicenseState, ScanReport } from "@talos/core";
+import type { AiAvailability, Capabilities, GuidedMemory, LicenseState, ScanReport } from "@talos/core";
+import { EMPTY_GUIDED_MEMORY } from "@talos/core";
 import { AppContext, useApp } from "./app/context";
 import type { AppContextValue } from "./app/context";
 import { adapters, buildContext, catalog, loadSettings, runEngine, saveSettings } from "./app/container";
 import { buildGate } from "./app/gate";
 import { ICONS } from "./app/icons";
-import type { NavKey } from "./app/icons";
 import { useRouter } from "./app/router";
 import type { Route, RouteMove } from "./app/router";
-import { SCAN_ERROR_LABELS, formatDateTime } from "./app/labels";
+import { CHECKUP_LABEL, SCAN_ERROR_LABELS, formatDateTime } from "./app/labels";
 import { useScan } from "./scan/useScan";
 import { useScanPacer } from "./scan/useScanPacer";
 import { useAiAvailability, REPROBE_SETTINGS_MS } from "./scan/useAiAvailability";
-import { CONTINUE_KEY } from "./scan/useCapabilityPoll";
 import type { PermissionKind } from "./scan/useCapabilityPoll";
+import { readContinue } from "./guided/continue";
+import type { ContinuePayload } from "./guided/continue";
+import { loadGuidedMemory, saveGuidedMemory } from "./guided/memory";
+import { claimLaunchScan, resetLaunchGuard } from "./guided/timing";
+import { useGuided } from "./guided/useGuided";
+import type { GuidedController } from "./guided/useGuided";
+import { GuidedShell } from "./guided/GuidedShell";
+import { Guided } from "./guided/screens/Guided";
+import { SCANNING_TITLE } from "./guided/copy";
 import { lastReport } from "./scan/machine";
 import { aiUsable as computeAiUsable } from "./settings";
 import type { AppSettings } from "./settings";
 import { Sidebar } from "./components/Sidebar";
-import type { NavItem } from "./components/Sidebar";
+import type { NavItem, SidebarKey } from "./components/Sidebar";
 import { Toolbar } from "./components/Toolbar";
 import type { ToolbarAction } from "./components/Toolbar";
 import { ScreenErrorBoundary } from "./components/ScreenErrorBoundary";
@@ -30,7 +38,8 @@ import { FindingDetail } from "./screens/FindingDetail";
 import { Ask } from "./screens/Ask";
 import { Settings } from "./screens/Settings";
 
-const NAV_ROUTES: Readonly<Record<NavKey, Route>> = {
+const NAV_ROUTES: Readonly<Record<SidebarKey, Route>> = {
+  checkup: { name: "guided" },
   overview: { name: "overview" },
   findings: { name: "findings" },
   ask: { name: "ask" },
@@ -46,7 +55,17 @@ function inTauri(): boolean {
 function useWindowInactive(): boolean {
   const [inactive, setInactive] = useState(false);
   useEffect(() => {
-    if (!inTauri()) return;
+    if (!inTauri()) {
+      // The browser demo: DOM focus and blur stand in, so the guide's timers pause the same way.
+      const onFocus = () => setInactive(false);
+      const onBlur = () => setInactive(true);
+      window.addEventListener("focus", onFocus);
+      window.addEventListener("blur", onBlur);
+      return () => {
+        window.removeEventListener("focus", onFocus);
+        window.removeEventListener("blur", onBlur);
+      };
+    }
     let unlisten: (() => void) | null = null;
     let gone = false;
     void import("@tauri-apps/api/window")
@@ -88,11 +107,18 @@ function useMenuNavigate(onNavigate: (target: "settings" | "about") => void) {
   }, []);
 }
 
+/** The continue note is read once per launch, before the first render, so the guided controller can resume. */
+let continueNote: ContinuePayload | null | undefined;
+
 export default function App() {
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   const [license, setLicense] = useState<LicenseState>({ status: "none" });
-  const router = useRouter();
+  const [memory, setMemory] = useState<GuidedMemory>(() => loadGuidedMemory());
+  if (continueNote === undefined) continueNote = readContinue();
+  const resume = continueNote?.kind === "guided";
+  const router = useRouter(settings.guided.home ? { name: "guided" } : { name: "overview" });
   const inactive = useWindowInactive();
+  const reducedMotion = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const updateSettings = useCallback((patch: Partial<AppSettings>) => {
     setSettings((prev) => {
@@ -112,15 +138,31 @@ export default function App() {
     [settings.explainer, settings.profile],
   );
   const scan = useScan(deps);
-  const { loadLast } = scan;
+  const { loadLast, start } = scan;
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  // The report loadLast found, kept for the guide's "since last time" diff; the launch scan drops it from the machine.
+  const loadedReport = useRef<ScanReport | null>(null);
 
+  // The launch scan: after loadLast so the previous report is held for the diff; never twice within 60 s.
   useEffect(() => {
-    void loadLast();
+    const held = adapters.reports.loadLast().then(
+      (report) => {
+        loadedReport.current = report;
+      },
+      () => undefined,
+    );
+    void Promise.all([loadLast(), held]).then(() => {
+      const current = settingsRef.current;
+      if (!current.onboarded || !current.guided.autoScan || !current.guided.home) return;
+      if (!claimLaunchScan()) return;
+      void start();
+    });
     void adapters.license
       .current()
       .then(setLicense)
       .catch(() => setLicense({ status: "none" }));
-  }, [loadLast]);
+  }, [loadLast, start]);
 
   const report = lastReport(scan.scan);
   const gate = useMemo(() => buildGate(report, license), [report, license]);
@@ -136,20 +178,33 @@ export default function App() {
       return null;
     }
   }, []);
-  const { start } = scan;
-  // A Full Disk Access grant needs a relaunch; the relaunch continues with a fresh scan when it took.
+  // A Full Disk Access grant needs a relaunch; on the expert home the relaunch continues with a fresh scan when it took.
   useEffect(() => {
-    let pending: string | null = null;
-    try {
-      pending = localStorage.getItem(CONTINUE_KEY);
-      localStorage.removeItem(CONTINUE_KEY);
-    } catch {
-      pending = null;
-    }
+    const pending = continueNote;
     void refreshCapabilities().then((caps) => {
-      if (pending === "fda" && caps?.fullDiskAccess === true) void start();
+      if (pending?.kind === "fda" && caps?.fullDiskAccess === true && !settingsRef.current.guided.home) void start();
     });
   }, [refreshCapabilities, start]);
+
+  const saveMemory = useCallback((next: GuidedMemory) => {
+    saveGuidedMemory(next);
+    setMemory(next);
+  }, []);
+  const guided = useGuided(scan, {
+    gate,
+    settings,
+    memory,
+    saveMemory,
+    capabilitiesNow: capabilities,
+    capabilities: () => adapters.systemState.capabilities(),
+    openPane: (pane) => adapters.openSettingsPane(pane),
+    collectSection: (key) => adapters.systemState.collectSection(key),
+    restart: () => adapters.restart(),
+    reducedMotion,
+    windowFocused: !inactive,
+    resume,
+    loadedReport: () => loadedReport.current,
+  });
 
   const scanning = scan.scan.kind === "collecting" || scan.scan.kind === "evaluating" || scan.scan.kind === "presenting";
   const showShell = settings.onboarded;
@@ -176,6 +231,21 @@ export default function App() {
     [settings, updateSettings, license, gate, scan, router, aiUsable, ai, capabilities, refreshCapabilities],
   );
 
+  const guidedHome = settings.guided.home;
+  const onWelcomeStart = () => {
+    updateSettings({ onboarded: true });
+    guided.start();
+  };
+
+  if (!showShell && guidedHome) {
+    return (
+      <AppContext.Provider value={value}>
+        <GuidedShell inactive={inactive}>
+          <Guided controller={guided} onWelcomeStart={onWelcomeStart} />
+        </GuidedShell>
+      </AppContext.Provider>
+    );
+  }
   if (!showShell) {
     return (
       <AppContext.Provider value={value}>
@@ -191,12 +261,29 @@ export default function App() {
     );
   }
 
+  if (router.route.name === "guided") {
+    return (
+      <AppContext.Provider value={value}>
+        {scanning ? (
+          <ScanningShell guided inactive={inactive} />
+        ) : (
+          <GuidedShell inactive={inactive}>
+            <ScreenErrorBoundary resetKey={`guided:${guided.phase.kind}`} onRescan={() => guided.start()} onSettings={() => router.navigate({ name: "settings" })}>
+              <Guided controller={guided} onWelcomeStart={onWelcomeStart} />
+            </ScreenErrorBoundary>
+          </GuidedShell>
+        )}
+      </AppContext.Provider>
+    );
+  }
+
   const items: NavItem[] = [
+    { name: "checkup", label: CHECKUP_LABEL },
     { name: "overview", label: "Overview" },
     { name: "findings", label: "Findings" },
     ...(aiUsable ? [{ name: "ask" as const, label: "Ask" }] : []),
   ];
-  const current: NavKey = router.route.name === "finding" ? "findings" : router.route.name;
+  const current: SidebarKey = router.route.name === "finding" ? "findings" : router.route.name;
 
   return (
     <AppContext.Provider value={value}>
@@ -210,7 +297,7 @@ export default function App() {
         />
         <div className="content">
           {scanning ? (
-            <ScanningShell />
+            <ScanningShell guided={false} inactive={inactive} />
           ) : (
             <>
               <ScreenErrorBoundary
@@ -218,7 +305,7 @@ export default function App() {
                 onRescan={() => void scan.start()}
                 onSettings={() => router.navigate({ name: "settings" })}
               >
-                <Screen launchKey={launchKey} />
+                <Screen launchKey={launchKey} guided={guided} onResetMemory={() => saveMemory(EMPTY_GUIDED_MEMORY)} />
               </ScreenErrorBoundary>
             </>
           )}
@@ -233,7 +320,7 @@ function routeKey(route: Route): string {
 }
 
 /** The content column during a check-up: the Cancel icon button lives in the toolbar so it is always above the fold. */
-function ScanningShell() {
+function ScanningShell({ guided, inactive }: { guided: boolean; inactive: boolean }) {
   const { scan } = useApp();
   const [cancelling, setCancelling] = useState(false);
   const reducedMotion = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -252,12 +339,17 @@ function ScanningShell() {
     setCancelling(true);
     scan.cancel();
   };
+  const actions = [{ label: cancelling ? "Cancelling" : "Cancel", icon: ICONS.close, onClick: cancel, disabled }];
+  if (guided) {
+    return (
+      <GuidedShell title={SCANNING_TITLE} actions={actions} inactive={inactive}>
+        <Scanning pacer={pacer} report={report} />
+      </GuidedShell>
+    );
+  }
   return (
     <>
-      <Toolbar
-        title="Checking your Mac"
-        actions={[{ label: cancelling ? "Cancelling" : "Cancel", icon: ICONS.close, onClick: cancel, disabled }]}
-      />
+      <Toolbar title="Checking your Mac" actions={actions} />
       <Scanning pacer={pacer} report={report} />
     </>
   );
@@ -292,34 +384,39 @@ function Banners() {
 
 /** Toolbar contents per route. Screens that own their h1 (a finding) get no title here. */
 function RouteToolbar({ route }: { route: Route }) {
-  const { scan, router } = useApp();
+  const { scan, router, settings } = useApp();
   const report = lastReport(scan.scan);
   const rescan: ToolbarAction = { label: "Rescan", icon: ICONS.rescan, onClick: () => void scan.start() };
+  // With the guided home on, every expert screen but a finding leads back to the check-up.
+  const checkup = settings.guided.home ? { label: CHECKUP_LABEL, onClick: () => router.navigate({ name: "guided" }) } : undefined;
   switch (route.name) {
+    case "guided":
+      return null;
     case "overview":
       return (
         <Toolbar
           title="Overview"
           subtitle={report === null ? undefined : `Last check-up ${formatDateTime(report.scannedAt)}`}
+          back={checkup}
           actions={[rescan]}
         />
       );
     case "findings":
       return (
-        <Toolbar title="Findings" actions={[rescan]}>
+        <Toolbar title="Findings" back={checkup} actions={[rescan]}>
           <div id="toolbar-slot" className="toolbar-slot" />
         </Toolbar>
       );
     case "finding":
       return <Toolbar back={{ label: "Findings", onClick: () => router.back() }} />;
     case "ask":
-      return <Toolbar title="Ask" />;
+      return <Toolbar title="Ask" back={checkup} />;
     case "settings":
-      return <Toolbar title="Settings" />;
+      return <Toolbar title="Settings" back={checkup} />;
   }
 }
 
-function Screen({ launchKey }: { launchKey: { current: string | null | undefined } }) {
+function Screen({ launchKey, guided, onResetMemory }: { launchKey: { current: string | null | undefined }; guided: GuidedController; onResetMemory(): void }) {
   const { route, lastMove } = useApp().router;
   const host = useRef<HTMLDivElement>(null);
   const key = routeKey(route);
@@ -352,13 +449,13 @@ function Screen({ launchKey }: { launchKey: { current: string | null | undefined
     <div ref={host} className="screen-host">
       <RouteToolbar route={route} />
       <Banners />
-      {screenFor(route)}
+      {screenFor(route, guided, onResetMemory)}
     </div>
   );
 }
 
 /** Settings with the live AI and permission state. */
-function SettingsRoute() {
+function SettingsRoute({ guided, onResetMemory }: { guided: GuidedController; onResetMemory(): void }) {
   const { adapters: ports, ai, capabilities, refreshCapabilities, scan } = useApp();
   const { probe, availability } = ai;
   useEffect(() => {
@@ -385,12 +482,15 @@ function SettingsRoute() {
       capabilities={capabilities}
       onPermission={onPermission}
       onBuy={() => void ports.fixes.openBuyPage()}
+      guided={{ controller: guided, onResetMemory, onSkipCooldown: resetLaunchGuard }}
     />
   );
 }
 
-function screenFor(route: Route) {
+function screenFor(route: Route, guided: GuidedController, onResetMemory: () => void) {
   switch (route.name) {
+    case "guided":
+      return null;
     case "overview":
       return <Overview />;
     case "findings":
@@ -400,6 +500,6 @@ function screenFor(route: Route) {
     case "ask":
       return <Ask />;
     case "settings":
-      return <SettingsRoute />;
+      return <SettingsRoute guided={guided} onResetMemory={onResetMemory} />;
   }
 }

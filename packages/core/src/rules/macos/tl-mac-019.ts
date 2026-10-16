@@ -29,6 +29,13 @@ export const TL_MAC_019: Rule = {
   evidenceVocabulary: {},
   explanation:
     "Remote Login lets someone log in to this Mac over the network using SSH, a text-based remote control. If it is on and your password or key is weak or leaked, an attacker on the same network can get a full session on your Mac. Most people never need it on.",
+  guided: {
+    headline: "Other computers can log in to your Mac",
+    why: "Remote Login lets someone with your password use your Mac from elsewhere.",
+    verb: "Turn it off",
+    done: "Done. Remote Login is off.",
+    where: null,
+  },
   fix: {
     summary: "Turn off Remote Login in the Sharing settings.",
     settingsPath: ["System Settings", "General", "Sharing", "Remote Login"],

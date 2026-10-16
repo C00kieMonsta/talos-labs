@@ -83,14 +83,14 @@ describe("useScan fix actions", () => {
       await same.hook.result.current.applyFix();
     });
     const a = same.hook.result.current.scan;
-    expect(a.kind === "ready" && a.fixing?.result).toBe("still_failing");
+    expect(a.kind === "ready" && a.fixing?.kind === "single" && a.fixing.result).toBe("still_failing");
     const broken = await readyHook({ unreadable: true });
     await act(async () => {
       await broken.hook.result.current.previewFix("TL-MAC-002", { kind: "none" });
       await broken.hook.result.current.applyFix();
     });
     const b = broken.hook.result.current.scan;
-    expect(b.kind === "ready" && b.fixing?.result).toBe("unreadable");
+    expect(b.kind === "ready" && b.fixing?.kind === "single" && b.fixing.result).toBe("unreadable");
     expect(b.kind === "ready" && b.report.findings.some((f) => f.ruleId === "TL-MAC-002")).toBe(true);
   });
 

@@ -109,6 +109,7 @@ function toFinding(rule: Rule, result: RuleResult, status: Finding["status"]): F
     ruleId: rule.id,
     title: rule.title,
     headline: headlineFor(rule, status),
+    guided: rule.guided,
     severity: rule.severity,
     category: rule.category,
     cis: rule.cis,

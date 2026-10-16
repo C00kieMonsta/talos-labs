@@ -2,6 +2,12 @@
 
 Talos Labs is a desktop app you buy once. It reads the security settings of the Mac it runs on, judges them against the CIS Apple macOS Benchmark, explains to a non-expert what is wrong and why it matters for them, and fixes most of it in place. There is no account, no server and no background agent. The scan runs locally, the AI runs on this Mac, and the report stays on the machine.
 
+## The check-up
+
+The guided check-up is the home screen. Open the app and it checks your Mac. It then fixes what it can with one administrator password, shows you where in System Settings for the rest and watches the setting until you have changed it, and asks nothing else. Each step is one plain sentence, one button and one link. "Details" is one link away on every step and opens the expert screens (Overview, Findings, Ask, Settings) that v0.2 shipped; the two views read the same report, so a fix made in either is seen by the other.
+
+The app speaks only when it is opened: no notifications, no menu bar agent, no background scans, no nagging. A step you put off with "Do this later" stays away for 7 days and, after three times, for good. Settings has two switches to turn the automatic check and the guided home off. The flow is specified in [docs/DESIGN-V03.md](docs/DESIGN-V03.md).
+
 ## Design rule
 
 Code collects and judges. The LLM explains. Fixes come from a fixed table.
@@ -46,7 +52,7 @@ The boundaries are described in [docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md)
 - Read file contents, with two narrow exceptions: the first 4 KiB of an SSH key, to classify its header, and the fixed list of shell config files, scanned line by line for secret patterns. In both cases the bytes stay inside the collector. A dotfile hit records the file, the pattern name and the line number, never the matched value.
 - Read documents, mail, messages, photos, browser history, saved passwords or the Keychain.
 - Send the hostname, the names of shared folders, the arguments of background programs or any file path anywhere. Your account name is part of file paths shown in the report (an SSH key under your home folder, for example). Those paths stay on this Mac and never reach a model.
-- Run as root. Collectors never need an administrator password. A fix that does (the firewall, remote access, sharing, updates, the guest account) shows the exact commands first, then asks macOS to show its own administrator dialog once for the whole fix. The app never sees the password, never stores it and never runs a shell.
+- Run as root. Collectors never need an administrator password. A fix that does (the firewall, remote access, sharing, updates, the guest account) shows the exact commands first, then asks macOS to show its own administrator dialog once for the whole fix, or once for the whole batch in the check-up. The app never sees the password, never stores it and never runs a shell.
 - Run anything the catalog does not list. There is no free-form command path, in the app or in the AI.
 - Talk to the network. By default there is no outbound connection at all. The only one you can add is a Claude API key or a local Ollama server in Developer mode.
 - Open a web page to explain a finding. Explanations are produced on this Mac.
@@ -54,6 +60,8 @@ The boundaries are described in [docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md)
 ## In-app fixes
 
 Most failing findings have an Apply button. The app shows a sheet with the plain-words change, the commands it will run, and the line that reverses it. User-level changes run straight away. Administrator changes run through one native macOS password dialog per fix, then the affected sections are rechecked and the finding turns green or tells you what happened. A fix for an SSH key without a passphrase asks for the new passphrase in the app and runs `ssh-keygen -p` on that key only.
+
+The check-up groups the fixes that need no choice and no secret (13 of the 15 in-app rules; never the shared folder or the SSH key) into one batch with one password dialog. Each item is the same catalog command line as the single fix, rechecked one by one afterwards, and an item that fails does not stop the others. The batch engine is described in DESIGN-V03.md section 3 and [docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md).
 
 Settings the app will not change for you (FileVault, SIP, password policy, account changes, deleting launch items) get a button that opens the right System Settings pane. The app then watches the setting while you are away and rechecks on its own when you come back.
 
@@ -87,6 +95,8 @@ Free, before any purchase: the full scan, the score and grade, every finding wit
 
 Paid, one licence key: fixes for every finding, "Check again" per finding, AI explanations and Ask.
 
+In the check-up the free three are fixed first, and the paywall is one step after them with the key field inline. The free set is frozen when the check-up lands, so fixing one free finding does not unlock the next (DESIGN-V03.md section 1 and section 8).
+
 Licence keys are verified offline with Ed25519 and pasted into the app wherever a lock appears. No account, no phone-home. See [docs/LICENSING.md](docs/LICENSING.md).
 
 ## AI on this Mac
@@ -114,8 +124,8 @@ Toolchain versions and the full command list are in [docs/DEVELOPMENT.md](docs/D
 ## Repo layout
 
 ```
-packages/core        rule engine, catalog, fix catalog, explainer chokepoint, licence parsing; pure TypeScript
-apps/desktop         Tauri 2 app: React UI and adapters in src/, Rust collectors and fix engine in src-tauri/, Swift helper in sidecar/
+packages/core        rule engine, catalog, fix catalog, guided plan, explainer chokepoint, licence parsing; pure TypeScript
+apps/desktop         Tauri 2 app: React UI, guided flow and adapters in src/, Rust collectors and fix engine in src-tauri/, Swift helper in sidecar/
 scripts/keygen       licence keygen (keypair, issue, verify); never shipped with the app
 scripts/scan-cli.ts  run the collector and the engine from the terminal (pnpm scan)
 docs                 design, rules, CIS map, development, signing, licensing, security model
@@ -123,7 +133,7 @@ docs                 design, rules, CIS map, development, signing, licensing, se
 
 ## Status
 
-v0.2 is in development. Builds are unsigned and not notarised, so they are not for distribution. Do not hand an unsigned build to anyone. See [docs/SIGNING.md](docs/SIGNING.md).
+v0.3 (the guided check-up) is in development on top of v0.2. Builds are unsigned and not notarised, so they are not for distribution. Do not hand an unsigned build to anyone. See [docs/SIGNING.md](docs/SIGNING.md).
 
 ## Known limitations in unsigned builds
 

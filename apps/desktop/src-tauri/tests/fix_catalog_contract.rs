@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 
-use talos_desktop_lib::fix::catalog::{Choice, FIX_CATALOG, dump_json};
+use talos_desktop_lib::fix::catalog::{Choice, FIX_CATALOG, batchable, dump_json};
 
 fn fixture() -> Option<serde_json::Value> {
     let path: PathBuf = [
@@ -73,6 +73,10 @@ fn rust_catalog_matches_the_core_fixture() {
             serde_json::json!(recheck),
             "{rule}: recheck"
         );
+        // The core fixture gains `batchable` in v0.3; until then the key is absent and skipped.
+        if !entry["batchable"].is_null() {
+            assert_eq!(entry["batchable"], batchable(spec), "{rule}: batchable");
+        }
     }
 }
 

@@ -17,6 +17,8 @@ export interface AwayPollingOptions {
   readonly onExpired?: () => void;
   readonly graceMs?: number;
   readonly maxMs?: number;
+  /** Poll once as soon as focus comes back, before the next interval. */
+  readonly pollOnFocusReturn?: boolean;
 }
 
 export interface AwayPoller {
@@ -97,6 +99,11 @@ export function awayPolling(options: AwayPollingOptions): AwayPoller {
     if (next === focused) return;
     focused = next;
     focusReturnedAt = next ? Date.now() : null;
+    if (next && options.pollOnFocusReturn === true && active && !inFlight) {
+      clear();
+      void tick();
+      return;
+    }
     schedule();
   });
 

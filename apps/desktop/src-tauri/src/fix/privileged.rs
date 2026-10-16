@@ -49,6 +49,19 @@ pub fn admin_source(lines: &[String], prompt: &str) -> String {
     )
 }
 
+/// The batch variant: stdout comes back with its LF intact instead of CR.
+pub fn admin_source_batch(lines: &[String], prompt: &str) -> String {
+    format!(
+        "{} without altering line endings",
+        admin_source(lines, prompt)
+    )
+}
+
+/// `ADMIN_TIMEOUT` plus 15 s per admin item: 17 items give 375 s.
+pub fn batch_timeout(admin_items: usize) -> Duration {
+    ADMIN_TIMEOUT + Duration::from_secs(15) * admin_items as u32
+}
+
 /// What a finished admin run means, from osascript's stderr and exit status.
 pub fn classify(stderr: &str, status: Option<i32>) -> Result<(), (FixError, Option<usize>)> {
     if status == Some(0) {
@@ -173,10 +186,27 @@ pub fn run_admin(
     prompt: &str,
     running: &Arc<Running>,
 ) -> Result<(), (FixError, Option<usize>)> {
+    run_osascript(&admin_source(lines, prompt), ADMIN_TIMEOUT, running).map(|_| ())
+}
+
+/// One osascript for a whole batch script. `Ok` carries the stdout with the `R` lines.
+pub fn run_admin_batch(
+    lines: &[String],
+    prompt: &str,
+    timeout: Duration,
+    running: &Arc<Running>,
+) -> Result<Finished, (FixError, Option<usize>)> {
+    run_osascript(&admin_source_batch(lines, prompt), timeout, running)
+}
+
+fn run_osascript(
+    source: &str,
+    timeout: Duration,
+    running: &Arc<Running>,
+) -> Result<Finished, (FixError, Option<usize>)> {
     if running.cancelled() {
         return Err((FixError::Cancelled, None));
     }
-    let source = admin_source(lines, prompt);
     let mut child = clean_command(OSASCRIPT, &[])
         .stdin(Stdio::piped())
         .spawn()
@@ -184,6 +214,7 @@ pub fn run_admin(
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(source.as_bytes());
     }
-    let done = finish(child, ADMIN_TIMEOUT, running).map_err(|e| (e, None))?;
-    classify(&done.stderr, done.status)
+    let done = finish(child, timeout, running).map_err(|e| (e, None))?;
+    classify(&done.stderr, done.status)?;
+    Ok(done)
 }

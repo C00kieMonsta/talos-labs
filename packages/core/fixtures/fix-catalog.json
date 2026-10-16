@@ -9,7 +9,8 @@
     "pane": "filevault",
     "watch": [
       "diskEncryption"
-    ]
+    ],
+    "batchable": false
   },
   {
     "ruleId": "TL-MAC-002",
@@ -21,7 +22,8 @@
       "firewall"
     ],
     "pane": null,
-    "watch": []
+    "watch": [],
+    "batchable": true
   },
   {
     "ruleId": "TL-MAC-003",
@@ -33,7 +35,8 @@
       "firewall"
     ],
     "pane": null,
-    "watch": []
+    "watch": [],
+    "batchable": true
   },
   {
     "ruleId": "TL-MAC-004",
@@ -45,7 +48,8 @@
     "pane": "security",
     "watch": [
       "platformIntegrity"
-    ]
+    ],
+    "batchable": false
   },
   {
     "ruleId": "TL-MAC-005",
@@ -55,7 +59,8 @@
     "needsPassword": false,
     "recheck": [],
     "pane": null,
-    "watch": []
+    "watch": [],
+    "batchable": false
   },
   {
     "ruleId": "TL-MAC-006",
@@ -67,7 +72,8 @@
     "pane": "software_update",
     "watch": [
       "malwareProtection"
-    ]
+    ],
+    "batchable": false
   },
   {
     "ruleId": "TL-MAC-007",
@@ -79,7 +85,8 @@
       "updates"
     ],
     "pane": null,
-    "watch": []
+    "watch": [],
+    "batchable": true
   },
   {
     "ruleId": "TL-MAC-008",
@@ -91,7 +98,8 @@
       "updates"
     ],
     "pane": null,
-    "watch": []
+    "watch": [],
+    "batchable": true
   },
   {
     "ruleId": "TL-MAC-009",
@@ -103,7 +111,8 @@
       "updates"
     ],
     "pane": null,
-    "watch": []
+    "watch": [],
+    "batchable": true
   },
   {
     "ruleId": "TL-MAC-010",
@@ -115,7 +124,8 @@
     "pane": "software_update",
     "watch": [
       "updates"
-    ]
+    ],
+    "batchable": false
   },
   {
     "ruleId": "TL-MAC-011",
@@ -127,7 +137,8 @@
       "updates"
     ],
     "pane": null,
-    "watch": []
+    "watch": [],
+    "batchable": true
   },
   {
     "ruleId": "TL-MAC-012",
@@ -139,7 +150,8 @@
     "pane": "lock_screen",
     "watch": [
       "screenLock"
-    ]
+    ],
+    "batchable": false
   },
   {
     "ruleId": "TL-MAC-013",
@@ -151,7 +163,8 @@
       "screenLock"
     ],
     "pane": null,
-    "watch": []
+    "watch": [],
+    "batchable": true
   },
   {
     "ruleId": "TL-MAC-014",
@@ -163,7 +176,8 @@
     "pane": "users_groups",
     "watch": [
       "accounts"
-    ]
+    ],
+    "batchable": false
   },
   {
     "ruleId": "TL-MAC-015",
@@ -175,7 +189,8 @@
       "accounts"
     ],
     "pane": null,
-    "watch": []
+    "watch": [],
+    "batchable": true
   },
   {
     "ruleId": "TL-MAC-016",
@@ -187,7 +202,8 @@
       "accounts"
     ],
     "pane": null,
-    "watch": []
+    "watch": [],
+    "batchable": true
   },
   {
     "ruleId": "TL-MAC-017",
@@ -197,7 +213,8 @@
     "needsPassword": false,
     "recheck": [],
     "pane": null,
-    "watch": []
+    "watch": [],
+    "batchable": false
   },
   {
     "ruleId": "TL-MAC-018",
@@ -209,7 +226,8 @@
     "pane": "firewall",
     "watch": [
       "listeners"
-    ]
+    ],
+    "batchable": false
   },
   {
     "ruleId": "TL-MAC-019",
@@ -222,7 +240,8 @@
       "listeners"
     ],
     "pane": null,
-    "watch": []
+    "watch": [],
+    "batchable": true
   },
   {
     "ruleId": "TL-MAC-020",
@@ -235,7 +254,8 @@
       "listeners"
     ],
     "pane": null,
-    "watch": []
+    "watch": [],
+    "batchable": true
   },
   {
     "ruleId": "TL-MAC-021",
@@ -248,7 +268,8 @@
       "listeners"
     ],
     "pane": null,
-    "watch": []
+    "watch": [],
+    "batchable": true
   },
   {
     "ruleId": "TL-MAC-022",
@@ -261,7 +282,8 @@
       "listeners"
     ],
     "pane": null,
-    "watch": []
+    "watch": [],
+    "batchable": false
   },
   {
     "ruleId": "TL-MAC-023",
@@ -273,7 +295,8 @@
     "pane": "login_items",
     "watch": [
       "persistence"
-    ]
+    ],
+    "batchable": false
   },
   {
     "ruleId": "TL-MAC-024",
@@ -285,7 +308,8 @@
     "pane": null,
     "watch": [
       "persistence"
-    ]
+    ],
+    "batchable": false
   },
   {
     "ruleId": "TL-MAC-025",
@@ -297,7 +321,8 @@
     "pane": "login_items",
     "watch": [
       "loginItems"
-    ]
+    ],
+    "batchable": false
   },
   {
     "ruleId": "TL-MAC-026",
@@ -309,7 +334,8 @@
     "pane": "time_machine",
     "watch": [
       "backup"
-    ]
+    ],
+    "batchable": false
   },
   {
     "ruleId": "TL-MAC-027",
@@ -321,7 +347,8 @@
     "pane": "time_machine",
     "watch": [
       "backup"
-    ]
+    ],
+    "batchable": false
   },
   {
     "ruleId": "TL-MAC-028",
@@ -333,7 +360,8 @@
     "pane": null,
     "watch": [
       "browsers"
-    ]
+    ],
+    "batchable": false
   },
   {
     "ruleId": "TL-MAC-029",
@@ -345,7 +373,8 @@
       "ssh"
     ],
     "pane": null,
-    "watch": []
+    "watch": [],
+    "batchable": false
   },
   {
     "ruleId": "TL-MAC-030",
@@ -357,7 +386,8 @@
       "ssh"
     ],
     "pane": null,
-    "watch": []
+    "watch": [],
+    "batchable": true
   },
   {
     "ruleId": "TL-MAC-031",
@@ -369,6 +399,7 @@
     "pane": null,
     "watch": [
       "dotfiles"
-    ]
+    ],
+    "batchable": false
   }
 ]

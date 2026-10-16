@@ -35,6 +35,13 @@ export const TL_MAC_018: Rule = {
   evidenceVocabulary: {},
   explanation:
     "A program on your Mac is accepting connections from other computers on the network, not only from the Mac itself. On home Wi-Fi that may be fine, but on a cafe or hotel network anyone nearby can try to talk to it. Development servers, databases and media tools often do this without you noticing.",
+  guided: {
+    headline: "A program lets other computers reach it",
+    why: "Other computers can reach that program, which you may not want.",
+    verb: "Show me where",
+    done: "Done. Nothing is waiting for connections.",
+    where: "Click \"Options\", then turn on \"Block all incoming connections\". Or quit the program named in Details.",
+  },
   fix: {
     summary: "Quit or reconfigure the listening program, or block all incoming connections in the firewall.",
     settingsPath: ["System Settings", "Network", "Firewall", "Options"],

@@ -24,12 +24,12 @@ import { ALL_UNAVAILABLE, DEV_MACHINE, FRESH_INSTALL, HARDENED, MACOS_CATALOG, S
 import type { ExplainerSettings } from "../settings";
 import type { Adapters } from "./index";
 import { DemoAppleExplainer, DemoExplainer } from "./demo-explainer";
-import { DemoFixPort, type DemoFixOutcome } from "./demo-fix";
+import { DemoFixPort, type DemoBatchOutcome, type DemoFixOutcome } from "./demo-fix";
 import { cancelled, recordDemoCall, wait } from "./demo-shared";
 import { NoExplainer } from "./no-explainer";
 
 export { DemoAppleExplainer, DemoExplainer, DEMO_WORD_CHUNK_MS } from "./demo-explainer";
-export { DemoFixPort, DEMO_FIX_OUTCOMES, type DemoFixOutcome } from "./demo-fix";
+export { DemoFixPort, DEMO_BATCH_OUTCOMES, DEMO_FIX_OUTCOMES, type DemoBatchOutcome, type DemoFixOutcome } from "./demo-fix";
 export { recordDemoCall } from "./demo-shared";
 
 /**
@@ -57,7 +57,12 @@ export interface DemoOptions {
   /** Pause per section while collecting, so the Scanning screen is visible. */
   readonly collectDelayMs?: number;
   readonly fix?: DemoFixOutcome;
+  readonly batch?: DemoBatchOutcome;
   readonly fixDelayMs?: number;
+  /** The first collect rejects with this ScanError kind; the next one succeeds. */
+  readonly scanError?: DemoScanError | null;
+  /** A report stored before boot, so the first check-up has something to diff against. */
+  readonly previousReport?: ScanReport | null;
   readonly ai?: AiAvailability;
   readonly aiReadyMs?: number | null;
   /** fullDiskAccess turns true on this capability poll. */
@@ -67,6 +72,17 @@ export interface DemoOptions {
   readonly pollAfter?: number | null;
   /** Rules forced to fail on the fixture; only TL-MAC-013 is supported (a 60 minute screen saver). */
   readonly fail?: readonly RuleId[];
+}
+
+export type DemoScanError = "collector_crashed" | "timeout" | "schema_mismatch";
+export const DEMO_SCAN_ERRORS: readonly DemoScanError[] = ["collector_crashed", "timeout", "schema_mismatch"];
+
+/** Thrown once by the demo collect when scan_error is set; carries `kind` like the Tauri adapter's ScanError. */
+export class DemoScanFailure extends Error {
+  constructor(readonly kind: DemoScanError) {
+    super(kind);
+    this.name = "DemoScanFailure";
+  }
 }
 
 export const DEFAULT_COLLECT_DELAY_MS = 120;
@@ -102,13 +118,15 @@ export function withForcedFailures(state: SystemState, fail: readonly RuleId[]):
 export class DemoSystemState implements SystemStatePort {
   private sections: SystemStateSections;
   private polls = 0;
+  private pendingFailure: DemoScanError | null;
   private readonly sectionPolls = new Map<SectionKey, number>();
 
   constructor(
     state: SystemState,
     private readonly delayMs: number,
-    private readonly options: Pick<DemoOptions, "fdaAfter" | "automation" | "pollAfter" | "fail"> = {},
+    private readonly options: Pick<DemoOptions, "fdaAfter" | "automation" | "pollAfter" | "fail" | "scanError"> = {},
   ) {
+    this.pendingFailure = options.scanError ?? null;
     this.state = withForcedFailures(state, options.fail ?? []);
     this.sections = this.state.sections;
   }
@@ -129,6 +147,12 @@ export class DemoSystemState implements SystemStatePort {
   async collect(options?: CollectOptions): Promise<SystemState> {
     const signal = options?.signal;
     if (signal?.aborted) throw cancelled();
+    if (this.pendingFailure !== null) {
+      const kind = this.pendingFailure;
+      this.pendingFailure = null;
+      await wait(this.delayMs, signal);
+      throw new DemoScanFailure(kind);
+    }
     for (const key of SECTION_KEYS) {
       options?.onProgress?.({ key, status: "started" });
       // An unasked Automation permission holds loginItems the way the real osascript prompt does.
@@ -195,7 +219,11 @@ export class DemoSecretStore implements SecretStorePort {
 }
 
 export class DemoReportStore implements ReportStorePort {
-  private last: ScanReport | null = null;
+  private last: ScanReport | null;
+
+  constructor(previous: ScanReport | null = null) {
+    this.last = previous;
+  }
 
   async saveLast(report: ScanReport): Promise<void> {
     this.last = report;
@@ -233,10 +261,11 @@ export function createDemoAdapters(options: DemoOptions): Adapters {
     systemState,
     license: new DemoLicense(),
     secrets: new DemoSecretStore(),
-    reports: new DemoReportStore(),
+    reports: new DemoReportStore(options.previousReport ?? null),
     fixes: new DemoFixPort({
       catalog: MACOS_CATALOG,
       outcome: options.fix ?? "ok",
+      batch: options.batch ?? "ok",
       delayMs: options.fixDelayMs ?? DEFAULT_FIX_DELAY_MS,
       onApplied: (keys) => systemState.pass(keys),
     }),

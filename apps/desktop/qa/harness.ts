@@ -206,7 +206,8 @@ async function openFixSheet(page: Page, headline: RegExp, verb: RegExp): Promise
 /** Every screen the QA scripts cover, in order. The walk keeps SPA state between shots. */
 export async function walk(page: Page, baseUrl: string, visit: Visit): Promise<void> {
   // Every shot that is not about pacing collapses the scan schedule.
-  const url = (query: string, options: { paced?: boolean } = {}) => `${baseUrl}/?${query}${options.paced === true ? "" : "&pace=0"}`;
+  // The v0.2 walk covers the expert home; guided=0 keeps it there (DESIGN-V03.md section 7, Harness).
+  const url = (query: string, options: { paced?: boolean } = {}) => `${baseUrl}/?${query}&guided=0${options.paced === true ? "" : "&pace=0"}`;
   const goto = async (query: string, options: { paced?: boolean; reducedMotion?: boolean } = {}) => {
     await page.emulateMedia({ reducedMotion: options.reducedMotion === true ? "reduce" : "no-preference" });
     await page.goto(url(query, options));
@@ -531,7 +532,7 @@ export async function walk(page: Page, baseUrl: string, visit: Visit): Promise<v
 
 /** Lets the scrolling content column grow so a full-page screenshot shows the whole screen, and keeps the shell at least one window tall. */
 const UNROLL_CSS =
-  "html, body, #root { height: auto !important; } #root, .shell { min-height: 100vh; } .shell { height: auto !important; } .content { overflow: visible !important; } .findings-aside { position: static !important; max-height: none !important; }";
+  "html, body, #root { height: auto !important; } #root, .shell { min-height: 100vh; } .shell { height: auto !important; } .content { overflow: visible !important; } .findings-aside { position: static !important; max-height: none !important; } *, *::before, *::after { transition: none !important; animation: none !important; }";
 
 export async function unrollPage(page: Page): Promise<void> {
   await page.evaluate((css) => {
@@ -574,3 +575,350 @@ export const SIZES: readonly { width: number; height: number }[] = [
 ];
 /** The smallest window the app allows (tauri.conf.json minHeight). */
 const MIN_HEIGHT = 600;
+
+/** The pasted demo key, for the paywall step. */
+const GUIDED_KEY = DEMO_LICENSE_KEY_PASTED;
+const DEV = "reset=1&fixture=dev-machine&onboarded=1&delay=0";
+const DEV_LICENSED = `${DEV}&licensed=1`;
+
+/** A synthetic blur pauses the guide's auto-advance and stale timers, so a done line can be captured. */
+async function blur(page: Page): Promise<void> {
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+}
+async function focus(page: Page): Promise<void> {
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+}
+
+/** Every guided shot: exactly one primary and at most one link, both above the 600 px fold at 900x600. */
+export async function assertGuidedScreen(page: Page, options: { primaries?: number } = {}): Promise<void> {
+  const want = options.primaries ?? 1;
+  const primaries = await page.locator(".guided .button-primary").count();
+  if (primaries !== want) throw new Error(`expected ${want} primary button(s), found ${primaries}`);
+  const links = await page.locator(".guided .guided-link").count();
+  if (links > 1) throw new Error(`expected at most one guided link, found ${links}`);
+  const size = page.viewportSize();
+  if (size !== null && size.height <= MIN_HEIGHT) {
+    if (primaries > 0) await assertAboveFold(page.locator(".guided .button-primary").first(), "the primary button");
+    if (links > 0) await assertAboveFold(page.locator(".guided .guided-link").first(), "the link");
+  }
+}
+
+async function guidedTitle(page: Page, name: string | RegExp): Promise<void> {
+  await page.locator(".guided h1").filter({ hasText: name }).first().waitFor({ timeout: STEP_TIMEOUT });
+}
+
+async function primary(page: Page, name: string | RegExp): Promise<void> {
+  await page.locator(".guided .button-primary").filter({ hasText: name }).first().click();
+}
+
+async function link(page: Page, name: string | RegExp): Promise<void> {
+  await page.locator(".guided .guided-link").filter({ hasText: name }).first().click();
+}
+
+async function progressTotal(page: Page): Promise<number> {
+  const text = await page.locator(".guided-progress .guided-meta").first().textContent();
+  const match = /of (\d+)/.exec(text ?? "");
+  return match === null ? 0 : Number(match[1]);
+}
+
+/** The guided screens, light and dark, both sizes. */
+export async function walkGuided(page: Page, baseUrl: string, visit: Visit): Promise<void> {
+  // The progress total may only grow within one walk; every goto starts a new one.
+  let lastTotal = 0;
+  const goto = async (query: string, options: { paced?: boolean; reducedMotion?: boolean } = {}) => {
+    await page.emulateMedia({ reducedMotion: options.reducedMotion === true ? "reduce" : "no-preference" });
+    await page.goto(`${baseUrl}/?${query}${options.paced === true ? "" : "&pace=0"}`);
+    lastTotal = 0;
+  };
+  const totalNeverDrops = async () => {
+    const total = await progressTotal(page);
+    if (total < lastTotal) throw new Error(`the progress total went down from ${lastTotal} to ${total}`);
+    lastTotal = total;
+  };
+
+  await visit({ name: "guided-welcome" }, async () => {
+    await goto("reset=1&fixture=dev-machine&delay=0");
+    await guidedTitle(page, "Let's check your Mac.");
+    await assertGuidedScreen(page);
+    if ((await page.getByRole("button", { name: "Skip" }).count()) !== 0) throw new Error("the guided welcome has no Skip");
+  });
+  await visit({ name: "guided-scanning", volatile: true }, async () => {
+    await goto("reset=1&fixture=dev-machine&delay=0", { paced: true });
+    await primary(page, "Start");
+    await page.locator(".guided-strip-title").filter({ hasText: "Checking your Mac" }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".scanning-subline").filter({ hasText: /of 17 areas$/ }).waitFor({ timeout: STEP_TIMEOUT });
+  });
+  await visit({ name: "guided-stopped" }, async () => {
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await guidedTitle(page, "I stopped before finishing.");
+    await assertGuidedScreen(page);
+  });
+  await visit({ name: "guided-plan" }, async () => {
+    const started = Date.now();
+    await goto(DEV, { paced: true });
+    await guidedTitle(page, "I found 3 things to fix.");
+    const took = Date.now() - started;
+    if (took < 6000) throw new Error(`the plan was reached after ${took} ms, before the 6000 ms floor`);
+    await assertGuidedScreen(page);
+    lastTotal = 0;
+    await totalNeverDrops();
+  });
+  await visit({ name: "guided-plan-list" }, async () => {
+    await link(page, "Show me the list");
+    await page.locator(".guided-list").waitFor({ timeout: STEP_TIMEOUT });
+    await assertGuidedScreen(page);
+  });
+  await visit({ name: "guided-since" }, async () => {
+    await goto(`${DEV}&since=1`);
+    await guidedTitle(page, "Since last time.");
+    await assertGuidedScreen(page);
+  });
+  await visit({ name: "guided-batch-confirm" }, async () => {
+    await goto(`${DEV_LICENSED}&fix_delay=0`);
+    await guidedTitle(page, "I found 7 things to fix.");
+    await primary(page, "Let's go");
+    await guidedTitle(page, "I can fix 3 things for you now.");
+    await assertGuidedScreen(page);
+    await totalNeverDrops();
+  });
+  await visit({ name: "guided-batch-working", volatile: true }, async () => {
+    await goto(`${DEV_LICENSED}&fix_delay=4000`);
+    await primary(page, "Let's go");
+    await blur(page);
+    await primary(page, "Fix these for me");
+    await page.getByText("Your Mac is asking for your password. Then I'll get to work.").waitFor({ timeout: STEP_TIMEOUT });
+    await assertGuidedScreen(page, { primaries: 0 });
+    if ((await page.locator(".guided .guided-link").count()) !== 0) throw new Error("the batch exposes no cancel while it runs");
+  });
+  await visit({ name: "guided-batch-done" }, async () => {
+    await goto(`${DEV_LICENSED}&batch=ok&fix_delay=0`);
+    await primary(page, "Let's go");
+    await blur(page);
+    await primary(page, "Fix these for me");
+    await guidedTitle(page, "Done. 3 things fixed.");
+    await page.locator(".guided [role='status']").filter({ hasText: "Done. 3 things fixed." }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertGuidedScreen(page, { primaries: 0 });
+    const calls = await demoCalls(page);
+    const preview = calls.find((c) => c.kind === "fixPreviewBatch");
+    if (preview === undefined || JSON.stringify(preview.arg) !== JSON.stringify(["TL-MAC-002", "TL-MAC-003", "TL-MAC-011"])) throw new Error(`no fixPreviewBatch for the three rules: ${JSON.stringify(calls)}`);
+    if (calls.filter((c) => c.kind === "fixApplyBatch").length !== 1) throw new Error(`expected one fixApplyBatch: ${JSON.stringify(calls)}`);
+    await assertNoUrlRecorded(page);
+  });
+  await visit({ name: "guided-batch-partial" }, async () => {
+    await goto(`${DEV_LICENSED}&batch=partial&fix_delay=0`);
+    await primary(page, "Let's go");
+    const before = await progressTotal(page);
+    await blur(page);
+    await primary(page, "Fix these for me");
+    await guidedTitle(page, "2 of 3 fixed.");
+    await assertGuidedScreen(page);
+    const after = await progressTotal(page);
+    if (after < before) throw new Error(`the total went from ${before} to ${after} on a partial batch`);
+  });
+  for (const outcome of ["cancelled", "wrong_password"] as const) {
+    await visit({ name: `guided-batch-${outcome.replace(/_/g, "-")}` }, async () => {
+      await goto(`${DEV_LICENSED}&batch=${outcome}&fix_delay=0`);
+      await primary(page, "Let's go");
+      await primary(page, "Fix these for me");
+      await guidedTitle(page, outcome === "cancelled" ? "You closed the password box." : "That password did not work.");
+      await assertGuidedScreen(page);
+    });
+  }
+  await visit({ name: "guided-fix-single" }, async () => {
+    await goto(`${DEV}&fix_delay=0`);
+    await primary(page, "Let's go");
+    await guidedTitle(page, "The firewall is off");
+    await assertGuidedScreen(page);
+  });
+  await visit({ name: "guided-fix-done" }, async () => {
+    await blur(page);
+    await primary(page, "Turn it on");
+    await guidedTitle(page, "Done. The firewall is on.");
+    await assertGuidedScreen(page, { primaries: 0 });
+    const calls = await demoCalls(page);
+    if (calls.filter((c) => c.kind === "fixPreview").length !== 1 || calls.filter((c) => c.kind === "fixApply").length !== 1) throw new Error(`expected one fixPreview and one fixApply: ${JSON.stringify(calls)}`);
+    await assertNoUrlRecorded(page);
+  });
+  await visit({ name: "guided-fix-failed" }, async () => {
+    await goto(`${DEV}&fix=command_failed&fix_delay=0`);
+    await primary(page, "Let's go");
+    await primary(page, "Turn it on");
+    await guidedTitle(page, "That did not work.");
+    await assertGuidedScreen(page);
+  });
+  await visit({ name: "guided-fix-still-failing" }, async () => {
+    await goto(`${DEV}&fix=still_failing&fix_delay=0`);
+    await primary(page, "Let's go");
+    await primary(page, "Turn it on");
+    await guidedTitle(page, "It ran, but the setting has not changed yet.");
+    await assertGuidedScreen(page);
+  });
+  await visit({ name: "guided-show" }, async () => {
+    await goto(DEV);
+    await primary(page, "Let's go");
+    await link(page, "Do this later");
+    await guidedTitle(page, "Your disk is not locked");
+    await assertGuidedScreen(page);
+  });
+  await visit({ name: "guided-show-watching" }, async () => {
+    await blur(page);
+    await primary(page, "Show me where");
+    await guidedTitle(page, "I've opened the right page.");
+    await page.locator(".guided-watch").waitFor({ timeout: STEP_TIMEOUT });
+    await assertGuidedScreen(page, { primaries: 0 });
+    await assertNoUrlRecorded(page);
+  });
+  await visit({ name: "guided-show-stale" }, async () => {
+    await focus(page);
+    await guidedTitle(page, "It doesn't look changed yet.");
+    await assertGuidedScreen(page);
+  });
+  await visit({ name: "guided-show-passed" }, async () => {
+    await goto(`${DEV}&poll_after=1`);
+    await primary(page, "Let's go");
+    await link(page, "Do this later");
+    await blur(page);
+    await primary(page, "Show me where");
+    await guidedTitle(page, "Done. Your disk is locked.");
+    await assertGuidedScreen(page, { primaries: 0 });
+  });
+  await visit({ name: "guided-later-notice" }, async () => {
+    await goto(`${DEV}&memory=${encodeURIComponent(JSON.stringify({ version: 1, snoozed: {}, laterCount: {}, waiting: {}, pendingRestart: [], paywallSnoozedUntil: null, permissionAskedAt: {} }))}`);
+    await primary(page, "Let's go");
+    await link(page, "Do this later");
+    await guidedTitle(page, "Your disk is not locked");
+    await assertGuidedScreen(page);
+  });
+  await visit({ name: "guided-question-backup" }, async () => {
+    await goto(`${DEV_LICENSED}&batch=ok&fix=ok&fix_delay=0`);
+    await primary(page, "Let's go");
+    await primary(page, "Fix these for me");
+    await guidedTitle(page, "A shared folder has no password");
+    await primary(page, "Stop sharing it");
+    await guidedTitle(page, "Your Mac has no backup");
+    await page.getByText("Do you have a disk for backups?").waitFor({ timeout: STEP_TIMEOUT });
+    await assertGuidedScreen(page);
+  });
+  await visit({ name: "guided-permission" }, async () => {
+    await goto("reset=1&fixture=all-unavailable&onboarded=1&delay=0");
+    await primary(page, "Let's go");
+    await guidedTitle(page, "Can I check your web browser too?");
+    await assertGuidedScreen(page);
+  });
+  await visit({ name: "guided-permission-watching" }, async () => {
+    await blur(page);
+    await primary(page, "Show me where");
+    await guidedTitle(page, "I've opened the right page.");
+    await assertGuidedScreen(page, { primaries: 0 });
+    const note = await page.evaluate(() => localStorage.getItem("talos.continue"));
+    if (note !== JSON.stringify({ kind: "guided" })) throw new Error(`talos.continue was not written before the pane opened: ${note}`);
+  });
+  await visit({ name: "guided-permission-reopen" }, async () => {
+    await focus(page);
+    await guidedTitle(page, "Nearly there.");
+    await assertGuidedScreen(page);
+  });
+  await visit({ name: "guided-paywall" }, async () => {
+    await goto(DEV);
+    await primary(page, "Let's go");
+    for (let i = 0; i < 3; i += 1) await link(page, "Do this later");
+    await link(page, "Not now");
+    await guidedTitle(page, "There are 4 more things to fix.");
+    await assertGuidedScreen(page);
+    await totalNeverDrops();
+  });
+  await visit({ name: "guided-paywall-pasted", volatile: true }, async () => {
+    await goto(DEV);
+    await primary(page, "Let's go");
+    for (let i = 0; i < 3; i += 1) await link(page, "Do this later");
+    await link(page, "Not now");
+    await guidedTitle(page, "There are 4 more things to fix.");
+    await page.getByPlaceholder("Paste your licence key").fill(GUIDED_KEY);
+    await page.locator(".licence-valid").waitFor({ timeout: STEP_TIMEOUT });
+    await assertNoUrlRecorded(page);
+  });
+  await visit({ name: "guided-explain", volatile: true }, async () => {
+    await goto(`${DEV_LICENSED}&fix_delay=0`);
+    await primary(page, "Let's go");
+    await page.locator(".guided-explain summary").click();
+    await page.locator(".guided-explain-body").waitFor({ timeout: STEP_TIMEOUT });
+    await assertGuidedScreen(page);
+  });
+  await visit({ name: "guided-failed" }, async () => {
+    await goto(`${DEV}&scan_error=collector_crashed`);
+    await guidedTitle(page, "I couldn't finish checking.");
+    await assertGuidedScreen(page);
+    await primary(page, "Try again");
+    await guidedTitle(page, "I found 3 things to fix.");
+  });
+  await visit({ name: "guided-end-all-done" }, async () => {
+    await goto(`${DEV_LICENSED}&batch=ok&fix=ok&poll_after=1&fda_after=1&fix_delay=0`);
+    await primary(page, "Let's go");
+    await primary(page, "Fix these for me");
+    await guidedTitle(page, "A shared folder has no password");
+    await primary(page, "Stop sharing it");
+    await guidedTitle(page, "Your Mac has no backup");
+    await primary(page, "Yes, show me where");
+    await guidedTitle(page, "Your disk is not locked");
+    await primary(page, "Show me where");
+    await guidedTitle(page, "An update is waiting");
+    await primary(page, "Show me where");
+    await guidedTitle(page, "Can I check your web browser too?");
+    await primary(page, "Show me where");
+    await guidedTitle(page, "Your Mac is in good shape.");
+    await assertGuidedScreen(page, { primaries: 0 });
+  });
+  await visit({ name: "guided-end-partial" }, async () => {
+    await goto(`${DEV}&fix=ok&fix_delay=0`);
+    await primary(page, "Let's go");
+    await primary(page, "Turn it on");
+    await guidedTitle(page, "Your disk is not locked");
+    await link(page, "Do this later");
+    await link(page, "Do this later");
+    await link(page, "Not now");
+    await link(page, "Not now");
+    await guidedTitle(page, "Your Mac is safer than it was.");
+    await assertGuidedScreen(page, { primaries: 0 });
+  });
+  await visit({ name: "guided-end-nothing" }, async () => {
+    await goto("reset=1&fixture=hardened&onboarded=1&delay=0");
+    await guidedTitle(page, "Nothing needs fixing.");
+    await assertGuidedScreen(page, { primaries: 0 });
+  });
+  await visit({ name: "guided-end-unreadable" }, async () => {
+    await goto("reset=1&fixture=all-unavailable&onboarded=1&delay=0");
+    await primary(page, "Let's go");
+    await link(page, "Not now");
+    await guidedTitle(page, "Nothing needs fixing.");
+    await page.getByText(/^I couldn't check \d+ areas\./).waitFor({ timeout: STEP_TIMEOUT });
+    await assertGuidedScreen(page, { primaries: 0 });
+  });
+  await visit({ name: "guided-reduced-motion" }, async () => {
+    const started = Date.now();
+    await goto(DEV, { paced: true, reducedMotion: true });
+    await guidedTitle(page, "I found 3 things to fix.");
+    const took = Date.now() - started;
+    if (took < 4500) throw new Error(`the plan was reached after ${took} ms, before the 4500 ms reduced-motion floor`);
+    await assertGuidedScreen(page);
+  });
+  await visit({ name: "guided-dev-what-will-run", volatile: true }, async () => {
+    await goto(`${DEV_LICENSED}&dev=1&fix_delay=4000`);
+    await primary(page, "Let's go");
+    await blur(page);
+    await primary(page, "Fix these for me");
+    await page.locator(".guided-dev").waitFor({ timeout: STEP_TIMEOUT });
+  });
+  await visit({ name: "overview-with-checkup-row" }, async () => {
+    await goto(DEV);
+    await guidedTitle(page, "I found 3 things to fix.");
+    await page.locator(".guided-strip-link").filter({ hasText: "Details" }).click();
+    await heading(page, "Overview");
+    await page.locator("aside.sidebar").getByRole("button", { name: "Check-up", exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator("button.toolbar-back").filter({ hasText: "Check-up" }).waitFor({ timeout: STEP_TIMEOUT });
+  });
+  await visit({ name: "settings-checkup" }, async () => {
+    await nav(page, "Settings");
+    await heading(page, "Settings");
+    await page.getByRole("switch", { name: "Start on the guided check-up" }).waitFor({ timeout: STEP_TIMEOUT });
+  });
+}

@@ -19,11 +19,19 @@ export interface DeveloperSettings {
   showPlanExpanded: boolean;
 }
 
+export interface GuidedSettings {
+  /** The guided flow is the home screen; false opens the expert overview. */
+  home: boolean;
+  /** A check-up starts on every launch. */
+  autoScan: boolean;
+}
+
 export interface AppSettings {
   explainer: ExplainerSettings;
   profile: ExplainerProfile;
   onboarded: boolean;
   developer: DeveloperSettings;
+  guided: GuidedSettings;
 }
 
 export const SETTINGS_STORAGE_KEY = "talos.settings";
@@ -46,6 +54,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   onboarded: false,
   developer: { enabled: false, showCommands: true, showPlanExpanded: true },
+  guided: { home: true, autoScan: true },
 };
 
 export const PROVIDERS: readonly ExplainerProvider[] = ["apple", "claude", "ollama"];
@@ -86,6 +95,8 @@ export function parseSettings(raw: unknown): AppSettings {
   const explainer = isRecord(root["explainer"]) ? root["explainer"] : {};
   const profile = isRecord(root["profile"]) ? root["profile"] : {};
   const developer = isRecord(root["developer"]) ? root["developer"] : {};
+  // v0.2 stored no guided block; both switches default on.
+  const guided = isRecord(root["guided"]) ? root["guided"] : {};
   const d = DEFAULT_SETTINGS;
   // v0.1 stored a top-level developerMode boolean.
   const developerEnabled = pickBoolean(developer["enabled"], pickBoolean(root["developerMode"], d.developer.enabled));
@@ -113,6 +124,10 @@ export function parseSettings(raw: unknown): AppSettings {
       enabled: developerEnabled,
       showCommands: pickBoolean(developer["showCommands"], d.developer.showCommands),
       showPlanExpanded: pickBoolean(developer["showPlanExpanded"], d.developer.showPlanExpanded),
+    },
+    guided: {
+      home: pickBoolean(guided["home"], d.guided.home),
+      autoScan: pickBoolean(guided["autoScan"], d.guided.autoScan),
     },
   };
 }

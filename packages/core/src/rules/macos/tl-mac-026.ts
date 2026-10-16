@@ -16,6 +16,13 @@ export const TL_MAC_026: Rule = {
   evidenceVocabulary: { method: BACKUP_METHOD_VOCABULARY },
   explanation:
     "There is no backup set up for this Mac. If the disk fails, the Mac is stolen, or ransomware scrambles your files, everything that is not backed up is gone. Time Machine is built in and only needs an external disk or a network drive.",
+  guided: {
+    headline: "Your Mac has no backup",
+    why: "If it breaks or is lost, your photos and files go with it.",
+    verb: "Show me where",
+    done: "Done. Backups are set up.",
+    where: "Click \"Add Backup Disk\" and choose a disk.",
+  },
   fix: {
     summary: "Add a backup disk in Time Machine.",
     settingsPath: ["System Settings", "General", "Time Machine"],

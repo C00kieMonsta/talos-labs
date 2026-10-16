@@ -14,6 +14,13 @@ export const TL_MAC_011: Rule = {
   evidenceVocabulary: { appStoreAutoUpdate: TRI_VOCABULARY },
   explanation:
     "Apps from the App Store get their own security fixes, separate from macOS. With automatic updates on, they are patched without you doing anything. With it off, an old browser or messaging app can stay vulnerable for months.",
+  guided: {
+    headline: "App Store apps do not update on their own",
+    why: "Old apps have holes that new versions close.",
+    verb: "Turn it on",
+    done: "Done. App Store apps update on their own.",
+    where: null,
+  },
   fix: {
     summary: "Turn on Automatic Updates in the App Store settings.",
     settingsPath: ["App Store", "Settings", "Automatic Updates"],

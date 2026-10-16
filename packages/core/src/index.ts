@@ -41,4 +41,7 @@ export type { OnDevicePrompt, OnDeviceTask, OnDeviceExtra } from "./explainer/in
 
 export { parseLicense, entitled, freeFixRuleIds, FREE_FIX_COUNT, LICENSE_PREFIX, LICENSE_PRODUCT } from "./license/index";
 
+export { buildGuidedPlan, planLocked, convertedShowStep, LEFT_ALONE, WATCH_EVERY_MS, diffReports, EMPTY_GUIDED_MEMORY, parseGuidedMemory } from "./guided/index";
+export type { GuidedStep, GuidedPlan, GuidedGate, ReportDiff, GuidedMemory, PermissionKind } from "./guided/index";
+
 export { DEV_MACHINE, HARDENED, ALL_UNAVAILABLE, FRESH_INSTALL, WINDOWS_MINIMAL, FIXTURES } from "./fixtures/index";

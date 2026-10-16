@@ -88,3 +88,40 @@ describe("awayPolling", () => {
     expect(poll).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("awayPolling pollOnFocusReturn", () => {
+  it("polls at once when focus comes back and then keeps the interval", async () => {
+    const b = bus();
+    const poll = vi.fn(async () => "continue" as const);
+    awayPolling({ everyMs: 2000, poll, onFocusChanged: b.source, initiallyFocused: false, pollOnFocusReturn: true });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(poll).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(500);
+    b.focus(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(poll).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(poll).toHaveBeenCalledTimes(3);
+  });
+
+  it("waits for the interval without the flag and never polls twice at once", async () => {
+    const b = bus();
+    const poll = vi.fn(async () => "continue" as const);
+    awayPolling({ everyMs: 2000, poll, onFocusChanged: b.source, initiallyFocused: false });
+    await vi.advanceTimersByTimeAsync(500);
+    b.focus(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(poll).not.toHaveBeenCalled();
+    let release: () => void = () => undefined;
+    const slow = vi.fn(() => new Promise<"continue">((resolve) => { release = () => resolve("continue"); }));
+    const c = bus();
+    awayPolling({ everyMs: 1000, poll: slow, onFocusChanged: c.source, initiallyFocused: false, pollOnFocusReturn: true });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(slow).toHaveBeenCalledTimes(1);
+    c.focus(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(slow).toHaveBeenCalledTimes(1);
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+  });
+});

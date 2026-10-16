@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import type { Page } from "playwright-core";
-import { SCHEMES, SIZES, ensureServer, launchChrome, parseArgs, walk } from "./harness";
+import { SCHEMES, SIZES, ensureServer, launchChrome, parseArgs, settle, unrollPage, walk } from "./harness";
 
 /**
  * Runs axe-core on every screen of the demo build and prints the violations as JSON.
@@ -64,6 +64,8 @@ async function main(): Promise<number> {
           reached = true;
         }
         await page.emulateMedia({ colorScheme: scheme });
+        await unrollPage(page);
+        await settle(page);
         violations.push(...(await runAxe(page, `${shot.name} (${scheme})`)));
       }
     });

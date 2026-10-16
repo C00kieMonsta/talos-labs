@@ -14,6 +14,13 @@ export const TL_MAC_002: Rule = {
   evidenceVocabulary: {},
   explanation:
     "The firewall decides which programs may accept connections from other computers on the network. With it off, any program that opens a port is reachable from the cafe Wi-Fi or hotel network you are on. Turning it on costs nothing and most apps never notice.",
+  guided: {
+    headline: "The firewall is off",
+    why: "It keeps other computers on the same Wi-Fi from reaching your Mac.",
+    verb: "Turn it on",
+    done: "Done. The firewall is on.",
+    where: null,
+  },
   fix: {
     summary: "Turn the firewall on in System Settings.",
     settingsPath: ["System Settings", "Network", "Firewall"],

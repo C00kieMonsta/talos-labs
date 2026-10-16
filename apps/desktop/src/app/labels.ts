@@ -284,3 +284,12 @@ export const PERMISSION_STATUS_LABELS: Readonly<Record<PermissionStatus, string>
 };
 
 export const PRIVACY_SENTENCE = "Nothing leaves this Mac. AI explanations are written here by Apple Intelligence.";
+
+/** The sidebar row and the toolbar back label that lead to the guided check-up. */
+export const CHECKUP_LABEL = "Check-up";
+export const CHECKUP_SETTINGS = {
+  title: "Check-up",
+  autoScan: "Check my Mac when I open Talos Labs",
+  home: "Start on the guided check-up",
+  sentence: "With these off, Talos Labs opens on the Overview and waits for you.",
+} as const;

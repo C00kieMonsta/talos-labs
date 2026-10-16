@@ -2,6 +2,8 @@ import { vi } from "vitest";
 import { createElement, useState } from "react";
 import type { ReactNode } from "react";
 import type {
+  BatchOutcome,
+  BatchPlan,
   Capabilities,
   ExplainerPort,
   Finding,
@@ -96,6 +98,8 @@ export function fakeScanController(scan: ScanState): ScanController {
     present: vi.fn(async () => undefined),
     previewFix: vi.fn(async () => undefined),
     applyFix: vi.fn(async () => undefined),
+    previewBatch: vi.fn(async () => undefined),
+    applyBatch: vi.fn(async () => undefined),
     cancelFix: vi.fn(),
     dismissFix: vi.fn(),
     startWatch: vi.fn(),
@@ -157,6 +161,7 @@ export function fakeFinding(overrides: Partial<Finding> & Pick<Finding, "ruleId"
   return {
     title: `Check ${overrides.ruleId}`,
     headline: overrides.status === "unknown" ? `Couldn't check ${overrides.ruleId}` : `Fix ${overrides.ruleId}`,
+    guided: { headline: "Fix this", why: "It matters.", verb: "Fix it for me", done: "Done. Fixed.", where: null },
     severity: "high",
     category: "network",
     cis: null,
@@ -238,11 +243,29 @@ export function fakePlan(overrides: Partial<FixPlan> = {}): FixPlan {
   };
 }
 
+/** A batch over the firewall and the two sharing rules, as the licensed dev-machine plan builds. */
+export function fakeBatchPlan(overrides: Partial<BatchPlan> = {}): BatchPlan {
+  return {
+    planId: "batch-1",
+    items: [
+      { ruleId: "TL-MAC-002", lines: [{ text: "/usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on", privilege: "admin" }], recheck: ["firewall"], previous: null },
+      { ruleId: "TL-MAC-003", lines: [{ text: "/usr/libexec/ApplicationFirewall/socketfilterfw --setstealthmode on", privilege: "admin" }], recheck: ["firewall"], previous: null },
+    ],
+    excluded: [],
+    needsPassword: true,
+    recheck: ["firewall"],
+    expiresAt: "2026-10-15T10:05:00.000Z",
+    ...overrides,
+  };
+}
+
 /** A fix port whose preview returns `plan` and whose apply succeeds at once. */
 export function fakeFixPort(plan: FixPlan = fakePlan(), overrides: Partial<FixPort> = {}): FixPort {
   return {
     preview: vi.fn(async () => plan),
     apply: vi.fn(async () => ({ ok: true as const })),
+    previewBatch: vi.fn(async () => fakeBatchPlan()),
+    applyBatch: vi.fn(async (): Promise<BatchOutcome> => ({ ok: true, items: [], error: null })),
     reveal: vi.fn(async () => undefined),
     openBuyPage: vi.fn(async () => undefined),
     ...overrides,

@@ -28,6 +28,13 @@ export const TL_MAC_029: Rule = {
   evidenceVocabulary: {},
   explanation:
     "An SSH key is a file that logs you in to servers and services such as GitHub without a password. At least one of yours is stored with no passphrase, so anyone who copies the file, through malware, a stolen backup or a shared Mac, can use it as you straight away. Adding a passphrase means the file alone is useless to them.",
+  guided: {
+    headline: "A login key for other computers has no password",
+    why: "Anyone who copies the key file can log in as you.",
+    verb: "Add a password",
+    done: "Done. The key has a password.",
+    where: null,
+  },
   fix: {
     summary: "Add a passphrase to each unprotected SSH key.",
     settingsPath: null,

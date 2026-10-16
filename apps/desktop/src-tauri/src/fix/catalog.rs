@@ -484,6 +484,12 @@ pub fn spec_for(rule: &str) -> Option<&'static FixSpec> {
     FIX_CATALOG.iter().find(|spec| spec.rule == rule)
 }
 
+/// Which catalog rows may join a batch: no choice to make, no secret, no pty.
+/// 002, 003, 007, 008, 009, 011, 013, 015, 016, 019, 020, 021, 030. A test pins the set.
+pub fn batchable(spec: &FixSpec) -> bool {
+    matches!(spec.choice, Choice::None | Choice::AllSshKeys) && spec.secret == Secret::None
+}
+
 /// The tokens `KeyFormatFlags` can expand to, keyed by format.
 pub const KEY_FORMAT_FLAGS: [(&str, &[&str]); 3] = [
     ("openssh", &[]),
@@ -513,6 +519,7 @@ pub fn dump_json() -> String {
                 "recheck": spec.recheck.iter().map(|k| k.as_str()).collect::<Vec<_>>(),
                 "reversible": spec.reversible_text(),
                 "expect": spec.expect,
+                "batchable": batchable(spec),
             })
         })
         .collect();
@@ -593,5 +600,36 @@ mod tests {
         }
         assert!(spec_for("TL-MAC-002").is_some());
         assert!(spec_for("TL-MAC-001").is_none());
+    }
+
+    #[test]
+    fn batchable_is_the_thirteen_rule_set() {
+        let set: Vec<&str> = FIX_CATALOG
+            .iter()
+            .filter(|s| batchable(s))
+            .map(|s| s.rule)
+            .collect();
+        assert_eq!(
+            set,
+            [
+                "TL-MAC-002",
+                "TL-MAC-003",
+                "TL-MAC-007",
+                "TL-MAC-008",
+                "TL-MAC-009",
+                "TL-MAC-011",
+                "TL-MAC-013",
+                "TL-MAC-015",
+                "TL-MAC-016",
+                "TL-MAC-019",
+                "TL-MAC-020",
+                "TL-MAC-021",
+                "TL-MAC-030",
+            ]
+        );
+        assert!(!batchable(spec_for("TL-MAC-022").unwrap()));
+        assert!(!batchable(spec_for("TL-MAC-029").unwrap()));
+        let dump: serde_json::Value = serde_json::from_str(&dump_json()).unwrap();
+        assert_eq!(dump[0]["batchable"], true);
     }
 }

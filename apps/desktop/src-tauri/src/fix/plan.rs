@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 
 use super::FixError;
+use super::batch::{BatchPlan, BatchPlanWire};
 use super::catalog::{Arg, FixSpec, Privilege, Step};
 
 pub const PLAN_TTL: Duration = Duration::from_secs(5 * 60);
@@ -183,26 +184,74 @@ impl Running {
     }
 }
 
+/// A single plan or a batch, in the one map. The two apply commands each reject the other kind.
+pub enum Stored {
+    Single(Plan),
+    Batch(BatchPlan),
+}
+
+impl Stored {
+    pub fn id(&self) -> &str {
+        match self {
+            Stored::Single(p) => &p.id,
+            Stored::Batch(b) => &b.id,
+        }
+    }
+
+    pub fn expired(&self) -> bool {
+        match self {
+            Stored::Single(p) => p.expired(),
+            Stored::Batch(b) => b.expired(),
+        }
+    }
+
+    /// For `fix_apply`: a batch id is `plan_expired` on the single path.
+    pub fn into_single(self) -> Result<Plan, FixError> {
+        match self {
+            Stored::Single(p) => Ok(p),
+            Stored::Batch(_) => Err(FixError::PlanExpired),
+        }
+    }
+
+    /// For `fix_apply_batch`: a single id is `plan_expired` on the batch path.
+    pub fn into_batch(self) -> Result<BatchPlan, FixError> {
+        match self {
+            Stored::Batch(b) => Ok(b),
+            Stored::Single(_) => Err(FixError::PlanExpired),
+        }
+    }
+}
+
 /// Managed Tauri state for the fix engine.
 #[derive(Default)]
 pub struct PlanStore {
-    plans: Mutex<HashMap<String, Plan>>,
+    plans: Mutex<HashMap<String, Stored>>,
     running: Mutex<Option<Arc<Running>>>,
 }
 
 impl PlanStore {
     pub fn insert(&self, plan: Plan) -> FixPlan {
         let wire = plan.wire();
+        self.store(Stored::Single(plan));
+        wire
+    }
+
+    pub fn insert_batch(&self, plan: BatchPlan) -> BatchPlanWire {
+        let wire = plan.wire();
+        self.store(Stored::Batch(plan));
+        wire
+    }
+
+    fn store(&self, stored: Stored) {
         if let Ok(mut plans) = self.plans.lock() {
             plans.retain(|_, p| !p.expired());
-            plans.insert(plan.id.clone(), plan);
+            plans.insert(stored.id().to_owned(), stored);
         }
-        wire
     }
 
     /// Marks the plan running and takes it out of the store. A run already in flight is `busy`
     /// and leaves the plan in place; unknown or expired ids are `plan_expired`. An id runs once.
-    pub fn start(&self, id: &str) -> Result<(Plan, Arc<Running>), FixError> {
+    pub fn start(&self, id: &str) -> Result<(Stored, Arc<Running>), FixError> {
         let mut running = self.running.lock().map_err(|_| FixError::Busy)?;
         if running.is_some() {
             return Err(FixError::Busy);

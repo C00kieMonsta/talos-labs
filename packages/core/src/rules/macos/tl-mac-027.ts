@@ -17,6 +17,13 @@ export const TL_MAC_027: Rule = {
   evidenceVocabulary: {},
   explanation:
     "Backups are set up, but the most recent one is more than a week old, or none has completed yet. A backup only protects the work you had done when it ran, so a long gap means days of files, photos and settings that could be lost. Plugging the backup disk in and running a backup now closes that gap.",
+  guided: {
+    headline: "Your last backup is over a week old",
+    why: "A backup only helps if it is recent.",
+    verb: "Show me where",
+    done: "Done. A fresh backup has run.",
+    where: "Plug in your backup disk, then click \"Back Up Now\".",
+  },
   fix: {
     summary: "Connect the backup disk and run a backup now.",
     settingsPath: ["System Settings", "General", "Time Machine"],

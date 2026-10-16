@@ -93,12 +93,29 @@ describe("FixApply catalog invariants", () => {
   });
 });
 
+describe("batchable", () => {
+  it("is true for the 13 in_app rules with no choice or secret and false for 022 and 029", () => {
+    const batchable = fixCatalogEntries(MACOS_CATALOG)
+      .filter((entry) => entry.batchable)
+      .map((entry) => entry.ruleId);
+    expect(batchable).toHaveLength(13);
+    expect(batchable).not.toContain("TL-MAC-022");
+    expect(batchable).not.toContain("TL-MAC-029");
+    expect(batchable).toContain("TL-MAC-030");
+    for (const entry of fixCatalogEntries(MACOS_CATALOG)) {
+      if (entry.kind !== "in_app") {
+        expect(entry.batchable, entry.ruleId).toBe(false);
+      }
+    }
+  });
+});
+
 describe("packages/core/fixtures/fix-catalog.json", () => {
   it("has one entry per rule in catalog order", () => {
     const entries = fixCatalogEntries(MACOS_CATALOG);
     expect(entries.map((e) => e.ruleId)).toEqual(MACOS_CATALOG.rules.map((r) => r.id));
     for (const entry of entries) {
-      expect(Object.keys(entry)).toEqual(["ruleId", "kind", "choice", "passphrase", "needsPassword", "recheck", "pane", "watch"]);
+      expect(Object.keys(entry)).toEqual(["ruleId", "kind", "choice", "passphrase", "needsPassword", "recheck", "pane", "watch", "batchable"]);
     }
   });
 

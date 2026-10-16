@@ -338,6 +338,7 @@ describe("scan reducer", () => {
       unknownReason: null,
       points: 8,
       explanation: "x",
+      guided: { headline: "Fix this", why: "It matters.", verb: "Fix it for me", done: "Done. Fixed.", where: null },
       fix: { summary: "x", settingsPath: null, settingsPane: null, commands: [], steps: [], verify: null, effort: "two_minutes" as const, sideEffects: "none" as const, apply: { kind: "manual" as const, watch: [], watchEvery: 0, reveal: null } },
     });
     const report: ScanReport = { ...REPORT_A, findings: [finding("TL-MAC-001", ["diskEncryption"]), finding("TL-MAC-002", ["firewall"])] };

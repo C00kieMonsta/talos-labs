@@ -29,6 +29,9 @@ pub struct FixStatus {
     /// 1-based. The password dialog counts as step 1.
     pub step: usize,
     pub of: usize,
+    /// Batch only: 0-based item the user-level phase is on. Absent on a single fix.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub item: Option<usize>,
 }
 
 fn ssh_dir() -> Result<PathBuf, FixError> {
@@ -59,9 +62,24 @@ fn fresh_shares() -> Result<String, FixError> {
     Ok(out.stdout)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Tests set this so a precondition check never runs a collector.
+    pub(super) static PRECONDITION_STUB: std::cell::Cell<Option<bool>> =
+        const { std::cell::Cell::new(None) };
+}
+
 /// True when the precondition still holds. A section that cannot be read counts as changed.
+pub(super) fn precondition_holds(pre: Precondition) -> bool {
+    #[cfg(test)]
+    if let Some(stubbed) = PRECONDITION_STUB.with(|s| s.get()) {
+        return stubbed;
+    }
+    precondition_holds_real(pre)
+}
+
 #[cfg(target_os = "macos")]
-fn precondition_holds(pre: Precondition) -> bool {
+fn precondition_holds_real(pre: Precondition) -> bool {
     use crate::collect::{AnySection, collect_section};
     use crate::state::SectionKey;
     match pre {
@@ -76,7 +94,7 @@ fn precondition_holds(pre: Precondition) -> bool {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn precondition_holds(_pre: Precondition) -> bool {
+fn precondition_holds_real(_pre: Precondition) -> bool {
     let _ = Arc::new(AtomicBool::new(false));
     false
 }
@@ -157,6 +175,7 @@ pub fn apply(
             phase,
             step,
             of,
+            item: None,
         })
     };
     let steps: Vec<(usize, Vec<String>, Option<i32>, Privilege)> = spec

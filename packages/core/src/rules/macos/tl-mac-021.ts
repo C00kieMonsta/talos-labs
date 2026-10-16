@@ -15,6 +15,13 @@ export const TL_MAC_021: Rule = {
   evidenceVocabulary: {},
   explanation:
     "Remote Management is Apple's tool for administrators to control Macs across a network. On a personal Mac it should be off, because it gives whoever can connect full control. It is sometimes left on by an old job or an IT tool.",
+  guided: {
+    headline: "Your Mac can be controlled from elsewhere",
+    why: "Remote Management is for offices and hands your whole Mac to whoever has the key.",
+    verb: "Turn it off",
+    done: "Done. Remote Management is off.",
+    where: null,
+  },
   fix: {
     summary: "Turn off Remote Management in the Sharing settings.",
     settingsPath: ["System Settings", "General", "Sharing", "Remote Management"],

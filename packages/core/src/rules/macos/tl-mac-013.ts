@@ -14,6 +14,13 @@ export const TL_MAC_013: Rule = {
   evidenceVocabulary: {},
   explanation:
     "If you walk away from your Mac, the screen should lock itself before long. With the screen saver set to start after more than 20 minutes, or never, your open email and files stay available to anyone nearby. Twenty minutes or less is the usual recommendation.",
+  guided: {
+    headline: "Your screen stays on too long when you step away",
+    why: "A screen that locks itself keeps others out when you forget.",
+    verb: "Lock it sooner",
+    done: "Done. Your screen locks itself.",
+    where: null,
+  },
   fix: {
     summary: "Start the screen saver after 20 minutes of inactivity or less.",
     settingsPath: ["System Settings", "Lock Screen"],

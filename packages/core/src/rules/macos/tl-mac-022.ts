@@ -15,6 +15,13 @@ export const TL_MAC_022: Rule = {
   evidenceVocabulary: {},
   explanation:
     "File Sharing is on and at least one shared folder gives Everyone access, so a guest with no password can open it from the network and read, and often change, what is inside. On a cafe or hotel network that means strangers.",
+  guided: {
+    headline: "A shared folder has no password",
+    why: "Anyone on your network can open it without a password.",
+    verb: "Stop sharing it",
+    done: "Done. The folder needs a password now.",
+    where: null,
+  },
   fix: {
     summary: "Set Everyone to No Access on the shared folder, or turn File Sharing off.",
     settingsPath: ["System Settings", "General", "Sharing", "File Sharing"],

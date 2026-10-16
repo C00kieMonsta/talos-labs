@@ -14,6 +14,13 @@ export const TL_MAC_016: Rule = {
   evidenceVocabulary: {},
   explanation:
     "Automatic login means the Mac goes straight to your desktop when it starts, with no password. Anyone who turns it on gets your files, email and saved passwords. It also undoes much of FileVault's benefit, because the disk is unlocked without a password being typed.",
+  guided: {
+    headline: "Your Mac logs in without a password",
+    why: "Anyone who turns it on is straight in.",
+    verb: "Turn it off",
+    done: "Done. Your Mac asks for a password at start.",
+    where: null,
+  },
   fix: {
     summary: "Set Automatically log in as to Off.",
     settingsPath: ["System Settings", "Users & Groups"],

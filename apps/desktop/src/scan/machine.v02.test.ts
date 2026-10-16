@@ -64,12 +64,12 @@ describe("fixing", () => {
 
   it("fix_previewed opens the confirm phase with the plan's line count", () => {
     const s = reduce(ready(), { type: "fix_previewed", plan });
-    expect(s.kind === "ready" && s.fixing).toEqual({ plan, phase: "confirm", step: 0, of: 1, error: null, result: null });
+    expect(s.kind === "ready" && s.fixing).toEqual({ kind: "single", plan, phase: "confirm", step: 0, of: 1, error: null, result: null });
   });
 
   it("fix_preview_failed opens straight on the error with an empty plan", () => {
     const s = reduce(ready(), { type: "fix_preview_failed", ruleId: "TL-MAC-002", error: "not_in_catalog" });
-    expect(s.kind === "ready" && s.fixing).toEqual({ plan: emptyPlan("TL-MAC-002"), phase: "failed", step: 0, of: 0, error: "not_in_catalog", result: null });
+    expect(s.kind === "ready" && s.fixing).toEqual({ kind: "single", plan: emptyPlan("TL-MAC-002"), phase: "failed", step: 0, of: 0, error: "not_in_catalog", result: null });
   });
 
   it("progress, rechecking and done replace the report and keep surviving explanations, with no rechecking state", () => {
@@ -84,7 +84,7 @@ describe("fixing", () => {
     expect(s.kind).toBe("ready");
     if (s.kind !== "ready") return;
     expect(s.report).toBe(FIXED);
-    expect(s.fixing).toEqual({ plan, phase: "done", step: 1, of: 1, error: null, result: "pass" });
+    expect(s.fixing).toEqual({ kind: "single", plan, phase: "done", step: 1, of: 1, error: null, result: "pass" });
     expect(s.explain).toEqual({ kind: "ready", byRule: { "TL-MAC-001": EXPLANATION }, order: null, priority: null });
     expect(rulePasses(FIXED, "TL-MAC-002")).toBe(true);
     expect(rulePasses(REPORT, "TL-MAC-002")).toBe(false);

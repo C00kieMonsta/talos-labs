@@ -14,6 +14,13 @@ export const TL_MAC_009: Rule = {
   evidenceVocabulary: { autoInstallSecurityResponses: TRI_VOCABULARY },
   explanation:
     "Security Responses are small, urgent fixes Apple sends between full updates, often for problems already being used in attacks. They install in minutes and rarely need a restart. Leaving this off means the fastest fixes Apple ships never reach you.",
+  guided: {
+    headline: "Safety fixes do not install on their own",
+    why: "Apple sends small urgent fixes between updates, and these should just happen.",
+    verb: "Turn it on",
+    done: "Done. Safety fixes install on their own.",
+    where: null,
+  },
   fix: {
     summary: "Turn on automatic installation of Security Responses and system files.",
     settingsPath: ["System Settings", "General", "Software Update"],

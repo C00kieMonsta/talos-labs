@@ -51,6 +51,16 @@ There is no licence form. `LicenceField` (`apps/desktop/src/components/LicenceFi
 
 The demo build accepts `TL1.DEMO` for typed entry and a second key that matches the paste regex, so the QA harness exercises both paths (`apps/desktop/qa/README.md`). The behaviour is specified in DESIGN-V02.md section 6, "Licence entry".
 
+### The paywall step (v0.3)
+
+The guided check-up has one more place for the key: the paywall step. It appears once per run, after the free steps and never before the first of them, when the plan holds locked rules. The screen reads "There are N more things to fix." with the locked rules' guided headlines, a "Buy the full version, £PRICE" button (the placeholder price; the button calls `open_buy_page` as above), the same `LicenceField` inline, and a "Not now" link.
+
+- On `valid`: "Thank you. Carrying on." for 800 ms, then the locked rules are planned by `planLocked` and appended to the run, and the next step opens. The field stays in place while the shop is open in the browser, so the key can be pasted on return.
+- "Not now" writes `paywallSnoozedUntil = now + 14 days` into the guided memory and goes to the end screen, where the locked rules are counted under "in the full version". The paywall is absent from every plan for those 14 days; the rules stay locked and are still listed.
+- The free set the check-up works with is frozen when the report lands (`GuidedPlan.freeFixes`): fixing one of the free three does not promote a fourth rule into the free set during that run. `freeFixRuleIds` is unchanged; the expert screens keep reading the live gate.
+
+The copy and the step shape are in DESIGN-V03.md section 1, "Step type: paywall", and section 7.
+
 ## Keygen
 
 `scripts/keygen/keygen.ts` sits outside the workspace packages and uses `node:crypto` only.
@@ -108,7 +118,7 @@ So "one-off purchase" means every build released within the window, typically tw
 
 Free, with no key: the full scan, the score and grade, every finding with its title, status, evidence and authored explanation, and the complete fix, including Apply and the away-watch, for the three highest-point failing findings. Ties break by catalog order. The recheck bundled into an Apply or a watch is free too. Fixes for `review` findings are always free and do not count towards the three. FileVault is the only critical rule and always lands in the top three when it fails, so nobody is left unencrypted because they did not pay.
 
-`freeFixRuleIds(report)` in core computes the free set. The gate is a UI check in `apps/desktop`; core always produces the full report.
+`freeFixRuleIds(report)` in core computes the free set. The gate is a UI check in `apps/desktop`; core always produces the full report. The guided check-up receives that set once per report and freezes it in the plan (see "The paywall step" above); the gate is a product boundary, not a security one, and the fix engine binds and confirms every rule the same way on both sides of it.
 
 Paid (`Feature`):
 
@@ -116,6 +126,6 @@ Paid (`Feature`):
 - `recheck`: the manual "Check again" on a finding, for every finding including the three free ones. The automatic recheck after an Apply or a watch is not gated.
 - `explainer`: the AI explanation, prioritisation and follow-up questions.
 
-## Not in v0.2
+## Not in v0.2 or v0.3
 
-Payment provider, checkout, key delivery email, licence server, seat enforcement, hardware binding.
+Payment provider, checkout, key delivery email, licence server, seat enforcement, hardware binding, the price itself.

@@ -15,6 +15,13 @@ export const TL_MAC_024: Rule = {
   evidenceVocabulary: {},
   explanation:
     "A background item on this Mac is set to run a program that no longer exists, usually left behind by an app that was deleted. That sounds harmless, but the Mac will still try to run whatever appears at that path. An attacker who gets a file there later would have it started for them, with no extra setup.",
+  guided: {
+    headline: "A background program looks for a file that is missing",
+    why: "A bad program could put itself in that spot later.",
+    verb: "Details",
+    done: "Done. The file is gone.",
+    where: null,
+  },
   fix: {
     summary: "Delete the leftover background item that points at a missing program.",
     settingsPath: null,

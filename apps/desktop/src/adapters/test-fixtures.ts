@@ -32,6 +32,7 @@ function finding(
     ruleId,
     title: `Rule ${ruleId}`,
     headline: status === "unknown" ? `Couldn't check rule ${ruleId}` : `Rule ${ruleId} fails`,
+    guided: { headline: "Fix this", why: "It matters.", verb: "Fix it for me", done: "Done. Fixed.", where: null },
     severity,
     category,
     cis: null,

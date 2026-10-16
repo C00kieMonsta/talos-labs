@@ -921,7 +921,7 @@ describe("Settings", () => {
   it("keeps the six sections in the design order", () => {
     mount();
     const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-    expect(headings).toEqual(["AI explanations", "About you", "Permissions", "Licence", "Developer mode", "About"]);
+    expect(headings).toEqual(["Check-up", "AI explanations", "Permissions", "Licence", "Developer mode", "About"]);
   });
 
   it("drives the AI status line from the availability prop and its one button from onAiAction", () => {
@@ -1069,6 +1069,6 @@ describe("Settings", () => {
     expect(screen.getByText(/01HXYZ/)).toBeTruthy();
     expect(screen.getByText(/cafebabe/)).toBeTruthy();
     expect(screen.getByText("Nothing leaves this Mac. AI explanations are written here by Apple Intelligence.")).toBeTruthy();
-    expect(screen.queryByText(/Claude or ChatGPT/)).toBeNull();
+    expect(screen.queryByText(/ChatGPT/)).toBeNull();
   });
 });

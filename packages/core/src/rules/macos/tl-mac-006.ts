@@ -14,6 +14,13 @@ export const TL_MAC_006: Rule = {
   evidenceVocabulary: { engine: ["xprotect", "defender", "none"] },
   explanation:
     "XProtect is the malware checker built into macOS. Apple updates its list of known threats quietly through Software Update. If it is missing or its version cannot be read, your Mac may not recognise malware that everyone else is already protected against.",
+  guided: {
+    headline: "Virus checks are missing",
+    why: "macOS checks downloads for known bad software, and this part is not there.",
+    verb: "Show me where",
+    done: "Done. Virus checks are back.",
+    where: "Click \"Update Now\" and wait for it to finish.",
+  },
   fix: {
     summary: "Run Software Update so macOS restores and updates its built-in protection.",
     settingsPath: ["System Settings", "General", "Software Update"],

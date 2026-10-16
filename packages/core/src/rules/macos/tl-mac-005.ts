@@ -14,6 +14,13 @@ export const TL_MAC_005: Rule = {
   evidenceVocabulary: {},
   explanation:
     "System Integrity Protection, or SIP, stops any program, even one running as an administrator, from changing the core parts of macOS. With it off, malware that gets onto the Mac can dig into the system itself and hide there. It is on by default and there is rarely a good reason to turn it off.",
+  guided: {
+    headline: "A built-in safety guard is off",
+    why: "It stops programs from changing the parts of macOS that keep you safe.",
+    verb: "Details",
+    done: "Done. The protection is back on.",
+    where: null,
+  },
   fix: {
     summary: "Turn System Integrity Protection back on from Recovery.",
     settingsPath: null,

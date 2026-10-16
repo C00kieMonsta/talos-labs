@@ -15,6 +15,13 @@ export const TL_MAC_025: Rule = {
   evidenceVocabulary: {},
   explanation:
     "These apps open by themselves every time you log in. That is usually by choice, but an app you forgot about, or one that added itself, keeps running and keeps its access to your files and network. Fewer login items also means a faster start.",
+  guided: {
+    headline: "Some apps open when you log in",
+    why: "Fewer apps at login means a faster, tidier start.",
+    verb: "Show me where",
+    done: "Done. You have had a look.",
+    where: "Under \"Open at Login\", select an app you do not need and click the minus.",
+  },
   fix: {
     summary: "Remove login items you do not need from Login Items & Extensions.",
     settingsPath: ["System Settings", "General", "Login Items & Extensions", "Open at Login"],

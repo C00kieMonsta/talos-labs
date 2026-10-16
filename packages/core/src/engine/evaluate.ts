@@ -72,6 +72,7 @@ function toFinding(rule: Rule, result: RuleResult, status: Finding["status"]): F
     points: result.points,
     explanation: rule.explanation,
     fix: rule.fix,
+    guided: rule.guided,
   };
 }
 

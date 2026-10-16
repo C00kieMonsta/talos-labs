@@ -9,6 +9,7 @@ use tauri_plugin_opener::OpenerExt;
 
 use crate::capabilities::{self, Capabilities};
 use crate::collect::{self, CollectError, ProgressStatus};
+use crate::fix::batch::{self, BatchOutcome, BatchPlanWire};
 use crate::fix::plan::{FixPlan, PlanStore};
 use crate::fix::run::{self as fix_run, FixStatus, STATUS_EVENT};
 use crate::fix::{FixChoice, FixOutcome};
@@ -164,11 +165,58 @@ pub async fn fix_apply(
 ) -> Result<FixOutcome, String> {
     let passphrase = passphrase.map(zeroize::Zeroizing::new);
     let (stored, running) = state.start(&plan).map_err(String::from)?;
+    let single = match stored.into_single() {
+        Ok(single) => single,
+        Err(err) => {
+            state.finish(&plan);
+            return Err(err.into());
+        }
+    };
     let emit = move |status: FixStatus| {
         let _ = app.emit(STATUS_EVENT, status);
     };
     let outcome = tauri::async_runtime::spawn_blocking(move || {
-        fix_run::apply(&stored, &running, passphrase, &emit)
+        fix_run::apply(&single, &running, passphrase, &emit)
+    })
+    .await
+    .map_err(|e| e.to_string());
+    state.finish(&plan);
+    outcome?.map_err(String::from)
+}
+
+/// Builds and stores a batch for five minutes. Rejects with `invalid_choice` or `not_in_catalog`.
+#[tauri::command]
+pub async fn fix_preview_batch(
+    state: State<'_, PlanStore>,
+    rules: Vec<String>,
+) -> Result<BatchPlanWire, String> {
+    let plan = tauri::async_runtime::spawn_blocking(move || batch::preview_batch(&rules))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(String::from)?;
+    Ok(state.insert_batch(plan))
+}
+
+/// Runs a stored batch. Rejects `plan_expired` and `busy`; the run resolves, even on cancel.
+#[tauri::command]
+pub async fn fix_apply_batch(
+    app: AppHandle,
+    state: State<'_, PlanStore>,
+    plan: String,
+) -> Result<BatchOutcome, String> {
+    let (stored, running) = state.start(&plan).map_err(String::from)?;
+    let batch_plan = match stored.into_batch() {
+        Ok(batch_plan) => batch_plan,
+        Err(err) => {
+            state.finish(&plan);
+            return Err(err.into());
+        }
+    };
+    let emit = move |status: FixStatus| {
+        let _ = app.emit(STATUS_EVENT, status);
+    };
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        batch::apply_batch(&batch_plan, &running, &emit)
     })
     .await
     .map_err(|e| e.to_string());

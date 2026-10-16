@@ -1,6 +1,6 @@
 # Security model
 
-Talos Labs reads security settings and shows them with a fix. From v0.2 it can also apply a fix, but only a command line from its own catalog, only after the user confirms it in the app, and never one a model wrote. This document lists the boundaries, what crosses each one, and what the app never does. The v0.2 design is in `docs/DESIGN-V02.md`.
+Talos Labs reads security settings and shows them with a fix. From v0.2 it can also apply a fix, but only a command line from its own catalog, only after the user confirms it in the app, and never one a model wrote. From v0.3 the guided check-up can apply several of those catalog fixes behind one administrator dialog; the batch adds no command, no input and no privilege to the single-fix path. This document lists the boundaries, what crosses each one, and what the app never does. The v0.2 design is in `docs/DESIGN-V02.md`, the v0.3 design in `docs/DESIGN-V03.md`.
 
 ## Four boundaries
 
@@ -90,7 +90,7 @@ No root in the collectors. The app never draws a field for the login password. T
 
 ### On-device AI sidecar (v0.2)
 
-The consumer provider is Apple's Foundation Models framework, running on the Mac. The browser hand-off of v0.1 (`buildBrowserPrompt`, `open_assistant`) is removed; the app opens no `claude.ai` or `chatgpt.com` URL.
+The consumer provider is Apple's Foundation Models framework, running on the Mac. The browser hand-off of v0.1 (`buildBrowserPrompt` and its Tauri command) is removed; the app opens no chat website URL.
 
 How it runs:
 
@@ -142,12 +142,27 @@ Talos Labs may change a setting only when the fix is a fixed, catalog-defined co
 - No stdout or stderr from any fix command is logged in release or returned to the webview. Developer mode sees the exit code and step index only.
 - Rule 012 is a deep link on purpose: the app never draws a field for the login password.
 
+### Batch fixes (v0.3)
+
+The guided check-up fixes several rules behind one dialog. The engine is `fix/batch.rs`; the design is `docs/DESIGN-V03.md` section 3.
+
+- Which rules may join a batch is a property of the catalog row, `batchable(spec)`: no choice to make, no secret, no pty. That is 13 rules (002, 003, 007, 008, 009, 011, 013, 015, 016, 019, 020, 021, 030). Rule 022 (a share name) and rule 029 (a passphrase) never join, so no `FixChoice` payload with a path and no passphrase exist on the batch path. A test pins the set, and the core contract test reads the same `batchable` field from `fix-catalog.json`.
+- `fix_preview_batch({ rules })` takes a list of rule ids, nothing else. Each one goes through the same `run::preview(rule, FixChoice::None)` as a single fix, so binding, `read_previous` and the precondition check are the same code. A duplicate, a non-batchable rule or an empty list after exclusion rejects the whole call with `invalid_choice`; an unknown rule with `not_in_catalog`; an item whose own precondition fails lands in `excluded`. The plan is stored beside single plans under a random id for the same five minutes and runs once.
+- `fix_apply_batch({ plan })` accepts only a batch id. The `PlanStore` keeps singles and batches as one `Stored` enum, so `fix_apply` rejects a batch id and `fix_apply_batch` rejects a single id, both as `plan_expired`. The one running slot is shared, so a batch and a single fix report `busy` to each other. `fix_cancel` works on a batch id.
+- Admin items run first, in catalog order, through one `osascript` reading the script from stdin, one `do shell script ... with administrator privileges`, one dialog, with the prompt "Talos Labs wants to fix N things on this Mac." Each item is a subshell: `( { line; } >/dev/null 2>&1; ... ); echo R i $?`. The lines inside are the v0.2 `shell_line` output (quoted by `sh_quote`, tolerated exits, `exit 1N` step markers), so the only new text in the script is the subshell wrapper, the marker echo with an integer Rust formats itself, and a final `exit 0`. The redirects keep every command's output off stdout, so the only thing Rust reads back is the `R` lines, parsed with an anchored regex. A stray line cannot select or alter a command; at worst it misreports an item, and the recheck corrects that. The child's timeout is the single-fix admin timeout plus 15 s per admin item.
+- A cancelled dialog, a wrong password or a timeout is classified by the unchanged `classify(stderr, status)`; nothing ran, every item is `not_run`, and the user-level phase does not start. User-level items (013, 030) run afterwards through `run_user`, one at a time, with no shell.
+- The recheck is the frontend's and is per item: one re-read of the union of sections, then `rulePasses` per rule. The engine never reports success on its own word, for a batch as for a single fix.
+- Nothing is emitted while the script runs; `fix:status` gains an optional `item` index for the user-level phase only, and the single-fix payload is unchanged.
+- Developer mode shows the plan lines, the markers, the exit code and the failing step. It never edits them.
+- The free set is a product gate, not a security one. The guided plan freezes `freeFixes` when the check-up lands and rebuilds from that list, so fixing a free rule does not unlock another; a licence key unlocks the rest. The gate decides which rule ids the webview may send; the engine still binds, previews and confirms each of them exactly as above.
+
 ### What can never happen
 
 - A command that is not in `FIX_CATALOG` cannot run: the webview sends a rule id and a choice, and the table has no entry built from input.
 - A path, share name or key the webview chose cannot reach a command unless Rust's own fresh listing contains it exactly.
 - A model cannot write, choose or trigger a fix. Model output is text in a labelled card; the fix engine is driven by catalog ids only, and `containsCommandText` rejects model text that looks like a command.
-- The app cannot run as root, cannot start a privileged helper, and cannot keep an authorization between plans. Each admin plan is one dialog, answered by the user to macOS.
+- The app cannot run as root, cannot start a privileged helper, and cannot keep an authorization between plans. Each admin plan, single or batch, is one dialog, answered by the user to macOS.
+- A batch cannot carry a path, a share name, a passphrase or a choice: the batchable set excludes every row that takes one, and the batch command takes rule ids only.
 - The displayed `fix.commands` text (the Developer-mode copy buttons) is never executed. The engine runs its own table, not the catalog's display strings.
 - Nothing runs without the in-app confirmation, and nothing runs after the five-minute plan expiry without a fresh preview.
 
@@ -161,11 +176,11 @@ default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://api.ant
 
 `connect-src` carries `'self' ipc: http://ipc.localhost` for Tauri's command channel plus the two Developer-mode explainer origins. The on-device sidecar needs no origin: it is reached through Tauri commands, not the network. Tauri appends its own script nonces. `style-src 'unsafe-inline'` lets Vite inject stylesheets as `<style>` elements during `tauri dev`; the UI itself sets no inline style attributes. No inline script is allowed.
 
-Capabilities (`apps/desktop/src-tauri/capabilities/default.json`): `core:default` plus `core:window:allow-start-dragging` (for the unified title bar); app-defined commands need no capability entry. No `shell`, `fs`, `http` or `opener` permission is granted to the webview. `open_settings_pane` maps a closed `SettingsPane` enum (v0.2 adds `apple_intelligence`) to an `x-apple.systempreferences` URL in Rust; `open_buy_page` opens one fixed URL chosen in Rust; the frontend never passes a URL. `open_assistant` is removed. The webview has no path to the filesystem except the commands below.
+Capabilities (`apps/desktop/src-tauri/capabilities/default.json`): `core:default` plus `core:window:allow-start-dragging` (for the unified title bar); app-defined commands need no capability entry. No `shell`, `fs`, `http` or `opener` permission is granted to the webview. `open_settings_pane` maps a closed `SettingsPane` enum (v0.2 adds `apple_intelligence`) to an `x-apple.systempreferences` URL in Rust; `open_buy_page` opens one fixed URL chosen in Rust; the frontend never passes a URL. The v0.1 assistant hand-off command is removed. The webview has no path to the filesystem except the commands below.
 
 ```
 collect_system_state, collect_section, cancel_scan, cancel_section, check_capabilities, open_settings_pane,
-fix_preview, fix_apply, fix_cancel, fix_reveal, open_buy_page, app_restart,
+fix_preview, fix_apply, fix_preview_batch, fix_apply_batch, fix_cancel, fix_reveal, open_buy_page, app_restart,
 ai_availability, ai_generate, ai_cancel,
 secret_get, secret_set, secret_delete, report_save_last, report_load_last,
 license_read, license_write, license_delete
@@ -173,7 +188,7 @@ license_read, license_write, license_delete
 
 ## Demo build
 
-For browser-driven QA the web build can be served with fixture-backed adapters (`apps/desktop/src/adapters/demo.ts`): the collector returns a core fixture, the licence accepts only the two demo keys (`TL1.DEMO` for typed entry and the long `DEMO_LICENSE_KEY_PASTED` that matches the paste pattern), secrets and reports stay in memory, the fix engine and the AI sidecar are scripted fakes, and `open_settings_pane`, `open_buy_page`, `app_restart`, `fix_preview`, `fix_apply` and `fix_reveal` record their arguments on `window.__talosDemoCalls` instead of doing anything.
+For browser-driven QA the web build can be served with fixture-backed adapters (`apps/desktop/src/adapters/demo.ts`): the collector returns a core fixture, the licence accepts only the two demo keys (`TL1.DEMO` for typed entry and the long `DEMO_LICENSE_KEY_PASTED` that matches the paste pattern), secrets and reports stay in memory, the fix engine and the AI sidecar are scripted fakes, and `open_settings_pane`, `open_buy_page`, `app_restart`, `fix_preview`, `fix_apply`, `fix_preview_batch`, `fix_apply_batch` and `fix_reveal` record their arguments on `window.__talosDemoCalls` instead of doing anything.
 
 The switch is `import.meta.env.VITE_TALOS_DEMO === "1"` in `apps/desktop/src/app/container.ts`, and nothing else. Vite inlines that value when it builds, so it is a property of the bundle, not of the page, the URL, localStorage or any runtime flag. The URL parameters that choose a fixture are only read once that build-time branch has been taken. `apps/desktop/vite.config.ts` throws when `VITE_TALOS_DEMO=1` is set while the Tauri CLI is driving the build (`TAURI_ENV_PLATFORM` present), so neither `tauri dev` nor `tauri build` can produce a demo bundle. In a normal build the condition is a constant `false` and the demo module is dropped; `grep __talosDemoCalls apps/desktop/dist/assets/*.js` finds nothing. `.env` files are git-ignored, so the variable cannot arrive through the repository.
 
@@ -184,7 +199,8 @@ The switch is `import.meta.env.VITE_TALOS_DEMO === "1"` in `apps/desktop/src/app
 | Anthropic API key | macOS Keychain, through the `keyring` crate | never in localStorage, component state or logs; read at call time |
 | Licence key | `<app data>/license.key` | re-verified on every launch; contains no email |
 | Last report | `<app data>/last-report.json`, mode 0600 | holds findings with display-only paths and names; never leaves the machine |
-| Settings | localStorage | provider, AI switch, model ids, profile, the developer group (switch, show commands, show plan), onboarded flag, the Full Disk Access continuation flag; no secrets |
+| Settings | localStorage | provider, AI switch, model ids, profile, the developer group (switch, show commands, show plan), onboarded flag, the two check-up switches, the relaunch continuation (`talos.continue`, a kind only); no secrets |
+| Guided memory | localStorage `talos.guided` | rule ids and ISO dates only: snoozes, "later" counts, watcher time-outs, rules waiting for a restart, the paywall and permission snooze dates. No rule text, path or evidence |
 
 The full `SystemState` lives in memory for the session and is not persisted. `ScanReport.sections` records only which sections were collectable. Fix plans live in Rust memory for five minutes and are never written to disk; a passphrase lives in a zeroed buffer for one apply.
 
@@ -195,8 +211,9 @@ Outbound only, and only when Developer mode picks a remote provider: `https://ap
 ## What the app never does
 
 - Generate a script, or run anything a model wrote. The only commands it runs are the fixed lines in `FIX_CATALOG`, after an in-app confirmation.
-- Run as root, prompt for `sudo`, or draw its own password field. Admin commands go through macOS's administrator dialog, one plan per dialog.
-- Run a shell, except the `sh` inside `do shell script` for an admin plan, which receives only fully quoted catalog text.
+- Run as root, prompt for `sudo`, or draw its own password field. Admin commands go through macOS's administrator dialog, one plan or one batch per dialog.
+- Run a shell, except the `sh` inside `do shell script` for an admin plan or batch, which receives only fully quoted catalog text.
+- Scan, fix or watch while the app is closed. No notifications, no menu bar agent, no scheduled scans.
 - Send a URL, a command or a schema from the webview to Rust.
 - Read documents, mail, messages, browser history, saved passwords or Keychain items.
 - Send machine text to a model.

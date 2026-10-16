@@ -14,6 +14,13 @@ export const TL_MAC_001: Rule = {
   evidenceVocabulary: { method: ["filevault", "bitlocker", "luks", "none", "unknown"] },
   explanation:
     "FileVault scrambles everything on your disk so it can only be read with your password. Without it, anyone who takes the Mac, or just its drive, can read your files by plugging it into another computer. It is the single most important setting on a laptop that ever leaves the house.",
+  guided: {
+    headline: "Your disk is not locked",
+    why: "If your Mac is lost or stolen, anyone can read your files.",
+    verb: "Show me where",
+    done: "Done. Your disk is locked.",
+    where: "Click \"Turn On\" next to FileVault. Write down the recovery key it shows you. Your Mac may restart.",
+  },
   fix: {
     summary: "Turn on FileVault in System Settings and keep the recovery key somewhere safe.",
     settingsPath: ["System Settings", "Privacy & Security", "FileVault"],

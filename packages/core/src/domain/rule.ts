@@ -25,6 +25,20 @@ export type RuleOutcome =
     }
   | { readonly status: "not_applicable"; readonly evidence: readonly Evidence[] };
 
+/** Guided-flow copy. Reading age about 10; the catalog test enforces the caps and the banned-word list. */
+export interface GuidedStrings {
+  /** The problem, no trailing stop, at most 60 characters. */
+  readonly headline: string;
+  /** One sentence why it matters to this person, at most 110 characters, ends with a stop. */
+  readonly why: string;
+  /** Primary button for a fix-for-me step, at most 22 characters; "Show me where" for every deep_link rule; "Details" for rules with no pane (manual). */
+  readonly verb: string;
+  /** Shown with the tick. Starts with "Done." */
+  readonly done: string;
+  /** What to do on the opened page. Non-null exactly when fix.apply.kind is "deep_link". */
+  readonly where: string | null;
+}
+
 export interface Rule {
   readonly id: RuleId;
   /** Reader-facing statement of what is checked, e.g. "Your disk is encrypted". */
@@ -51,6 +65,7 @@ export interface Rule {
   /** Authored plain-language "why it matters". */
   readonly explanation: string;
   readonly fix: Fix;
+  readonly guided: GuidedStrings;
   evaluate(state: SystemState, ctx: RuleContext): RuleOutcome;
 }
 

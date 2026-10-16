@@ -14,6 +14,13 @@ export const TL_MAC_010: Rule = {
   evidenceVocabulary: {},
   explanation:
     "An update is ready but has not been installed. Until it is, your Mac still has whatever problem the update fixes, and the fix itself tells attackers exactly where to look. Installing it usually means a restart and a few minutes of waiting.",
+  guided: {
+    headline: "An update is waiting",
+    why: "Until it is installed, your Mac is missing fixes Apple has sent.",
+    verb: "Show me where",
+    done: "Done. Your Mac is up to date.",
+    where: "Click \"Update Now\". Your Mac will restart. Open me again afterwards.",
+  },
   fix: {
     summary: "Install the waiting update from Software Update.",
     settingsPath: ["System Settings", "General", "Software Update"],

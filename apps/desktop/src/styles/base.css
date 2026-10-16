@@ -116,6 +116,10 @@ svg {
   background: var(--bg-sidebar-fallback);
 }
 
+html.no-vibrancy {
+  background: var(--bg-canvas);
+}
+
 .sidebar.sidebar-dimmed,
 .sidebar[inert] {
   opacity: 0.5;

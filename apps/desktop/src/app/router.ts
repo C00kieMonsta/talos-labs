@@ -5,6 +5,8 @@ export type SeverityFilter = Severity | "all";
 export type CategoryFilter = Category | "all";
 
 export type Route =
+  /** The guided check-up, the default home. */
+  | { name: "guided" }
   | { name: "overview" }
   /** The filters ride on the route so Back from a finding restores them. A fresh visit starts unfiltered. */
   | { name: "findings"; severity?: SeverityFilter; category?: CategoryFilter }

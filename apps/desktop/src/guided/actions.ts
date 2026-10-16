@@ -1,0 +1,116 @@
+import type { GuidedPlan, RuleId } from "@talos/core";
+import { planLocked } from "@talos/core";
+import { lastReport } from "../scan/machine";
+import type { Core } from "./core";
+import { advance, appendSteps, currentStep, finalPlan, openStep, setStep, writeMemory } from "./core";
+import { daysAfter } from "./memory";
+import { LATER_FLASH, PAYWALL, QUESTION } from "./copy";
+import { LATER_FLASH_MS, QUESTION_FLASH_MS, THANK_YOU_MS, paced } from "./timing";
+import { ruleIdsOf } from "./plan";
+
+/** "Do this later": snooze the step's rules for 7 days, flash, advance. The paywall and permission links have their own meaning. */
+export function later(core: Core): void {
+  const step = currentStep(core);
+  if (step === null) return;
+  const now = core.now();
+  if (step.kind === "paywall") {
+    writeMemory(core, { paywallSnoozedUntil: daysAfter(now, 14) });
+    const { phase } = core;
+    if (phase.kind === "step") core.setPhase({ kind: "end", plan: finalPlan(core, phase.plan), fixed: [...core.fixed] });
+    return;
+  }
+  if (step.kind === "permission") {
+    writeMemory(core, { permissionAskedAt: { ...core.memory.permissionAskedAt, [step.permission]: now } });
+    advance(core);
+    return;
+  }
+  if (core.phase.kind === "step" && core.phase.state.kind === "watching") core.scan.stopWatch();
+  const snoozed = { ...core.memory.snoozed };
+  const laterCount = { ...core.memory.laterCount };
+  for (const id of ruleIdsOf(step)) {
+    snoozed[id] = daysAfter(now, 7);
+    laterCount[id] = (laterCount[id] ?? 0) + 1;
+  }
+  writeMemory(core, { snoozed, laterCount });
+  flashThenAdvance(core, LATER_FLASH, paced(LATER_FLASH_MS));
+}
+
+export function flashThenAdvance(core: Core, text: string, ms: number): void {
+  setStep(core, { kind: "later_flash", text });
+  setTimeout(() => {
+    if (core.phase.kind === "step" && core.phase.state.kind === "later_flash") advance(core);
+  }, ms);
+}
+
+/** The Next link under a done line, and the only button of a "left alone" failure. */
+export function next(core: Core): void {
+  const step = currentStep(core);
+  const { phase } = core;
+  if (step === null || phase.kind !== "step") return;
+  if (phase.state.kind === "failed") for (const id of ruleIdsOf(step)) core.leftAlone.add(id);
+  advance(core);
+}
+
+/** The 026 question. Yes opens the pane as the primary would; No snoozes 026 for 30 days. */
+export function answer(core: Core, yes: boolean, primary: () => void): void {
+  const step = currentStep(core);
+  if (step === null || step.kind !== "show" || step.question === null) return;
+  if (yes) {
+    setStep(core, { kind: "idle" });
+    primary();
+    return;
+  }
+  writeMemory(core, { snoozed: { ...core.memory.snoozed, [step.ruleId]: daysAfter(core.now(), 30) } });
+  flashThenAdvance(core, QUESTION.flash, paced(QUESTION_FLASH_MS));
+}
+
+export function toggleList(core: Core): void {
+  const { phase } = core;
+  if (phase.kind === "plan") core.setPhase({ ...phase, listOpen: !phase.listOpen });
+}
+
+/** since -> plan or end, plan -> first step, a partial batch -> next. */
+export function carryOn(core: Core): void {
+  const { phase } = core;
+  if (phase.kind === "since") {
+    if (phase.plan.steps.length === 0) core.setPhase({ kind: "end", plan: finalPlan(core, phase.plan), fixed: [...core.fixed] });
+    else core.setPhase({ kind: "plan", plan: phase.plan, listOpen: false, same: false });
+    return;
+  }
+  if (phase.kind === "plan") {
+    openStep(core, phase.plan, 0);
+    return;
+  }
+  if (phase.kind === "step" && phase.state.kind === "done") advance(core);
+}
+
+/** Welcome -> scanning, the failed and stopped screens, and "Check again" on the end screen. */
+export function start(core: Core): void {
+  core.extras = [];
+  core.leftAlone = new Set();
+  core.fixed = [];
+  core.ofFloor = 0;
+  core.batchFailures = 0;
+  core.watchSeen = false;
+  core.previousReport = lastReport(core.scan.scan);
+  core.setPhase({ kind: "scanning" });
+  void core.scan.start();
+}
+
+/** After the licence turned valid on the paywall: thank, plan the unlocked rules, append them, carry on. */
+export function licenceAccepted(core: Core): void {
+  const step = currentStep(core);
+  const { phase } = core;
+  if (step === null || step.kind !== "paywall" || phase.kind !== "step") return;
+  const report = lastReport(core.scan.scan);
+  const unlocked: readonly RuleId[] = step.lockedRuleIds;
+  const steps = report === null ? [] : planLocked(report, unlocked, core.deps.settings.profile, core.memory, core.now());
+  appendSteps(core, steps);
+  const after = core.phase;
+  if (after.kind !== "step") return;
+  const plan: GuidedPlan = { ...after.plan, locked: [] };
+  core.setPhase({ ...after, plan, state: { kind: "later_flash", text: `${PAYWALL.thanks} ${PAYWALL.carrying}` } });
+  setTimeout(() => {
+    if (core.phase.kind === "step" && core.phase.state.kind === "later_flash") advance(core);
+  }, paced(THANK_YOU_MS));
+}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import type { Explanation, FixChoice, FixError, RuleId, ScanReport, SectionKey, SystemState } from "@talos/core";
+import type { BatchOutcome, Explanation, FixChoice, FixError, RuleId, ScanReport, SectionKey, SystemState } from "@talos/core";
 import { awayPolling, type AwayPoller } from "./awayPolling";
 import { replaceSection, rulePasses, survivingExplanations } from "./machine";
 import type { RecheckResult } from "./machine";
@@ -8,6 +8,12 @@ import { DeadlineError, SCAN_BUDGET_MS, withDeadline } from "./useScan";
 
 /** Default interval for a watcher whose rule names none. */
 export const WATCH_EVERY_MS = 3000;
+
+/** What a guided show step watches, in place of the rule's own watch list. */
+export interface WatchSpec {
+  readonly sections: readonly SectionKey[];
+  readonly everyMs: number;
+}
 
 const FIX_ERRORS: readonly FixError[] = [
   "cancelled",
@@ -76,7 +82,7 @@ export function useFixActions(internals: ScanInternals): FixActions {
   const applyFix = useCallback(
     async (passphrase?: string) => {
       const current = scanRef.current;
-      if (current.kind !== "ready" || current.fixing === null || current.fixing.phase !== "confirm") return;
+      if (current.kind !== "ready" || current.fixing === null || current.fixing.kind !== "single" || current.fixing.phase !== "confirm") return;
       const { plan } = current.fixing;
       const gen = generation.current;
       const controller = new AbortController();
@@ -106,6 +112,55 @@ export function useFixActions(internals: ScanInternals): FixActions {
     [deps, dispatch, scanRef, cacheRef, generation, internals],
   );
 
+  const previewBatch = useCallback(
+    async (ruleIds: readonly RuleId[]) => {
+      if (scanRef.current.kind !== "ready") return;
+      try {
+        const plan = await deps.adapters.fixes.previewBatch(ruleIds);
+        dispatch({ type: "batch_previewed", plan });
+      } catch (error) {
+        // A refused batch has no rule to pin it to; the first id names the sheet.
+        dispatch({ type: "fix_preview_failed", ruleId: ruleIds[0] ?? ("TL-MAC-000" as RuleId), error: asFixError(error) });
+      }
+    },
+    [deps, dispatch, scanRef],
+  );
+
+  const applyBatch = useCallback(async () => {
+    const current = scanRef.current;
+    if (current.kind !== "ready" || current.fixing === null || current.fixing.kind !== "batch" || current.fixing.phase !== "confirm") return;
+    const { plan } = current.fixing;
+    const gen = generation.current;
+    const controller = new AbortController();
+    applyAbortRef.current = controller;
+    const of = plan.items.reduce((sum, item) => sum + item.lines.length, 0);
+    dispatch({ type: "fix_progress", phase: plan.needsPassword ? "waiting_for_password" : "running", step: 1, of });
+    let outcome: BatchOutcome;
+    try {
+      outcome = await deps.adapters.fixes.applyBatch(plan.planId, {
+        signal: controller.signal,
+        onProgress: (p) => dispatch({ type: "fix_progress", phase: p.phase, step: p.step, of: p.of, ...(p.item === undefined ? {} : { item: p.item }) }),
+      });
+    } catch (error) {
+      outcome = { ok: false, items: [], error: asFixError(error) };
+    }
+    applyAbortRef.current = null;
+    if (generation.current !== gen) return;
+    // Whatever happened, the recheck tells which items took; a cancel may still have run some.
+    dispatch({ type: "fix_rechecking" });
+    const after = scanRef.current;
+    if (after.kind !== "ready") return;
+    const result = await reread(internals, after.state, plan.recheck);
+    if (generation.current !== gen || scanRef.current.kind !== "ready") return;
+    const verdicts: Record<string, RecheckResult> = {};
+    for (const item of plan.items) {
+      verdicts[item.ruleId] = result.unreadable ? "unreadable" : rulePasses(result.report, item.ruleId) ? "pass" : "still_failing";
+    }
+    cacheRef.current = { byRule: result.byRule, order: null, priority: null };
+    dispatch({ type: "batch_done", state: result.state, report: result.report, outcome, byRule: result.byRule, verdicts });
+    await internals.saveLast(result.report);
+  }, [deps, dispatch, scanRef, cacheRef, generation, internals]);
+
   const dismissFix = useCallback(() => dispatch({ type: "fix_dismissed" }), [dispatch]);
 
   const cancelFix = useCallback(() => {
@@ -126,14 +181,23 @@ export function useFixActions(internals: ScanInternals): FixActions {
   }, [dispatch, scanRef]);
 
   const startWatch = useCallback(
-    (ruleId: RuleId) => {
+    (ruleId: RuleId, watch?: WatchSpec) => {
       const current = scanRef.current;
       if (current.kind !== "ready") return;
       const finding = current.report.findings.find((f) => f.ruleId === ruleId);
-      if (finding === undefined || finding.fix.apply.kind === "in_app") return;
-      const sections = finding.fix.apply.watch;
+      if (finding === undefined) return;
+      let sections: readonly SectionKey[];
+      let everyMs: number;
+      if (watch !== undefined) {
+        // The guided flow names the sections itself, so an in_app rule can be watched too.
+        sections = watch.sections;
+        everyMs = watch.everyMs > 0 ? watch.everyMs : WATCH_EVERY_MS;
+      } else {
+        if (finding.fix.apply.kind === "in_app") return;
+        sections = finding.fix.apply.watch;
+        everyMs = finding.fix.apply.watchEvery > 0 ? finding.fix.apply.watchEvery * 1000 : WATCH_EVERY_MS;
+      }
       if (sections.length === 0) return;
-      const everyMs = finding.fix.apply.watchEvery > 0 ? finding.fix.apply.watchEvery * 1000 : WATCH_EVERY_MS;
       watcherRef.current?.stop();
       const gen = generation.current;
       dispatch({ type: "watch_started", ruleId, sections, everyMs, startedAt: new Date().toISOString() });
@@ -178,5 +242,5 @@ export function useFixActions(internals: ScanInternals): FixActions {
     [deps, scanRef, startWatch, internals],
   );
 
-  return { previewFix, applyFix, cancelFix, dismissFix, startWatch, stopWatch, reveal };
+  return { previewFix, applyFix, previewBatch, applyBatch, cancelFix, dismissFix, startWatch, stopWatch, reveal };
 }

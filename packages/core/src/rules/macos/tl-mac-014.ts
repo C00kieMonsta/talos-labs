@@ -14,6 +14,13 @@ export const TL_MAC_014: Rule = {
   evidenceVocabulary: {},
   explanation:
     "An administrator account can install anything and change any setting. If malware or a bad download runs while you are logged in as an administrator, it gets those powers too. Using a standard account day to day means you are asked for an administrator password before anything important changes, which is a useful moment to pause.",
+  guided: {
+    headline: "Your main account can change anything",
+    why: "A second account for daily use limits what a mistake or a bad program can do.",
+    verb: "Show me where",
+    done: "Done. Your main account is a normal one.",
+    where: "Add a new account marked Administrator, log in as it, then untick \"Allow this user to administer this computer\" on your own account.",
+  },
   fix: {
     summary: "Create a separate administrator account and make your daily account a standard user.",
     settingsPath: ["System Settings", "Users & Groups"],

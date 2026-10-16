@@ -18,6 +18,13 @@ export const TL_MAC_030: Rule = {
   evidenceVocabulary: {},
   explanation:
     "Your .ssh folder, or a key inside it, can be read by other accounts on this Mac. The keys in that folder are what log you in to servers and services, so they should be readable by you alone. SSH itself refuses to use a key that is too open, so this also causes confusing login failures.",
+  guided: {
+    headline: "Others can see your login keys",
+    why: "Only you should be able to read these files.",
+    verb: "Make it private",
+    done: "Done. Your login-key folder is private.",
+    where: null,
+  },
   fix: {
     summary: "Make the .ssh folder and each key readable by you only.",
     settingsPath: null,

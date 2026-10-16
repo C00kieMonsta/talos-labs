@@ -196,8 +196,8 @@
 }
 
 .pill-accent {
-  background: var(--sidebar-selection);
-  color: var(--accent);
+  background: var(--sev-low-bg);
+  color: var(--sev-low-fg);
 }
 
 .points-pill {
@@ -1163,10 +1163,21 @@ h1[tabindex="-1"]:focus-visible {
   margin-bottom: var(--space-1);
 }
 
+.fix-plan {
+  margin-bottom: var(--space-1);
+}
+
 .fix-plan summary {
   cursor: default;
   font: var(--text-meta);
   color: var(--fg-secondary);
+}
+
+/* Settings AI status: icon, word and action on one line. */
+p.status[data-state] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 
 .suggested-order ol {

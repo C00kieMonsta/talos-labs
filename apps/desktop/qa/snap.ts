@@ -1,13 +1,15 @@
 import { mkdir } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { SCHEMES, SIZES, captureWholeScreen, ensureServer, launchChrome, parseArgs, walk } from "./harness";
+import { SCHEMES, SIZES, captureWholeScreen, ensureServer, launchChrome, parseArgs, walk, walkGuided } from "./harness";
 
 /**
  * Screenshots every screen of the demo build in light and dark at two window sizes.
- *   cd apps/desktop && pnpm exec tsx qa/snap.ts --port 1430 --out qa/screenshots/<name>
+ *   cd apps/desktop && pnpm exec tsx qa/snap.ts --port 1430 --out qa/screenshots/<name> [--only expert|guided]
  */
 async function main(): Promise<number> {
   const args = parseArgs(process.argv.slice(2), { port: 1430, out: "qa/screenshots/latest" });
+  const onlyIndex = process.argv.indexOf("--only");
+  const only = onlyIndex >= 0 ? process.argv[onlyIndex + 1] : undefined;
   await mkdir(args.out, { recursive: true });
   const server = await ensureServer(args.port);
   const browser = await launchChrome();
@@ -16,7 +18,7 @@ async function main(): Promise<number> {
     const context = await browser.newContext({ viewport: SIZES[0] ?? null, colorScheme: "light" });
     const page = await context.newPage();
     page.setDefaultTimeout(20_000);
-    await walk(page, server.baseUrl, async (shot, reach) => {
+    const visit = async (shot: { name: string; volatile?: boolean }, reach: () => Promise<void>) => {
       let reached = false;
       for (const scheme of SCHEMES) {
         for (const size of SIZES) {
@@ -30,7 +32,9 @@ async function main(): Promise<number> {
           console.log(relative(process.cwd(), file));
         }
       }
-    });
+    };
+    if (only !== "guided") await walk(page, server.baseUrl, visit);
+    if (only !== "expert") await walkGuided(page, server.baseUrl, visit);
     await context.close();
   } finally {
     await browser.close();

@@ -1,4 +1,21 @@
-import type { FixApplyInput, FixApplyOptions, FixChoice, FixError, FixOutcome, FixPlan, FixPlanLine, FixPort, Rule, RuleCatalog, RuleId, SectionKey } from "@talos/core";
+import type {
+  BatchItemOutcome,
+  BatchOutcome,
+  BatchPlan,
+  BatchPlanItem,
+  FixApplyInput,
+  FixApplyOptions,
+  FixChoice,
+  FixError,
+  FixOutcome,
+  FixPlan,
+  FixPlanLine,
+  FixPort,
+  Rule,
+  RuleCatalog,
+  RuleId,
+  SectionKey,
+} from "@talos/core";
 import { recordDemoCall, wait } from "./demo-shared";
 
 /** What every demo Apply ends with. The FixError values stand in for both failure channels. */
@@ -19,6 +36,11 @@ export const DEMO_FIX_OUTCOMES: readonly DemoFixOutcome[] = [
   "busy",
 ];
 
+/** What every demo batch ends with; partial fails the second item at step 0, the other three fail the dialog. */
+export type DemoBatchOutcome = "ok" | "partial" | "cancelled" | "wrong_password" | "timeout";
+
+export const DEMO_BATCH_OUTCOMES: readonly DemoBatchOutcome[] = ["ok", "partial", "cancelled", "wrong_password", "timeout"];
+
 /** Errors the real engine raises before anything runs; the demo reports them with no step. */
 const PRE_RUN: readonly FixError[] = ["plan_expired", "precondition_changed", "not_in_catalog", "invalid_choice", "invalid_input", "busy"];
 
@@ -27,6 +49,7 @@ export const DEMO_PLAN_TTL_MS = 5 * 60_000;
 export interface DemoFixOptions {
   readonly catalog: RuleCatalog;
   readonly outcome: DemoFixOutcome;
+  readonly batch?: DemoBatchOutcome;
   /** Pause between phases so each sheet state can be seen. */
   readonly delayMs: number;
   /** Called on ok so the fixture's sections turn passing before the recheck. */
@@ -46,6 +69,11 @@ function choiceMatches(rule: Rule, choice: FixChoice): boolean {
   }
 }
 
+/** Mirrors Rust's batchable(): in-app, no path, no passphrase. */
+function batchable(rule: Rule): boolean {
+  return rule.fix.apply.kind === "in_app" && rule.fix.apply.choice === "none" && !rule.fix.apply.passphrase;
+}
+
 function lines(rule: Rule, choice: FixChoice): FixPlanLine[] {
   const path = choice.kind === "none" ? "" : choice.path;
   const rendered = rule.fix.commands.map(
@@ -61,6 +89,7 @@ function lines(rule: Rule, choice: FixChoice): FixPlanLine[] {
 export class DemoFixPort implements FixPort {
   private readonly rules: ReadonlyMap<RuleId, Rule>;
   private readonly plans = new Map<string, FixPlan>();
+  private readonly batches = new Map<string, BatchPlan>();
   private counter = 0;
 
   constructor(private readonly options: DemoFixOptions) {
@@ -115,6 +144,80 @@ export class DemoFixPort implements FixPort {
     if (outcome === "cancelled") return { ok: false, error: "cancelled", step: 1 };
     if (outcome === "ok") this.options.onApplied(plan.recheck);
     return { ok: true };
+  }
+
+  async previewBatch(ruleIds: readonly RuleId[]): Promise<BatchPlan> {
+    recordDemoCall({ kind: "fixPreviewBatch", arg: [...ruleIds] });
+    if (ruleIds.length === 0 || new Set(ruleIds).size !== ruleIds.length) throw "invalid_choice";
+    const items: BatchPlanItem[] = [];
+    let needsPassword = false;
+    const recheck: SectionKey[] = [];
+    for (const ruleId of ruleIds) {
+      const rule = this.rules.get(ruleId);
+      if (rule === undefined || rule.fix.apply.kind !== "in_app") throw "not_in_catalog";
+      if (!batchable(rule)) throw "invalid_choice";
+      needsPassword = needsPassword || rule.fix.apply.needsPassword;
+      for (const key of rule.fix.apply.recheck) if (!recheck.includes(key)) recheck.push(key);
+      items.push({ ruleId, lines: lines(rule, { kind: "none" }), recheck: rule.fix.apply.recheck, previous: ruleId === "TL-MAC-013" ? "60" : null });
+    }
+    this.counter += 1;
+    const plan: BatchPlan = {
+      planId: `demo-batch-${this.counter}`,
+      items,
+      excluded: [],
+      needsPassword,
+      recheck,
+      expiresAt: new Date(Date.now() + DEMO_PLAN_TTL_MS).toISOString(),
+    };
+    this.batches.set(plan.planId, plan);
+    return plan;
+  }
+
+  async applyBatch(planId: string, options?: FixApplyOptions): Promise<BatchOutcome> {
+    recordDemoCall({ kind: "fixApplyBatch", arg: planId });
+    const plan = this.batches.get(planId);
+    if (plan === undefined) return { ok: false, items: [], error: "plan_expired" };
+    this.batches.delete(planId);
+    const batch = this.options.batch ?? "ok";
+    const { delayMs } = this.options;
+    const signal = options?.signal;
+    const of = plan.items.reduce((sum, item) => sum + item.lines.length, 0);
+    const notRun = (from: number): BatchItemOutcome[] =>
+      plan.items.slice(from).map((item) => ({ ruleId: item.ruleId, status: "not_run", error: null, step: null }));
+    const done: BatchItemOutcome[] = [];
+    try {
+      if (plan.needsPassword) {
+        options?.onProgress?.({ planId, phase: "waiting_for_password", step: 1, of: 1 });
+        await wait(delayMs, signal);
+        if (batch === "cancelled" || batch === "wrong_password") return { ok: false, items: notRun(0), error: batch };
+      }
+      let step = 0;
+      for (const [index, item] of plan.items.entries()) {
+        for (let line = 0; line < item.lines.length; line += 1) {
+          step += 1;
+          options?.onProgress?.({ planId, phase: "running", step, of, item: index });
+          await wait(delayMs, signal);
+          if (batch === "partial" && index === 1 && line === 0) {
+            this.options.onApplied(done.flatMap((d) => plan.items.find((i) => i.ruleId === d.ruleId)?.recheck ?? []));
+            return {
+              ok: false,
+              items: [...done, { ruleId: item.ruleId, status: "failed", error: "command_failed", step: 0 }, ...notRun(index + 1)],
+              // Rust sets the batch error only when the dialog itself failed.
+              error: null,
+            };
+          }
+          if (batch === "timeout" && index === 0 && line === 0) {
+            return { ok: false, items: notRun(0), error: "timeout" };
+          }
+        }
+        done.push({ ruleId: item.ruleId, status: "done", error: null, step: null });
+      }
+    } catch {
+      recordDemoCall({ kind: "fixCancel", arg: planId });
+      return { ok: false, items: notRun(0), error: "cancelled" };
+    }
+    this.options.onApplied(plan.recheck);
+    return { ok: true, items: done, error: null };
   }
 
   async reveal(ruleId: RuleId, choice: FixChoice): Promise<void> {

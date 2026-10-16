@@ -15,6 +15,13 @@ export const TL_MAC_012: Rule = {
   evidenceVocabulary: {},
   explanation:
     "When the screen locks, a password should be needed straight away to get back in. If there is a delay, anyone who walks up in that window can use your Mac as you. Setting it to immediately closes the gap.",
+  guided: {
+    headline: "Your Mac stays unlocked after the screen goes dark",
+    why: "Anyone walking past can use it before a password is asked.",
+    verb: "Show me where",
+    done: "Done. A password is asked right away.",
+    where: "Next to \"Require password after screen saver begins\", choose \"Immediately\".",
+  },
   fix: {
     summary: "Require the password immediately after the screen saver begins or the display turns off.",
     settingsPath: ["System Settings", "Lock Screen"],

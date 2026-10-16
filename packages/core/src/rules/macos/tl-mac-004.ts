@@ -14,6 +14,13 @@ export const TL_MAC_004: Rule = {
   evidenceVocabulary: {},
   explanation:
     "Gatekeeper checks that an app comes from the App Store or from a developer Apple knows before it is allowed to open. With that check off, a download that pretends to be a document or an installer can run without any warning. Keeping it on is the main thing that stops malware from being double-clicked into life.",
+  guided: {
+    headline: "Apps from anywhere can open",
+    why: "Letting only known apps open stops most bad downloads.",
+    verb: "Show me where",
+    done: "Done. Only known apps can open.",
+    where: "Under \"Allow applications from\", choose \"App Store & Known Developers\".",
+  },
   fix: {
     summary: "Set Allow applications from to App Store & Known Developers.",
     settingsPath: ["System Settings", "Privacy & Security", "Security"],

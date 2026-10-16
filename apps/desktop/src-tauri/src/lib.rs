@@ -41,6 +41,8 @@ pub fn run() {
             commands::open_settings_pane,
             commands::fix_preview,
             commands::fix_apply,
+            commands::fix_preview_batch,
+            commands::fix_apply_batch,
             commands::fix_cancel,
             commands::fix_reveal,
             commands::open_buy_page,

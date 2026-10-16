@@ -19,6 +19,7 @@ import type { Adapters } from "../adapters";
 import { initialScanState, lastReport, reduce, replaceSection, survivingExplanations } from "./machine";
 import type { ExplainCache, ScanAction, ScanError, ScanState } from "./machine";
 import { useFixActions } from "./useFix";
+import type { WatchSpec } from "./useFix";
 
 /** The collector has its own 60 s budget; this guards against a hung invoke. */
 export const SCAN_BUDGET_MS = 60_000;
@@ -46,10 +47,15 @@ export interface ScanDeps {
 export interface FixActions {
   previewFix(ruleId: RuleId, choice: FixChoice): Promise<void>;
   applyFix(passphrase?: string): Promise<void>;
+  /** A fix-all plan for the guided batch step; a refusal lands in a failed single sheet on the first id. */
+  previewBatch(ruleIds: readonly RuleId[]): Promise<void>;
+  /** Runs the previewed batch, rechecks its union of sections once, and records a verdict per item. */
+  applyBatch(): Promise<void>;
   /** Aborts a running apply; in the confirm or a settled phase it closes the sheet. */
   cancelFix(): void;
   dismissFix(): void;
-  startWatch(ruleId: RuleId): void;
+  /** With `watch`, the sections and interval come from the caller and an in_app rule is watched too. */
+  startWatch(ruleId: RuleId, watch?: WatchSpec): void;
   stopWatch(): void;
   /** Finder reveal, then the watcher for that rule. */
   reveal(ruleId: RuleId, choice: FixChoice): Promise<void>;

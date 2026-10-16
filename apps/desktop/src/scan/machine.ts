@@ -1,4 +1,6 @@
 import type {
+  BatchOutcome,
+  BatchPlan,
   Explanation,
   ExplainerFailure,
   FixError,
@@ -50,15 +52,36 @@ export interface LastRecheck {
 
 export type FixingPhase = "confirm" | "waiting_for_password" | "running" | "rechecking" | "done" | "failed";
 
-export interface FixingState {
+export type RecheckResult = "pass" | "still_failing" | "unreadable";
+
+/** The v0.2 shape plus the tag; what the expert sheet draws. */
+export interface SingleFixingState {
+  readonly kind: "single";
   readonly plan: FixPlan;
   readonly phase: FixingPhase;
   readonly step: number;
   readonly of: number;
   readonly error: FixError | null;
   /** After the automatic recheck. */
-  readonly result: "pass" | "still_failing" | "unreadable" | null;
+  readonly result: RecheckResult | null;
 }
+
+/** A fix-all batch; only the guided batch step draws it. */
+export interface BatchFixingState {
+  readonly kind: "batch";
+  readonly plan: BatchPlan;
+  readonly phase: FixingPhase;
+  readonly step: number;
+  readonly of: number;
+  /** The user-level item being run, 0-based as Rust emits it; null during the password dialog. */
+  readonly item: number | null;
+  readonly error: FixError | null;
+  readonly outcome: BatchOutcome | null;
+  /** The recheck verdict per rule id, after the batch ran. */
+  readonly byRule: Readonly<Record<string, RecheckResult>>;
+}
+
+export type FixingState = SingleFixingState | BatchFixingState;
 
 export interface WatchingState {
   readonly ruleId: RuleId;
@@ -100,8 +123,6 @@ export type ScanState =
   | { kind: "rechecking"; report: ScanReport; state: SystemState; key: SectionKey; explain: ExplainState; watching: WatchingState | null }
   | { kind: "failed"; error: ScanError; last: ScanReport | null };
 
-export type RecheckResult = "pass" | "still_failing" | "unreadable";
-
 export type ScanAction =
   | { type: "last_loaded"; report: ScanReport | null }
   | { type: "scan_started"; startedAt: string }
@@ -136,11 +157,22 @@ export type ScanAction =
   | { type: "fix_previewed"; plan: FixPlan }
   /** The preview itself was refused, so the sheet opens straight on the error. */
   | { type: "fix_preview_failed"; ruleId: RuleId; error: FixError }
-  | { type: "fix_progress"; phase: "waiting_for_password" | "running"; step: number; of: number }
+  /** `item` lands on the batch variant and is ignored on the single one. */
+  | { type: "fix_progress"; phase: "waiting_for_password" | "running"; step: number; of: number; item?: number }
   | { type: "fix_rechecking" }
   | { type: "fix_done"; state: SystemState; report: ScanReport; result: RecheckResult; byRule: Record<string, Explanation> }
   | { type: "fix_failed"; error: FixError; step: number | null }
   | { type: "fix_dismissed" }
+  | { type: "batch_previewed"; plan: BatchPlan }
+  /** `verdicts` holds one recheck result per plan item; `byRule` the surviving explanations. */
+  | {
+      type: "batch_done";
+      state: SystemState;
+      report: ScanReport;
+      outcome: BatchOutcome;
+      byRule: Record<string, Explanation>;
+      verdicts: Readonly<Record<string, RecheckResult>>;
+    }
   | { type: "watch_started"; ruleId: RuleId; sections: readonly SectionKey[]; everyMs: number; startedAt: string }
   | { type: "watch_tick"; state: SystemState; report: ScanReport; at: string; byRule: Record<string, Explanation> }
   | { type: "watch_passed"; at: string }
@@ -360,26 +392,50 @@ function reduceFix(state: ReadyState, action: ScanAction): ReadyState | null {
   const fixing = state.fixing;
   switch (action.type) {
     case "fix_previewed":
-      return { ...state, fixing: { plan: action.plan, phase: "confirm", step: 0, of: action.plan.lines.length, error: null, result: null } };
+      return { ...state, fixing: { kind: "single", plan: action.plan, phase: "confirm", step: 0, of: action.plan.lines.length, error: null, result: null } };
 
     case "fix_preview_failed":
-      return { ...state, fixing: { plan: emptyPlan(action.ruleId), phase: "failed", step: 0, of: 0, error: action.error, result: null } };
+      return { ...state, fixing: { kind: "single", plan: emptyPlan(action.ruleId), phase: "failed", step: 0, of: 0, error: action.error, result: null } };
+
+    case "batch_previewed": {
+      const of = action.plan.items.reduce((sum, item) => sum + item.lines.length, 0);
+      return { ...state, fixing: { kind: "batch", plan: action.plan, phase: "confirm", step: 0, of, item: null, error: null, outcome: null, byRule: {} } };
+    }
 
     case "fix_progress":
       if (fixing === null) return state;
+      if (fixing.kind === "batch") {
+        return { ...state, fixing: { ...fixing, phase: action.phase, step: action.step, of: action.of, item: action.item ?? fixing.item } };
+      }
       return { ...state, fixing: { ...fixing, phase: action.phase, step: action.step, of: action.of } };
 
     case "fix_rechecking":
       return fixing === null ? state : { ...state, fixing: { ...fixing, phase: "rechecking" } };
 
     case "fix_done":
-      if (fixing === null) return state;
+      if (fixing === null || fixing.kind !== "single") return state;
       return {
         ...state,
         report: action.report,
         state: action.state,
         explain: explainFrom(action.byRule, null),
         fixing: { ...fixing, phase: "done", result: action.result, error: null },
+      };
+
+    case "batch_done":
+      if (fixing === null || fixing.kind !== "batch") return state;
+      return {
+        ...state,
+        report: action.report,
+        state: action.state,
+        explain: explainFrom(action.byRule, null),
+        fixing: {
+          ...fixing,
+          phase: action.outcome.ok ? "done" : "failed",
+          error: action.outcome.error,
+          outcome: action.outcome,
+          byRule: action.verdicts,
+        },
       };
 
     case "fix_failed":

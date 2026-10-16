@@ -16,6 +16,8 @@ export interface FixCatalogEntry {
   readonly pane: SettingsPane | null;
   /** deep_link and manual only; empty otherwise. */
   readonly watch: readonly SectionKey[];
+  /** in_app with choice none or all_ssh_keys and no passphrase. Rust's batchable(spec) must agree. */
+  readonly batchable: boolean;
 }
 
 export function fixCatalogEntries(catalog: RuleCatalog): FixCatalogEntry[] {
@@ -32,11 +34,12 @@ export function fixCatalogEntries(catalog: RuleCatalog): FixCatalogEntry[] {
           recheck: apply.recheck,
           pane: null,
           watch: [],
+          batchable: (apply.choice === "none" || apply.choice === "all_ssh_keys") && !apply.passphrase,
         };
       case "deep_link":
-        return { ruleId: rule.id, kind: "deep_link", choice: null, passphrase: false, needsPassword: false, recheck: [], pane: apply.pane, watch: apply.watch };
+        return { ruleId: rule.id, kind: "deep_link", choice: null, passphrase: false, needsPassword: false, recheck: [], pane: apply.pane, watch: apply.watch, batchable: false };
       case "manual":
-        return { ruleId: rule.id, kind: "manual", choice: null, passphrase: false, needsPassword: false, recheck: [], pane: null, watch: apply.watch };
+        return { ruleId: rule.id, kind: "manual", choice: null, passphrase: false, needsPassword: false, recheck: [], pane: null, watch: apply.watch, batchable: false };
     }
   });
 }

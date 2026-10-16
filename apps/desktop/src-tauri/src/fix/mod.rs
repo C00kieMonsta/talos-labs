@@ -1,5 +1,6 @@
 //! In-app fix engine. The webview picks a catalog row; Rust binds every argument from its own listings.
 
+pub mod batch;
 pub mod catalog;
 pub mod inputs;
 pub mod plan;
@@ -8,6 +9,8 @@ pub mod pty;
 pub mod reveal;
 pub mod run;
 
+#[cfg(test)]
+mod tests_batch;
 #[cfg(test)]
 mod tests_inputs;
 #[cfg(test)]

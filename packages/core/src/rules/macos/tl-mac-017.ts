@@ -17,6 +17,13 @@ export const TL_MAC_017: Rule = {
   evidenceVocabulary: {},
   explanation:
     "This checks the password rule set on the Mac itself, not your actual password. The security benchmark recommends requiring at least 15 characters, and your Mac does not enforce that, so a short password is allowed. A long passphrase is still the best thing you can choose, whatever the policy says.",
+  guided: {
+    headline: "Your Mac allows short passwords",
+    why: "A longer password is much harder to guess.",
+    verb: "Details",
+    done: "Done. Long passwords are required.",
+    where: null,
+  },
   fix: {
     summary: "Use a login password of 15 or more characters.",
     settingsPath: null,

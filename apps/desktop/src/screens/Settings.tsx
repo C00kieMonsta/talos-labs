@@ -6,7 +6,10 @@ import type { AiAvailability, Capabilities, ExplainerProfile, LicenseState } fro
 import { LicenceField } from "../components/LicenceField";
 import { ProfileForm } from "../components/ProfileForm";
 import { useApp } from "../app/context";
-import { AI_AVAILABILITY_LABELS, LICENSE_INVALID_LABELS, PERMISSION_STATUS_LABELS, PRIVACY_SENTENCE, summariseProfile } from "../app/labels";
+import { AI_AVAILABILITY_LABELS, CHECKUP_SETTINGS, LICENSE_INVALID_LABELS, PERMISSION_STATUS_LABELS, PRIVACY_SENTENCE, summariseProfile } from "../app/labels";
+import { CopyButton } from "../components/CopyButton";
+import { GUIDED_STORAGE_KEY, loadGuidedMemory } from "../guided/memory";
+import type { GuidedController } from "../guided/state";
 import type { PermissionStatus } from "../app/labels";
 import { APP_VERSION } from "../app/version";
 import { MAX_MODEL_ID_LENGTH } from "../settings";
@@ -24,6 +27,8 @@ export interface SettingsProps {
   /** Open or Allow on a permission row; starts the flow in section 6 of the design. */
   onPermission(kind: PermissionKind, status: PermissionStatus): void;
   onBuy(): void;
+  /** The guided controller and its memory, for the Developer "Guided" block. */
+  guided?: { controller: GuidedController; onResetMemory(): void; onSkipCooldown(): void };
 }
 
 export const AI_SENTENCE = "Runs on this Mac. Only the check-up results are used, never file names, paths or passwords.";
@@ -101,6 +106,63 @@ function Switch({ label, checked, onChange }: { label: string; checked: boolean;
       <input type="checkbox" role="switch" aria-checked={checked} checked={checked} onChange={(event) => onChange(event.target.checked)} />
       <span>{label}</span>
     </label>
+  );
+}
+
+function CheckUpSection() {
+  const { settings, updateSettings } = useApp();
+  const { guided } = settings;
+  return (
+    <Section id="checkup" title={CHECKUP_SETTINGS.title}>
+      <Switch label={CHECKUP_SETTINGS.autoScan} checked={guided.autoScan} onChange={(autoScan) => updateSettings({ guided: { ...guided, autoScan } })} />
+      <Switch label={CHECKUP_SETTINGS.home} checked={guided.home} onChange={(home) => updateSettings({ guided: { ...guided, home } })} />
+      <p className="muted small">{CHECKUP_SETTINGS.sentence}</p>
+    </Section>
+  );
+}
+
+function GuidedDevBlock({ controller, onResetMemory, onSkipCooldown }: NonNullable<SettingsProps["guided"]>) {
+  const { settings } = useApp();
+  const { phase } = controller;
+  const plan = phase.kind === "since" || phase.kind === "plan" || phase.kind === "step" || phase.kind === "end" ? phase.plan : null;
+  const memory = loadGuidedMemory();
+  const current = phase.kind === "step" ? phase.index : -1;
+  return (
+    <div className="subsection" data-testid="guided-dev">
+      <h3>Guided</h3>
+      <p className="muted small">Phase: {phase.kind}</p>
+      {plan === null ? (
+        <p className="muted small">No plan yet.</p>
+      ) : (
+        <ol className="plain-list mono small">
+          {plan.steps.map((step, index) => {
+            const snooze = "ruleId" in step ? memory.snoozed[step.ruleId] : undefined;
+            return (
+              <li key={step.id}>
+                {step.id} · {step.kind} · {index < current ? "passed" : index === current ? (phase.kind === "step" ? phase.state.kind : "current") : "pending"}
+                {snooze !== undefined && ` · snoozed until ${snooze}`}
+              </li>
+            );
+          })}
+        </ol>
+      )}
+      <pre className="mono small">{JSON.stringify(memory, null, 2)}</pre>
+      <div className="actions">
+        <button type="button" className="button button-small" onClick={onResetMemory}>
+          Reset
+        </button>
+        <button type="button" className="button button-small" onClick={() => controller.start()}>
+          Run the check-up now
+        </button>
+        <button type="button" className="button button-small" onClick={onSkipCooldown}>
+          Skip the cooldown
+        </button>
+        {plan !== null && <CopyButton text={JSON.stringify(plan, null, 2)} subject="plan JSON" />}
+      </div>
+      <p className="muted small">
+        Stored under {GUIDED_STORAGE_KEY}. Profile: {summariseProfile(settings.profile)}
+      </p>
+    </div>
   );
 }
 
@@ -330,7 +392,7 @@ function ModelIdField({ id, label, value, pattern, hint, onChange }: { id: strin
   );
 }
 
-function DeveloperSection() {
+function DeveloperSection({ guided }: Pick<SettingsProps, "guided">) {
   const { settings, updateSettings } = useApp();
   const { developer, explainer } = settings;
   const setDeveloper = (patch: Partial<DeveloperSettings>) => updateSettings({ developer: { ...developer, ...patch } });
@@ -383,6 +445,8 @@ function DeveloperSection() {
               <p className="muted small">Ollama must be running on this Mac at 127.0.0.1:11434.</p>
             </>
           )}
+          <AboutYouSection />
+          {guided !== undefined && <GuidedDevBlock {...guided} />}
         </div>
       )}
     </Section>
@@ -425,14 +489,14 @@ function licenceLine(license: LicenseState): ReactNode {
   return license.status === "invalid" ? "Invalid" : "None";
 }
 
-export function Settings({ aiAvailability, onAiAction, capabilities, onPermission, onBuy }: SettingsProps) {
+export function Settings({ aiAvailability, onAiAction, capabilities, onPermission, onBuy, guided }: SettingsProps) {
   return (
     <main className="screen settings">
+      <CheckUpSection />
       <AiSection aiAvailability={aiAvailability} onAiAction={onAiAction} />
-      <AboutYouSection />
       <PermissionsSection capabilities={capabilities} onPermission={onPermission} />
       <LicenceSection onBuy={onBuy} />
-      <DeveloperSection />
+      <DeveloperSection guided={guided} />
       <AboutSection />
     </main>
   );

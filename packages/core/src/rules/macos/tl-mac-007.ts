@@ -14,6 +14,13 @@ export const TL_MAC_007: Rule = {
   evidenceVocabulary: { automaticCheck: TRI_VOCABULARY, automaticDownload: TRI_VOCABULARY },
   explanation:
     "Most security fixes arrive as updates. When your Mac checks for them and downloads them on its own, you only need to approve the install. With these switches off, nothing happens until you remember to look, and attackers count on people forgetting.",
+  guided: {
+    headline: "Updates are not fetched on their own",
+    why: "Updates close holes that bad software uses, and fetching them yourself is easy to forget.",
+    verb: "Turn it on",
+    done: "Done. Updates are fetched on their own.",
+    where: null,
+  },
   fix: {
     summary: "Turn on automatic checking and downloading of updates.",
     settingsPath: ["System Settings", "General", "Software Update"],

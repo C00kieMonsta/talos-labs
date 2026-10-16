@@ -133,6 +133,7 @@ Then, on the first signed build, open the app and confirm by hand:
 - The AI card reaches `available` with the helper running from inside the bundle (Apple Intelligence on, model downloaded). A signed helper that fails here points at a signing or runtime flag problem, not at the model.
 - The listeners, remote access and file sharing sections are checked, not "Couldn't check": the signed process gets the full socket table.
 - The Automation prompt appears for login items, and the administrator dialog appears for an admin fix. If either is denied without a prompt, see the `entitlements` note above.
+- The guided check-up's batch (v0.3) runs its admin items behind one dialog and the rechecks of rules 019 to 022 come back as pass or fail rather than "could not check it". The marker lines and line-ending behaviour of the batch script are on the real-Mac list in DESIGN-V03.md section 8.
 
 ## CI
 

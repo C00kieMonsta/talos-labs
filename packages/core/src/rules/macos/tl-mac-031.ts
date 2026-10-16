@@ -28,6 +28,13 @@ export const TL_MAC_031: Rule = {
   evidenceVocabulary: { pattern: SECRET_PATTERN_VOCABULARY },
   explanation:
     "A shell start-up file (.zshrc, .bashrc, .zprofile, .profile, .env) or a tool's own config file (.npmrc, .netrc, .aws/credentials, .docker/config.json) contains what looks like a password, API key or access token. These files are plain text, get copied into backups and dotfile repositories, and can be read by any program running as you, so a secret in them is easy to leak. Only the kind of secret and the line number were recorded, never the value.",
+  guided: {
+    headline: "A password is saved in a plain text file",
+    why: "Anything that reads the file gets the password.",
+    verb: "Details",
+    done: "Done. The file no longer holds a password.",
+    where: null,
+  },
   fix: {
     summary: "Move the secret into the Keychain or swap it for a short-lived credential, then rotate the old one.",
     settingsPath: null,

@@ -25,6 +25,8 @@ vi.mock("../settings", async (importOriginal) => {
     loadSettings: () => ({
       ...original.DEFAULT_SETTINGS,
       onboarded: true,
+      // These tests cover the expert home; the guided check-up has its own tests under src/guided.
+      guided: { home: false, autoScan: false },
       explainer: { ...original.DEFAULT_SETTINGS.explainer, provider: "claude" },
       developer: { ...original.DEFAULT_SETTINGS.developer, enabled: true },
     }),

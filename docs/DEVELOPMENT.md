@@ -44,12 +44,12 @@ Run from the repo root unless noted.
 | `pnpm --filter @talos/desktop dev:demo` | the web build in demo mode on port 1430: fixture-backed adapters, runs in a plain browser. See below |
 | `pnpm desktop:build` | `tauri build`: release binary and bundles. See `docs/SIGNING.md` |
 | `pnpm scan` | runs `talos-collect` (building it when missing), evaluates the result and prints a summary. `pnpm scan --json` prints the `ScanReport`; `pnpm scan <state.json>` evaluates a saved `SystemState` instead of running the collector |
-| `cargo test` (in `apps/desktop/src-tauri`) | parser, exec, serde round-trip, fix catalog, quoting, plan, privileged-output and sidecar protocol tests. Nothing in the default set changes a setting or shows a dialog |
+| `cargo test` (in `apps/desktop/src-tauri`) | parser, exec, serde round-trip, fix catalog, quoting, plan, privileged-output, batch script and marker, and sidecar protocol tests. Nothing in the default set changes a setting or shows a dialog; the batch script round-trips through `/bin/sh -c` with `echo` and `false` as the programs |
 | `cargo test -- --ignored` | smoke and capability tests that touch the real machine (the Automation probe, the real `ssh-keygen -p` on a temp key) |
 | `cargo clippy --all-targets -- -D warnings` | the crate denies `unwrap_used`, `expect_used`, `panic` and `string_slice` and warns on `indexing_slicing`; with `-D warnings` a new index site must use `get` or carry an allow with a reason |
 | `cargo run --bin talos-collect` | dev binary: runs every collector and prints the `SystemState` JSON |
 | `cargo run --bin talos-collect --features debug-raw` | same, with raw command output logged for parser work |
-| `cargo run --bin talos-fixes` | prints `FIX_CATALOG` as JSON: rule, lines with placeholders, privilege, recheck. Used by the contract test and when updating `docs/RULES.md`. Runs nothing |
+| `cargo run --bin talos-fixes` | prints `FIX_CATALOG` as JSON: rule, lines with placeholders, privilege, recheck, and from v0.3 `batchable`. Used by the contract test and when updating `docs/RULES.md`. Runs nothing |
 
 `cargo test` needs `apps/desktop/dist` to exist, because `tauri::generate_context!()` embeds `frontendDist` at compile time. Run `pnpm --filter @talos/desktop build` once first. CI does the same.
 
@@ -78,7 +78,7 @@ The three output files are build artefacts, not source; do not commit them. CI r
 
 ## Demo mode and QA harness
 
-The web build can run in a plain browser with every port backed by a core fixture, so the UI can be driven by a script without the Tauri window. `apps/desktop/src/adapters/demo.ts` holds the adapters; `apps/desktop/src/app/demo-boot.ts` reads the options from the page URL (`fixture`, `delay`, `pace`, `explainer`, `reset`, `provider`, `dev`, `onboarded`, `licensed`, `fix`, `fix_delay`, `ai`, `ai_ready`, `fda_after`, `automation`, `poll_after`). The fix port, the Apple explainer, the buy page and restart are faked and recorded on `window.__talosDemoCalls`; nothing is applied.
+The web build can run in a plain browser with every port backed by a core fixture, so the UI can be driven by a script without the Tauri window. `apps/desktop/src/adapters/demo.ts` holds the adapters; `apps/desktop/src/app/demo-boot.ts` reads the options from the page URL (`fixture`, `delay`, `pace`, `explainer`, `reset`, `provider`, `dev`, `onboarded`, `licensed`, `fix`, `fix_delay`, `fail`, `ai`, `ai_ready`, `fda_after`, `automation`, `poll_after`, and from v0.3 `batch`, `scan_error`, `guided`, `memory`, `since`, `continue`, `watch_after`, `technical`). The fix port, the Apple explainer, the buy page and restart are faked and recorded on `window.__talosDemoCalls`; nothing is applied.
 
 ```sh
 cd apps/desktop
@@ -86,6 +86,8 @@ pnpm dev:demo                                                   # http://localho
 pnpm exec tsx qa/snap.ts --port 1430 --out qa/screenshots/mine  # screenshots, light and dark, two sizes
 pnpm exec tsx qa/axe.ts --port 1430                             # axe-core, exits 1 on serious or critical
 ```
+
+The v0.3 harness walks the guided check-up as well: every `guided-*` shot from DESIGN-V03.md section 7 "Harness", in both schemes and both sizes, with axe on all of them, plus the assertions listed there (one primary button per step, the 6 s floor, the progress total never shrinking, the recorded `fixPreviewBatch` and `fixApplyBatch` calls). The v0.2 walk runs unchanged with `guided=0`.
 
 Both scripts start the server when nothing answers on the port and stop it afterwards. Demo mode is only reachable when Vite runs with `VITE_TALOS_DEMO=1`; `tauri dev` and `tauri build` refuse that variable (`apps/desktop/vite.config.ts`), and the production bundle carries no demo code. Details and the URL parameters are in `apps/desktop/qa/README.md`; the security note is in `docs/SECURITY-MODEL.md`.
 
@@ -100,13 +102,15 @@ packages/core/src/
   rules/macos/   one file per rule, one test per rule, index.ts exports MACOS_CATALOG
   explainer/     toExplainerContext, buildSystemPrompt, on-device-prompt (ON_DEVICE_LIMITS, buildOnDevicePrompt), JSON schemas, output validators, limits
   license/       parseLicense, entitled, freeFixRuleIds
+  guided/        plan.ts: buildGuidedPlan, planLocked, diffReports, GuidedMemory, parseGuidedMemory (v0.3); pure
 packages/core/fixtures/*.json   emitted; read by cargo test
 apps/desktop/src/
   adapters/      Tauri-backed implementations of the ports (system state, fixes, licence, secrets, reports), the explainer adapters (Apple, Claude, Ollama), demo adapters
   settings/      non-secret settings in localStorage
   license/       public-key.ts, revoked.ts
   scan/          the scan state machine
-  screens/       Welcome, Scanning, Overview, Findings, Finding detail, Ask, Settings (About is its last section)
+  guided/        useGuided (phases and timers), memory.ts (talos.guided), continue.ts (talos.continue), copy.ts, the step components (v0.3)
+  screens/       Guided (v0.3 home), Welcome, Scanning, Overview, Findings, Finding detail, Ask, Settings (About is its last section)
 apps/desktop/qa/    snap.ts and axe.ts, browser QA against the demo build (see above)
 apps/desktop/sidecar/
   build.sh       xcrun swiftc for both triples, then lipo
@@ -116,7 +120,7 @@ apps/desktop/src-tauri/src/
   exec.rs        enum Bin and run(bin, args, timeout, cancel); collectors only, no fix binary
   state.rs       serde mirror of SystemState
   collect/       collect_all, collect_section, macos/<section>.rs
-  fix/           catalog.rs (FIX_CATALOG, FixBin), inputs.rs, plan.rs, privileged.rs (osascript), pty.rs (ssh-keygen -p), reveal.rs
+  fix/           catalog.rs (FIX_CATALOG, FixBin, batchable), inputs.rs, plan.rs, privileged.rs (osascript), batch.rs (v0.3), pty.rs (ssh-keygen -p), reveal.rs
   ai/            sidecar.rs (spawn, idle kill, cancel), protocol.rs (JSON lines)
   automation.rs  AEDeterminePermissionToAutomateTarget probe
   menu.rs        app menu
@@ -130,7 +134,7 @@ scripts/scan-cli.ts        collector plus engine from the terminal (pnpm scan)
 
 One file per rule, one test per rule, one row in `docs/RULES.md`.
 
-1. Create `packages/core/src/rules/macos/tl-mac-0NN.ts` exporting a `Rule` (`packages/core/src/domain/rule.ts`). Pick the next unused id; ids are never reused. `title` is a statement the reader can agree with ("Your disk is encrypted"). Set `severity`, `category`, `cis` (a section from `docs/CIS-MAP.md` or `null`), `os: ["macos"]`, `requires` (sections that must be `ok` before `evaluate` runs), `evidenceKeys` (every key the rule may emit, each matching `SAFE_STRING_PATTERN`), `evidenceVocabulary` (allowed values for every `enum` key), `explanation`, `fix` and `evaluate`.
+1. Create `packages/core/src/rules/macos/tl-mac-0NN.ts` exporting a `Rule` (`packages/core/src/domain/rule.ts`). Pick the next unused id; ids are never reused. `title` is a statement the reader can agree with ("Your disk is encrypted"). Set `severity`, `category`, `cis` (a section from `docs/CIS-MAP.md` or `null`), `os: ["macos"]`, `requires` (sections that must be `ok` before `evaluate` runs), `evidenceKeys` (every key the rule may emit, each matching `SAFE_STRING_PATTERN`), `evidenceVocabulary` (allowed values for every `enum` key), `explanation`, `fix`, `guided` (see "Guided strings" below) and `evaluate`.
 2. `evaluate(state, ctx)` is pure. Read `state`, return a `RuleOutcome`. Compare ages against `state.collectedAt`, not `ctx.now`. Return `not_applicable` when the concept is absent, `unknown` with a nested section's reason or `indeterminate` when the data is inconclusive. Never throw on purpose; the engine turns a throw into `unknown` with `rule_error`.
 3. Evidence: `bool`, `number`, `enum` and `version` may reach the explainer; `path` and `text` are local-only. An `enum` value outside the vocabulary is downgraded to `text` by the engine. A catalog test asserts no downgrade happens on the fixtures.
 4. Fix: the Settings path is primary. Commands are displayed with a copy button when Developer mode shows them. Follow the command policy in `docs/DESIGN.md` section 3 (no `spctl --global-enable`, no `systemsetup`, no `pwpolicy -setpolicy`). A `{path}` placeholder in `args` needs `appliesTo` set to a `path`-kind evidence key of the same rule. Every rule also carries `fix.apply` (`FixApply` in `packages/core/src/domain/finding.ts`): `in_app`, `deep_link` or `manual`. Start with `manual` or `deep_link`; an `in_app` entry follows "Adding an in-app fix" below.
@@ -140,17 +144,34 @@ One file per rule, one test per rule, one row in `docs/RULES.md`.
 8. If the rule cites a CIS control, add the row to `docs/CIS-MAP.md` with the mSCP rule id you verified it against.
 9. Bump `MACOS_CATALOG.version`. Any change to a rule's text, severity or condition bumps it too.
 
+### Guided strings
+
+Every rule carries `guided: GuidedStrings` (`packages/core/src/domain/rule.ts`): `headline`, `why`, `verb`, `done` and `where`. They are the only words the guided check-up shows for a rule, and the catalog test enforces the shape, so write them against DESIGN-V03.md section 6 rather than from memory:
+
+- `headline`: the problem, no trailing stop, at most 60 characters. `why`: one sentence, at most 110 characters, ends with a stop. `done`: starts with "Done." `where`: non-null exactly when `fix.apply.kind` is `deep_link`, and says what to do on the opened page.
+- `verb`: at most 22 characters; "Show me where" for every `deep_link` rule and "Details" for every `manual` rule, both exactly.
+- No banned word, matched as a whole word: finding, findings, severity, CIS, rule, rules, policy, configuration, SSH, launchd, plist, daemon, sudo, Terminal, TCC, stealth, sysadminctl, command, points. macOS's own labels (FileVault, Remote Login, Time Machine) are allowed.
+- `headline` and `why` pass the syllable ceiling of 1.6 with the counter fixed in section 6. Run the core test; it names the string that fails.
+
+The table in section 6 is the source for all 31 rules. The fixed strings of the flow itself (welcome, plan sentences, status lines, the end states) live in `apps/desktop/src/guided/copy.ts` under the same banned-word test. Whether a rule becomes a step at all is decided by `buildGuidedPlan`, not by its strings: `LEFT_ALONE` in `packages/core/src/guided/plan.ts` lists the rules that only ever appear on the end screen.
+
 ## Adding an in-app fix
 
 An in-app fix is a row in two tables that must agree, and a contract test that proves they do. Nothing in the UI can run a command that is not in the Rust table. Full shapes are in DESIGN-V02.md section 5 and section 8.
 
 1. Core. Set the rule's `fix.apply` to an `in_app` entry: `choice` (`none`, `share`, `ssh_key` or `all_ssh_keys`), `passphrase`, `needsPassword`, `recheck` (a subset of `requires` plus the sections the commands change; 019 to 022 add `listeners`), `confirmTitle` (a question, "Turn the firewall on?"), `confirmVerb` ("Turn on"), `confirmNote` and `reversible` (one line or `null`). The catalog test in `packages/core` checks these constraints.
 2. Rust. Add the entry to `FIX_CATALOG` in `apps/desktop/src-tauri/src/fix/catalog.rs`: the same rule id, the steps as `FixBin` (an absolute program path added to that enum, never to `exec.rs`) plus `Arg::Lit` literals or the placeholder kinds that `inputs.rs` validates, the privilege of each step, and the same `recheck`. Literal arguments must match the literal pattern; `cargo test` checks every one.
-3. Contract test. Run `pnpm --filter @talos/core fixtures:emit` to refresh `packages/core/fixtures/fix-catalog.json` (one entry per rule with `kind`, `choice`, `passphrase`, `needsPassword`, `recheck`, `pane`, `watch`), then `cargo test`. The Rust test asserts `FIX_CATALOG` lists exactly the `in_app` rules with the same `choice`, `needsPassword` and `recheck`. `cargo run --bin talos-fixes` prints the Rust table for the TypeScript side of the same test; update its snapshot when the table changes.
+3. Contract test. Run `pnpm --filter @talos/core fixtures:emit` to refresh `packages/core/fixtures/fix-catalog.json` (one entry per rule with `kind`, `choice`, `passphrase`, `needsPassword`, `recheck`, `pane`, `watch` and, from v0.3, `batchable`), then `cargo test`. The Rust test asserts `FIX_CATALOG` lists exactly the `in_app` rules with the same `choice`, `needsPassword`, `recheck` and `batchable`. `cargo run --bin talos-fixes` prints the Rust table, `batchable` included, for the TypeScript side of the same test; update its snapshot when the table changes. `batchable` is derived on both sides, never set by hand: true when the choice is `none` or `all_ssh_keys` and there is no passphrase. A new row that takes a path or a secret is excluded from batches by construction; a new row that takes neither joins them, so check its admin command is happy to run silenced inside a subshell (DESIGN-V03.md section 3).
 4. `docs/RULES.md`. Update the rule's row: fix kind, the commands as `talos-fixes` prints them, and the reversing line.
 5. Tests for the commands: a stub program for the pty path, a stderr fixture for the privileged path if the command can fail in a new way. Never apply the fix on your own Mac from a test; the real-machine check is on the "Only on a real Mac" list.
 
 Admin steps go through one `osascript` `do shell script ... with administrator privileges` per plan, built only from the plan and quoted by `sh_quote` and `as_quote`. The passphrase for 029 goes through a pty, never an argument. Both are in DESIGN-V02.md section 5, "Privilege path".
+
+## The guided plan
+
+The check-up is a pure function over the report. `buildGuidedPlan(report, gate, profile, memory, now)` in `packages/core/src/guided/plan.ts` returns the ordered steps (one batch, single fixes, show-me-where steps, the permission step, the paywall) and the end-screen lists; `planLocked` plans the rules a licence key unlocks; `diffReports` computes "since last time"; `parseGuidedMemory` reads `talos.guided` field by field. None of it touches the OS, the clock or storage, and the same inputs give the same plan, so the expected plans for every fixture are plain assertions in `plan.test.ts` (DESIGN-V03.md section 8 lists them). Ordering, snoozes, the frozen free set and the step shapes are in DESIGN-V03.md sections 1, 4 and 7; change them there first.
+
+The desktop side (`apps/desktop/src/guided/useGuided.ts`) owns only phase transitions, memory writes and timers. It sits on `useScan` and calls `previewBatch`, `applyBatch`, `previewFix`, `applyFix` and `startWatch`; it has no fixing logic of its own. The plan is rebuilt from the latest report after every recheck with the frozen `freeFixes`, and the current step is found again by id, so a fix made on the expert screens is seen by the guide on return.
 
 ## Adding a collector section
 
@@ -187,7 +208,9 @@ check_capabilities() -> { fullDiskAccess: boolean | null, automation: "granted" 
 open_settings_pane({ pane }) -> void         pane is a SettingsPane string (now including "apple_intelligence"); Rust maps it to a URL
 fix_preview({ rule, choice }) -> FixPlan     builds and stores a plan for 5 min; rejects with not_in_catalog, invalid_choice or invalid_input
 fix_apply({ plan, passphrase? }) -> FixOutcome   emits "fix:status" { planId, phase, step, of }; see below for the two error channels
-fix_cancel({ plan }) -> void                 kills the running child; the osascript dialog closes with it
+fix_preview_batch({ rules }) -> BatchPlanWire   v0.3: one plan for several batchable rules; rejects with invalid_choice or not_in_catalog; stored for 5 min
+fix_apply_batch({ plan }) -> BatchOutcome    v0.3: one dialog for the admin items, then the user-level items; rejects plan_expired or busy; "fix:status" carries item for the user-level phase
+fix_cancel({ plan }) -> void                 kills the running child; the osascript dialog closes with it; works on a batch id
 fix_reveal({ rule, choice }) -> void         Finder reveal for 023, 024 and 031 after the same validation
 open_buy_page() -> void                      fixed URL chosen in Rust
 app_restart() -> void                        AppHandle::restart, for the Full Disk Access continuation
@@ -201,7 +224,7 @@ license_read() / license_write({ key }) / license_delete()
 
 Errors are strings. `fix_apply` has two failure channels: errors found before anything runs (`plan_expired`, `not_in_catalog`, `invalid_choice`, `invalid_input`, `busy`, `precondition_changed`) reject the invoke with the `FixError` string; errors from the run itself (`cancelled`, `wrong_password`, `command_failed`, `timeout`) resolve with `{ ok: false, error, step }`. The `TauriFixAdapter` folds both into one `FixOutcome`. Only one plan runs at a time.
 
-The v0.1 browser assistant command is gone. The fix and AI contracts, the `FixChoice` wire shape and the `ai:stream` event are in DESIGN-V02.md sections 4, 5 and 8.
+The v0.1 browser assistant command is gone. The fix and AI contracts, the `FixChoice` wire shape and the `ai:stream` event are in DESIGN-V02.md sections 4, 5 and 8. The batch wire shapes (`BatchPlanWire`, `BatchOutcome`) and the `item` field are in DESIGN-V03.md section 3.
 
 ## TCC permissions in development
 
@@ -241,3 +264,13 @@ These cannot be covered by `pnpm test`, `cargo test` or the demo build. Check th
 - The Full Disk Access grant, the Quit & Reopen prompt from System Settings, and the relaunch continuation. `AEDeterminePermissionToAutomateTarget` before and after granting Automation.
 - The four FoundationModels availability states, guided generation output shape, the real context-window limit, guardrail refusals, and the Apple Intelligence settings URL.
 - Sidecar signing and notarisation; the signed-build socket table; `reveal_item_in_dir` on hidden dotfiles.
+
+Added by v0.3 (DESIGN-V03.md section 8, "Only on a real Mac"):
+
+- The batch script under `do shell script with administrator privileges`: whether `without altering line endings` is honoured, whether the `R` marker lines come back in order when every command is silenced, and the exact stderr for cancel and wrong password on a multi-line script (expected unchanged from v0.2, not proven).
+- Each admin fix inside a batch, including `launchctl bootout` exit 3 as root. `fix_cancel` during the dialog on a batch, confirming nothing ran.
+- The FileVault watcher: whether `fdesetup status` reads On before encryption finishes, and whether turning FileVault on from Settings asks for a logout on macOS 27 (unknown; the step copy says "may restart").
+- The pending-update restart and `pendingRestart` clearing on the next launch. The 10 min watcher cap with System Settings still open.
+- The Full Disk Access "Quit & Reopen" path landing back in the guide with `talos.continue` written at open time.
+- VoiceOver reading of the status region and the auto-advance announcement.
+- The unsigned-build socket table still makes 019 to 022 rechecks `unreadable` under `tauri dev`, so a batch holding them shows the "could not check it" row on a dev build; the pass state needs a signed build.

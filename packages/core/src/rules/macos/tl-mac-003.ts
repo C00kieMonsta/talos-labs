@@ -14,6 +14,13 @@ export const TL_MAC_003: Rule = {
   evidenceVocabulary: {},
   explanation:
     "Stealth mode makes your Mac ignore the probes that attackers and automated scanners send to find computers on a network. With it off, your Mac answers those probes and confirms it is there. It is a small change that makes you a less obvious target on shared Wi-Fi.",
+  guided: {
+    headline: "Your Mac answers strangers on the network",
+    why: "Staying quiet makes your Mac harder to find on public Wi-Fi.",
+    verb: "Make it quiet",
+    done: "Done. Your Mac stays quiet.",
+    where: null,
+  },
   fix: {
     summary: "Enable stealth mode in the firewall options.",
     settingsPath: ["System Settings", "Network", "Firewall", "Options"],

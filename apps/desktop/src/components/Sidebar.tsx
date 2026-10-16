@@ -3,8 +3,11 @@ import { ICONS, NAV_ICONS } from "../app/icons";
 import type { NavKey } from "../app/icons";
 import { Icon } from "./Icon";
 
+/** "checkup" is the guided home; it has no NavKey because the expert routes own that type. */
+export type SidebarKey = NavKey | "checkup";
+
 export interface NavItem {
-  readonly name: Exclude<NavKey, "settings">;
+  readonly name: Exclude<SidebarKey, "settings">;
   readonly label: string;
 }
 
@@ -20,11 +23,11 @@ export function Sidebar({
   onSelect,
 }: {
   items: readonly NavItem[];
-  current: NavKey;
+  current: SidebarKey;
   license: LicenseState;
   /** True while a scan runs: 50 % opacity and inert. */
   dimmed?: boolean;
-  onSelect(name: NavKey): void;
+  onSelect(name: SidebarKey): void;
 }) {
   const licensed = license.status === "valid";
   return (
@@ -71,10 +74,10 @@ function NavRow({
   active,
   onSelect,
 }: {
-  name: NavKey;
+  name: SidebarKey;
   label: string;
   active: boolean;
-  onSelect(name: NavKey): void;
+  onSelect(name: SidebarKey): void;
 }) {
   return (
     <button
@@ -83,7 +86,7 @@ function NavRow({
       aria-current={active ? "page" : undefined}
       onClick={() => onSelect(name)}
     >
-      <Icon icon={NAV_ICONS[name]} />
+      <Icon icon={name === "checkup" ? ICONS.brand : NAV_ICONS[name]} />
       <span>{label}</span>
     </button>
   );

@@ -15,6 +15,13 @@ export const TL_MAC_020: Rule = {
   evidenceVocabulary: {},
   explanation:
     "Screen Sharing lets another computer see and control your screen over the network. It is handy for a moment of help, but left on it is a way for anyone with your password to use the Mac as if they were sitting at it. Turn it on only when you need it.",
+  guided: {
+    headline: "Others can see your screen over the network",
+    why: "Screen Sharing lets someone watch and control your Mac.",
+    verb: "Turn it off",
+    done: "Done. Screen Sharing is off.",
+    where: null,
+  },
   fix: {
     summary: "Turn off Screen Sharing in the Sharing settings.",
     settingsPath: ["System Settings", "General", "Sharing", "Screen Sharing"],
