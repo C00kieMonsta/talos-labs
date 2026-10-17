@@ -207,10 +207,12 @@ describe("cardsFromRelated", () => {
     expect(cardsFromRelated([], allowed)).toEqual([]);
   });
 
-  it("intentsFor prefers the validated intents and derives otherwise", () => {
+  it("intentsFor is the validated intents and never derives a card from relatedRuleIds", () => {
     const intents = [{ kind: "rescan" as const, ruleId: null }];
-    expect(intentsFor({ intents, relatedRuleIds: ["TL-MAC-022"] }, allowed)).toBe(intents);
-    expect(intentsFor({ intents: [], relatedRuleIds: ["TL-MAC-022"] }, allowed)).toEqual([{ kind: "fix_rule", ruleId: "TL-MAC-022" }]);
+    const pointed = { intents, relatedRuleIds: ["TL-MAC-022" as RuleId] };
+    const greeting = { intents: [], relatedRuleIds: ["TL-MAC-022" as RuleId] };
+    expect(intentsFor(pointed, allowed)).toBe(intents);
+    expect(intentsFor(greeting, allowed)).toEqual([]);
   });
 });
 

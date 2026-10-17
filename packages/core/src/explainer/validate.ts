@@ -13,7 +13,7 @@ import { ALLOWED_LIST_FOR, type Allowed } from "../chat/allowed";
 import type { ChatResult } from "../chat/input";
 import { INTENT_KINDS, INTENT_KINDS_WITHOUT_RULE, REMIND_WHENS, type ChatIntent, type IntentKind, type RemindWhen } from "../chat/intents";
 import { CHAT_LIMITS } from "./limits";
-import { claimsAction, containsAppVoice } from "./prose";
+import { claimsAction, claimsAppIdentity } from "./prose";
 
 const REJECTED: ExplainerResult<never> = { ok: false, reason: "rejected_output" };
 
@@ -222,7 +222,7 @@ export function validateChatAnswer(raw: unknown, report: KnownRules, allowed: Al
 
 function readReply(value: unknown): string {
   const reply = readString(value, false);
-  if (containsAppVoice(reply) || claimsAction(reply)) {
+  if (claimsAppIdentity(reply) || claimsAction(reply)) {
     throw new Rejected();
   }
   return reply;

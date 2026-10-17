@@ -8,15 +8,30 @@ use serde_json::Value;
 pub enum Parsed {
     /// A piece of the StructuredOutput tool input (`input_json_delta`).
     Delta(String),
-    /// The final line: the structured output, or why there is none.
-    Result(Result<Value, StreamError>),
+    /// The final line of a turn: the structured output, or why there is none.
+    Result(TurnResult),
+    /// `system/api_retry`; `auth` when the failed attempt was `authentication_failed`.
+    ApiRetry { auth: bool },
+    /// `system/init` with the protocol capabilities the process advertises.
+    Init { capabilities: Vec<String> },
     Other,
+}
+
+/// A `result` line. On a long-lived process every turn ends with one, naming the user message
+/// it answers.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TurnResult {
+    pub outcome: Result<Value, StreamError>,
+    pub user_message_uuid: Option<String>,
+    pub result_index: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StreamError {
     pub subtype: String,
     pub message: String,
+    /// `api_error_status`, read as a number or a numeric string.
+    pub status: Option<u16>,
 }
 
 /// The `ai:stream` error code plus the reset time when a limit message names one.
@@ -32,7 +47,36 @@ pub fn parse_line(line: &str) -> Parsed {
     };
     match value.get("type").and_then(Value::as_str) {
         Some("stream_event") => parse_stream_event(&value),
-        Some("result") => Parsed::Result(parse_result(&value)),
+        Some("result") => Parsed::Result(TurnResult {
+            outcome: parse_result(&value),
+            user_message_uuid: value
+                .get("user_message_uuid")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            result_index: value.get("result_index").and_then(Value::as_u64),
+        }),
+        Some("system") => parse_system(&value),
+        _ => Parsed::Other,
+    }
+}
+
+fn parse_system(value: &Value) -> Parsed {
+    match value.get("subtype").and_then(Value::as_str) {
+        Some("init") => Parsed::Init {
+            capabilities: value
+                .get("capabilities")
+                .and_then(Value::as_array)
+                .map(|list| {
+                    list.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default(),
+        },
+        Some("api_retry") => Parsed::ApiRetry {
+            auth: value.get("error").and_then(Value::as_str) == Some("authentication_failed"),
+        },
         _ => Parsed::Other,
     }
 }
@@ -56,12 +100,53 @@ fn parse_stream_event(value: &Value) -> Parsed {
     }
 }
 
+/// `api_error_status` is an int in the binary's own schema and a string in the SDK reference.
+fn parse_status(value: &Value) -> Option<u16> {
+    let raw = value.get("api_error_status")?;
+    if let Some(n) = raw.as_u64() {
+        return u16::try_from(n).ok();
+    }
+    raw.as_str()?.trim().parse().ok()
+}
+
+fn error_message(value: &Value) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for key in ["result", "error", "message"] {
+        if let Some(text) = value.get(key).and_then(Value::as_str) {
+            parts.push(text.to_owned());
+        }
+    }
+    if let Some(errors) = value.get("errors").and_then(Value::as_array) {
+        for entry in errors {
+            if let Some(text) = entry.as_str() {
+                parts.push(text.to_owned());
+            } else if let Some(text) = entry.get("message").and_then(Value::as_str) {
+                parts.push(text.to_owned());
+            }
+        }
+    }
+    parts.join(" ")
+}
+
 fn parse_result(value: &Value) -> Result<Value, StreamError> {
     let subtype = value
         .get("subtype")
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_owned();
+    let status = parse_status(value);
+    // A failed API call can still be filed under `success`; the error flag wins.
+    if value.get("is_error").and_then(Value::as_bool) == Some(true) {
+        return Err(StreamError {
+            subtype: if subtype == "success" {
+                "api_error".to_owned()
+            } else {
+                subtype
+            },
+            message: error_message(value),
+            status,
+        });
+    }
     if subtype == "success" {
         if let Some(output) = value.get("structured_output")
             && output.is_object()
@@ -71,33 +156,52 @@ fn parse_result(value: &Value) -> Result<Value, StreamError> {
         return Err(StreamError {
             subtype: "no_structured_output".to_owned(),
             message: String::new(),
+            status,
         });
-    }
-    let mut parts: Vec<String> = Vec::new();
-    for key in ["result", "error", "message"] {
-        if let Some(text) = value.get(key).and_then(Value::as_str) {
-            parts.push(text.to_owned());
-        }
-    }
-    if let Some(errors) = value.get("errors").and_then(Value::as_array) {
-        parts.extend(errors.iter().filter_map(Value::as_str).map(str::to_owned));
     }
     Err(StreamError {
         subtype,
-        message: parts.join(" "),
+        message: error_message(value),
+        status,
     })
 }
 
-/// Maps a result error to the code the webview knows. Subtype first, then the message.
+fn limit_words(text: &str) -> bool {
+    text.contains("limit") || text.contains("usage")
+}
+
+/// Maps a result error to the code the webview knows. Status first, then subtype, then the message.
 pub fn classify(error: &StreamError, now: chrono::DateTime<chrono::Local>) -> Classified {
+    let text = error.message.to_lowercase();
+    match error.status {
+        Some(401) => {
+            return Classified {
+                code: "needs_sign_in",
+                until: None,
+            };
+        }
+        Some(429) => {
+            return if limit_words(&text) {
+                Classified {
+                    code: "limit_reached",
+                    until: parse_reset_time(&text, now),
+                }
+            } else {
+                Classified {
+                    code: "provider_unavailable",
+                    until: None,
+                }
+            };
+        }
+        _ => {}
+    }
     if error.subtype == "error_max_turns" {
         return Classified {
             code: "provider_unavailable",
             until: None,
         };
     }
-    let text = error.message.to_lowercase();
-    if text.contains("limit") || text.contains("usage") {
+    if limit_words(&text) {
         return Classified {
             code: "limit_reached",
             until: parse_reset_time(&text, now),
@@ -168,6 +272,13 @@ mod tests {
     const MAX_TURNS: &str = r#"{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":2,"session_id":"s"}"#;
     const EXEC_ERROR: &str = r#"{"type":"result","subtype":"error_during_execution","is_error":true,"errors":["You've hit your limit · resets 3pm (Europe/Brussels)"],"session_id":"s"}"#;
 
+    fn outcome(line: &str) -> Result<Value, StreamError> {
+        match parse_line(line) {
+            Parsed::Result(result) => result.outcome,
+            other => panic!("expected a result, got {other:?}"),
+        }
+    }
+
     #[test]
     fn deltas_carry_only_the_tool_input() {
         assert_eq!(
@@ -176,7 +287,12 @@ mod tests {
         );
         assert_eq!(parse_line(TEXT), Parsed::Other);
         assert_eq!(parse_line(START), Parsed::Other);
-        assert_eq!(parse_line(SYSTEM), Parsed::Other);
+        assert_eq!(
+            parse_line(SYSTEM),
+            Parsed::Init {
+                capabilities: Vec::new()
+            }
+        );
         assert_eq!(parse_line("not json"), Parsed::Other);
         assert_eq!(parse_line(""), Parsed::Other);
     }
@@ -194,8 +310,8 @@ mod tests {
                         snapshots.push(Value::Object(obj));
                     }
                 }
-                Parsed::Result(r) => done = Some(r),
-                Parsed::Other => {}
+                Parsed::Result(r) => done = Some(r.outcome),
+                Parsed::Other | Parsed::Init { .. } | Parsed::ApiRetry { .. } => {}
             }
         }
         assert_eq!(
@@ -214,11 +330,85 @@ mod tests {
     fn a_success_without_structured_output_is_an_error() {
         let line = r#"{"type":"result","subtype":"success","result":"I cannot."}"#;
         assert_eq!(
-            parse_line(line),
-            Parsed::Result(Err(StreamError {
+            outcome(line),
+            Err(StreamError {
                 subtype: "no_structured_output".into(),
-                message: String::new()
-            }))
+                message: String::new(),
+                status: None,
+            })
+        );
+    }
+
+    #[test]
+    fn result_lines_carry_the_user_message_uuid_and_index() {
+        let line = r#"{"type":"result","subtype":"success","is_error":false,"user_message_uuid":"0f2a-1","result_index":3,"structured_output":{"reply":"hi"}}"#;
+        assert_eq!(
+            parse_line(line),
+            Parsed::Result(TurnResult {
+                outcome: Ok(json!({ "reply": "hi" })),
+                user_message_uuid: Some("0f2a-1".into()),
+                result_index: Some(3),
+            })
+        );
+        let Parsed::Result(bare) = parse_line(SUCCESS) else {
+            panic!("a result");
+        };
+        assert_eq!(bare.user_message_uuid, None);
+        assert_eq!(bare.result_index, None);
+    }
+
+    #[test]
+    fn an_is_error_success_carries_the_message_and_status() {
+        let now = at(10, 0);
+        let number = r#"{"type":"result","subtype":"success","is_error":true,"api_error_status":401,"result":"API Error: 401 {\"type\":\"error\"}","user_message_uuid":"u1"}"#;
+        let error = outcome(number).unwrap_err();
+        assert_eq!(error.subtype, "api_error");
+        assert_eq!(error.status, Some(401));
+        assert!(error.message.starts_with("API Error: 401"));
+        assert_eq!(classify(&error, now).code, "needs_sign_in");
+
+        let string = r#"{"type":"result","subtype":"success","is_error":true,"api_error_status":"429","errors":[{"type":"api","message":"Rate limit: usage limit reached, resets 3pm"}]}"#;
+        let error = outcome(string).unwrap_err();
+        assert_eq!(error.status, Some(429));
+        let classified = classify(&error, now);
+        assert_eq!(classified.code, "limit_reached");
+        assert!(classified.until.unwrap().starts_with("2026-10-16T15:00:00"));
+
+        let bare_429 = r#"{"type":"result","subtype":"success","is_error":true,"api_error_status":429,"result":"Overloaded"}"#;
+        let error = outcome(bare_429).unwrap_err();
+        assert_eq!(classify(&error, now).code, "provider_unavailable");
+
+        let bad = r#"{"type":"result","subtype":"success","is_error":true,"api_error_status":"400","result":"bad request"}"#;
+        let error = outcome(bad).unwrap_err();
+        assert_eq!(error.status, Some(400));
+        assert_eq!(error.message, "bad request");
+        assert_eq!(classify(&error, now).code, "provider_unavailable");
+
+        let nonsense = r#"{"type":"result","subtype":"success","is_error":true,"api_error_status":"many"}"#;
+        assert_eq!(outcome(nonsense).unwrap_err().status, None);
+    }
+
+    #[test]
+    fn api_retry_lines_say_whether_auth_failed() {
+        let auth = r#"{"type":"system","subtype":"api_retry","attempt":1,"max_retries":10,"retry_delay_ms":500,"error_status":401,"error":"authentication_failed","uuid":"x","session_id":"s"}"#;
+        assert_eq!(parse_line(auth), Parsed::ApiRetry { auth: true });
+        let overloaded = r#"{"type":"system","subtype":"api_retry","attempt":2,"error_status":529,"error":"overloaded"}"#;
+        assert_eq!(parse_line(overloaded), Parsed::ApiRetry { auth: false });
+        let other = r#"{"type":"system","subtype":"permission_denied"}"#;
+        assert_eq!(parse_line(other), Parsed::Other);
+    }
+
+    #[test]
+    fn init_lines_carry_capabilities() {
+        let line = r#"{"type":"system","subtype":"init","capabilities":["interrupt_receipt_v1","interrupt_cancel_queued_v1",7],"session_id":"s"}"#;
+        assert_eq!(
+            parse_line(line),
+            Parsed::Init {
+                capabilities: vec![
+                    "interrupt_receipt_v1".into(),
+                    "interrupt_cancel_queued_v1".into()
+                ]
+            }
         );
     }
 
@@ -234,23 +424,19 @@ mod tests {
         StreamError {
             subtype: subtype.into(),
             message: message.into(),
+            status: None,
         }
     }
 
     #[test]
     fn errors_classify_by_subtype_then_message() {
         let now = at(10, 0);
-        assert_eq!(
-            parse_line(MAX_TURNS),
-            Parsed::Result(Err(err("error_max_turns", "")))
-        );
+        assert_eq!(outcome(MAX_TURNS), Err(err("error_max_turns", "")));
         assert_eq!(
             classify(&err("error_max_turns", "usage limit"), now).code,
             "provider_unavailable"
         );
-        let Parsed::Result(Err(limit)) = parse_line(EXEC_ERROR) else {
-            panic!("expected an error result");
-        };
+        let limit = outcome(EXEC_ERROR).unwrap_err();
         let classified = classify(&limit, now);
         assert_eq!(classified.code, "limit_reached");
         let until = classified.until.unwrap();

@@ -3,7 +3,7 @@ export { buildSystemPrompt, buildExplainerSystemPrompt, ACCEPTED_SENTENCE } from
 export { EXPLANATION_JSON_SCHEMA, PRIORITISATION_JSON_SCHEMA, ANSWER_JSON_SCHEMA, WATCH_JSON_SCHEMA, CHAT_JSON_SCHEMA } from "./schemas";
 export { validateExplanation, validatePrioritisation, validateAnswer, validateChat, validateChatAnswer, containsCommandText } from "./validate";
 export type { KnownRules } from "./validate";
-export { containsAppVoice, claimsAction, replyRejected, containsMachineText } from "./prose";
+export { claimsAppIdentity, claimsAction, replyRejected, containsMachineText } from "./prose";
 export { clampQuestion, clampHistory, clampString, CHAT_LIMITS, clampChatHistory, clampChatQuestion } from "./limits";
 export type { ChatHistoryTarget } from "./limits";
 export { ON_DEVICE_LIMITS, ON_DEVICE_CHAT_LIMITS, ON_DEVICE_CHAT_SENTENCE, ON_DEVICE_BASE_INSTRUCTIONS, buildOnDeviceInstructions, buildOnDeviceChatInstructions, buildOnDevicePrompt } from "./on-device-prompt";

@@ -26,8 +26,8 @@ import { chatPartialOptions, chatPartialRejected } from "./explainer-shared";
 import { recordDemoCall, wait } from "./demo-shared";
 
 /** The canned chat replies, by the chat_reply demo param. inject, too_many and app_voice exercise the validator; the AGENT four name the part B intents (investigate is dropped while its port is gated). */
-export type DemoChatReply = "urgent" | "disk" | "leave_disk" | "cannot" | "outside" | "inject" | "too_many" | "app_voice" | "long" | "watch" | "remind" | "writeup" | "whatif" | "investigate";
-export const DEMO_CHAT_REPLIES: readonly DemoChatReply[] = ["urgent", "disk", "leave_disk", "cannot", "outside", "inject", "too_many", "app_voice", "long", "watch", "remind", "writeup", "whatif", "investigate"];
+export type DemoChatReply = "urgent" | "disk" | "leave_disk" | "cannot" | "outside" | "inject" | "too_many" | "app_voice" | "long" | "watch" | "remind" | "writeup" | "whatif" | "investigate" | "greeting";
+export const DEMO_CHAT_REPLIES: readonly DemoChatReply[] = ["urgent", "disk", "leave_disk", "cannot", "outside", "inject", "too_many", "app_voice", "long", "watch", "remind", "writeup", "whatif", "investigate", "greeting"];
 
 /** How the demo chat behaves: which reply, and whether and when the turn fails. */
 export interface DemoChatOptions {
@@ -141,7 +141,7 @@ export class CannedAnswers {
       case "disk":
         return {
           ...base,
-          reply: "Your disk holds your photos, documents and saved logins in a form anyone can read once the Mac is in their hands. Locking it means a thief gets a brick, not your life. You travel with this Mac, so this is the one that matters most for you.",
+          reply: "Your disk holds your photos, documents and saved logins in a form anyone can read once the Mac is in their hands. Locking it means a thief gets a brick, not your life.\n\nYou travel with this Mac, so this is the one that matters most for you.",
           relatedRuleIds: ["TL-MAC-001"],
           intents: allowed.show.includes("TL-MAC-001") ? [{ kind: "show_where", ruleId: "TL-MAC-001" }] : [],
         };
@@ -203,6 +203,9 @@ export class CannedAnswers {
       }
       case "investigate":
         return { ...base, reply: "A closer look at that area is the next step.", intents: [{ kind: "investigate", ruleId: null, signalId: input.watch.items[0]?.signalId ?? "sig.persistence_new", when: null }] };
+      /* Seamless chat pass: a greeting answered in the model's own voice, two short paragraphs, nothing to point at. */
+      case "greeting":
+        return { ...base, reply: "Hi! I'm glad you're here.\n\nAsk me about anything in the check-up: your disk, the firewall, backups, or what to do first. I'll answer in plain words, and the app shows a button when there is one to press." };
     }
   }
 

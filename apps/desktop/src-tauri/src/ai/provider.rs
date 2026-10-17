@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use super::chatgpt_oauth::{self, ChatGpt};
@@ -186,11 +186,45 @@ pub struct Providers {
 
 impl Default for Providers {
     fn default() -> Self {
+        let claude = Arc::new(ClaudeCode::default());
+        let sweeper = Arc::clone(&claude);
+        // Ends the chat session after 600 s without a turn, or 1800 s in all.
+        let _ = std::thread::Builder::new()
+            .name("talos-claude-chat-idle".into())
+            .spawn(move || {
+                loop {
+                    std::thread::sleep(claude_code::CHAT_SWEEP_INTERVAL);
+                    sweeper.chat_sweep();
+                }
+            });
         Providers {
             chatgpt: Arc::new(ChatGpt::default()),
-            claude: Arc::new(ClaudeCode::default()),
+            claude,
         }
     }
+}
+
+/// At setup: the run folders a killed or quit process left under `/private/tmp`, then the
+/// `sessions/<pid>.json` entries naming one of them.
+pub fn sweep_at_start(app: &AppHandle) {
+    let dir = data_dir(app).ok();
+    let _ = std::thread::Builder::new()
+        .name("talos-claude-sweep".into())
+        .spawn(move || {
+            claude_code::sweep_stale_run_dirs();
+            if let Some(dir) = dir {
+                claude_code::sweep_session_files(&claude_code::Dirs::under(&dir));
+            }
+        });
+}
+
+/// At `RunEvent::Exit`: the chat child is ended on the kill path (it would otherwise finish its
+/// turn and exit on stdin EOF), then the run folders go.
+pub fn end_chat_at_exit(app: &AppHandle) {
+    if let Some(providers) = app.try_state::<Providers>() {
+        providers.claude.end_chat_now();
+    }
+    claude_code::sweep_run_dirs_at_exit();
 }
 
 /// The only page a connect may open: the OpenAI authorize endpoint. Claude's own program opens

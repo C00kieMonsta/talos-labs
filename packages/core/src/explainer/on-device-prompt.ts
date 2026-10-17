@@ -38,7 +38,7 @@ export interface OnDeviceExtra {
 }
 
 /** The one sentence the chat adds for the on-device model; the base and the accepted sentence stay frozen. */
-export const ON_DEVICE_CHAT_SENTENCE = "Answer the question in the second person in at most four short sentences; never write as I, we or the app, and never say that anything was changed: the app shows the buttons and the reader decides.";
+export const ON_DEVICE_CHAT_SENTENCE = "Answer in plain words, in short paragraphs of at most three sentences with a blank line between them; you may speak as yourself but you are not the app, so call it the app; never say that anything was changed: the app shows the buttons and the reader decides; answer a greeting with one friendly sentence and what you can help with, and leave relatedRuleIds empty for a greeting or small talk.";
 
 /** The instructions for the on-device chat: the explainer instructions plus the chat sentence. */
 export function buildOnDeviceChatInstructions(): string {

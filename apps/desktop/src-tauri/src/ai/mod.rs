@@ -137,6 +137,62 @@ pub async fn claude_generate(
     .map_err(|e| e.to_string())?
 }
 
+/// Starts the chat session for these instructions when none is alive, so the first turn pays
+/// no spawn. Idempotent; never takes the busy slot; emits nothing.
+#[tauri::command]
+pub async fn claude_chat_warm(
+    window: tauri::Window,
+    app: AppHandle,
+    state: State<'_, provider::Providers>,
+    request: claude_code::ChatWarmRequest,
+) -> Result<claude_code::ChatWarm, String> {
+    crate::commands::guard::check(&window, crate::commands::guard::Callers::MainOnly)?;
+    let dir = crate::commands::app_data_dir(&app)?;
+    let claude = Arc::clone(&state.claude);
+    tauri::async_runtime::spawn_blocking(move || {
+        claude.warm_chat(&claude_code::Dirs::under(&dir), &request.instructions)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// One chat turn over the long-lived Claude Code session; same `ai:stream` payloads as
+/// `claude_generate`. Only the chat task may use it.
+#[tauri::command]
+pub async fn claude_chat_turn(
+    window: tauri::Window,
+    app: AppHandle,
+    state: State<'_, provider::Providers>,
+    request: GenerateRequest,
+) -> Result<(), String> {
+    crate::commands::guard::check(&window, crate::commands::guard::Callers::MainOnly)?;
+    webview_task(request.task)?;
+    let dir = crate::commands::app_data_dir(&app)?;
+    let claude = Arc::clone(&state.claude);
+    let emit = move |payload: StreamPayload| {
+        let _ = app.emit(STREAM_EVENT, payload);
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        claude.chat_turn(&claude_code::Dirs::under(&dir), request, &emit)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Ends the chat session: the turn in flight is cancelled, the process ends in the background.
+/// Ok even when nothing ran.
+#[tauri::command]
+pub async fn claude_chat_end(
+    window: tauri::Window,
+    state: State<'_, provider::Providers>,
+) -> Result<(), String> {
+    crate::commands::guard::check(&window, crate::commands::guard::Callers::MainOnly)?;
+    let claude = Arc::clone(&state.claude);
+    tauri::async_runtime::spawn_blocking(move || claude.end_chat())
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn claude_cancel(
     window: tauri::Window,

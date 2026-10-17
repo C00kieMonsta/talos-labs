@@ -14,6 +14,9 @@ export const RINGS_DOT_RADIUS = 3;
 
 export type HeroKind = "spiral" | "rings" | "horizon";
 
+/** How far the spiral mark sits past the band's top and right edges; the band is the clip, so .content never scrolls sideways. --spiral-scale is one mark unit in px, for the drift's 12 px slide. */
+export const SPIRAL_OFFSET = { top: 120, right: 160 } as const;
+
 interface HeroProps {
   readonly kind: HeroKind;
   /** Spiral and rings: the square band in px (default 560). */
@@ -28,7 +31,8 @@ interface HeroProps {
 
 /**
  * Decorative hero bands (docs/DESIGN-WARMTH.md section 4). Never read by assistive tech, never take pointer events.
- * "spiral": the kit mark, large, offset top-right of its positioned parent (.content), at --hero-spiral-opacity.
+ * "spiral": the kit mark, large, top-right of its positioned parent (.content), at --hero-spiral-opacity; the band clips the
+ * mark's overhang itself, so it adds no sideways overflow to the column.
  * "rings": the site hero's concentric circles, in the same place with the same stroke and opacity tokens.
  * "horizon": the site's dunes, full width, in flow at the bottom of the end screen.
  */
@@ -36,8 +40,8 @@ export function Hero({ kind, size = 560, height = 120, className, style, writing
   const classes = ["hero", `hero-${kind}`, className].filter(Boolean).join(" ");
   if (kind === "spiral") {
     return (
-      <div className={classes} style={{ width: size, height: size, ...style }} aria-hidden="true" data-testid="hero-spiral" data-writing={writing === true ? "true" : undefined}>
-        <SpiralMark size="100%" focusable="false" />
+      <div className={classes} style={{ width: size - SPIRAL_OFFSET.right, height: size - SPIRAL_OFFSET.top, ...({ "--spiral-scale": size / 100 } as CSSProperties), ...style }} aria-hidden="true" data-testid="hero-spiral" data-writing={writing === true ? "true" : undefined}>
+        <SpiralMark size={size} focusable="false" />
       </div>
     );
   }

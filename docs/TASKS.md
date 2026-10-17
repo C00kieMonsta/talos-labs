@@ -27,7 +27,7 @@ Every request from the owner, in the order it was made, with its state. Updated 
 | 21 | 2026-10-17 | More playful interactions | built (talos-labs-95, uncommitted): motion tokens, CountUp, ring count-up and tap, done disc, cue bar, press, horizon, welcome drift, qa/motion.ts; deferred until #13 commits: END.allDoneLine, EndScreen CountUp, the watch status crossfade span | docs/DESIGN-PLAYFUL.md |
 | 22 | 2026-10-17 | More threat-detection strategies | done: built 2026-10-17, not yet verified by the owner | docs/DESIGN-THREATS-V2.md |
 | 23 | 2026-10-17 | More agentic capabilities | part A built; part B TypeScript built (talos-labs, uncommitted): the five intents, grammars, reminders, write-up (clipboard), what-if, the Do-them-all checklist; Rust commands, watch:activity, investigate and the closer watch deferred to the watch-port pass (seamless chat pass, talos-labs-95) | docs/DESIGN-AGENT.md |
-| 24 | 2026-10-17 | Interpretation of daily checks | designed, not built; after THREATS, same session | docs/DESIGN-DAILY.md |
+| 24 | 2026-10-17 | Interpretation of daily checks | in progress: build started 2026-10-17 (sections 2, 3 and 5; the AI paragraph waits for the chat readings) | docs/DESIGN-DAILY.md |
 | 25 | 2026-10-17 | The chat experience is terrible; make it super seamless | in progress: four UI faults (empty reply block, duplicate Details rows, a card on a greeting, no visible streaming) with the chat session (talos-labs-95, polish pass); the Claude latency (a fresh process per turn) with this session: one long-lived locked-down Claude Code process per chat, pre-warmed | docs/DESIGN-CHAT.md section 6; src-tauri/src/ai/claude_code.rs |
 
 ## Standing items the owner must do or decide

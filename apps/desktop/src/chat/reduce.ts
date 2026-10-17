@@ -61,22 +61,53 @@ function dropSettledRows(state: ChatState, ruleIds: readonly RuleId[]): ChatStat
   return { ...state, messages: state.messages.filter((m) => !(m.kind === "row" && m.seed.card.ruleIds.length > 0 && m.seed.card.ruleIds.every((id) => ruleIds.includes(id)))) };
 }
 
+/** A details row with no step stays where it is until tapped; only step rows and the watch row step up on their own. */
+function stepsUpAlone(row: Row): boolean {
+  return !(row.seed.card.kind === "details" && row.seed.step === null);
+}
+
 /** The row to step up after a card settled: a watch row first, else the first row after the card, else the earliest. */
 function nextRow(state: ChatState, cardId: string): Row | null {
-  const rows = state.messages.filter((m): m is Row => m.kind === "row");
+  const rows = state.messages.filter((m): m is Row => m.kind === "row" && stepsUpAlone(m));
   const watch = rows.find((r) => r.seed.card.kind === "watch");
   if (watch !== undefined) return watch;
   const index = state.messages.findIndex((m) => m.id === cardId);
   return rows.find((r) => state.messages.indexOf(r) > index) ?? rows[0] ?? null;
 }
 
-/** The first seed lands as the live card, the rest as rows. Nothing lands while a card works. */
+/** The one rule a seed stands for; null for a batch, the lock, the watch and the write-up. */
+function singleRule(seed: CardSeed): RuleId | null {
+  return seed.card.ruleIds.length === 1 ? (seed.card.ruleIds[0] ?? null) : null;
+}
+
+function lastPersonIndex(state: ChatState): number {
+  for (let i = state.messages.length - 1; i >= 0; i -= 1) if (state.messages[i]?.kind === "person") return i;
+  return -1;
+}
+
+/** True when an open card already names the seed's rule, or a row for it already sits in the current exchange. */
+function rowCovered(state: ChatState, seed: CardSeed): boolean {
+  const rule = singleRule(seed);
+  if (rule === null) return false;
+  const since = lastPersonIndex(state);
+  return state.messages.some((m, i) => (m.kind === "card" && (m.state === "idle" || m.state === "working") && m.card.ruleIds.includes(rule)) || (m.kind === "row" && i > since && singleRule(m.seed) === rule));
+}
+
+/** The rows of the current exchange that name the rule go, so the card landing for it is not also listed. */
+function dropExchangeRows(state: ChatState, rule: RuleId | null): ChatState {
+  if (rule === null) return state;
+  const since = lastPersonIndex(state);
+  return { ...state, messages: state.messages.filter((m, i) => !(m.kind === "row" && i > since && singleRule(m.seed) === rule)) };
+}
+
+/** The first seed lands as the live card, the rest as rows; a row for a rule already open or already listed is skipped. Nothing lands while a card works. */
 function landCards(state: ChatState, at: number, seeds: readonly CardSeed[]): ChatState {
   let next = state;
   for (const [index, seed] of seeds.entries()) {
-    const [id, s] = alloc(next);
     const liveCard = index === 0 && next.working === null;
-    next = liveCard ? demoteIdle(s) : s;
+    if (!liveCard && rowCovered(next, seed)) continue;
+    const [id, s] = alloc(next);
+    next = liveCard ? demoteIdle(dropExchangeRows(s, singleRule(seed))) : s;
     next = liveCard ? { ...push(next, cardMessage(id, at, seed, true)), live: id } : push(next, rowMessage(id, at, seed));
   }
   return next;
@@ -211,9 +242,12 @@ function modelFailed(state: ChatState, action: Extract<ChatAction, { type: "mode
   if (state.stream.kind === "idle" || state.stream.turnId !== turnId) return state;
   const notice = failureNotice(state, reason, until);
   if (notice === null) return stopped(state, turnId);
-  // The notice carries the one way out; the turn itself gains no "Send again".
+  // A provider notice carries its own way out; a dropped reply has none, so the person's turn gains "Send again".
+  const dropped = reason === "rejected_output" || reason === "refused" || reason === "unknown";
+  const person = lastPerson(state);
   const [id, s1] = alloc(withoutTurn(state, turnId));
-  const next = push(s1, { id, kind: "notice", at, text: notice.text, wayOut: notice.wayOut });
+  let next = push(s1, { id, kind: "notice", at, text: notice.text, wayOut: notice.wayOut });
+  if (dropped && person !== null) next = patch(next, person.id, (m) => (m.kind === "person" ? { ...m, resend: true } : m));
   return announce({ ...next, stream: { kind: "idle" }, composer: notice.composer }, notice.text);
 }
 
@@ -347,6 +381,8 @@ function reduceAction(state: ChatState, action: ChatAction): ChatState {
     }
     case "model_ready": {
       if (state.stream.kind === "idle" || state.stream.turnId !== action.turnId) return state;
+      // A blank reply never renders as an empty block: it is the dropped-reply line instead.
+      if (action.result.reply.trim().length === 0) return modelFailed(state, { type: "model_failed", at: action.at, turnId: action.turnId, reason: "rejected_output", until: null });
       let next = patch(state, modelId(state, action.turnId), (m) => (m.kind === "model" ? { ...m, text: action.result.reply, streaming: false, stillWaiting: false, outsideScope: action.result.outsideScope } : m));
       if (action.result.outsideScope) {
         const [oid, s] = alloc(next);
@@ -354,6 +390,7 @@ function reduceAction(state: ChatState, action: ChatAction): ChatState {
       }
       next = landCards(next, action.at, action.cards);
       for (const seed of action.related) {
+        if (rowCovered(next, seed)) continue;
         const [rid, s] = alloc(next);
         next = push(s, rowMessage(rid, action.at, seed));
       }

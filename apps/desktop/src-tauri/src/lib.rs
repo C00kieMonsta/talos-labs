@@ -79,8 +79,8 @@ pub fn run() {
                     .set_activation_policy(ActivationPolicy::Regular)?;
             }
             watch::start(app.handle().clone());
-            // Run folders a killed or quit process left under /private/tmp.
-            std::thread::spawn(ai::claude_code::sweep_stale_run_dirs);
+            // Run folders and session entries a killed or quit process left behind.
+            ai::provider::sweep_at_start(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -111,6 +111,9 @@ pub fn run() {
             ai::ai_cancel,
             ai::claude_generate,
             ai::claude_cancel,
+            ai::claude_chat_warm,
+            ai::claude_chat_turn,
+            ai::claude_chat_end,
             ai::claude_code_info,
             ai::provider::ai_provider_status,
             ai::provider::ai_connect_offered,
@@ -158,7 +161,7 @@ pub fn run() {
         }
         RunEvent::Reopen { .. } => tray::open_main_plain(app),
         // `app.exit(0)` ends the process without unwinding the thread that holds a run folder.
-        RunEvent::Exit => ai::claude_code::sweep_run_dirs_at_exit(),
+        RunEvent::Exit => ai::provider::end_chat_at_exit(app),
         _ => {}
     });
 }

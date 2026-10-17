@@ -25,6 +25,9 @@ ai_generate
 ai_cancel
 claude_generate
 claude_cancel
+claude_chat_warm
+claude_chat_turn
+claude_chat_end
 claude_code_info
 ai_provider_status
 ai_connect_offered

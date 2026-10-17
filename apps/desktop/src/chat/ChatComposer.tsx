@@ -6,6 +6,7 @@ import { formatTime } from "../app/labels";
 import type { Route } from "../app/router";
 import { Icon } from "../components/Icon";
 import { CHAT, EXPLAIN } from "../guided/copy";
+import { hasWords } from "./guard";
 import { CHAT_ROUTE } from "./routes";
 import type { ChatComposer as ComposerState } from "./state";
 
@@ -76,7 +77,7 @@ export function ChatComposer(props: ChatComposerProps) {
     if (heldFocus.current && (document.activeElement === document.body || document.activeElement === null)) field.current?.focus({ preventScroll: true });
     heldFocus.current = false;
   }, [disabled]);
-  const canSend = text.trim().length > 0 && !streaming;
+  const canSend = hasWords(text) && !streaming;
   const submit = () => {
     if (!canSend) return;
     if (onSend(text) !== false) setText("");

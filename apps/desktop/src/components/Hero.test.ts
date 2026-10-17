@@ -7,12 +7,14 @@ import { HORIZON_BACK, HORIZON_FRONT, Hero, RINGS_RADII } from "./Hero";
 afterEach(cleanup);
 
 describe("Hero", () => {
-  it("draws the spiral in a square band that assistive tech never reads", () => {
+  it("draws the spiral in a band that clips the mark's overhang and that assistive tech never reads", () => {
     const { container } = render(createElement(Hero, { kind: "spiral", size: 400 }));
     const band = container.querySelector(".hero.hero-spiral") as HTMLElement;
     expect(band.getAttribute("aria-hidden")).toBe("true");
-    expect(band.style.width).toBe("400px");
-    expect(band.style.height).toBe("400px");
+    // The band is the visible part only: the mark is 400 wide and sits 160 past the right edge and 120 past the top.
+    expect(band.style.width).toBe("240px");
+    expect(band.style.height).toBe("280px");
+    expect(band.querySelector("svg")?.getAttribute("width")).toBe("400");
     expect(band.querySelector("svg path")?.getAttribute("stroke")).toBe("currentColor");
   });
 

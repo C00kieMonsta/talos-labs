@@ -29,3 +29,25 @@ describe("ModelText", () => {
     expect(paragraphs[1]?.textContent).toBe("Second.\nStill second.");
   });
 });
+
+describe("ModelText: paragraphs while streaming", () => {
+  it("renders three paragraphs as three p elements of text nodes only", () => {
+    const { container } = render(createElement(ModelText, { text: "One.\n\nTwo.\n\n\nThree." }));
+    const paragraphs = [...container.querySelectorAll("p")];
+    expect(paragraphs.map((p) => p.textContent)).toEqual(["One.", "Two.", "Three."]);
+    for (const p of paragraphs) expect([...p.childNodes].every((n) => n.nodeType === Node.TEXT_NODE)).toBe(true);
+  });
+
+  it("a partial ending mid-paragraph keeps the caret on the last p", () => {
+    const { container } = render(createElement(ModelText, { text: "First.\n\nSecond, still being wri", caret: true }));
+    const paragraphs = [...container.querySelectorAll("p")];
+    expect(paragraphs).toHaveLength(2);
+    expect(paragraphs[0]?.querySelector(".caret")).toBeNull();
+    expect(paragraphs[1]?.querySelector(".caret")).not.toBeNull();
+    expect(paragraphs[1]?.textContent).toBe("Second, still being wri");
+    // Before the first word there is one p holding the caret alone.
+    const empty = render(createElement(ModelText, { text: "", caret: true }));
+    expect(empty.container.querySelectorAll("p")).toHaveLength(1);
+    expect(empty.container.querySelector("p .caret")).not.toBeNull();
+  });
+});

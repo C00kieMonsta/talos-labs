@@ -51,11 +51,11 @@ describe("validateChat whole-response rules", () => {
     expect(validateChat({ ...good, relatedRuleIds: "TL-MAC-001" }, DEV, LICENSED.allowed, [])).toEqual(REJECTED);
   });
 
-  it("rejects the app's voice and a claim of action, keeps the second person", () => {
-    for (const reply of ["I've turned on your firewall", "Done. Your disk is locked.", "We changed that for you", "The app will fix it"]) {
+  it("rejects an identity claim and an action claim, keeps a greeting and the second person", () => {
+    for (const reply of ["I've turned on your firewall", "Done. Your disk is locked.", "We changed that for you", "I'm Talos Labs", "as Talos I can see your disk"]) {
       expect(validateChat({ ...good, reply }, DEV, LICENSED.allowed, []), reply).toEqual(REJECTED);
     }
-    for (const reply of ["You can turn it on from the button below", "Your disk is not locked"]) {
+    for (const reply of ["You can turn it on from the button below", "Your disk is not locked", "Hi! I can help with the firewall.", "Hi! I'm here to help with your Mac.\n\nAsk me about any item."]) {
       expect(validateChat({ ...good, reply }, DEV, LICENSED.allowed, []).ok, reply).toBe(true);
     }
   });
@@ -242,8 +242,19 @@ describe("validateChatAnswer", () => {
     });
   });
 
+  it("a greeting with relatedRuleIds keeps the ids and still carries no intents", () => {
+    const greeting = { answer: "Hi! I can help with your Mac.", relatedRuleIds: ["TL-MAC-001"], outsideScope: false };
+    expect(validateChatAnswer(greeting, DEV, LICENSED.allowed)).toEqual({
+      ok: true,
+      value: { reply: greeting.answer, relatedRuleIds: ["TL-MAC-001"], outsideScope: false, intents: [], locked: [] },
+    });
+  });
+
   it("applies the prose rules and the whole-response rules", () => {
     expect(validateChatAnswer({ ...answer, answer: "I've turned on your firewall" }, DEV, LICENSED.allowed)).toEqual(REJECTED);
+    expect(validateChatAnswer({ ...answer, answer: "I'm Talos Labs" }, DEV, LICENSED.allowed)).toEqual(REJECTED);
+    expect(validateChatAnswer({ ...answer, answer: "" }, DEV, LICENSED.allowed)).toEqual(REJECTED);
+    expect(validateChatAnswer({ ...answer, answer: "   \n\n  " }, DEV, LICENSED.allowed)).toEqual(REJECTED);
     expect(validateChatAnswer({ ...answer, answer: "$ ls" }, DEV, LICENSED.allowed)).toEqual(REJECTED);
     expect(validateChatAnswer({ ...answer, outsideScope: 1 }, DEV, LICENSED.allowed)).toEqual(REJECTED);
     expect(validateChatAnswer("text", DEV, LICENSED.allowed)).toEqual(REJECTED);

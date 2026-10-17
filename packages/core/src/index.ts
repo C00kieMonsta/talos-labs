@@ -33,7 +33,7 @@ export {
   CHAT_JSON_SCHEMA,
   validateChat,
   validateChatAnswer,
-  containsAppVoice,
+  claimsAppIdentity,
   claimsAction,
   replyRejected,
   containsMachineText,

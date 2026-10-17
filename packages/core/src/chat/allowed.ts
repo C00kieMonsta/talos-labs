@@ -114,7 +114,7 @@ export function lockedFor(plan: GuidedPlan, gate: GuidedGate): readonly RuleId[]
 }
 
 /**
- * The on-device and plainOutput derivation. Per id: fix_rule when in allowed.fix, else show_where when in
+ * The related-row preference, used by the UI for every provider's relatedRuleIds. Per id: fix_rule when in allowed.fix, else show_where when in
  * allowed.show, else open_details when in allowed.details; at most CHAT_LIMITS.maxIntents, in allowed order
  * (every fix first, then the shows, then the details, each list in its own order). Accepted and snoozed ids are dropped.
  */
@@ -140,12 +140,9 @@ export function cardsFromRelated(relatedRuleIds: readonly RuleId[], allowed: All
   return out;
 }
 
-/** result.intents when non-empty, else cardsFromRelated(result.relatedRuleIds, allowed). The one function the UI calls. */
-export function intentsFor(
-  result: { readonly intents: readonly ChatIntent[]; readonly relatedRuleIds: readonly RuleId[] },
-  allowed: Allowed,
-): readonly ChatIntent[] {
-  return result.intents.length > 0 ? result.intents : cardsFromRelated(result.relatedRuleIds, allowed);
+/** The validated intents only: a turn the model pointed nowhere gets no card; relatedRuleIds become rows in the UI, never a live card. */
+export function intentsFor(result: { readonly intents: readonly ChatIntent[] }, _allowed?: Allowed): readonly ChatIntent[] {
+  return result.intents;
 }
 
 /**

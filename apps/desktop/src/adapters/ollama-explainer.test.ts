@@ -128,7 +128,7 @@ describe("OllamaExplainerAdapter chat", () => {
     expect(body.messages[0]).toEqual({ role: "system", content: buildChatInstructions(MACOS_CATALOG) });
     expect(body.messages.slice(1)).toEqual(chatTurns(TEST_CHAT_CALL.input));
     expect(partials).toEqual([{ ...VALID_CHAT, locked: [] }]);
-    fetchMock.mockResolvedValueOnce(reply({ ...VALID_CHAT, reply: "The app will fix it" }));
+    fetchMock.mockResolvedValueOnce(reply({ ...VALID_CHAT, reply: "Done. I have turned your firewall on." }));
     expect(await adapter().chat(TEST_CHAT_CALL)).toEqual({ ok: false, reason: "rejected_output" });
   });
 });

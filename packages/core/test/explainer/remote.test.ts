@@ -278,8 +278,16 @@ describe("turn envelopes", () => {
   it("buildChatInstructions is the frozen prompt, the chat block and every guided headline, under 2,000 characters of names", () => {
     expect(chatInstructions).toBe(`${buildSystemPrompt(MACOS_CATALOG)}\n\n${CHAT_INSTRUCTIONS_BLOCK}\n\n${plainNamesBlock()}`);
     expect(chatInstructions.startsWith(watchInstructions.slice(0, watchInstructions.length - WATCH_INSTRUCTIONS_BLOCK.length))).toBe(true);
-    expect(CHAT_INSTRUCTIONS_BLOCK.startsWith("For the chat task: answer the person in plain British English, in the second person, in at most four short sentences.")).toBe(true);
+    expect(CHAT_INSTRUCTIONS_BLOCK.startsWith("For the chat task: answer the person in plain British English and plain words.")).toBe(true);
     expect(CHAT_INSTRUCTIONS_BLOCK).toContain("use `accept_rule`");
+    // The register and the paragraph rule, as decided on 2026-10-17.
+    expect(CHAT_INSTRUCTIONS_BLOCK).toContain('you are not Talos Labs: call it "the app"');
+    expect(CHAT_INSTRUCTIONS_BLOCK).toContain("Never say that you did, will do, are doing, or have changed anything on the Mac");
+    expect(CHAT_INSTRUCTIONS_BLOCK).toContain("Answer a greeting with one friendly sentence and then what you can help with.");
+    expect(CHAT_INSTRUCTIONS_BLOCK).toContain("short paragraphs of at most three sentences, with a blank line between paragraphs");
+    expect(CHAT_INSTRUCTIONS_BLOCK).toContain("Leave `relatedRuleIds` empty for a greeting or small talk.");
+    expect(CHAT_INSTRUCTIONS_BLOCK).not.toContain("second person");
+    expect(chatInstructions).not.toContain("IGNORE");
     for (const rule of MACOS_CATALOG.rules) expect(plainNamesBlock()).toContain(`${rule.id}: ${rule.guided.headline}`);
     expect(plainNamesBlock().length).toBeGreaterThan(900);
     expect(plainNamesBlock().length).toBeLessThan(2000);

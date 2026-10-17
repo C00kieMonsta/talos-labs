@@ -268,16 +268,32 @@ svg {
   user-select: none;
 }
 
-/* The spiral and the site's rings share one place and the measured stroke and opacity tokens. */
+/* The spiral and the site's rings share the measured stroke and opacity tokens. */
 .hero-spiral,
 .hero-rings {
-  top: -120px;
-  right: -160px;
   color: var(--hero-spiral-stroke);
   opacity: var(--hero-spiral-opacity);
 }
 
-.hero-spiral svg,
+/* The spiral band is its own clip: it sits inside .content and the mark overhangs it, so the column never scrolls sideways. */
+.hero-spiral {
+  top: 0;
+  right: 0;
+  overflow: hidden;
+}
+
+.hero-spiral svg {
+  position: absolute;
+  top: -120px;
+  right: -160px;
+  display: block;
+}
+
+.hero-rings {
+  top: -120px;
+  right: -160px;
+}
+
 .hero-rings svg {
   display: block;
   width: 100%;
@@ -318,11 +334,29 @@ svg {
 @keyframes hero-drift {
   from {
     opacity: 0;
-    transform: translate(12px, -12px);
   }
   to {
     opacity: var(--hero-spiral-opacity);
+  }
+}
+
+/* The 12 px slide is on the mark inside the band, in the mark's own units, so the band never overhangs .content (WebKit keeps a finished transform's overflow). */
+.guided-content > .hero-spiral svg > * {
+  animation: hero-slide var(--motion-fill) var(--ease-out) both;
+}
+
+@keyframes hero-slide {
+  from {
+    transform: translate(calc(12px / var(--spiral-scale, 5.6)), calc(-12px / var(--spiral-scale, 5.6)));
+  }
+  to {
     transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guided-content > .hero-spiral svg > * {
+    animation: none;
   }
 }
 

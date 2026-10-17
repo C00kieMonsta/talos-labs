@@ -431,6 +431,36 @@ describe("useChat: the fixes of the review", () => {
     expect(text()).toBe("abc");
     h.explainer.settle();
   });
+
+  it("ten partials 100 ms apart render ten distinct lengths, each within the 80 ms floor; the block and caret are there from the send", async () => {
+    vi.useFakeTimers();
+    const h = harness({ hold: true });
+    act(() => h.hook.result.current.controller.send("Why?"));
+    const model = () => h.hook.result.current.state.messages.find((m) => m.kind === "model") as Extract<ChatMessage, { kind: "model" }> | undefined;
+    // person_sent: the block exists with the caret and no text, and the spiral's writing flag is up.
+    expect(model()).toMatchObject({ text: "", streaming: true });
+    expect(h.hook.result.current.busy).toBe(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(h.explainer.onPartial).not.toBeNull();
+    const lengths: number[] = [];
+    let reply = "";
+    for (let i = 0; i < 10; i += 1) {
+      reply += `word${i} `;
+      const partial = reply;
+      await act(async () => {
+        h.explainer.onPartial?.({ reply: partial });
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      expect(model()?.text).toBe(partial);
+      lengths.push(model()?.text.length ?? 0);
+    }
+    expect(new Set(lengths).size).toBe(10);
+    expect(model()?.streaming).toBe(true);
+    expect(h.hook.result.current.busy).toBe(true);
+    h.explainer.settle();
+  });
 });
 
 /* AGENT part B region (docs/DESIGN-AGENT.md section 6, desktop): reminders, the write-up, the what-if, the walk's checklist, the gated lines. */
@@ -449,6 +479,8 @@ describe("useChat: agent", () => {
     const live = cards(h.hook.result.current.state.messages).find((c) => c.live)!;
     act(() => h.hook.result.current.controller.link(live.id));
     expect(h.hook.result.current.chips.map((c) => c.label)).toEqual([ACTIVITY.chips.remindTomorrow, ACTIVITY.chips.whatIf, CHAT.chips.whatsNext, CHAT.chips.showList]);
+    // The snooze settled the step, so allowed.remind no longer lists it; the declined card is still the chip's target.
+    h.control.done = [live.step!.id];
     act(() => h.hook.result.current.controller.chip("remind_tomorrow"));
     expect(h.bridge.remind).toHaveBeenCalledWith(live.step, "tomorrow");
     const remind = app(h.hook.result.current.state.messages, "remind").at(-1);

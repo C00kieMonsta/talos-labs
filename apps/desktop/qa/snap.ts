@@ -22,7 +22,7 @@ async function main(): Promise<number> {
       let reached = false;
       // A shot with its own size (the watch window) is captured at that size only.
       const sizes = shot.size === undefined ? SIZES : [shot.size];
-      for (const scheme of SCHEMES) {
+      for (const scheme of shot.schemes ?? SCHEMES) {
         for (const size of sizes) {
           if (!reached || shot.volatile === true) {
             await reach();

@@ -30,12 +30,16 @@ function mount(overrides: Partial<ChatComposerProps> = {}) {
 const field = () => screen.getByLabelText(CHAT.message) as HTMLTextAreaElement;
 
 describe("ChatComposer", () => {
-  it("Enter sends the trimmed draft and clears it; Shift+Enter adds a line; whitespace cannot be sent", () => {
+  it("Enter sends the trimmed draft and clears it; Shift+Enter adds a line; whitespace or punctuation alone cannot be sent", () => {
     const props = mount();
-    fireEvent.change(field(), { target: { value: "   " } });
-    expect((screen.getByLabelText(CHAT.send) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.keyDown(field(), { key: "Enter" });
-    expect(props.onSend).not.toHaveBeenCalled();
+    for (const blank of ["   ", ",", "...", "!?", "\n\n"]) {
+      fireEvent.change(field(), { target: { value: blank } });
+      expect((screen.getByLabelText(CHAT.send) as HTMLButtonElement).disabled, JSON.stringify(blank)).toBe(true);
+      fireEvent.keyDown(field(), { key: "Enter" });
+      expect(props.onSend).not.toHaveBeenCalled();
+    }
+    fireEvent.change(field(), { target: { value: "ok" } });
+    expect((screen.getByLabelText(CHAT.send) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.change(field(), { target: { value: "Why does the disk matter?" } });
     fireEvent.keyDown(field(), { key: "Enter", shiftKey: true });
     expect(props.onSend).not.toHaveBeenCalled();

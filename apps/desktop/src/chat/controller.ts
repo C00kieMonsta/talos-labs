@@ -1,6 +1,6 @@
 import type { Dispatch } from "react";
 import type { Allowed, ChatCall, ChatCardKind, ChatEventInput, ChatInput, ChatIntent, ChatOutcome, ChatResult, ExplainerContext, ExplainerPort, GuidedStep, IntentKind, RemindWhen, RuleId, ScanReport, WatchState, WriteUpStrings } from "@talos/core";
-import { CHAT_LIMITS, askWhyQuestion, buildWriteUp, cardsFromRelated, clampChatHistory, clampChatQuestion, historyFor, intentsFor, lockedFor, stillAllowed, toAllowedInput, whatIfFor } from "@talos/core";
+import { CHAT_LIMITS, askWhyQuestion, buildWriteUp, cardsFromRelated, clampChatHistory, clampChatQuestion, historyFor, lockedFor, stillAllowed, toAllowedInput, whatIfFor } from "@talos/core";
 import { GRADE_LABELS } from "../app/labels";
 import type { Route } from "../app/router";
 import { rulePasses } from "../scan/machine";
@@ -12,7 +12,7 @@ import { cardFor, seedForStep, severityOf, writeUpCard } from "./cards";
 import { chipLabel } from "./chips";
 import { grammarMatch } from "./grammar";
 import type { GrammarContext, GrammarMatch } from "./grammar";
-import { machineText } from "./guard";
+import { hasWords, machineText } from "./guard";
 import type { ChatHandlers } from "./handlers";
 import type { CardFailure, CardSeed, ChatAction, ChatMessage, ChatState, ChipId } from "./state";
 import { walkChecklist } from "./walk";
@@ -159,7 +159,8 @@ export function createChatController(deps: ControllerDeps): ChatController {
     if (plan === null) return { cards: [], related: [], pending: [] };
     const cards: CardSeed[] = [];
     const pending: ChatIntent[] = [];
-    for (const intent of intentsFor(result, allowed)) {
+    // Only the validated intents draw cards: a turn the model pointed nowhere attaches nothing (seamless chat pass).
+    for (const intent of result.intents) {
       if (PENDING_KINDS.includes(intent.kind)) {
         if (stillAllowed(intent, allowed)) pending.push(intent);
         continue;
@@ -169,10 +170,13 @@ export function createChatController(deps: ControllerDeps): ChatController {
     }
     // 2i: the Mac-changing card is the live one; the model's order holds among the rest.
     cards.sort((a, b) => Number(MAC_CHANGING.includes(b.card.kind)) - Number(MAC_CHANGING.includes(a.card.kind)));
-    const named = new Set(cards.flatMap((c) => c.card.ruleIds));
+    // A pending answer lands its own card for the rule, so a related row for it would repeat.
+    const named = new Set([...cards.flatMap((c) => c.card.ruleIds), ...pending.flatMap((p) => (p.ruleId === null ? [] : [p.ruleId]))]);
+    const report = deps.report();
+    const passes = (id: RuleId) => report !== null && rulePasses(report, id);
     const related: CardSeed[] = [];
     for (const intent of cardsFromRelated(result.relatedRuleIds, allowed)) {
-      if (intent.ruleId === null || named.has(intent.ruleId)) continue;
+      if (intent.ruleId === null || named.has(intent.ruleId) || passes(intent.ruleId)) continue;
       related.push({ card: { kind: "details", ruleId: intent.ruleId, ruleIds: [intent.ruleId], severity: severityOf([intent.ruleId]) }, step: null, item: null });
     }
     return { cards, related, pending };
@@ -227,10 +231,18 @@ export function createChatController(deps: ControllerDeps): ChatController {
       deps.onFailure(result.reason);
       return;
     }
-    const live = deps.allowed();
-    const { cards, related, pending } = seedsForIntents(result.value, live);
-    dispatch({ type: "model_ready", at: at(), turnId, result: result.value, cards, related, lockedMeta: lockedMeta(result.value.locked) });
-    for (const intent of pending) pendingIntent(intent);
+    // A throw while the seeds are built must not leave the block streaming forever.
+    let seeds: ReturnType<typeof seedsForIntents>;
+    let meta: string | null;
+    try {
+      seeds = seedsForIntents(result.value, deps.allowed());
+      meta = lockedMeta(result.value.locked);
+    } catch {
+      dispatch({ type: "model_failed", at: at(), turnId, reason: "unknown", until: deps.until() });
+      return;
+    }
+    dispatch({ type: "model_ready", at: at(), turnId, result: result.value, cards: seeds.cards, related: seeds.related, lockedMeta: meta });
+    for (const intent of seeds.pending) pendingIntent(intent);
   };
 
   const answer = (cards: readonly CardSeed[], headline: string | null = null, body: string | null = null, extra: { walking?: boolean; rowsOnly?: boolean } = {}) =>
@@ -296,10 +308,22 @@ export function createChatController(deps: ControllerDeps): ChatController {
     if (getState().walking) deps.scheduleWalk();
   };
 
-  /** The reminder replaces the "Do this later" snooze; an idle card for the step collapses to the line (2f). Only a rule in allowed.remind. */
+  /** A reminder may name a rule in allowed.remind, or one whose card the person just declined; never an accepted or fixed one. */
+  const remindable = (ruleId: RuleId): boolean => {
+    if (deps.allowed().remind.includes(ruleId)) return true;
+    const newest = newestCard(getState(), (c) => c.card.ruleIds.includes(ruleId));
+    return newest !== null && declined(newest);
+  };
+  const remindableIds = (): RuleId[] => {
+    const ids = [...deps.allowed().remind];
+    for (const m of getState().messages) if (m.kind === "card" && declined(m)) for (const id of m.card.ruleIds) if (!ids.includes(id) && remindable(id)) ids.push(id);
+    return ids;
+  };
+
+  /** The reminder replaces the "Do this later" snooze; an idle card for the step collapses to the line (2f). */
   const reminded = (step: GuidedStep | null, ruleIds: readonly RuleId[], when: RemindWhen) => {
     const first = ruleIds[0];
-    if (first === undefined || !ruleIds.some((id) => deps.allowed().remind.includes(id))) return;
+    if (first === undefined || !ruleIds.some(remindable)) return;
     const open = step === null ? null : newestCard(getState(), (c) => c.step?.id === step.id && c.state === "idle");
     if (step === null) bridge.remindRules(ruleIds, when);
     else bridge.remind(step, when);
@@ -406,8 +430,8 @@ export function createChatController(deps: ControllerDeps): ChatController {
     else if (intent.kind === "write_up") writeUp();
   };
 
-  // allowed.remind is the undone and later ids less the accepted; the newest card's first rule covers a batch card.
-  const grammarContext = (): GrammarContext => ({ undone: deps.allowed().remind, failing: deps.allowed().whatIf, newestRuleId: newestCard(getState())?.card.ruleIds[0] ?? null });
+  // The reminder targets are the undone, later and just-declined ids less the accepted; the newest card's first rule covers a batch card.
+  const grammarContext = (): GrammarContext => ({ undone: remindableIds(), failing: deps.allowed().whatIf, newestRuleId: newestCard(getState())?.card.ruleIds[0] ?? null });
 
   /** A tapped checklist row: its row steps up, or its step lands as the live card out of order (2c). */
   const promoteStep = (stepId: string) => {
@@ -472,7 +496,8 @@ export function createChatController(deps: ControllerDeps): ChatController {
   const send = (text: string): boolean => {
     const state = getState();
     const trimmed = text.trim();
-    if (trimmed.length === 0 || state.stream.kind !== "idle") return false;
+    // No letter or digit (a lone comma, a blank line) is never a turn; the draft path falls back to the field.
+    if (!hasWords(trimmed) || state.stream.kind !== "idle") return false;
     if (deps.explainRunning()) {
       dispatch({ type: "guard_refused", at: at(), text: CHAT.busyExplain });
       return false;
@@ -529,8 +554,7 @@ export function createChatController(deps: ControllerDeps): ChatController {
       case "remind_tomorrow":
       case "remind_sunday": {
         // The card just declined, else the newest card naming a rule a reminder may still name.
-        const remindable = (c: Card) => c.card.ruleIds.some((r) => deps.allowed().remind.includes(r));
-        const target = newestCard(state, declined) ?? newestCard(state, remindable);
+        const target = newestCard(state, declined) ?? newestCard(state, (c) => c.card.ruleIds.some(remindable));
         echo(id);
         const first = target?.card.ruleIds[0];
         if (first !== undefined) remindRule(first, id === "remind_tomorrow" ? "tomorrow" : "sunday");
