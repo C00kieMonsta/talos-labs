@@ -7,6 +7,7 @@ import type { ActivityEvent } from "./types";
 export interface ActivityStrings {
   readonly preparing: string;
   readonly batchAdmin: string;
+  readonly batchAdminOne: string;
   readonly checking: string;
   readonly watching: string;
   readonly watchCheck: string;
@@ -25,7 +26,7 @@ export function activityLabel(event: ActivityEvent, strings: ActivityStrings): s
     case "preparing":
       return strings.preparing;
     case "fixing": {
-      if (event.ruleId === null) return strings.batchAdmin.replace("{n}", String(event.count ?? 0));
+      if (event.ruleId === null) return event.count === 1 ? strings.batchAdminOne : strings.batchAdmin.replace("{n}", String(event.count ?? 0));
       const ruleId = event.ruleId;
       const verb = MACOS_CATALOG.rules.find((r) => r.id === ruleId)?.guided.verb ?? "";
       return strings.verbs[verb] ?? verb;

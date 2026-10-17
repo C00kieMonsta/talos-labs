@@ -5,6 +5,7 @@ import { useApp } from "../app/context";
 import { watchActive } from "../app/gate";
 import { ICONS } from "../app/icons";
 import type { IconComponent } from "../app/icons";
+import { CountUp } from "../components/CountUp";
 import { Icon } from "../components/Icon";
 import { CONNECT_POLL_MS, notConnectedFor, useConnect } from "../scan/ai-connect";
 import { lastReport } from "../scan/machine";
@@ -14,10 +15,6 @@ import { StepFrame } from "./StepFrame";
 import { END, FISHY, NEXT, WATCH, WATCH_ON } from "./copy";
 import { useFishyController } from "./fishy/controller";
 import { guidedFor } from "./plan";
-
-function things(n: number): string {
-  return n === 1 ? "1 thing" : `${n} things`;
-}
 
 /** The rules still failing that were steps the person moved past: snoozed, waiting, or converted and left. */
 export function stillWaiting(plan: GuidedPlan): readonly RuleId[] {
@@ -172,12 +169,20 @@ export function EndScreen({ plan, fixed, onCheckAgain, onNext, onConnect }: EndS
   // An accepted rule changes the two calm titles at every severity: the group under them says it was the person's choice.
   const chosen = plan.accepted.length > 0;
   const title = actNow !== null ? WATCH.act : allDone ? (chosen ? END.partial : END.allDone) : unread ? (allUnread ? END.unreadableAll : END.unreadableSome) : nothing ? (chosen ? END.nothingLeft : END.nothing) : END.partial;
+  const sentence = actNow !== null ? `${FISHY.noticed.headline[actNow.kind]}.` : urgencyLine(next, watchOn);
+  // The line sits under the all-done title only while the calm line is the v0.3 one, not the watch's.
+  const allDoneLine = allDone && !chosen && !watchOn && sentence === END.nextTime;
   const body = unread && actNow === null ? (
     <p>{watchOn ? WATCH_ON.tryAgain : END.tryAgain}</p>
   ) : (
     <>
-      {fixed.length > 0 && (!allDone || chosen) && <p>{things(fixed.length)} fixed today.</p>}
-      <p>{actNow !== null ? `${FISHY.noticed.headline[actNow.kind]}.` : urgencyLine(next, watchOn)}</p>
+      {fixed.length > 0 && (!allDone || chosen) && (
+        <p>
+          <CountUp value={fixed.length} /> {fixed.length === 1 ? "thing" : "things"} fixed today.
+        </p>
+      )}
+      {allDoneLine && <p>{END.allDoneLine}</p>}
+      <p>{sentence}</p>
     </>
   );
   const findings = () => router.navigate({ name: "findings" });

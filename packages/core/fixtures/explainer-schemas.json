@@ -182,5 +182,69 @@
         }
       }
     }
+  },
+  "chat": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "reply",
+      "relatedRuleIds",
+      "outsideScope",
+      "intents"
+    ],
+    "properties": {
+      "reply": {
+        "type": "string"
+      },
+      "relatedRuleIds": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        }
+      },
+      "outsideScope": {
+        "type": "boolean"
+      },
+      "intents": {
+        "type": "array",
+        "maxItems": 3,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "ruleId"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "fix_rule",
+                "fix_batch",
+                "show_where",
+                "explain_rule",
+                "open_details",
+                "show_list",
+                "rescan",
+                "change_ai",
+                "snooze_rule",
+                "accept_rule",
+                "open_watch"
+              ]
+            },
+            "ruleId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1,
+              "maxLength": 32
+            }
+          }
+        }
+      }
+    }
   }
 }

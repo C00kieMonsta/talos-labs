@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::ModelProvider;
 use super::types::ExplainerProfile;
+use super::{ModelProvider, NextRow};
 use crate::report_store::write_private;
 
 pub const FILE_NAME: &str = "watch-settings.json";
@@ -52,6 +52,10 @@ pub struct WatchSettingsFile {
     /// Persisted only: no cycle reads them, and Rust never writes them on its own.
     #[serde(default)]
     pub accepted: Vec<String>,
+    /// The main webview's "Do this next" step (a report id, a rule id and a kind), pushed with
+    /// the profile so a `--watch` launch has it. Persisted only; the window reads it.
+    #[serde(default)]
+    pub next: Option<NextRow>,
 }
 
 impl Default for WatchSettingsFile {
@@ -65,6 +69,7 @@ impl Default for WatchSettingsFile {
             profile: ExplainerProfile::default(),
             ai: WatchAi::default(),
             accepted: Vec::new(),
+            next: None,
         }
     }
 }
@@ -236,6 +241,48 @@ mod tests {
             load(&dir).accepted,
             vec!["TL-MAC-001".to_owned(), "TL-MAC-010".to_owned()],
             "a disable deletes watch.json, not the accepted ids"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_next_step_round_trips_defaults_to_none_in_a_pre_change_file_and_survives_a_disable() {
+        let dir = scratch("next");
+        let row = NextRow {
+            report_id: "r-1".to_owned(),
+            rule_id: "TL-MAC-001".to_owned(),
+            kind: super::super::NextKind::Fix,
+        };
+        let settings = WatchSettingsFile {
+            next: Some(row.clone()),
+            ..WatchSettingsFile::default()
+        };
+        save(&dir, &settings).unwrap();
+        assert_eq!(load(&dir), settings);
+        let json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path(&dir)).unwrap()).unwrap();
+        assert_eq!(
+            json["next"],
+            serde_json::json!({ "reportId": "r-1", "ruleId": "TL-MAC-001", "kind": "fix" }),
+            "the key is `next` and carries ids and a kind word only"
+        );
+        assert!(WatchSettingsFile::default().next.is_none());
+        std::fs::write(
+            path(&dir),
+            br#"{"version":1,"enabled":true,"everyMinutes":60,"notify":true,"licensed":true}"#,
+        )
+        .unwrap();
+        assert_eq!(load(&dir).next, None, "a pre-change file loads with no next step");
+        let disabled = WatchSettingsFile {
+            enabled: false,
+            ..settings
+        };
+        save(&dir, &disabled).unwrap();
+        super::super::baseline::delete(&dir).unwrap();
+        assert_eq!(
+            load(&dir).next,
+            Some(row),
+            "a disable deletes watch.json, not the next step"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

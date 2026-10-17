@@ -147,7 +147,7 @@ export function useFixActions(internals: ScanInternals): FixActions {
     applyAbortRef.current = null;
     if (generation.current !== gen) return;
     // Whatever happened, the recheck tells which items took; a cancel may still have run some.
-    dispatch({ type: "fix_rechecking" });
+    dispatch({ type: "fix_rechecking", outcome });
     const after = scanRef.current;
     if (after.kind !== "ready") return;
     const result = await reread(internals, after.state, plan.recheck);

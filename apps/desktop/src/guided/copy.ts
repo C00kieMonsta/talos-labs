@@ -185,11 +185,15 @@ export const EXPLAIN = {
   openAppleSettings: AI_OPEN_APPLE_SETTINGS,
   /** The chosen provider cannot be offered by this build and nothing else can be connected. */
   notOffered: { chatgpt: "ChatGPT isn't available in this version yet.", claude_plan: "Claude isn't available in this version yet." },
+  /** The disclosure's refusal while the chat is answering (one request at a time per provider). */
+  busy: "I'm answering in the chat. Stop it there, or give me a moment.",
 } as const;
 
 export const END = {
   allDone: "Your Mac is in good shape.",
   nextTime: "I'll check again next time you open me.",
+  /** Between allDone and nextTime, only while the watch is off (DESIGN-PLAYFUL.md 3.12). */
+  allDoneLine: "That's all for today.",
   partial: "Your Mac is safer than it was.",
   nothing: "Nothing needs fixing.",
   unreadableAll: "I couldn't check your Mac.",
@@ -450,3 +454,112 @@ export const ACCEPT = {
 export function chosenLine(n: number): string {
   return n === 1 ? ACCEPT.chosenOne : ACCEPT.chosenMany.replace("{n}", String(n));
 }
+
+/** The activity rows' strings (docs/DESIGN-AGENT.md section 4). Every value is under the banned-word test. */
+export const ACTIVITY = {
+  rows: {
+    preparing: "Getting ready",
+    batchAdmin: "Fixing {n} things",
+    batchAdminOne: "Fixing 1 thing",
+    checking: "Checking it worked",
+    watching: "Watching for the change",
+    watchCheck: "Checking your Mac",
+  },
+  /** The participle of every catalogue guided.verb, pinned by a test. */
+  verbs: {
+    "Turn it on": "Turning it on",
+    "Turn it off": "Turning it off",
+    "Make it quiet": "Making it quiet",
+    "Lock it sooner": "Locking it sooner",
+    "Stop sharing it": "Stopping sharing it",
+    "Add a password": "Adding a password",
+    "Make it private": "Making it private",
+    "Show me where": "Showing you where",
+    Details: "Showing the details",
+  },
+  /** The state words on a row, always lower-case. */
+  words: {
+    password: "your password",
+    running: "{i} of {n}",
+    working: "working",
+    watching: "watching",
+    done: "done",
+    didNotChange: "did not change",
+    stopped: "stopped",
+    couldNotCheck: "couldn't check",
+    notChangedYet: "not changed yet",
+    noChange: "no change yet",
+    same: "same",
+    changed: "changed",
+    stillOff: "still off",
+    nowOn: "now on",
+  },
+} as const;
+
+/**
+ * The chat surface (docs/DESIGN-CHAT.md, docs/DESIGN-CHAT-UI.md). Plain templates: "{n}", "{i}" and "{headline}"
+ * are substituted at render. `word` and `activity` point at ACTIVITY so the state words have one source.
+ */
+export const CHAT = {
+  placeholder: "Ask me, or tell me what to do.",
+  message: "Message",
+  send: "Send",
+  stop: "Stop",
+  writing: "Writing",
+  doneWriting: "Done writing",
+  stopped: "Stopped.",
+  sendAgain: "Send again",
+  tryAgain: "Try again",
+  stillWaiting: { chatgpt: "Still waiting for ChatGPT.", claude_plan: "Still waiting for Claude.", apple: "Still working on this Mac." },
+  guard: "I can't read file paths or typed instructions. Say it in words and I'll answer.",
+  busyExplain: "I'm still explaining the last one. Stop it, or give me a moment.",
+  couldNotUse: "I couldn't use that answer. Try asking another way.",
+  tooLong: "That was too much for this Mac in one go. Ask a shorter question.",
+  outside: "That's outside what the check-up covers.",
+  left: "{n} left",
+  newMessages: "New messages",
+  stepByStep: "Step by step",
+  chat: "Chat",
+  calls: "Calls this check-up: {n}",
+  activity: { watching: ACTIVITY.rows.watching, watchCheck: ACTIVITY.rows.watchCheck },
+  word: ACTIVITY.words,
+  ok: "OK.",
+  exchangeYou: "You asked",
+  exchangeApp: "Talos Labs",
+  conversation: "Conversation",
+  actHeadline: "Act now: {headline}",
+  noticedNoTime: "It was not there at the last check. I have not deleted anything.",
+  moreLocked: "{n} more in the full version.",
+  moreLockedOne: "1 more in the full version.",
+  lockHeadline: "There are {n} more things I could fix.",
+  lockHeadlineOne: "There is 1 more thing I could fix.",
+  /** The chips, at most 25 characters each. */
+  chips: {
+    doThemAll: "Do them all",
+    fixWhatYouCan: "Fix what you can",
+    whatIsUrgent: "What is urgent?",
+    whatFirst: "What should I do first?",
+    whatsNext: "What's next?",
+    showList: "Show me the list",
+    checkAgain: "Check again",
+    leaveAlone: "Leave it alone",
+    why: "Why?",
+  },
+  /** The "Why?" chip's turn; the watch window's draft is askWhy with the headline quoted. */
+  why: "Why does {headline} matter?",
+  askWhy: 'Why does "{headline}" matter?',
+  urgentLead: "This one is urgent:",
+  firstLead: "Start here.",
+  nextLead: "Next up.",
+  acceptBody: "I can stop asking about this one, but your Mac stays at risk until it's done.",
+  accepted: "OK. I'll leave this one alone and won't bring it up again. You can change that in Settings.",
+  staleDone: "That one is done.",
+  staleWaiting: "That one is waiting.",
+  detailsRow: "Details: {headline}",
+  rescanHeadline: "Shall I check again?",
+  changeAiHeadline: "Change which AI I use",
+  changeAiPrimary: "Change",
+  watchHeadline: "Your Mac, from the menu bar",
+  watchBody: "I check your Mac's settings on a timer. Ask me to look now, or see what I noticed.",
+  list: "The plan",
+} as const;

@@ -29,6 +29,7 @@ const CASES: readonly [string, Partial<ActivityEvent>, string][] = [
   ["running otherwise", { status: "running", kind: "preparing" }, "working"],
   ["done probe same", { status: "done", kind: "probe", outcome: "same" }, "same"],
   ["done probe changed", { status: "done", kind: "probe", outcome: "changed" }, "changed"],
+  ["done probe unavailable", { status: "done", kind: "probe", outcome: "unavailable" }, "couldn't check"],
   ["done section", { status: "done", kind: "section", outcome: "now_on" }, "now on"],
   ["done otherwise", { status: "done", kind: "rechecking", outcome: "pass" }, "done"],
   ["failed command", { status: "failed", outcome: "command_failed" }, "did not change"],
@@ -52,4 +53,10 @@ describe("activityWord", () => {
       expect(word).toBe(word.toLowerCase());
     });
   }
+
+  it("never prints the model line", () => {
+    const word = activityWord(event({ kind: "probe", status: "done", outcome: "changed", modelLine: "INJECT reason" }));
+    expect(word).toBe("changed");
+    expect(word).not.toContain("INJECT");
+  });
 });

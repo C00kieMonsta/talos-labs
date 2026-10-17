@@ -1,13 +1,14 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildWatchInstructions, watchRequestBody } from "../../src/explainer/remote";
-import { buildOnDeviceWatchInstructions } from "../../src/explainer/watch-prompt";
+import { WATCH_INSTRUCTIONS_BLOCK, watchRequestBody } from "../../src/explainer/remote";
+import { WATCH_REASON_RULES, buildOnDeviceWatchInstructions, buildWatchJudgeInstructions } from "../../src/explainer/watch-prompt";
 import { toWatchContext } from "../../src/explainer/watch-context";
 import { FISHY_KINDS, SIGNAL_IDS } from "../../src/ports/watch-port";
 import { WATCH_CASES, WATCH_HEADLINES, WATCH_NOTIFY_TAIL, watchCasesJson } from "../../src/watch/cases";
 import { applyHysteresis, boundsFor, rateWatch, topItems } from "../../src/watch/rate";
 import { validateWatchVerdict } from "../../src/watch/validate";
+import { WATCH_BANNED_WORDS } from "../../src/watch/words";
 
 const DIR = join(__dirname, "..", "..", "fixtures");
 
@@ -15,12 +16,20 @@ describe("packages/core/fixtures/watch-cases.json", () => {
   it("equals watchCasesJson() (run pnpm fixtures:emit otherwise)", () => {
     const text = readFileSync(join(DIR, "watch-cases.json"), "utf8");
     expect(text).toBe(watchCasesJson());
-    expect(Object.keys(JSON.parse(text) as object)).toEqual(["signalSeverity", "signalKind", "gated", "standAlone", "pairSet", "headlines", "notifyTail", "statusWords", "rate", "validate", "contexts", "chatgptBody"]);
+    expect(Object.keys(JSON.parse(text) as object)).toEqual(["signalSeverity", "signalKind", "gated", "standAlone", "pairSet", "headlines", "notifyTail", "statusWords", "rate", "validate", "contexts", "chatgptBody", "bannedWords", "windowSentences", "heights", "reportRows"]);
   });
 
-  it("the two instruction texts equal the builders", () => {
-    expect(readFileSync(join(DIR, "watch-instructions.txt"), "utf8")).toBe(buildWatchInstructions());
+  it("the two instruction texts equal the builders, with the reason rules before the vocabulary block", () => {
+    const judge = readFileSync(join(DIR, "watch-instructions.txt"), "utf8");
+    expect(judge).toBe(buildWatchJudgeInstructions());
+    expect(judge).toContain(WATCH_REASON_RULES);
+    expect(judge.indexOf(WATCH_REASON_RULES)).toBeLessThan(judge.indexOf(WATCH_INSTRUCTIONS_BLOCK));
+    expect(judge.endsWith(WATCH_INSTRUCTIONS_BLOCK)).toBe(true);
     expect(readFileSync(join(DIR, "watch-instructions-on-device.txt"), "utf8")).toBe(buildOnDeviceWatchInstructions());
+  });
+
+  it("carries the banned words the window's copy test and Rust pin", () => {
+    expect(WATCH_CASES.bannedWords).toEqual([...WATCH_BANNED_WORDS]);
   });
 
   it("carries the tables, one headline per kind and the notification tail", () => {
@@ -62,7 +71,7 @@ describe("every case is reproducible from the functions it pins", () => {
 
   it("chatgptBody: the body is watchRequestBody over the same inputs, non-streaming, 1200 tokens", () => {
     const c = WATCH_CASES.chatgptBody;
-    expect(c.instructions).toBe(buildWatchInstructions());
+    expect(c.instructions).toBe(buildWatchJudgeInstructions());
     expect(c.body).toEqual(watchRequestBody(c.model, c.instructions, c.context));
     expect(c.body.stream).toBe(false);
     expect(c.body.max_output_tokens).toBe(1200);

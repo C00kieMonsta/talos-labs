@@ -2,8 +2,10 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import {
   MACOS_CATALOG,
+  buildOnDeviceChatInstructions,
   buildOnDeviceInstructions,
   buildOnDevicePrompt,
+  clampChatHistory,
   containsCommandText,
   validateAnswer,
   validateExplanation,
@@ -17,6 +19,8 @@ import type {
   ExplainOptions,
   ExplainerFailure,
   ExplainerPort,
+  ChatCall,
+  ChatResult,
   ExplainerResult,
   Explanation,
   OnDeviceExtra,
@@ -27,7 +31,7 @@ import type {
   RuleId,
   ScanReport,
 } from "@talos/core";
-import { failure, type ReportSource } from "./explainer-shared";
+import { chatAnswerValidator, chatPartialOptions, chatPartialRejected, failure, type ReportSource } from "./explainer-shared";
 
 /** The ai:stream payload the Rust engine emits. */
 export interface StreamEvent {
@@ -165,6 +169,17 @@ export class AppleExplainerAdapter implements ExplainerPort {
     return this.generate("ask", input, extra, (raw, report) => validateAnswer(raw, report), options);
   }
 
+  /**
+   * The chat on this Mac: the chat prompt shape, sent as the ask task (the sidecar has no chat output),
+   * answered in the ask shape with no intents; the partials reach the chat as { reply } and the prose rules
+   * run on every one.
+   */
+  chat(call: ChatCall, options?: ExplainOptions<ChatResult>): Promise<ExplainerResult<ChatResult>> {
+    const { input } = call;
+    const extra: OnDeviceExtra = { question: input.question, history: clampChatHistory(input.history, "on_device"), undoneRuleIds: input.plan.stepRuleIds };
+    return this.generate("chat", input, extra, chatAnswerValidator(call), chatPartialOptions(options) as ExplainOptions<ChatResult>);
+  }
+
   private async generate<T>(
     task: OnDeviceTask,
     input: { readonly context: PrioritiseInput["context"] },
@@ -212,7 +227,7 @@ export class AppleExplainerAdapter implements ExplainerPort {
       const onEvent = (event: StreamEvent) => {
         if (settled || event.id !== id) return;
         if (event.kind === "partial") {
-          if (snapshotHasCommandText(event.json)) return cancel("rejected_output");
+          if (snapshotHasCommandText(event.json) || (task === "chat" && chatPartialRejected(event.json))) return cancel("rejected_output");
           if (isRecord(event.json)) options?.onPartial?.(event.json as Partial<T>);
           return;
         }
@@ -226,7 +241,10 @@ export class AppleExplainerAdapter implements ExplainerPort {
           if (settled) return stop();
           signal?.addEventListener("abort", onAbort);
           if (signal?.aborted) return onAbort();
-          const request = { id, task, instructions: buildOnDeviceInstructions(), prompt: built.text };
+          // The chat travels as the ask task with its own instructions; Rust and the sidecar know no chat task.
+          const wireTask = task === "chat" ? "ask" : task;
+          const instructions = task === "chat" ? buildOnDeviceChatInstructions() : buildOnDeviceInstructions();
+          const request = { id, task: wireTask, instructions, prompt: built.text };
           return this.invoke("ai_generate", { request }).catch((error: unknown) => {
             finish({ ok: false, reason: typeof error === "string" ? mapAiError(error) : "unknown" });
           });

@@ -1,4 +1,4 @@
-import type { Capabilities, FixError, GuidedMemory, GuidedPlan, NextAction, ReportDiff, RuleId, ScanReport, SectionKey, SettingsPane } from "@talos/core";
+import type { Capabilities, ChatOutcome, FixError, GuidedMemory, GuidedPlan, GuidedStep, NextAction, ReportDiff, RuleId, ScanReport, SectionKey, SettingsPane } from "@talos/core";
 import type { Gate } from "../app/gate";
 import type { ScanError } from "../scan/machine";
 import type { PermissionCardState, PermissionKind } from "../scan/useCapabilityPoll";
@@ -14,7 +14,13 @@ export type GuidedPhase =
   /** `same` is true when a previous report exists and nothing changed. */
   | { readonly kind: "plan"; readonly plan: GuidedPlan; readonly listOpen: boolean; readonly same: boolean }
   | { readonly kind: "step"; readonly plan: GuidedPlan; readonly index: number; readonly state: StepState; readonly notice: string | null }
-  | { readonly kind: "end"; readonly plan: GuidedPlan; readonly fixed: readonly RuleId[] };
+  | { readonly kind: "end"; readonly plan: GuidedPlan; readonly fixed: readonly RuleId[] }
+  /**
+   * The chat home (DESIGN-CHAT section 2). `active` is the live card's step while it runs; `diff` carries the
+   * "since last time" rows into the opening; `resumed` is true once after a guided relaunch, so the chat appends
+   * the first undone step's card. Card states are read off the scan machine through GuidedController.chat.
+   */
+  | { readonly kind: "chat"; readonly plan: GuidedPlan; readonly diff: ReportDiff | null; readonly active: GuidedStep | null; readonly walking: boolean; readonly resumed: boolean };
 
 export interface DoneRow {
   readonly ruleId: RuleId;
@@ -59,6 +65,87 @@ export interface GuidedController {
   keepAsking(): void;
   /** "Leave it alone, I know the risk": the asked rules are accepted and never a step again. */
   accept(): void;
+  /** The chat's way into the step machinery; every member is a no-op outside the chat phase unless it says otherwise. */
+  readonly chat: ChatBridge;
+}
+
+/** How a chat card settled: `expired` is a show card whose watcher timed out, everything else is the step's own done or failed state. */
+export type ChatSettledState = Extract<StepState, { kind: "done" | "failed" }> | { readonly kind: "expired" };
+
+export interface ChatSettled {
+  readonly step: GuidedStep;
+  readonly outcome: ChatOutcome;
+  readonly state: ChatSettledState;
+}
+
+/**
+ * The chat's bridge into Core (DESIGN-CHAT section 7, "How cards enter the step machinery"). A card is the
+ * guided step: `run` starts it exactly as the step's primary would, the scan machine carries its progress,
+ * and `settle` or `observeShow` reads the outcome back. The chat reads `scan.fixing` and `scan.watching`
+ * for the working state; nothing here is a React state beyond the phase.
+ */
+export interface ChatBridge {
+  /** The plan the chat draws from; null outside the chat phase. */
+  readonly plan: GuidedPlan | null;
+  /** The launch diff for the opening's "since last time" rows; null when nothing changed or outside the chat phase. */
+  readonly diff: ReportDiff | null;
+  /** True once after a guided relaunch (talos.continue): the opening appends the first undone step's card. */
+  readonly resumed: boolean;
+  /** The live card's step while it runs; null when no card is in flight. */
+  readonly active: GuidedStep | null;
+  /** "Do them all" is walking the plan. */
+  readonly walking: boolean;
+  /** Rules fixed this check-up, for the end message. */
+  readonly fixed: readonly RuleId[];
+  /** Rules the person moved past without a fix this check-up. */
+  readonly leftAlone: readonly RuleId[];
+  /** Step ids settled this check-up (fixed, passing, snoozed, accepted, left alone, a granted permission, a snoozed paywall): buildAllowed's doneStepIds. */
+  readonly doneStepIds: readonly string[];
+  /** The Full Disk Access flow's card, for a permission card. */
+  readonly permission: PermissionCardState;
+  /** The plan's steps not yet settled, in plan order. */
+  undone(): readonly GuidedStep[];
+  nextUndone(): GuidedStep | null;
+  /** True when no undone step remains: the chat appends the end message. */
+  atEnd(): boolean;
+  /**
+   * Makes `step` the live card (appending it to the plan when it is not there, as "Do this next" does) and runs
+   * it as the step's primary would: fix and batch preview then apply, show opens the pane and watches, permission
+   * writes the continue note and opens the pane. A 029 step passes the typed passphrase. A paywall step does nothing.
+   */
+  run(step: GuidedStep, passphrase?: string): void;
+  /** "Check again" on a still-failing fix card or a stale show card: one free recheck, then the outcome, or null while the show card keeps watching. */
+  checkAgain(step: GuidedStep): Promise<ChatSettled | null>;
+  /** Reads the settled fix, batch or granted permission off the scan machine for the active card; null while it is still in flight. Clears `active`. */
+  settle(): ChatSettled | null;
+  /** The active show card's watcher: passed or expired, or null while it still watches. Clears `active` on an outcome. */
+  observeShow(): ChatSettled | null;
+  /** When the active show card started watching, for the stale line; null when nothing watches. */
+  watchingSince(): string | null;
+  /** "Do this later": a 7 day snooze (14 for the paywall, the asked-at note for a permission); returns the rules whose third Later asks about accepting. */
+  later(step: GuidedStep): readonly RuleId[];
+  /** "Leave it alone, I know the risk": accepted until "Ask me again". */
+  accept(ruleIds: readonly RuleId[]): void;
+  /** The 026 question's "No, I'll get one later": a 30 day snooze. */
+  answerNo(step: GuidedStep): void;
+  /** "Next" on a failed card: the rules are left alone this check-up. */
+  leaveAlone(step: GuidedStep): void;
+  /** The paywall card's "Not now": 14 days, and the card is gone. */
+  snoozePaywall(): void;
+  /** After the licence field verified a key: plans the locked rules, appends them, returns them. */
+  unlock(): readonly GuidedStep[];
+  setWalking(walking: boolean): void;
+  /** "Step by step": the walk-through at the first undone step; settled steps go first so the progress line is right. */
+  stepByStep(): void;
+  /**
+   * AI off, Disconnect, not_offered, plan_not_eligible: the plan or end screen on the same plan. A card in flight
+   * opens as its step in the working or watching state instead, so Core settles it there (DESIGN-CHAT section 2).
+   */
+  leaveChat(): void;
+  /** The "Chat" strip link and the expert sidebar: the chat phase on the current plan. A no-op while a step is in flight or there is no plan. */
+  toChat(): void;
+  /** "Check again" from the chat: a fresh check-up; landed() decides the home again. */
+  rescan(): void;
 }
 
 export interface GuidedDeps {

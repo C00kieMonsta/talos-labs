@@ -37,7 +37,7 @@ const DETAILS: WatchDetails = {
 const PLAN: WatchPlan = { planId: "watch-plan-1", actionId: "watch.wifi_off", lines: [{ text: "/usr/sbin/networksetup -setairportpower en0 off", privilege: "admin" }], needsPassword: true, reversible: null, expiresAt: "2026-10-17T13:40:00.000Z" };
 
 function state(items: readonly WatchItem[], licensed = true): WatchState {
-  return { enabled: true, licensed, firstRun: false, hiddenLaunch: false, rating: items.length > 0 ? "act_now" : "calm", since: null, lastCheckAt: null, checking: false, cycleIndex: 3, everyMinutes: 60, notify: true, pausedUntil: null, closeWatchUntil: null, unavailable: [], gated: [], items };
+  return { enabled: true, licensed, firstRun: false, hiddenLaunch: false, rating: items.length > 0 ? "act_now" : "calm", since: null, lastCheckAt: null, checking: false, cycleIndex: 3, everyMinutes: 60, notify: true, pausedUntil: null, closeWatchUntil: null, unavailable: [], gated: [], items, nextCheckAt: null, lastChangeAt: null, ai: { enabled: true, provider: null }, judge: null, recentCount: 0, rulesSince: null, report: null, next: null };
 }
 
 /** A watch port with only what the fishy flow touches; every other method rejects. */

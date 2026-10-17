@@ -10,7 +10,7 @@ import { FISHY, WATCH_SETTINGS } from "../guided/copy";
 import { resetLaunchGuard } from "../guided/timing";
 
 // The guided switches the settings mock reads; the launch-scan tests turn them on.
-const guidedFlags = vi.hoisted(() => ({ home: false, autoScan: false }));
+const guidedFlags = vi.hoisted(() => ({ home: false, autoScan: false, chatHome: true }));
 
 const report = evaluate(DEV_MACHINE, MACOS_CATALOG, { now: "2026-10-15T10:00:00.000Z", os: "macos" });
 const ACT_ITEM: WatchItem = {

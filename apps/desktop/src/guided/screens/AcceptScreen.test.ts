@@ -11,6 +11,7 @@ import type { GuidedController, StepState } from "../state";
 import { BatchStep } from "./BatchStep";
 import { FixStep } from "./FixStep";
 import { ShowStep } from "./ShowStep";
+import { INERT_CHAT_BRIDGE } from "../testing";
 
 const require = createRequire(import.meta.url);
 const axe = require("axe-core") as { run(ctx: Element, opts: object): Promise<{ violations: { id: string }[] }> };
@@ -36,6 +37,7 @@ function controller(step: GuidedStep, state: StepState): GuidedController {
     enterLicence: vi.fn(async () => undefined),
     doNext: vi.fn(),
     goToPaywall: vi.fn(),
+    chat: INERT_CHAT_BRIDGE,
     keepAsking: vi.fn(),
     accept: vi.fn(),
   };

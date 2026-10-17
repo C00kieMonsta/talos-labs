@@ -1,7 +1,7 @@
-import { ANSWER_JSON_SCHEMA, EXPLANATION_JSON_SCHEMA, MACOS_CATALOG, PRIORITISATION_JSON_SCHEMA, buildExplainerSystemPrompt } from "@talos/core";
+import { ANSWER_JSON_SCHEMA, CHAT_JSON_SCHEMA, EXPLANATION_JSON_SCHEMA, MACOS_CATALOG, PRIORITISATION_JSON_SCHEMA, buildChatInstructions, buildExplainerSystemPrompt, chatTurns } from "@talos/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_OLLAMA_MODEL, OLLAMA_CHAT_URL, OllamaExplainerAdapter } from "./ollama-explainer";
-import { TEST_CONTEXT, TEST_REPORT, VALID_ANSWER, VALID_EXPLANATION, VALID_PRIORITISATION } from "./test-fixtures";
+import { TEST_CHAT_CALL, TEST_CONTEXT, TEST_REPORT, VALID_ANSWER, VALID_CHAT, VALID_EXPLANATION, VALID_PRIORITISATION } from "./test-fixtures";
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -114,6 +114,22 @@ describe("OllamaExplainerAdapter request shape", () => {
     fetchMock.mockResolvedValueOnce(reply(VALID_EXPLANATION));
     await adapter("llama3.1:8b-instruct").explain(explainInput);
     expect(sentBody().model).toBe("llama3.1:8b-instruct");
+  });
+});
+
+describe("OllamaExplainerAdapter chat", () => {
+  it("sends the chat instructions as the system message with the chat schema as format, and one partial", async () => {
+    fetchMock.mockResolvedValueOnce(reply(VALID_CHAT));
+    const partials: unknown[] = [];
+    const result = await adapter().chat(TEST_CHAT_CALL, { onPartial: (p) => partials.push(p) });
+    expect(result).toEqual({ ok: true, value: { ...VALID_CHAT, locked: [] } });
+    const body = sentBody();
+    expect(body.format).toEqual(CHAT_JSON_SCHEMA);
+    expect(body.messages[0]).toEqual({ role: "system", content: buildChatInstructions(MACOS_CATALOG) });
+    expect(body.messages.slice(1)).toEqual(chatTurns(TEST_CHAT_CALL.input));
+    expect(partials).toEqual([{ ...VALID_CHAT, locked: [] }]);
+    fetchMock.mockResolvedValueOnce(reply({ ...VALID_CHAT, reply: "The app will fix it" }));
+    expect(await adapter().chat(TEST_CHAT_CALL)).toEqual({ ok: false, reason: "rejected_output" });
   });
 });
 

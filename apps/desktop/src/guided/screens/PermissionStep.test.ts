@@ -9,6 +9,7 @@ import { DEV_BUILD_FDA_COPY } from "../../screens/Settings";
 import { PERMISSION } from "../copy";
 import type { GuidedController, StepState } from "../state";
 import { PermissionStep } from "./PermissionStep";
+import { INERT_CHAT_BRIDGE } from "../testing";
 
 afterEach(cleanup);
 
@@ -22,6 +23,7 @@ function controller(state: StepState): GuidedController {
     primary: vi.fn(),
     doNext: vi.fn(),
     goToPaywall: vi.fn(),
+    chat: INERT_CHAT_BRIDGE,
     later: vi.fn(),
     next: vi.fn(),
     answer: vi.fn(),

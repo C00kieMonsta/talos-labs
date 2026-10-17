@@ -1,5 +1,6 @@
 import type { Grade, SectionKey, Severity } from "@talos/core";
 import {
+  ArrowUp,
   Bug,
   ChevronLeft,
   CircleAlert,
@@ -63,12 +64,12 @@ import {
 
 export type { IconComponent, LucideIcon };
 
-export type NavKey = "overview" | "findings" | "ask" | "settings";
+export type NavKey = "overview" | "findings" | "chat" | "settings";
 
 export const NAV_ICONS: Readonly<Record<NavKey, IconComponent>> = {
   overview: OverviewIcon,
   findings: FindingsIcon,
-  ask: AiIcon,
+  chat: AiIcon,
   settings: SettingsIcon,
 };
 
@@ -140,6 +141,8 @@ export const ICONS = {
   cpu: Cpu,
   alert: CircleAlert,
   stop: Square,
+  /** The chat composer's Send (docs/DESIGN-CHAT-UI.md). */
+  send: ArrowUp,
   pause: PauseIcon,
   chevronRight: ChevronRightIcon,
   chevronLeft: ChevronLeft,
@@ -167,7 +170,7 @@ export type IconKey = keyof typeof ICONS;
 
 /** Every lucide name the app relies on, for the export test. */
 export const LUCIDE_NAMES: readonly string[] = [
-  "Bug", "ChevronLeft", "CircleAlert", "CircleQuestionMark", "Copy", "Cpu", "Download", "EyeOff", "FileCode", "FolderSearch",
+  "ArrowUp", "Bug", "ChevronLeft", "CircleAlert", "CircleQuestionMark", "Copy", "Cpu", "Download", "EyeOff", "FileCode", "FolderSearch",
   "Globe", "LoaderCircle", "LogIn", "OctagonAlert", "Repeat", "ScreenShare", "Shield", "ShieldAlert", "ShieldCheck", "ShieldOff",
   "Square", "Wrench",
 ];

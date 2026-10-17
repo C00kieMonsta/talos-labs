@@ -16,7 +16,7 @@ use crate::state::{LaunchItemScope, SectionKey, UnavailableReason};
 
 use super::signals::{is_own_agent, is_temp_or_hidden, own_exe};
 use super::types::DetailsScope;
-use super::{ProbeId, SignalId};
+use super::{ProbeId, ProbeReason, SignalId};
 
 #[cfg(target_os = "macos")]
 use crate::collect::macos::{self, run};
@@ -306,7 +306,20 @@ fn obs(signal: SignalId, value: Observed) -> Observation {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProbeOutcome {
     pub probe: ProbeId,
-    pub result: Result<Vec<Observation>, UnavailableReason>,
+    pub result: Result<Vec<Observation>, ProbeReason>,
+}
+
+/// The socket table's empty read under an ad-hoc build, as `parse_netstat` reports it.
+const EMPTY_SOCKET_TABLE: &str = "netstat: empty socket table";
+
+/// The watch's reason word for a failed probe: the collector's word, except that an empty
+/// socket table is the unsigned build's doing, not a denied permission. The detail is dropped
+/// here; nothing past this point carries it.
+pub fn reason_of(fail: &Fail) -> ProbeReason {
+    if fail.detail.as_deref() == Some(EMPTY_SOCKET_TABLE) {
+        return ProbeReason::UnsignedBuild;
+    }
+    ProbeReason::from(fail.reason)
 }
 
 // ---------- parsers (pure; fixtures under tests/fixtures) ----------
@@ -1089,14 +1102,14 @@ pub fn run_sweep(ids: &[ProbeId], budget: Duration) -> Vec<ProbeOutcome> {
             .spawn(move || {
                 let result = std::panic::catch_unwind(|| run_probe(id, &AtomicBool::new(false)))
                     .unwrap_or_else(|_| Err(Fail::collector("panic")))
-                    .map_err(|fail| fail.reason);
+                    .map_err(|fail| reason_of(&fail));
                 let _ = tx.send(ProbeOutcome { probe: id, result });
             });
         match spawned {
             Ok(_) => pending.push(id),
             Err(_) => outcomes.push(ProbeOutcome {
                 probe: id,
-                result: Err(UnavailableReason::CollectorError),
+                result: Err(ProbeReason::CollectorError),
             }),
         }
     }
@@ -1117,7 +1130,7 @@ pub fn run_sweep(ids: &[ProbeId], budget: Duration) -> Vec<ProbeOutcome> {
     for id in pending {
         outcomes.push(ProbeOutcome {
             probe: id,
-            result: Err(UnavailableReason::Timeout),
+            result: Err(ProbeReason::Timeout),
         });
     }
     outcomes.sort_by_key(|o| PROBES.iter().position(|p| p.id == o.probe));
@@ -1361,5 +1374,31 @@ mod tests {
         assert!(outcomes.iter().all(|o| o.result.is_ok()), "{outcomes:?}");
         let empty = run_sweep(&[], Duration::from_millis(10));
         assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn an_empty_socket_table_reads_as_the_unsigned_build_and_the_rest_keeps_its_word() {
+        assert_eq!(
+            reason_of(&Fail::new(
+                UnavailableReason::PermissionDenied,
+                "netstat: empty socket table"
+            )),
+            ProbeReason::UnsignedBuild
+        );
+        assert_eq!(
+            reason_of(&Fail::new(UnavailableReason::PermissionDenied, "lsof")),
+            ProbeReason::PermissionDenied
+        );
+        assert_eq!(
+            reason_of(&Fail {
+                reason: UnavailableReason::Timeout,
+                detail: None
+            }),
+            ProbeReason::Timeout
+        );
+        assert_eq!(
+            reason_of(&Fail::collector("panic")),
+            ProbeReason::CollectorError
+        );
     }
 }

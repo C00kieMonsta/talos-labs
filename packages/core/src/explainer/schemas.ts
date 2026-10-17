@@ -1,7 +1,9 @@
 /**
- * Plain JSON Schema documents for the four model outputs.
+ * Plain JSON Schema documents for the five model outputs.
  * Shared by the Claude and Ollama adapters; no zod here so core stays dependency-free.
  */
+
+import { INTENT_KINDS } from "../chat/intents";
 
 const RULE_ID = { type: "string", minLength: 1, maxLength: 32 } as const;
 
@@ -83,5 +85,28 @@ export const WATCH_JSON_SCHEMA: Record<string, unknown> = {
         properties: { actionId: WATCH_ID, sentence: { type: "string", maxLength: 300 } },
       },
     },
+  },
+};
+
+const INTENT = {
+  type: "object",
+  additionalProperties: false,
+  required: ["kind", "ruleId"],
+  properties: {
+    kind: { type: "string", enum: [...INTENT_KINDS] },
+    ruleId: { type: ["string", "null"], minLength: 1, maxLength: 32 },
+  },
+} as const;
+
+/** The chat task. Rust ai::schemas::CHAT is the one-line equivalent; fixtures/explainer-schemas.json pins it last. */
+export const CHAT_JSON_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  required: ["reply", "relatedRuleIds", "outsideScope", "intents"],
+  properties: {
+    reply: { type: "string" },
+    relatedRuleIds: RULE_ID_LIST,
+    outsideScope: { type: "boolean" },
+    intents: { type: "array", maxItems: 3, items: INTENT },
   },
 };

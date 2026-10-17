@@ -14,7 +14,7 @@ use sha2::Sha256;
 
 use super::context::RecentEntry;
 use super::types::{GateAnswer, ReadingKind};
-use super::{Freshness, Rating, SignalId};
+use super::{Freshness, Rating, RulesSince, SignalId};
 use crate::report_store::write_private;
 
 pub const FILE_NAME: &str = "watch.json";
@@ -117,6 +117,9 @@ pub struct Baseline {
     pub last_signed_change_at: Option<String>,
     #[serde(default)]
     pub last_change_at: Option<String>,
+    /// How many rules appeared in the last check-up's diff, kept until the report id changes.
+    #[serde(default)]
+    pub rules_since: Option<RulesSince>,
 }
 
 fn calm() -> Rating {
@@ -152,6 +155,7 @@ impl Baseline {
             last_fix_at: None,
             last_signed_change_at: None,
             last_change_at: None,
+            rules_since: None,
         }
     }
 
@@ -303,6 +307,10 @@ mod tests {
             .gate_answers
             .insert(SignalId::Firewall, GateAnswer::NotMine);
         baseline.acknowledge_count.insert(SignalId::ShareCount, 2);
+        baseline.rules_since = Some(RulesSince {
+            report_id: "r-1".into(),
+            appeared: 2,
+        });
         save(&dir, &baseline).unwrap();
         let mode = std::fs::metadata(path(&dir)).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);

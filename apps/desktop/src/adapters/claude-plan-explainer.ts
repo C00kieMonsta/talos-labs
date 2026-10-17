@@ -2,6 +2,7 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import {
   MACOS_CATALOG,
   PROVIDER_STATES,
+  buildChatInstructions,
   buildExplainerSystemPrompt,
   claudePromptFor,
   explainerEligibleRuleIds,
@@ -18,6 +19,8 @@ import type {
   ExplainOptions,
   ExplainerFailure,
   ExplainerPort,
+  ChatCall,
+  ChatResult,
   ExplainerResult,
   Explanation,
   PrioritiseInput,
@@ -29,7 +32,7 @@ import type {
 } from "@talos/core";
 import type { InvokeFn, ListenFn, StreamEvent } from "./apple-explainer";
 import { defaultListen, nextId, snapshotHasCommandText } from "./apple-explainer";
-import { acceptedIds, askTurns, explainTurns, failure, prioritiseTurns, type ReportSource } from "./explainer-shared";
+import { acceptedIds, askTurns, chatPartialRejected, chatTurns, chatValidator, explainTurns, failure, prioritiseTurns, type ReportSource } from "./explainer-shared";
 
 export interface ClaudePlanExplainerOptions {
   readonly reportSource: ReportSource;
@@ -102,6 +105,8 @@ export class ClaudePlanExplainerAdapter implements ExplainerPort {
   private static instance: ClaudePlanExplainerAdapter | null = null;
   private readonly reportSource: ReportSource;
   private readonly instructions: string;
+  /** The chat task's instructions: the frozen prompt, the chat block and the plain names. */
+  private readonly chatInstructions: string;
   private readonly invoke: InvokeFn;
   private readonly listen: ListenFn;
   private readonly now: () => string;
@@ -110,6 +115,7 @@ export class ClaudePlanExplainerAdapter implements ExplainerPort {
   constructor(options: ClaudePlanExplainerOptions) {
     this.reportSource = options.reportSource;
     this.instructions = buildExplainerSystemPrompt(options.catalog ?? MACOS_CATALOG);
+    this.chatInstructions = buildChatInstructions(options.catalog ?? MACOS_CATALOG);
     this.invoke = options.invoke ?? ((cmd, args) => tauriInvoke<unknown>(cmd, args));
     this.listen = options.listen ?? defaultListen();
     this.now = options.now ?? (() => new Date().toISOString());
@@ -167,6 +173,11 @@ export class ClaudePlanExplainerAdapter implements ExplainerPort {
     return this.generate("ask", askTurns(input), validateAnswer, options);
   }
 
+  /** Partials are whole ChatResult snapshots from ai:stream; the prose check runs on each reply so far. */
+  chat(call: ChatCall, options?: ExplainOptions<ChatResult>): Promise<ExplainerResult<ChatResult>> {
+    return this.generate("chat", chatTurns(call.input), chatValidator(call), options, this.chatInstructions);
+  }
+
   /** Remembers a mid-stream state change so the next availability() answers without a call. */
   private remember(code: string | undefined, until: string | undefined): void {
     if (code === "needs_sign_in") this.cache.needsSignIn = true;
@@ -183,6 +194,7 @@ export class ClaudePlanExplainerAdapter implements ExplainerPort {
     turns: readonly RemoteTurn[],
     validate: Validator<T>,
     options: ExplainOptions<T> | undefined,
+    instructions: string = this.instructions,
   ): Promise<ExplainerResult<T>> {
     if (options?.signal?.aborted) return failure("cancelled");
     const report = await this.reportSource();
@@ -208,7 +220,7 @@ export class ClaudePlanExplainerAdapter implements ExplainerPort {
       const onEvent = (event: StreamEvent) => {
         if (settled || event.id !== id) return;
         if (event.kind === "partial") {
-          if (snapshotHasCommandText(event.json)) return cancel("rejected_output");
+          if (snapshotHasCommandText(event.json) || (task === "chat" && chatPartialRejected(event.json))) return cancel("rejected_output");
           if (isRecord(event.json)) options?.onPartial?.(event.json as Partial<T>);
           return;
         }
@@ -225,7 +237,7 @@ export class ClaudePlanExplainerAdapter implements ExplainerPort {
           if (settled) return stop();
           signal?.addEventListener("abort", onAbort);
           if (signal?.aborted) return onAbort();
-          const request = { id, task, instructions: this.instructions, prompt };
+          const request = { id, task, instructions, prompt };
           return this.invoke("claude_generate", { request }).catch((error: unknown) => {
             const code = typeof error === "string" ? error : undefined;
             this.remember(code, undefined);

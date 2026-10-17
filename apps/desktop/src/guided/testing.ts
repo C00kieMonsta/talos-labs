@@ -10,7 +10,39 @@ import type { ScanDeps } from "../scan/useScan";
 import { DEFAULT_SETTINGS } from "../settings";
 import type { AppSettings } from "../settings";
 import { useGuided } from "./useGuided";
-import type { GuidedDeps } from "./state";
+import type { ChatBridge, GuidedDeps } from "./state";
+
+/** A bridge that does nothing: for controller literals in screen tests that never enter the chat. */
+export const INERT_CHAT_BRIDGE: ChatBridge = {
+  plan: null,
+  diff: null,
+  resumed: false,
+  active: null,
+  walking: false,
+  fixed: [],
+  leftAlone: [],
+  doneStepIds: [],
+  permission: "not_granted",
+  undone: () => [],
+  nextUndone: () => null,
+  atEnd: () => true,
+  run: () => undefined,
+  checkAgain: async () => null,
+  settle: () => null,
+  observeShow: () => null,
+  watchingSince: () => null,
+  later: () => [],
+  accept: () => undefined,
+  answerNo: () => undefined,
+  leaveAlone: () => undefined,
+  snoozePaywall: () => undefined,
+  unlock: () => [],
+  setWalking: () => undefined,
+  stepByStep: () => undefined,
+  leaveChat: () => undefined,
+  toChat: () => undefined,
+  rescan: () => undefined,
+};
 
 /** Test doubles for the guided controller over a real scan machine. */
 

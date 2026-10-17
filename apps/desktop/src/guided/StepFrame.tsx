@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import type { ActivityEvent, RuleId } from "@talos/core";
-import { ActivityList } from "../activity/ActivityList";
+import { activityLabel } from "@talos/core";
+import { ACTIVITY_STRINGS, ActivityList } from "../activity/ActivityList";
+import { activityWord } from "../activity/activityWord";
 import { useApp } from "../app/context";
 import { MARK_GRADIENT_FILL } from "../components/GradientDefs";
 import { CheckIcon } from "../components/icons";
@@ -75,6 +77,7 @@ export function StepFrame(props: StepFrameProps) {
     if (interacted) heading.current?.focus();
   }, [title]);
   const percent = progress === null || progress.of === 0 ? 0 : (progress.done / progress.of) * 100;
+  const newest = activity?.[activity.length - 1] ?? null;
   // A div: the guided shell owns the main landmark.
   return (
     <div className={className === undefined ? "guided-step" : `guided-step ${className}`} data-guided-done={done === true ? "true" : undefined}>
@@ -108,10 +111,14 @@ export function StepFrame(props: StepFrameProps) {
       <span role="status" className="visually-hidden">
         {done === true ? title : `Next: ${title}`}
       </span>
+      {/* Always mounted: a live region created with text is not announced, so the first row would be skipped. */}
+      <p className="visually-hidden guided-activity-status" role="status">
+        {newest === null ? "" : `${activityLabel(newest, ACTIVITY_STRINGS)}, ${activityWord(newest)}`}
+      </p>
       {body !== undefined && body !== null && <div className="guided-body">{body}</div>}
       {children}
       {activity !== undefined && activity !== null && activity.length > 0 ? (
-        <ActivityList rows={activity} listClass="guided-activity" announce />
+        <ActivityList rows={activity} listClass="guided-activity" />
       ) : (
         status !== null &&
         status !== undefined && (

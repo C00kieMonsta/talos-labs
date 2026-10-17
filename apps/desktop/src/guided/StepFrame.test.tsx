@@ -51,9 +51,11 @@ describe("StepFrame activity rows", () => {
     const empty = renderStep({ progress: { done: 1, of: 5 }, title: "The firewall is off", status: "Getting ready", activity: [] });
     expect(empty.container.querySelector(".guided-status")?.textContent).toBe("Getting ready");
     expect(empty.container.querySelector("ul.guided-activity")).toBeNull();
+    expect(empty.container.querySelector(".guided-activity-status")?.textContent).toBe("");
     cleanup();
     const withheld = renderStep({ progress: { done: 1, of: 5 }, title: "The firewall is off", status: "Waiting for macOS", activity: null });
     expect(withheld.container.querySelector(".guided-status")?.textContent).toBe("Waiting for macOS");
     expect(withheld.container.querySelector("ul.guided-activity")).toBeNull();
+    expect(withheld.container.querySelector(".guided-activity-status")?.textContent).toBe("");
   });
 });

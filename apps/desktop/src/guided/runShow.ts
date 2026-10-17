@@ -19,33 +19,51 @@ export function startShow(core: Core, step: ShowStep): void {
   setStep(core, { kind: "watching", since: core.now(), stale: false });
 }
 
+/**
+ * What the watcher says for a show step: passed, expired (seen running, then gone without a pass: the 10 min cap),
+ * or null while it still watches. Notes a watcher seen running on core.watchSeen; the walk-through and the chat both read it.
+ */
+export function readShowOutcome(core: Core, step: ShowStep): "passed" | "expired" | null {
+  const scan = core.scan.scan;
+  if (scan.kind !== "ready" && scan.kind !== "rechecking") return null;
+  const watching = scan.watching;
+  if (watching !== null && watching.ruleId === step.ruleId) {
+    core.watchSeen = true;
+    return watching.passedAt !== null ? "passed" : null;
+  }
+  if (rulePasses(scan.report, step.ruleId)) return "passed";
+  return core.watchSeen && watching === null ? "expired" : null;
+}
+
+/** The watcher expired: wait 24 h before asking again. */
+export function noteWatchExpired(core: Core, step: ShowStep): void {
+  core.watchSeen = false;
+  writeMemory(core, { waiting: { ...core.memory.waiting, [step.ruleId]: hoursAfter(core.now(), 24) } });
+}
+
 /** Called on every scan state change while the step watches. */
 export function observeWatch(core: Core, step: ShowStep): void {
   const { phase } = core;
   if (phase.kind !== "step" || phase.state.kind !== "watching") return;
-  const scan = core.scan.scan;
-  if (scan.kind !== "ready" && scan.kind !== "rechecking") return;
-  const watching = scan.watching;
-  if (watching !== null && watching.ruleId === step.ruleId) {
-    core.watchSeen = true;
-    if (watching.passedAt !== null) passed(core, step);
-    return;
-  }
-  if (rulePasses(scan.report, step.ruleId)) {
+  const read = readShowOutcome(core, step);
+  if (read === "passed") {
     passed(core, step);
     return;
   }
-  // The watcher was seen and is gone without a pass: the 10 min cap. Wait 24 h before asking again.
-  if (core.watchSeen && watching === null) {
-    core.watchSeen = false;
-    writeMemory(core, { waiting: { ...core.memory.waiting, [step.ruleId]: hoursAfter(core.now(), 24) } });
+  if (read === "expired") {
+    noteWatchExpired(core, step);
     advance(core, SHOW.expiredNotice);
   }
 }
 
-function passed(core: Core, step: ShowStep): void {
+/** The watcher passed: stop it and note the rule as fixed. The step state is the caller's. */
+export function markWatchPassed(core: Core, step: ShowStep): void {
   core.scan.stopWatch();
   markFixed(core, [step.ruleId]);
+}
+
+function passed(core: Core, step: ShowStep): void {
+  markWatchPassed(core, step);
   setStep(core, { kind: "done", line: guidedFor(step.ruleId).done, rows: [] });
 }
 

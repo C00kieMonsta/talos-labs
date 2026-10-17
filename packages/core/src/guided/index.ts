@@ -1,5 +1,5 @@
-export { EMPTY_GUIDED_MEMORY, parseGuidedMemory, AI_ASK_AGAIN_MS, aiAskedRecently } from "./memory";
-export type { GuidedMemory, PermissionKind } from "./memory";
+export { EMPTY_GUIDED_MEMORY, parseGuidedMemory, AI_ASK_AGAIN_MS, aiAskedRecently, AI_LAST_AVAILABLE_TTL_MS, aiAvailableRecently } from "./memory";
+export type { GuidedMemory, PermissionKind, AiLastAvailable, AiProviderId } from "./memory";
 export { diffReports } from "./diff";
 export type { ReportDiff } from "./diff";
 export { buildGuidedPlan, planLocked, convertedShowStep, LEFT_ALONE, WATCH_EVERY_MS, LATER_ASK_COUNT, KEEP_ACCEPTED_THROUGH_PASS } from "./plan";

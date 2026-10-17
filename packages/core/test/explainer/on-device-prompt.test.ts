@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { evaluate } from "../../src/engine/evaluate";
 import { toExplainerContext } from "../../src/explainer/context";
-import { ON_DEVICE_BASE_INSTRUCTIONS, ON_DEVICE_LIMITS, buildOnDeviceInstructions, buildOnDevicePrompt } from "../../src/explainer/on-device-prompt";
+import { ON_DEVICE_BASE_INSTRUCTIONS, ON_DEVICE_CHAT_LIMITS, ON_DEVICE_CHAT_SENTENCE, ON_DEVICE_LIMITS, buildOnDeviceChatInstructions, buildOnDeviceInstructions, buildOnDevicePrompt } from "../../src/explainer/on-device-prompt";
 import { ACCEPTED_SENTENCE } from "../../src/explainer/system-prompt";
 import { buildOnDeviceWatchInstructions } from "../../src/explainer/watch-prompt";
 import { DEV_MACHINE } from "../../src/fixtures/dev-machine";
@@ -13,7 +13,7 @@ import { ctxFor } from "../helpers";
 import { CANARY, CANARY_PROFILE, INJECT } from "../helpers/canary-state";
 
 const PROFILE: ExplainerProfile = { role: "individual", technical: "medium", handlesClientData: false, laptopLeavesHome: false };
-const TASKS = ["explain", "prioritise", "ask"] as const;
+const TASKS = ["explain", "prioritise", "ask", "chat"] as const;
 
 function contextFor(state: SystemState, profile: ExplainerProfile = PROFILE): ExplainerContext {
   const report = evaluate(state, MACOS_CATALOG, ctxFor(state));
@@ -67,6 +67,43 @@ describe("buildOnDeviceInstructions", () => {
     expect(ON_DEVICE_BASE_INSTRUCTIONS).not.toContain(ACCEPTED_SENTENCE);
     expect(buildOnDeviceWatchInstructions()).not.toContain(ACCEPTED_SENTENCE);
     expect(buildOnDeviceWatchInstructions().startsWith(ON_DEVICE_BASE_INSTRUCTIONS)).toBe(true);
+  });
+});
+
+describe("buildOnDevicePrompt chat", () => {
+  const context = contextFor(DEV_MACHINE);
+  const history = [{ role: "user" as const, text: "u".repeat(700) }, { role: "assistant" as const, text: "a".repeat(700) }, { role: "user" as const, text: "Why?" }];
+  const undoneRuleIds = ["TL-MAC-002", "TL-MAC-001", "TL-MAC-999"] as const;
+
+  it("renders the ask envelope under 5,000 characters with 8 findings, 2 turns of 400 and explanations for the top 2 fails", () => {
+    const built = buildOnDevicePrompt("chat", context, MACOS_CATALOG, { question: "Why does the disk matter?", history, undoneRuleIds: [...undoneRuleIds] });
+    expect(built.text.length).toBeLessThan(5000);
+    expect(built.text.length).toBeLessThanOrEqual(ON_DEVICE_CHAT_LIMITS.maxPromptChars);
+    expect(built.kept).toHaveLength(ON_DEVICE_CHAT_LIMITS.maxFindings);
+    expect(built.omitted).toBe(context.findings.length - 8);
+    const env = parse(built.text) as { task: string; question: string; history: { role: string; text: string }[]; names: { ruleId: string; name: string }[]; catalog: { ruleId: string; explanation?: string }[]; omitted: number };
+    expect(Object.keys(env)).toEqual(["task", "context", "question", "history", "names", "catalog", "omitted"]);
+    expect(env.task).toBe("ask");
+    expect(env.question).toBe("Why does the disk matter?");
+    expect(env.history.map((t) => t.text.length)).toEqual([ON_DEVICE_CHAT_LIMITS.maxTurnChars, 4]);
+    expect(env.history.map((t) => t.role)).toEqual(["assistant", "user"]);
+    expect(env.names).toEqual([
+      { ruleId: "TL-MAC-002", name: rule("TL-MAC-002").guided.headline },
+      { ruleId: "TL-MAC-001", name: rule("TL-MAC-001").guided.headline },
+    ]);
+    const explained = env.catalog.filter((c) => c.explanation !== undefined).map((c) => c.ruleId);
+    const topFails = [...context.findings].filter((f) => f.status === "fail").sort((a, b) => b.points - a.points).slice(0, 2).map((f) => f.ruleId);
+    expect([...explained].sort()).toEqual([...topFails].sort());
+    expect(env.omitted).toBe(built.omitted);
+    expect(built.text).not.toContain('"intents"');
+  });
+
+  it("the chat instructions add one sentence to the explainer instructions and stay under the cap", () => {
+    const text = buildOnDeviceChatInstructions();
+    expect(text).toBe(`${buildOnDeviceInstructions()} ${ON_DEVICE_CHAT_SENTENCE}`);
+    expect(text.length).toBeLessThan(ON_DEVICE_LIMITS.maxInstructionChars);
+    expect(buildOnDeviceInstructions()).not.toContain(ON_DEVICE_CHAT_SENTENCE);
+    expect(buildOnDeviceWatchInstructions()).not.toContain(ON_DEVICE_CHAT_SENTENCE);
   });
 });
 

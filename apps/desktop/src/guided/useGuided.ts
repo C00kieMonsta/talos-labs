@@ -7,12 +7,13 @@ import { initialPermissionState } from "../components/PermissionCard";
 import type { Core } from "./core";
 import { currentStep } from "./core";
 import * as act from "./actions";
+import { buildChatBridge, stepDone } from "./chat-bridge";
 import { useGuidedEffects } from "./effects";
 import { rebuilt } from "./landing";
 import { primaryFor } from "./primary";
-import type { GuidedController, GuidedDeps, GuidedPhase } from "./state";
+import type { ChatBridge, GuidedController, GuidedDeps, GuidedPhase } from "./state";
 
-export type { GuidedController, GuidedDeps, GuidedPhase, StepState } from "./state";
+export type { ChatBridge, ChatSettled, ChatSettledState, GuidedController, GuidedDeps, GuidedPhase, StepState } from "./state";
 
 function sameKeys(a: Readonly<Record<string, unknown>>, b: Readonly<Record<string, unknown>>): boolean {
   const left = Object.keys(a);
@@ -70,7 +71,7 @@ export function useGuided(scan: ScanController, deps: GuidedDeps): GuidedControl
   }, [core, deps.memory]);
 
   const bump = useCallback(() => {
-    if (core.phase.kind === "step") core.setPhase({ ...core.phase });
+    if (core.phase.kind === "step" || core.phase.kind === "chat") core.setPhase({ ...core.phase });
   }, [core]);
 
   const flow = usePermissionFlow("full_disk_access", initialPermissionState("full_disk_access", deps.capabilitiesNow), {
@@ -82,6 +83,29 @@ export function useGuided(scan: ScanController, deps: GuidedDeps): GuidedControl
   });
 
   const primary = useCallback((passphrase?: string) => primaryFor(core, bump, flow.open)(passphrase), [core, bump, flow.open]);
+  // The bridge's functions are built once over the core ref; its readonly fields follow the phase below.
+  const permissionRef = useRef(flow.state);
+  permissionRef.current = flow.state;
+  const bridgeFns = useRef<ReturnType<typeof buildChatBridge> | null>(null);
+  if (bridgeFns.current === null) bridgeFns.current = buildChatBridge(core, bump, flow.open, () => permissionRef.current);
+  const chat = useMemo<ChatBridge>(() => {
+    const fns = bridgeFns.current as ReturnType<typeof buildChatBridge>;
+    const inChat = phase.kind === "chat";
+    return {
+      ...fns,
+      plan: inChat ? phase.plan : null,
+      diff: inChat ? phase.diff : null,
+      resumed: inChat && phase.resumed,
+      active: inChat ? phase.active : null,
+      walking: inChat && phase.walking,
+      fixed: [...core.fixed],
+      leftAlone: [...core.leftAlone],
+      doneStepIds: inChat ? phase.plan.steps.filter((s) => stepDone(core, s, flow.state)).map((s) => s.id) : [],
+      permission: flow.state,
+    };
+    // stepDone reads the report and the memory, so the list follows every report change and every memory write.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, core, flow.state, scan.scan, core.memory, deps.memory]);
 
   useGuidedEffects(core, scan, deps, flow.state, bump);
 
@@ -101,8 +125,9 @@ export function useGuided(scan: ScanController, deps: GuidedDeps): GuidedControl
     if (phase.kind === "step") return { done: phase.index, of: Math.max(core.ofFloor, phase.plan.steps.length) };
     if (phase.kind === "end") return { done: phase.plan.steps.length, of: Math.max(core.ofFloor, phase.plan.steps.length) };
     if (phase.kind === "plan" || phase.kind === "since") return { done: 0, of: phase.plan.steps.length };
+    if (phase.kind === "chat") return { done: chat.doneStepIds.length, of: Math.max(core.ofFloor, phase.plan.steps.length) };
     return { done: 0, of: 0 };
-  }, [phase, core]);
+  }, [phase, core, chat]);
 
   return useMemo<GuidedController>(
     () => ({
@@ -120,7 +145,8 @@ export function useGuided(scan: ScanController, deps: GuidedDeps): GuidedControl
       goToPaywall: () => act.goToPaywall(core),
       keepAsking: () => act.keepAsking(core),
       accept: () => act.accept(core),
+      chat,
     }),
-    [phase, progress, core, primary],
+    [phase, progress, core, primary, chat],
   );
 }

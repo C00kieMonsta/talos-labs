@@ -1,6 +1,8 @@
 import type { Category, RuleId, RuleStatus, Severity } from "../domain/finding";
 import type { Os } from "../domain/system-state";
 import type { AbortSignalLike } from "./system-state-port";
+import type { Allowed } from "../chat/allowed";
+import type { ChatInput, ChatResult } from "../chat/input";
 
 /** chatgpt and claude_plan are the person's own subscriptions; claude is the Developer-mode API key. */
 export type ExplainerId = "apple" | "chatgpt" | "claude_plan" | "claude" | "ollama" | "none";
@@ -188,4 +190,13 @@ export interface ExplainerPort {
   explain(input: ExplainInput, options?: ExplainOptions<Explanation>): Promise<ExplainerResult<Explanation>>;
   prioritise(input: PrioritiseInput, options?: ExplainOptions<Prioritisation>): Promise<ExplainerResult<Prioritisation>>;
   ask(input: AskInput, options?: ExplainOptions<Answer>): Promise<ExplainerResult<Answer>>;
+  /** Streams the whole reply so far through options.onPartial as { reply }; intents are read from the final value only. */
+  chat(call: ChatCall, options?: ExplainOptions<ChatResult>): Promise<ExplainerResult<ChatResult>>;
+}
+
+/** One chat turn: only input is serialised (chatTurns); allowed and locked go to validateChat and never leave the Mac. */
+export interface ChatCall {
+  readonly input: ChatInput;
+  readonly allowed: Allowed;
+  readonly locked: readonly RuleId[];
 }

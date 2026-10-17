@@ -327,20 +327,8 @@ export function aiBadge(provider: ExplainerProvider): string {
   return AI_BADGES[provider];
 }
 
-const ASK_ANSWERED_BY: Readonly<Record<ExplainerProvider, string>> = {
-  apple: "Answered on this Mac by Apple Intelligence.",
-  chatgpt: "Answered by ChatGPT.",
-  claude_plan: "Answered by Claude.",
-  claude: "Answered by Claude.",
-  ollama: "Answered by a local model.",
-};
-
-/** The Ask header sentence. */
-export function askSubtitle(provider: ExplainerProvider): string {
-  return `Questions are answered from this report only. ${ASK_ANSWERED_BY[provider]} Not verified.`;
-}
-
-export const ASK_CONNECT = { line: "Connect your AI to ask questions.", button: "Connect" } as const;
+/** The expert sidebar row that opens the chat in the guided shell; the chat's own strings are CHAT in guided/copy.ts. */
+export const CHAT_LABEL = "Chat";
 
 export type AppleAiState = "device_not_eligible" | "apple_intelligence_not_enabled" | "model_not_ready" | "helper_unavailable";
 
@@ -407,6 +395,8 @@ export const YOUR_AI = {
   chatgptClientLine: "ChatGPT client id",
   none: "None",
   notFetched: "not fetched",
+  /** Under the Claude pill: one claude -p spawn per turn (DESIGN-CHAT section 6). */
+  claudeSlow: "Claude takes a few seconds to start each answer, sometimes ten.",
 } as const;
 
 export type PermissionStatus = "granted" | "not_granted" | "not_determined" | "unknown";
@@ -434,6 +424,8 @@ export const CHECKUP_SETTINGS = {
   autoScan: "Check my Mac when I open Talos Labs",
   home: "Start on the guided check-up",
   sentence: "With these off, Talos Labs opens on the Overview and waits for you.",
+  chatHome: "Start with the chat when my AI is connected",
+  chatHomeSentence: "Off shows the step-by-step check-up first. The chat stays one tap away.",
 } as const;
 
 /** The badge under a watch suggestion that came from the fixed rules, not a model. */

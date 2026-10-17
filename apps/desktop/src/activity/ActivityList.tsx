@@ -5,12 +5,13 @@ import { WATCH_PROBE_LABELS } from "../app/labels";
 import { Icon } from "../components/Icon";
 import { GUIDED_SECTION_LABELS } from "../guided/copy";
 import { activityWord } from "./activityWord";
-import { ACTIVITY } from "./copy";
+import { ACTIVITY } from "../guided/copy";
 
 /** The desktop's strings for core's activityLabel. */
 export const ACTIVITY_STRINGS: ActivityStrings = {
   preparing: ACTIVITY.rows.preparing,
   batchAdmin: ACTIVITY.rows.batchAdmin,
+  batchAdminOne: ACTIVITY.rows.batchAdminOne,
   checking: ACTIVITY.rows.checking,
   watching: ACTIVITY.rows.watching,
   watchCheck: ACTIVITY.rows.watchCheck,

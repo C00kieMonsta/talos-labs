@@ -11,9 +11,10 @@ export type Route =
   /** The filters ride on the route so Back from a finding restores them. A fresh visit starts unfiltered. */
   | { name: "findings"; severity?: SeverityFilter; category?: CategoryFilter }
   | { name: "finding"; ruleId: RuleId }
-  | { name: "ask" }
+  /** The chat in the guided shell (DESIGN-CHAT section 2): the home once an AI answered, or the expert sidebar's "Chat". */
+  | { name: "chat" }
   | { name: "settings" }
-  /** The AI connect screen in the guided shell. returnTo records where it was opened from; leaving is router.back(). */
+  /** The AI connect screen in the guided shell. returnTo records where it was opened from (chat included); leaving is router.back(). */
   | { name: "connect"; returnTo: Route }
   /** The "something seems fishy" flow in the guided shell. start picks the gate or the noticed screen; leaving is router.back(). */
   | { name: "fishy"; returnTo: Route; start?: "gate" | "noticed" };

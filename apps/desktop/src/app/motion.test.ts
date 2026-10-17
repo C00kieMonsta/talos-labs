@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { StrictMode } from "react";
 import { act, renderHook } from "@testing-library/react";
 import { MOTION, motionOff, useEased } from "./motion";
 
@@ -65,6 +66,40 @@ describe("useEased", () => {
     }
     expect(result.current).toBe(80);
     expect(peak).toBeLessThanOrEqual(80);
+  });
+
+  it("keeps the first duration under StrictMode's doubled effect", () => {
+    vi.useFakeTimers();
+    window.matchMedia = undefined as unknown as typeof window.matchMedia;
+    const { result } = renderHook(() => useEased(80), { wrapper: StrictMode });
+    act(() => {
+      vi.advanceTimersByTime(MOTION.settle + 50);
+    });
+    expect(result.current).toBeLessThan(80);
+    act(() => {
+      vi.advanceTimersByTime(MOTION.fill);
+    });
+    expect(result.current).toBe(80);
+  });
+
+  it("a new restart token runs the first fill again from 0", () => {
+    vi.useFakeTimers();
+    window.matchMedia = undefined as unknown as typeof window.matchMedia;
+    const { result, rerender } = renderHook(({ restart }: { restart: number }) => useEased(80, MOTION.fill, MOTION.settle, restart), { initialProps: { restart: 0 } });
+    act(() => {
+      vi.advanceTimersByTime(MOTION.fill + 100);
+    });
+    expect(result.current).toBe(80);
+    rerender({ restart: 1 });
+    expect(result.current).toBe(0);
+    act(() => {
+      vi.advanceTimersByTime(MOTION.settle + 50);
+    });
+    expect(result.current).toBeLessThan(80);
+    act(() => {
+      vi.advanceTimersByTime(MOTION.fill);
+    });
+    expect(result.current).toBe(80);
   });
 
   it("returns the target on the first render when motion is off", () => {

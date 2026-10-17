@@ -1,5 +1,5 @@
 import type { ActivityEvent } from "@talos/core";
-import { ACTIVITY } from "./copy";
+import { ACTIVITY } from "../guided/copy";
 
 type Words = typeof ACTIVITY.words;
 
@@ -12,7 +12,7 @@ export function activityWord(event: ActivityEvent, words: Words = ACTIVITY.words
       if (event.kind === "watching") return words.watching;
       return words.working;
     case "done":
-      if (event.kind === "probe") return event.outcome === "changed" ? words.changed : words.same;
+      if (event.kind === "probe") return event.outcome === "changed" ? words.changed : event.outcome === "unavailable" ? words.couldNotCheck : words.same;
       if (event.kind === "section") return words.nowOn;
       return words.done;
     case "failed":

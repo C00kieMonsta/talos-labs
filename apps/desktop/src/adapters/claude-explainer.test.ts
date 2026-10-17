@@ -1,8 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { ANSWER_JSON_SCHEMA, EXPLANATION_JSON_SCHEMA, MACOS_CATALOG, PRIORITISATION_JSON_SCHEMA, buildExplainerSystemPrompt, type SecretStorePort } from "@talos/core";
+import { ANSWER_JSON_SCHEMA, CHAT_JSON_SCHEMA, EXPLANATION_JSON_SCHEMA, MACOS_CATALOG, PRIORITISATION_JSON_SCHEMA, buildChatInstructions, buildExplainerSystemPrompt, chatTurns, type SecretStorePort } from "@talos/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ClaudeExplainerAdapter, DEFAULT_CLAUDE_MODEL } from "./claude-explainer";
-import { TEST_CONTEXT, TEST_REPORT, VALID_ANSWER, VALID_EXPLANATION, VALID_PRIORITISATION } from "./test-fixtures";
+import { TEST_CHAT_CALL, TEST_CONTEXT, TEST_REPORT, VALID_ANSWER, VALID_CHAT, VALID_EXPLANATION, VALID_PRIORITISATION } from "./test-fixtures";
 
 const { createMock } = vi.hoisted(() => ({ createMock: vi.fn() }));
 
@@ -133,6 +133,22 @@ describe("ClaudeExplainerAdapter request shape", () => {
     await adapter("sk-ant-test", "claude-sonnet-5").explain(explainInput);
     const [params] = createMock.mock.calls[0] as [Anthropic.MessageCreateParamsNonStreaming];
     expect(params.model).toBe("claude-sonnet-5");
+  });
+});
+
+describe("ClaudeExplainerAdapter chat", () => {
+  it("sends the chat instructions as the system text with the chat schema at medium effort, and one partial", async () => {
+    createMock.mockResolvedValueOnce(textResponse(VALID_CHAT));
+    const partials: unknown[] = [];
+    const result = await adapter().chat(TEST_CHAT_CALL, { onPartial: (p) => partials.push(p) });
+    expect(result).toEqual({ ok: true, value: { ...VALID_CHAT, locked: [] } });
+    const [params] = createMock.mock.calls[0] as [Anthropic.MessageCreateParamsNonStreaming];
+    expect(params.system).toEqual([{ type: "text", text: buildChatInstructions(MACOS_CATALOG), cache_control: { type: "ephemeral" } }]);
+    expect(params.output_config).toEqual({ effort: "medium", format: { type: "json_schema", schema: CHAT_JSON_SCHEMA } });
+    expect(params.messages).toEqual(chatTurns(TEST_CHAT_CALL.input).map((t) => ({ role: t.role, content: t.content })));
+    expect(partials).toEqual([{ ...VALID_CHAT, locked: [] }]);
+    createMock.mockResolvedValueOnce(textResponse({ ...VALID_CHAT, reply: "I've turned on your firewall" }));
+    expect(await adapter().chat(TEST_CHAT_CALL)).toEqual({ ok: false, reason: "rejected_output" });
   });
 });
 

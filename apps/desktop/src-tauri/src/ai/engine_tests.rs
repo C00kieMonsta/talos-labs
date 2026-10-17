@@ -95,6 +95,18 @@ fn validation_rejects_bad_ids_and_long_text() {
 }
 
 #[test]
+fn chat_never_reaches_the_helper() {
+    let _f = fake("availability:available");
+    let engine = Engine::new(quick());
+    let (result, events) = collect(&engine, request("c9", Task::Chat));
+    assert_eq!(result, Err("invalid_input".into()));
+    assert!(events.is_empty());
+    assert!(!engine.is_busy());
+    // The slot is free and no helper was spawned for it: the next request runs as usual.
+    assert_eq!(engine.availability(false), Availability::Available);
+}
+
+#[test]
 fn availability_is_cached_until_it_expires() {
     let _f = fake("availability:model_not_ready");
     let engine = Engine::new(quick());

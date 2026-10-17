@@ -4,11 +4,10 @@ import type { AiAvailability, RuleId } from "@talos/core";
 import { useApp } from "../app/context";
 import { EXPLAINER_FAILURE_LABELS, formatTime } from "../app/labels";
 import type { AppleAiState } from "../app/labels";
+import { remoteOf } from "../chat/providers";
 import { ModelText } from "../components/ModelText";
-import type { ConnectProvider } from "../scan/ai-connect";
 import { CONNECT_POLL_MS, notConnectedFor, useConnect } from "../scan/ai-connect";
 import { REPROBE_SETTINGS_MS, limitReprobeMs } from "../scan/useAiAvailability";
-import type { ExplainerProvider } from "../settings";
 import { EXPLAIN } from "./copy";
 import { guidedFor } from "./plan";
 
@@ -17,11 +16,6 @@ const APPLE_STATES: readonly AiAvailability[] = ["device_not_eligible", "apple_i
 
 function isAppleState(state: AiAvailability): state is AppleAiState {
   return APPLE_STATES.includes(state);
-}
-
-/** The provider named in a state line; the API-key route reads as Claude, everything else as ChatGPT. */
-function remoteOf(provider: ExplainerProvider): ConnectProvider {
-  return provider === "claude_plan" || provider === "claude" ? "claude_plan" : "chatgpt";
 }
 
 export interface ExplainPanelProps {

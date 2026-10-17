@@ -1,5 +1,5 @@
-import type { AiAvailability, AutomationStatus, ExplainerFailure, ExplainerProfile, FishyKind, RuleId, ScanReport } from "@talos/core";
-import { evaluate, FISHY_KINDS, MACOS_CATALOG } from "@talos/core";
+import type { AiAvailability, AutomationStatus, ExplainerFailure, ExplainerProfile, FishyKind, Rating, RuleId, ScanReport } from "@talos/core";
+import { evaluate, FISHY_KINDS, MACOS_CATALOG, RATING_ORDER } from "@talos/core";
 import type { Adapters } from "../adapters";
 import { createDemoAdapters, DEMO_BATCH_OUTCOMES, DEMO_CONNECT_OUTCOMES, DEMO_FIX_OUTCOMES, DEMO_FIXTURE_NAMES, DEMO_FIXTURES, DEMO_LICENSE_KEY, DEMO_SCAN_ERRORS, withForcedFailures } from "../adapters/demo";
 import type { DemoFixture, DemoOptions, ForcedFailure } from "../adapters/demo";
@@ -63,9 +63,9 @@ const FORCED_FAILURES: ReadonlyMap<string, ForcedFailure> = new Map([
   ["TL-MAC-001", "TL-MAC-001"],
 ]);
 
-export type WatchDemoState = "calm" | "look" | "act" | "unreadable" | "first-run";
+export type WatchDemoState = "calm" | "look" | "act" | "unreadable" | "first-run" | "paused" | "not-connected" | "look-empty" | "no-report";
 export type WatchDemoAi = "off" | "apple" | "chatgpt" | "claude" | "limit";
-const WATCH_STATES: readonly WatchDemoState[] = ["calm", "look", "act", "unreadable", "first-run"];
+const WATCH_STATES: readonly WatchDemoState[] = ["calm", "look", "act", "unreadable", "first-run", "paused", "not-connected", "look-empty", "no-report"];
 const WATCH_AI: readonly WatchDemoAi[] = ["off", "apple", "chatgpt", "claude", "limit"];
 
 /** The watch window and fishy flow states the demo serves (DESIGN-WATCH.md section 8, demo params). */
@@ -84,9 +84,17 @@ export interface WatchDemoFlags {
   readonly ransomNote: boolean;
   /** ?licensed=1 starts the watch in the licensed state; unlicensed, the demo records no watch:notified. The watch window forces true. */
   readonly licensed: boolean;
+  /** ?watchReason=0 hides the judge's reason line (docs/DESIGN-WATCH-WINDOW.md section 11). */
+  readonly watchReason: boolean;
+  /** ?watchNext=0 hides the "Up next" link under the check-up score. */
+  readonly watchNext: boolean;
+  /** ?watch_flip= flips the rating after a delay and emits onState, so qa/motion.ts can measure the status crossfade. */
+  readonly watchFlip: Rating | null;
+  /** ?watch_flip_after= the delay in milliseconds before the flip; 1000 when absent with watch_flip. */
+  readonly watchFlipAfter: number | null;
 }
 
-export const DEFAULT_WATCH_DEMO: WatchDemoFlags = { watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false, licensed: false };
+export const DEFAULT_WATCH_DEMO: WatchDemoFlags = { watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false, licensed: false, watchReason: true, watchNext: true, watchFlip: null, watchFlipAfter: null };
 
 export interface DemoFlags {
   readonly options: DemoOptions;
@@ -139,6 +147,10 @@ export function parseWatchDemoQuery(params: URLSearchParams): WatchDemoFlags {
     watchAi: pickOne(params.get("watchAi"), WATCH_AI),
     ransomNote: flag(params, "ransomNote"),
     licensed: flag(params, "licensed"),
+    watchReason: params.get("watchReason") !== "0",
+    watchNext: params.get("watchNext") !== "0",
+    watchFlip: pickOne(params.get("watch_flip"), RATING_ORDER),
+    watchFlipAfter: count(params, "watch_flip_after"),
   };
 }
 

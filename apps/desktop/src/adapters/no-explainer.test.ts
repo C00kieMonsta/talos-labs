@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NoApiKeyExplainer, NoExplainer } from "./no-explainer";
-import { TEST_CONTEXT } from "./test-fixtures";
+import { TEST_CHAT_CALL, TEST_CONTEXT } from "./test-fixtures";
 
 describe("NoExplainer", () => {
   it("returns not_configured from every call", async () => {
@@ -15,6 +15,7 @@ describe("NoExplainer", () => {
       ok: false,
       reason: "not_configured",
     });
+    await expect(port.chat(TEST_CHAT_CALL)).resolves.toEqual({ ok: false, reason: "not_configured" });
   });
 });
 
@@ -31,5 +32,6 @@ describe("NoApiKeyExplainer", () => {
       ok: false,
       reason: "no_api_key",
     });
+    await expect(port.chat(TEST_CHAT_CALL)).resolves.toEqual({ ok: false, reason: "no_api_key" });
   });
 });

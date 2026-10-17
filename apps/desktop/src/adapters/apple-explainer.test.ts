@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEV_MACHINE, MACOS_CATALOG, buildOnDevicePrompt, evaluate, toExplainerContext } from "@talos/core";
-import type { Explanation } from "@talos/core";
+import { DEV_MACHINE, MACOS_CATALOG, buildOnDeviceChatInstructions, buildOnDevicePrompt, evaluate, toExplainerContext } from "@talos/core";
+import type { ChatResult, Explanation } from "@talos/core";
 import { DEFAULT_SETTINGS } from "../settings";
 import { AppleExplainerAdapter, mapAiError, snapshotHasCommandText } from "./apple-explainer";
 import type { StreamEvent } from "./apple-explainer";
+import { TEST_CHAT_CALL } from "./test-fixtures";
 
 const report = evaluate(DEV_MACHINE, MACOS_CATALOG, { now: "2026-10-15T10:00:00.000Z", os: "macos" });
 const context = toExplainerContext(report, MACOS_CATALOG, DEFAULT_SETTINGS.profile);
@@ -36,6 +37,42 @@ function bus(script: (id: string, emit: (e: Omit<StreamEvent, "id">) => void) =>
 }
 
 afterEach(() => vi.useRealTimers());
+
+describe("AppleExplainerAdapter chat", () => {
+  /** The chat on the dev machine's report, so the allow-lists and the report agree. */
+  const call = { ...TEST_CHAT_CALL, input: { ...TEST_CHAT_CALL.input, context, history: [{ role: "user" as const, text: "earlier" }, { role: "assistant" as const, text: "answer" }, { role: "user" as const, text: "x".repeat(500) }] } };
+
+  it("sends the ask task with the chat instructions and the chat prompt, maps answer partials to reply, and derives no intents", async () => {
+    const b = bus((_id, emit) => {
+      emit({ kind: "partial", json: { answer: "Your disk" } });
+      emit({ kind: "partial", json: { answer: "Your disk is not locked.", relatedRuleIds: ["TL-MAC-001"] } });
+      emit({ kind: "done", json: { answer: "Your disk is not locked.", relatedRuleIds: ["TL-MAC-001", "TL-MAC-999"], outsideScope: false } });
+    });
+    const partials: Partial<ChatResult>[] = [];
+    const result = await b.adapter.chat(call, { onPartial: (p) => partials.push(p) });
+    expect(result).toEqual({ ok: true, value: { reply: "Your disk is not locked.", relatedRuleIds: ["TL-MAC-001"], outsideScope: false, intents: [], locked: [] } });
+    expect(partials).toEqual([{ reply: "Your disk" }, { reply: "Your disk is not locked." }]);
+    const request = (b.invoke.mock.calls.find((c) => c[0] === "ai_generate")?.[1] as { request: Record<string, unknown> }).request;
+    expect(request["task"]).toBe("ask");
+    expect(request["instructions"]).toBe(buildOnDeviceChatInstructions());
+    const built = buildOnDevicePrompt("chat", context, MACOS_CATALOG, { question: call.input.question, history: call.input.history.slice(-2).map((t) => ({ ...t, text: t.text.slice(0, 400) })), undoneRuleIds: call.input.plan.stepRuleIds });
+    expect(request["prompt"]).toBe(built.text);
+    expect(String(request["prompt"]).length).toBeLessThan(5000);
+    expect(String(request["prompt"])).toContain('"names":');
+    expect(String(request["prompt"])).not.toContain("intents");
+  });
+
+  it("an app-voice partial cancels the request as rejected_output and records the cancel", async () => {
+    const b = bus((_id, emit) => {
+      emit({ kind: "partial", json: { answer: "I've turned on" } });
+      emit({ kind: "done", json: { answer: "I've turned on your firewall.", relatedRuleIds: [], outsideScope: false } });
+    });
+    const partials: unknown[] = [];
+    expect(await b.adapter.chat(call, { onPartial: (p) => partials.push(p) })).toEqual({ ok: false, reason: "rejected_output" });
+    expect(b.invoke).toHaveBeenCalledWith("ai_cancel", { id: b.ids[0] });
+    expect(partials).toEqual([]);
+  });
+});
 
 describe("AppleExplainerAdapter", () => {
   it("maps the availability states and treats a rejection as helper_unavailable", async () => {

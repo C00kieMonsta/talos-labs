@@ -47,9 +47,13 @@ describe("ScoreMeter", () => {
       vi.advanceTimersByTime(FIRST_MS + 100);
     });
     const meter = screen.getByRole("meter");
+    const gradeBefore = document.querySelector(".score-meter-grade");
     fireEvent.click(meter);
     const ring = document.querySelector(".score-meter-value") as SVGCircleElement;
     expect(Number(ring.getAttribute("stroke-dashoffset"))).toBeCloseTo(CIRCUMFERENCE, 1);
+    // The grade word stays: same node, so its fade-in does not run again.
+    expect(document.querySelector(".score-meter-grade")).toBe(gradeBefore);
+    expect(screen.getByText("Fair")).toBeTruthy();
     expect(meter.getAttribute("aria-valuenow")).toBe("80");
     expect(meter.getAttribute("tabindex")).toBe("0");
     act(() => {

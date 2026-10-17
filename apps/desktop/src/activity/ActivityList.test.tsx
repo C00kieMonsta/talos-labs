@@ -53,4 +53,13 @@ describe("ActivityList", () => {
     expect(status[0]?.textContent).toBe("Checking it worked, working");
     expect(container.querySelector("li [role='status']")).toBeNull();
   });
+
+  it("never prints the model line in a label, a word or the announcer", () => {
+    const rows = [event({ id: "p", kind: "probe", status: "done", probeId: "probe.firewall", outcome: "changed", modelLine: "INJECT reason" })];
+    const { container } = render(createElement(ActivityList, { rows, listClass: "guided-activity", announce: true }));
+    expect(container.textContent).not.toContain("INJECT");
+    expect(container.querySelector(".activity-label")?.textContent).toBe("The firewall");
+    expect(container.querySelector(".activity-word")?.textContent).toBe("changed");
+    expect(container.querySelector("[role='status']")?.textContent).toBe("The firewall, changed");
+  });
 });

@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { MACOS_CATALOG, buildExplainerSystemPrompt, claudePromptFor, explainTurns } from "@talos/core";
-import type { Explanation } from "@talos/core";
+import { MACOS_CATALOG, buildChatInstructions, buildExplainerSystemPrompt, chatTurns, claudePromptFor, explainTurns } from "@talos/core";
+import type { ChatResult, Explanation } from "@talos/core";
 import type { StreamEvent } from "./apple-explainer";
 import { ClaudePlanExplainerAdapter, LIMIT_TTL_MS, mapClaudePlanError } from "./claude-plan-explainer";
-import { TEST_CONTEXT, TEST_REPORT, VALID_ANSWER, VALID_EXPLANATION, VALID_PRIORITISATION } from "./test-fixtures";
+import { TEST_CHAT_CALL, TEST_CONTEXT, TEST_REPORT, VALID_ANSWER, VALID_CHAT, VALID_EXPLANATION, VALID_PRIORITISATION } from "./test-fixtures";
 
 const NOW = "2026-10-16T12:00:00.000Z";
 
@@ -191,6 +191,39 @@ describe("ClaudePlanExplainerAdapter", () => {
     expect(await dead.adapter.availability()).toBe("provider_unavailable");
     expect(ClaudePlanExplainerAdapter.shared(async () => null)).toBe(ClaudePlanExplainerAdapter.shared(async () => null));
     expect(ClaudePlanExplainerAdapter.shared(async () => null).id).toBe("claude_plan");
+  });
+});
+
+describe("ClaudePlanExplainerAdapter chat", () => {
+  it("sends the chat instructions and the chat envelope as task chat, forwards whole partials and validates the intents", async () => {
+    const b = bus((_id, emit) => {
+      emit({ kind: "partial", json: { reply: "Your disk" } });
+      emit({ kind: "done", json: VALID_CHAT });
+    });
+    const partials: Partial<ChatResult>[] = [];
+    expect(await b.adapter.chat(TEST_CHAT_CALL, { onPartial: (p) => partials.push(p) })).toEqual({ ok: true, value: { ...VALID_CHAT, locked: [] } });
+    const request = b.requests[0] as Generated;
+    expect(request.task).toBe("chat");
+    expect(request.instructions).toBe(buildChatInstructions(MACOS_CATALOG));
+    expect(request.prompt).toBe(claudePromptFor(chatTurns(TEST_CHAT_CALL.input)));
+    expect(request.prompt).not.toContain("Why it matters:");
+    expect(partials).toEqual([{ reply: "Your disk" }]);
+    const other = bus((_id, emit) => emit({ kind: "done", json: VALID_EXPLANATION }));
+    await other.adapter.explain(explainInput);
+    expect((other.requests[0] as Generated).instructions).toBe(buildExplainerSystemPrompt(MACOS_CATALOG));
+  });
+
+  it("an app-voice partial cancels the request as rejected_output and records the cancel", async () => {
+    const b = bus((_id, emit) => {
+      emit({ kind: "partial", json: { reply: "Done. I have turned" } });
+      emit({ kind: "done", json: VALID_CHAT });
+    });
+    const partials: unknown[] = [];
+    expect(await b.adapter.chat(TEST_CHAT_CALL, { onPartial: (p) => partials.push(p) })).toEqual({ ok: false, reason: "rejected_output" });
+    expect(b.invoke).toHaveBeenCalledWith("claude_cancel", { id: (b.requests[0] as Generated).id });
+    expect(partials).toEqual([]);
+    const foreign = bus((_id, emit) => emit({ kind: "done", json: { ...VALID_CHAT, intents: [{ kind: "fix_rule", ruleId: "TL-MAC-999" }] } }));
+    expect(await foreign.adapter.chat(TEST_CHAT_CALL)).toEqual({ ok: true, value: { ...VALID_CHAT, intents: [], locked: [] } });
   });
 });
 

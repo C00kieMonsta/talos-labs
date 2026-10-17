@@ -18,7 +18,7 @@ Every request from the owner, in the order it was made, with its state. Updated 
 | 12 | 2026-10-17 | Chat-first home when an AI is connected; no chat without one | designed, not built | docs/DESIGN-CHAT.md |
 | 13 | 2026-10-17 | "I know, leave it alone" per finding, e.g. disk encryption | done: built 2026-10-17, not yet verified by the owner | docs/DESIGN-ACCEPT.md |
 | 14 | 2026-10-17 | Ask locked while Claude is connected | explained; owner decided AI is free once connected and the licence buys fixes, rechecks and the watch; real signing key shipped and a licence issued to the owner | done: AI free once connected, the licence buys fixes beyond the free three, Check again and the watch; key in 37c55c7 |
-| 15 | 2026-10-17 | The menu bar window is not nice or useful; it needs AI | designed, not built | docs/DESIGN-WATCH-WINDOW.md |
+| 15 | 2026-10-17 | The menu bar window is not nice or useful; it needs AI | in progress: build started 2026-10-17 | docs/DESIGN-WATCH-WINDOW.md |
 | 16 | 2026-10-17 | In general the AI magic is missing | in progress: #10, #12, #13 and #15 are the pieces; build starts when the gate workflow has stopped editing the tree | this ledger |
 | 17 | 2026-10-17 | Keep track of every task; nothing left undone | done, this file | docs/TASKS.md |
 | 18 | 2026-10-17 | Import any UI element worth reusing from the Mineral kit | done: the prototype was already ported class for class (docs/DESIGN-MINERAL.md section 1); added the site hero's rings as `Hero kind="rings"` (available, not mounted) and the editable DMG and app-icon sources | apps/desktop/src/components/Hero.tsx, apps/desktop/brand/mineral/README.md |

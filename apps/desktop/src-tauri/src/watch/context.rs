@@ -14,7 +14,7 @@ use super::types::{
     ExplainerProfile, GateAnswer, ReadingKind, RuleChange, RuleStatus, SignalReading, SignalValue,
     WatchContext, WatchCycle, WatchLastVerdict, WatchRecent, WatchRule, WatchSignal,
 };
-use super::{ActionId, Change, Freshness, ProbeId, Severity, SignalId};
+use super::{ActionId, Change, Freshness, Grade, ProbeId, ReportRow, Severity, SignalId};
 use crate::state::Os;
 
 pub const MAX_RULES: usize = 64;
@@ -102,6 +102,44 @@ pub(super) fn rule_id_ok(id: &str) -> bool {
     matches!(os, "MAC" | "WIN" | "LNX" | "ANY")
         && !tail.is_empty()
         && tail.bytes().all(|b| b.is_ascii_alphanumeric())
+}
+
+/// A report id as stored: 1 to 64 ASCII characters from `[A-Za-z0-9._-]`.
+pub fn report_id_ok(id: &str) -> bool {
+    (1..=64).contains(&id.len())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
+
+/// The last check-up as the window shows it. `reportId` must be a string passing
+/// `report_id_ok` and `scannedAt` a string that parses, else there is no row. The score and the
+/// grade come from the nested `score` object (`{ value, grade }` in core's `Score`); a `score`
+/// that is not an object, a value outside 0..=100 or a grade outside the four words nulls that
+/// field, never the row.
+pub fn report_row(report: &Value) -> Option<ReportRow> {
+    let report_id = report.get("reportId")?.as_str()?;
+    if !report_id_ok(report_id) {
+        return None;
+    }
+    let scanned_at = report.get("scannedAt")?.as_str()?;
+    parse_ms(scanned_at)?;
+    let score_object = report.get("score").and_then(Value::as_object);
+    let score = score_object
+        .and_then(|s| s.get("value"))
+        .and_then(Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok())
+        .filter(|n| *n <= 100);
+    let grade = score_object
+        .and_then(|s| s.get("grade"))
+        .and_then(Value::as_str)
+        .and_then(Grade::parse);
+    Some(ReportRow {
+        report_id: report_id.to_owned(),
+        scanned_at: scanned_at.to_owned(),
+        score,
+        grade,
+    })
 }
 
 fn schema_one(report: &Value) -> bool {
@@ -597,6 +635,103 @@ mod tests {
             trimmed["context"]["signals"].as_array().unwrap().len(),
             0,
             "then unchanged signals"
+        );
+    }
+
+    /// A report shaped as `evaluate()` writes it: the score is an object.
+    fn evaluated_report() -> Value {
+        json!({
+            "schemaVersion": 1,
+            "reportId": "r-1",
+            "scannedAt": "2026-10-17T10:00:00.000Z",
+            "collectedAt": "2026-10-17T09:59:58.000Z",
+            "coreVersion": "0.3.0",
+            "catalogVersion": "2026.10",
+            "cisEdition": "macOS 15 v1.0.0",
+            "platform": { "os": "macos", "osVersion": "27.0.1", "arch": "arm64" },
+            "sections": {},
+            "score": {
+                "value": 72,
+                "grade": "fair",
+                "deducted": 28,
+                "cappedByCritical": false,
+                "complete": true,
+                "counts": { "pass": 20, "fail": 5, "review": 1, "unknown": 0, "not_applicable": 2 }
+            },
+            "results": [{ "ruleId": "TL-MAC-001", "status": "fail" }],
+            "findings": [{ "ruleId": "TL-MAC-001", "severity": "high" }]
+        })
+    }
+
+    #[test]
+    fn report_ids_are_short_ascii_words() {
+        assert!(report_id_ok("r-1") && report_id_ok("a.b_c-D9"));
+        assert!(report_id_ok(&"x".repeat(64)));
+        assert!(!report_id_ok(&"x".repeat(65)));
+        assert!(!report_id_ok(""));
+        assert!(!report_id_ok("bad id!"));
+        assert!(!report_id_ok("é"));
+        assert!(!report_id_ok("/Users/x"));
+    }
+
+    #[test]
+    fn report_row_reads_the_nested_score_and_nulls_a_bad_field_but_drops_a_bad_id() {
+        let row = report_row(&evaluated_report()).unwrap();
+        assert_eq!(
+            row,
+            ReportRow {
+                report_id: "r-1".into(),
+                scanned_at: "2026-10-17T10:00:00.000Z".into(),
+                score: Some(72),
+                grade: Some(Grade::Fair),
+            }
+        );
+        let mut unscored = evaluated_report();
+        unscored["score"]["value"] = Value::Null;
+        unscored["score"]["grade"] = Value::Null;
+        let row = report_row(&unscored).unwrap();
+        assert_eq!((row.score, row.grade), (None, None));
+        let mut bare = evaluated_report();
+        bare["score"] = json!(72);
+        let row = report_row(&bare).unwrap();
+        assert_eq!(
+            (row.score, row.grade),
+            (None, None),
+            "a bare number nulls the fields, never the row"
+        );
+        let mut over = evaluated_report();
+        over["score"]["value"] = json!(101);
+        assert_eq!(report_row(&over).unwrap().score, None);
+        let mut fraction = evaluated_report();
+        fraction["score"]["value"] = json!(72.5);
+        assert_eq!(report_row(&fraction).unwrap().score, None);
+        let mut negative = evaluated_report();
+        negative["score"]["value"] = json!(-1);
+        assert_eq!(report_row(&negative).unwrap().score, None);
+        let mut great = evaluated_report();
+        great["score"]["grade"] = json!("great");
+        let row = report_row(&great).unwrap();
+        assert_eq!((row.score, row.grade), (Some(72), None));
+        let mut bad_id = evaluated_report();
+        bad_id["reportId"] = json!("bad id!");
+        assert_eq!(report_row(&bad_id), None);
+        let mut long_id = evaluated_report();
+        long_id["reportId"] = json!("x".repeat(65));
+        assert_eq!(report_row(&long_id), None);
+        let mut bad_date = evaluated_report();
+        bad_date["scannedAt"] = json!("yesterday");
+        assert_eq!(report_row(&bad_date), None);
+        let mut no_id = evaluated_report();
+        no_id.as_object_mut().unwrap().remove("reportId");
+        assert_eq!(report_row(&no_id), None);
+        let mut no_date = evaluated_report();
+        no_date.as_object_mut().unwrap().remove("scannedAt");
+        assert_eq!(report_row(&no_date), None);
+        assert_eq!(report_row(&json!("text")), None);
+        let json = serde_json::to_value(report_row(&evaluated_report()).unwrap()).unwrap();
+        assert_eq!(
+            json,
+            json!({ "reportId": "r-1", "scannedAt": "2026-10-17T10:00:00.000Z", "score": 72, "grade": "fair" })
         );
     }
 }

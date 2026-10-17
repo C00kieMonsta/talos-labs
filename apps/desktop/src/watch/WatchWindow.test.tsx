@@ -262,6 +262,25 @@ describe("WatchWindow, the buttons", () => {
     expect(primaries()).toEqual([WATCH.seeWhatToDo]);
   });
 
+  it("keeps the status live region as one node across a rating change and remounts only the inner span", async () => {
+    const fake = await renderWindow(CALM);
+    const status = document.querySelector(".watch-status[role='status']");
+    const inner = status?.querySelector(".watch-status-inner");
+    expect(inner?.querySelector(".watch-status-icon")).not.toBeNull();
+    expect(inner?.querySelector(".watch-status-word")?.textContent).toBe(WATCH.calm);
+    act(() => fake.push(ACT));
+    const after = document.querySelector(".watch-status[role='status']");
+    expect(after).toBe(status);
+    expect(after?.classList.contains("watch-status-act")).toBe(true);
+    const innerAfter = after?.querySelector(".watch-status-inner");
+    expect(innerAfter).not.toBe(inner);
+    expect(innerAfter?.querySelector(".watch-status-word")?.textContent).toBe(WATCH.act);
+    expect(after?.querySelectorAll(".watch-status-inner").length).toBe(1);
+    // A check with the same rating keeps the span too: only the rating keys it.
+    act(() => fake.push({ ...ACT, checking: true }));
+    expect(document.querySelector(".watch-status-inner")).toBe(innerAfter);
+  });
+
   it("renders nothing for an unlicensed state", async () => {
     await renderWindow({ ...ACT, licensed: false });
     expect(document.querySelector("main.watch")).toBeNull();

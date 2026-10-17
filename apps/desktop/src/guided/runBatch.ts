@@ -6,7 +6,7 @@ import type { Core } from "./core";
 import { advance, appendSteps, markFixed, setStep } from "./core";
 import { DONE_PREFIX, END, FIX, PLAN, STATUS, WATCH_ON } from "./copy";
 import { guidedFor, paneFor } from "./plan";
-import type { DoneRow } from "./state";
+import type { DoneRow, StepState } from "./state";
 
 type BatchStep = Extract<GuidedStep, { kind: "batch" }>;
 type BatchFixing = Extract<FixingState, { kind: "batch" }>;
@@ -50,15 +50,19 @@ export function routeFailed(core: Core, ruleIds: readonly RuleId[]): void {
   }
 }
 
-/** Reads the settled batch off the scan machine and sets the step's done, partial or failed state. */
-export function settleBatch(core: Core, step: BatchStep, fixing: BatchFixing): void {
-  core.scan.dismissFix();
+export interface BatchRead {
+  readonly state: Extract<StepState, { kind: "done" | "failed" }>;
+  readonly fixed: readonly RuleId[];
+  /** Rules to route after the batch: the failed and the excluded ones. */
+  readonly route: readonly RuleId[];
+  /** True when nothing ran and the batch failed as a whole: a second such failure gives up on the step. */
+  readonly nothingRan: boolean;
+}
+
+/** The settled batch as the step's state, pure: the walk-through and the chat both read it. */
+export function readBatchOutcome(core: Core, step: BatchStep, fixing: BatchFixing): BatchRead {
   // A rejected preview or apply has no outcome; a batch that ran is read from its outcome whatever the phase.
-  if (fixing.outcome === null) {
-    const error = fixing.error ?? "command_failed";
-    setStep(core, { kind: "failed", error, step: null, batch: true });
-    return;
-  }
+  if (fixing.outcome === null) return { state: { kind: "failed", error: fixing.error ?? "command_failed", step: null, batch: true }, fixed: [], route: [], nothingRan: false };
   const { outcome, byRule } = fixing;
   const rows: DoneRow[] = [];
   const failed: RuleId[] = [];
@@ -82,19 +86,25 @@ export function settleBatch(core: Core, step: BatchStep, fixing: BatchFixing): v
   }
   const nothingRan = outcome.items.every((i) => i.status === "not_run");
   if (ok.length === 0 && outcome.error !== null && nothingRan) {
-    if (outcome.error === "command_failed") {
-      core.batchFailures += 1;
-      if (core.batchFailures >= 2) {
-        routeFailed(core, step.ruleIds);
-        advance(core);
-        return;
-      }
-    }
-    setStep(core, { kind: "failed", error: outcome.error, step: null, batch: true });
-    return;
+    return { state: { kind: "failed", error: outcome.error, step: null, batch: true }, fixed: [], route: [], nothingRan: true };
   }
-  markFixed(core, ok);
-  routeFailed(core, [...failed, ...excluded]);
   const line = failed.length === 0 ? `Done. ${things(ok.length)} fixed.` : `${ok.length} of ${ok.length + failed.length} fixed.`;
-  setStep(core, { kind: "done", line, rows });
+  return { state: { kind: "done", line, rows }, fixed: ok, route: [...failed, ...excluded], nothingRan: false };
+}
+
+/** Reads the settled batch off the scan machine and sets the step's done, partial or failed state. */
+export function settleBatch(core: Core, step: BatchStep, fixing: BatchFixing): void {
+  core.scan.dismissFix();
+  const read = readBatchOutcome(core, step, fixing);
+  if (read.nothingRan && read.state.kind === "failed" && read.state.error === "command_failed") {
+    core.batchFailures += 1;
+    if (core.batchFailures >= 2) {
+      routeFailed(core, step.ruleIds);
+      advance(core);
+      return;
+    }
+  }
+  markFixed(core, read.fixed);
+  routeFailed(core, read.route);
+  setStep(core, read.state);
 }

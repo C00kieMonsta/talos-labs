@@ -6,8 +6,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { DEV_MACHINE, MACOS_CATALOG, evaluate } from "@talos/core";
 import type { FixOutcome, WatchOpenScreen } from "@talos/core";
 import { fakeAdapters, fakeFixPort, fakePlan, fakeWatchPort } from "./testing";
-import { ACTIVITY } from "../activity/copy";
-import { PLAN } from "../guided/copy";
+import { ACTIVITY } from "../guided/copy";
+import { PLAN, STATUS } from "../guided/copy";
 import { resetLaunchGuard } from "../guided/timing";
 
 const report = evaluate(DEV_MACHINE, MACOS_CATALOG, { now: "2026-10-15T10:00:00.000Z", os: "macos" });
@@ -32,7 +32,7 @@ vi.mock("../settings", async (importOriginal) => {
   const original = await importOriginal<typeof import("../settings")>();
   return {
     ...original,
-    loadSettings: () => ({ ...original.DEFAULT_SETTINGS, onboarded: true, guided: { home: true, autoScan: true } }),
+    loadSettings: () => ({ ...original.DEFAULT_SETTINGS, onboarded: true, guided: { home: true, autoScan: true, chatHome: true } }),
     saveSettings: vi.fn(),
   };
 });
@@ -55,6 +55,7 @@ describe("reopen launch check-up", () => {
     // The step frame draws the fix rows now; the running row's word says macOS is asking.
     const passwordRow = () => document.querySelector(".chat-activity-row[data-state='running'] .activity-word")?.textContent;
     expect(passwordRow()).toBe(ACTIVITY.words.password);
+    expect(document.querySelector(".guided h1")?.textContent).toBe(STATUS.password.slice(0, STATUS.password.indexOf(". ") + 1));
     await waitFor(() => expect(shownListener).not.toBeNull());
 
     resetLaunchGuard();

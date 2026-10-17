@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { PROBE_IDS } from "@talos/core";
+import { MACOS_CATALOG, PROBE_IDS } from "@talos/core";
 import * as copy from "./copy";
-import { ACCEPT, CONNECT, CONNECTING, CONNECT_FAILED, END, EXPLAIN, FISHY, GUIDED_SECTION_LABELS, NOT_ANTIVIRUS, PAYWALL, WATCH, WATCH_ON, WATCH_SETTINGS, WELCOME, chosenLine, failureCopy } from "./copy";
+import { ACCEPT, ACTIVITY, CHAT, CONNECT, CONNECTING, CONNECT_FAILED, END, EXPLAIN, FISHY, GUIDED_SECTION_LABELS, NOT_ANTIVIRUS, PAYWALL, WATCH, WATCH_ON, WATCH_SETTINGS, WELCOME, chosenLine, failureCopy } from "./copy";
 import { AI_BADGES, AI_OPEN_APPLE_SETTINGS, AI_UNAVAILABLE_COPY, DECIDED_BY_APP, WATCH_PROBE_LABELS } from "../app/labels";
+import { PROVIDERS } from "../settings";
+import { remoteOf, waitingKey } from "../chat/providers";
 
 const BANNED = ["finding", "findings", "severity", "CIS", "rule", "rules", "policy", "configuration", "SSH", "launchd", "plist", "daemon", "sudo", "Terminal", "TCC", "stealth", "sysadminctl", "command", "points"];
 const BANNED_PATTERN = new RegExp(`\\b(${BANNED.join("|")})\\b`, "i");
@@ -70,6 +72,15 @@ describe("guided copy", () => {
     expect(syllablesPerWord(WELCOME.body)).toBeLessThanOrEqual(1.6);
     expect("locked" in EXPLAIN).toBe(false);
     expect("unlock" in EXPLAIN).toBe(false);
+  });
+
+  it("the all-done line is the spec's, ends in a full stop and reads under 1.6 syllables per word", () => {
+    expect(END.allDoneLine).toBe("That's all for today.");
+    for (const text of [END.allDone, END.allDoneLine, END.nextTime]) {
+      expect(syllablesPerWord(text), text).toBeLessThanOrEqual(1.6);
+      expect(text.endsWith(".")).toBe(true);
+      expect(text).not.toContain("!");
+    }
   });
 
   it("overrides the three scanning rows that carried banned words", () => {
@@ -228,5 +239,88 @@ describe("accept copy", () => {
     expect(chosenLine(1)).toBe("1 thing you chose to leave still counts.");
     expect(chosenLine(2)).toBe("2 things you chose to leave still count.");
     expect(ACCEPT.strip).toContain("{date}");
+  });
+});
+
+describe("activity copy", () => {
+  it("has one participle per catalogue verb and no extra", () => {
+    const verbs = [...new Set(MACOS_CATALOG.rules.map((r) => r.guided.verb))].sort();
+    expect([...Object.keys(ACTIVITY.verbs)].sort()).toEqual(verbs);
+    for (const participle of Object.values(ACTIVITY.verbs)) expect(participle).toMatch(/ing\b/);
+  });
+
+  it("keeps the placeholders the renderer substitutes, and the one-thing row whole", () => {
+    expect(ACTIVITY.rows.batchAdmin).toContain("{n}");
+    expect(ACTIVITY.rows.batchAdminOne).toBe("Fixing 1 thing");
+    expect(ACTIVITY.rows.batchAdminOne).not.toContain("{n}");
+    expect(ACTIVITY.words.running).toContain("{i}");
+    expect(ACTIVITY.words.running).toContain("{n}");
+  });
+
+  it("keeps every state word lower-case, with no em-dash or exclamation mark anywhere", () => {
+    for (const word of Object.values(ACTIVITY.words)) expect(word).toBe(word.toLowerCase());
+    const all = strings(ACTIVITY);
+    expect(all.length).toBeGreaterThan(20);
+    for (const text of all) {
+      expect(text, text).not.toContain("\u2014");
+      expect(text, text).not.toContain("!");
+    }
+  });
+});
+
+describe("chat copy", () => {
+  it("has no banned word, no em-dash and no exclamation mark anywhere in CHAT", () => {
+    const all = strings(CHAT);
+    expect(all.length).toBeGreaterThan(60);
+    for (const text of all) {
+      expect(text, text).not.toMatch(BANNED_PATTERN);
+      expect(text, text).not.toContain("\u2014");
+      expect(text, text).not.toContain("!");
+    }
+  });
+
+  it("the sentences a person reads whole stay under 1.6 syllables per word", () => {
+    const perString = [CHAT.guard, CHAT.busyExplain, CHAT.couldNotUse, CHAT.tooLong, CHAT.outside, CHAT.noticedNoTime, CHAT.actHeadline, CHAT.moreLocked, CHAT.moreLockedOne, CHAT.acceptBody, CHAT.accepted, CHAT.staleDone, CHAT.staleWaiting, CHAT.lockHeadline, CHAT.watchBody, EXPLAIN.busy];
+    expect(perString.length).toBe(16);
+    for (const text of perString) expect(syllablesPerWord(text), text).toBeLessThanOrEqual(1.6);
+  });
+
+  it("every chip is at or under 25 characters and every primary at or under 28", () => {
+    for (const chip of Object.values(CHAT.chips)) expect(chip.length, chip).toBeLessThanOrEqual(25);
+    expect(Object.keys(CHAT.chips).length).toBe(9);
+    for (const text of [CHAT.changeAiPrimary, CHAT.chips.checkAgain, CHAT.stepByStep, CHAT.chat]) expect(text.length, text).toBeLessThanOrEqual(28);
+  });
+
+  it("the state words and the activity rows are ACTIVITY's by reference, never a second copy", () => {
+    expect(CHAT.word).toBe(ACTIVITY.words);
+    expect(CHAT.activity.watching).toBe(ACTIVITY.rows.watching);
+    expect(CHAT.activity.watchCheck).toBe(ACTIVITY.rows.watchCheck);
+  });
+
+  it("the templates keep their placeholders and the spec's fixed strings", () => {
+    expect(CHAT.left).toContain("{n}");
+    expect(CHAT.calls).toContain("{n}");
+    expect(CHAT.actHeadline).toContain("{headline}");
+    expect(CHAT.why).toContain("{headline}");
+    expect(CHAT.askWhy).toContain("{headline}");
+    expect(CHAT.moreLocked).toContain("{n}");
+    expect(CHAT.placeholder).toBe("Ask me, or tell me what to do.");
+    expect(CHAT.guard).toBe("I can't read file paths or typed instructions. Say it in words and I'll answer.");
+    expect(CHAT.newMessages).toBe("New messages");
+    expect(EXPLAIN.busy).toBe("I'm answering in the chat. Stop it there, or give me a moment.");
+    // The watch window's own draft string, when the watch session lands it, must equal CHAT.askWhy.
+    const watchAskWhy = (WATCH as Record<string, unknown>)["askWhy"];
+    if (typeof watchAskWhy === "string") expect(watchAskWhy).toBe(CHAT.askWhy);
+  });
+
+  it("waitingKey and remoteOf cover every provider and land on a CHAT or EXPLAIN key", () => {
+    for (const provider of PROVIDERS) {
+      expect(CHAT.stillWaiting[waitingKey(provider)]).toMatch(/Still/);
+      expect(EXPLAIN.limit[remoteOf(provider)]).toMatch(/allowance/);
+    }
+    expect(waitingKey("claude")).toBe("claude_plan");
+    expect(waitingKey("ollama")).toBe("apple");
+    expect(remoteOf("claude")).toBe("claude_plan");
+    expect(remoteOf("apple")).toBe("chatgpt");
   });
 });

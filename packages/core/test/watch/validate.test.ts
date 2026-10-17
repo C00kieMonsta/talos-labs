@@ -47,6 +47,9 @@ describe("validateWatchVerdict", () => {
       "dropped: command text in the reason",
       "dropped: a path in the reason",
       "dropped: a port in the reason",
+      "dropped: a reason over 120 characters",
+      "kept: a reason of exactly 120 characters",
+      "dropped: an action sentence over 300 characters stays dropped, a 200-character one is kept",
       "dropped: an action whose floor is above the clamped rating",
       "dropped: an action with no changed trigger",
     ]) {
@@ -80,9 +83,15 @@ describe("safeSentence and the three patterns", () => {
   it("refuses paths, tildes, ports, the seven verbs and command text", () => {
     expect(PATH_LIKE.test("/usr/bin")).toBe(true);
     expect(PATH_LIKE.test("~/Library")).toBe(true);
-    expect(PATH_LIKE.test("and/or")).toBe(true);
+    expect(PATH_LIKE.test('"/Users/alice"')).toBe(true);
+    expect(PATH_LIKE.test("(/tmp/x)")).toBe(true);
+    expect(PATH_LIKE.test("folder:/Library")).toBe(true);
+    expect(PATH_LIKE.test("and/or")).toBe(false);
+    expect(PATH_LIKE.test("24/7")).toBe(false);
     expect(PORT_LIKE.test("on :8080 now")).toBe(true);
-    expect(PORT_LIKE.test("at 14:32")).toBe(true);
+    expect(PORT_LIKE.test("port :8080")).toBe(true);
+    expect(PORT_LIKE.test("at 14:32")).toBe(false);
+    expect(PORT_LIKE.test("18:00")).toBe(false);
     expect(PORT_LIKE.test("ratio 1:2")).toBe(false);
     for (const verb of ["pid", "Process", "KILL", "delete", "remove", "rm", "unload"]) expect(BANNED_VERBS.test(`please ${verb} it`), verb).toBe(true);
     expect(BANNED_VERBS.test("the processor is warm")).toBe(false);

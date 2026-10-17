@@ -2,6 +2,7 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import {
   MACOS_CATALOG,
   PROVIDER_STATES,
+  buildChatInstructions,
   buildExplainerSystemPrompt,
   completeJsonPrefix,
   explainerEligibleRuleIds,
@@ -22,6 +23,8 @@ import type {
   ExplainOptions,
   ExplainerFailure,
   ExplainerPort,
+  ChatCall,
+  ChatResult,
   ExplainerResult,
   Explanation,
   PrioritiseInput,
@@ -33,7 +36,19 @@ import type {
 } from "@talos/core";
 import type { InvokeFn } from "./apple-explainer";
 import { snapshotHasCommandText } from "./apple-explainer";
-import { acceptedIds, askTurns, explainTurns, failure, parseJson, prioritiseTurns, type ReportSource } from "./explainer-shared";
+import {
+  acceptedIds,
+  askTurns,
+  chatEitherValidator,
+  chatPartialOptions,
+  chatPartialRejected,
+  chatTurns,
+  explainTurns,
+  failure,
+  parseJson,
+  prioritiseTurns,
+  type ReportSource,
+} from "./explainer-shared";
 
 /** Fixed so the CSP stays static. */
 export const CHATGPT_RESPONSES_URL = "https://api.openai.com/v1/responses";
@@ -43,6 +58,8 @@ export const CHATGPT_PARTIAL_EVERY_MS = 80;
 
 /** The 400 code that means the account rejects reasoning or the schema format. */
 const UNSUPPORTED_CAPABILITY = "subscription_sharing_unsupported_capability";
+/** The response.failed code for a used-up plan allowance; cached as limit_reached for LIMIT_TTL_MS. */
+const USAGE_LIMIT_EXCEEDED = "subscription_sharing_usage_limit_exceeded";
 
 export interface ChatGptExplainerOptions {
   readonly reportSource: ReportSource;
@@ -115,6 +132,8 @@ export class ChatGptExplainerAdapter implements ExplainerPort {
   private readonly reportSource: ReportSource;
   private readonly model: string;
   private readonly instructions: string;
+  /** The chat task's instructions: the frozen prompt, the chat block and the plain names. */
+  private readonly chatInstructions: string;
   private readonly invoke: InvokeFn;
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => string;
@@ -126,6 +145,7 @@ export class ChatGptExplainerAdapter implements ExplainerPort {
     this.reportSource = options.reportSource;
     this.model = options.model?.trim() ?? "";
     this.instructions = buildExplainerSystemPrompt(options.catalog ?? MACOS_CATALOG);
+    this.chatInstructions = buildChatInstructions(options.catalog ?? MACOS_CATALOG);
     this.invoke = options.invoke ?? ((cmd, args) => tauriInvoke<unknown>(cmd, args));
     this.fetchImpl = options.fetchImpl ?? ((input, init) => fetch(input, init));
     this.now = options.now ?? (() => new Date().toISOString());
@@ -185,6 +205,12 @@ export class ChatGptExplainerAdapter implements ExplainerPort {
     return this.request("ask", askTurns(input), validateAnswer, options);
   }
 
+  /** The chat shape under the strict schema; the ask shape once the session fell back to plainOutput. */
+  chat(call: ChatCall, options?: ExplainOptions<ChatResult>): Promise<ExplainerResult<ChatResult>> {
+    const turns = chatTurns(call.input, this.plainOutput ? "ask" : "chat");
+    return this.request("chat", turns, chatEitherValidator(call), chatPartialOptions(options) as ExplainOptions<ChatResult>, this.chatInstructions);
+  }
+
   private async token(forceRefresh: boolean): Promise<TokenResult> {
     let raw: unknown;
     try {
@@ -212,6 +238,7 @@ export class ChatGptExplainerAdapter implements ExplainerPort {
     turns: readonly RemoteTurn[],
     validate: Validator<T>,
     options: ExplainOptions<T> | undefined,
+    instructions: string = this.instructions,
   ): Promise<ExplainerResult<T>> {
     const signal = options?.signal;
     if (signal?.aborted) return failure("cancelled");
@@ -236,7 +263,7 @@ export class ChatGptExplainerAdapter implements ExplainerPort {
         const model = this.model.length > 0 ? this.model : tokenResult.token.model;
         // Rust returns "" when the account's model list did not parse at connect time; never send an empty id.
         if (model.length === 0) return failure("provider_unavailable");
-        const body = JSON.stringify(responsesRequestBody(task, model, this.instructions, turns, { plainOutput: this.plainOutput }));
+        const body = JSON.stringify(responsesRequestBody(task, model, instructions, turns, { plainOutput: this.plainOutput }));
         let response: Response;
         try {
           response = await this.fetchImpl(CHATGPT_RESPONSES_URL, {
@@ -255,7 +282,7 @@ export class ChatGptExplainerAdapter implements ExplainerPort {
           this.cache.unavailable = true;
           return failure("provider_unavailable");
         }
-        if (response.ok) return this.stream(response, controller, clock, validate, report, options);
+        if (response.ok) return this.stream(task, response, controller, clock, validate, report, options);
 
         const text = await response.text().catch(() => "");
         const status = response.status;
@@ -295,6 +322,7 @@ export class ChatGptExplainerAdapter implements ExplainerPort {
   }
 
   private async stream<T>(
+    task: RemoteTask,
     response: Response,
     controller: AbortController,
     clock: { readonly timedOut: boolean },
@@ -333,10 +361,7 @@ export class ChatGptExplainerAdapter implements ExplainerPort {
         for (const block of split.events) {
           const event = parseResponsesEvent(block);
           if (event === null || event.type === "other") continue;
-          if (event.type === "failed") {
-            this.cache.unavailable = true;
-            return failure("provider_unavailable");
-          }
+          if (event.type === "failed") return this.failed(event.code);
           if (event.type === "completed") {
             completed = event.text.length > 0 ? event.text : text;
             continue;
@@ -344,7 +369,7 @@ export class ChatGptExplainerAdapter implements ExplainerPort {
           text += event.delta;
           const snapshot = completeJsonPrefix(text);
           if (!isRecord(snapshot)) continue;
-          if (snapshotHasCommandText(snapshot)) {
+          if (snapshotHasCommandText(snapshot) || (task === "chat" && chatPartialRejected(snapshot))) {
             controller.abort();
             return failure("rejected_output");
           }
@@ -373,6 +398,19 @@ export class ChatGptExplainerAdapter implements ExplainerPort {
     if (!parsed.ok) return failure("rejected_output");
     if (snapshotHasCommandText(parsed.value)) return failure("rejected_output");
     return validate(parsed.value, report);
+  }
+
+  /** A stream that ended on an error: a cut-off reply is the model's fault, a used-up allowance is a limit, the rest is the provider. */
+  private failed<T>(code: string): ExplainerResult<T> {
+    if (code === "incomplete") return failure("rejected_output");
+    if (code === USAGE_LIMIT_EXCEEDED) {
+      this.cache.limitReached = true;
+      this.cache.limitUntil = null;
+      this.cache.limitAt = this.now();
+      return failure("limit_reached");
+    }
+    this.cache.unavailable = true;
+    return failure("provider_unavailable");
   }
 }
 

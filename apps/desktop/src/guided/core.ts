@@ -50,18 +50,21 @@ export function writeMemory(core: Core, patch: Partial<GuidedMemory>): void {
   core.deps.saveMemory(core.memory);
 }
 
+/** The step in flight: the walk-through's current step, or the chat's live card. */
 export function currentStep(core: Core): GuidedStep | null {
   const { phase } = core;
+  if (phase.kind === "chat") return phase.active;
   return phase.kind === "step" ? (phase.plan.steps[phase.index] ?? null) : null;
 }
 
+/** The walk-through only: the chat reads a card's state off the scan machine, so this is a no-op there. */
 export function setStep(core: Core, state: StepState, notice?: string | null): void {
   const { phase } = core;
   if (phase.kind !== "step") return;
   core.setPhase({ ...phase, state, notice: notice === undefined ? phase.notice : notice });
 }
 
-/** Replaces the step at the current index, e.g. a fix step that becomes a show step. */
+/** Replaces the step at the current index, e.g. a fix step that becomes a show step. The walk-through only; the chat runs the converted step itself. */
 export function replaceCurrentStep(core: Core, step: GuidedStep): void {
   const { phase } = core;
   if (phase.kind !== "step") return;
@@ -108,10 +111,10 @@ export function markFixed(core: Core, ruleIds: readonly RuleId[]): void {
   for (const id of ruleIds) if (!core.fixed.includes(id)) core.fixed.push(id);
 }
 
-/** Appends steps after the current plan; duplicates by id are dropped. */
+/** Appends steps after the current plan (the walk-through's or the chat's); duplicates by id are dropped. */
 export function appendSteps(core: Core, steps: readonly GuidedStep[]): void {
   const { phase } = core;
-  if (phase.kind !== "step") return;
+  if (phase.kind !== "step" && phase.kind !== "chat") return;
   const have = new Set(phase.plan.steps.map((s) => s.id));
   const fresh = steps.filter((s) => !have.has(s.id));
   for (const s of fresh) if (!core.extras.some((e) => e.id === s.id)) core.extras.push(s);

@@ -307,6 +307,10 @@ impl Engine {
         emit: &dyn Fn(StreamPayload),
     ) -> Result<(), String> {
         validate(&request)?;
+        // The helper's protocol has no chat case; the chat travels to it as the ask task.
+        if request.task == Task::Chat {
+            return Err("invalid_input".into());
+        }
         self.take_slot(request.task)?;
         let result = self.run(&request, emit);
         *lock(&self.inflight) = None;

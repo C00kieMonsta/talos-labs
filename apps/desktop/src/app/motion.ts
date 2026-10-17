@@ -14,22 +14,33 @@ function easeOut(t: number): number {
   return 1 - Math.pow(1 - t, 3);
 }
 
-/** Eases a number towards its target with requestAnimationFrame: the first run over firstMs, later changes over laterMs; jumps when motion is off. */
-export function useEased(target: number, firstMs: number = MOTION.fill, laterMs: number = MOTION.settle): number {
+/**
+ * Eases a number towards its target with requestAnimationFrame: the first run over firstMs, later changes over laterMs; jumps when motion is off.
+ * Bumping `restart` runs the first fill again from 0 without a remount.
+ */
+export function useEased(target: number, firstMs: number = MOTION.fill, laterMs: number = MOTION.settle, restart = 0): number {
   const [shown, setShown] = useState(() => (motionOff() ? target : 0));
   const first = useRef(true);
   const from = useRef(shown);
+  const lastRestart = useRef(restart);
   useEffect(() => {
     if (motionOff()) {
       setShown(target);
       return;
     }
+    if (restart !== lastRestart.current) {
+      lastRestart.current = restart;
+      from.current = 0;
+      first.current = true;
+      setShown(0);
+    }
     const start = from.current;
     const duration = first.current ? firstMs : laterMs;
-    first.current = false;
     let frame = 0;
     const began = performance.now();
     const step = (now: number) => {
+      // Flipped inside the frame, so StrictMode's cancelled first run keeps the first duration.
+      first.current = false;
       const t = Math.min(1, (now - began) / duration);
       const next = start + (target - start) * easeOut(t);
       from.current = next;
@@ -38,6 +49,6 @@ export function useEased(target: number, firstMs: number = MOTION.fill, laterMs:
     };
     frame = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frame);
-  }, [target, firstMs, laterMs]);
+  }, [target, firstMs, laterMs, restart]);
   return shown;
 }

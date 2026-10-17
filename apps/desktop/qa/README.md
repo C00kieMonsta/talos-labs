@@ -217,7 +217,7 @@ Measures the moments of docs/DESIGN-PLAYFUL.md on the demo at `pace=1`, light sc
 
 After the moments it idles 5 s on the plan screen and asserts that every animation still in `document.getAnimations()` with `playState === "running"` is `caret-blink`, `spin` or `shimmer`. Finished animations with `animation-fill-mode: both` (the hero bands, the welcome stagger, the disc, the cue bar, the grade word) stay listed in a `finished` state and are ignored.
 
-Skipped with a logged reason until their surfaces exist: `motion-breathe` (the chat home), `motion-reading` (DESIGN-DAILY), `motion-watch-status` (the `span.watch-status-inner` in `WatchWindow.tsx`), `motion-fixed-count` (the `CountUp` in `EndScreen.tsx`).
+Skipped with a logged reason until their surfaces exist: `motion-breathe` (the chat home), `motion-reading` (DESIGN-DAILY). `motion-fixed-count` covers the fade only (the dev-machine walk fixes one thing, so the figure is drawn whole); `motion-watch-status` measures the first paint's fade and the live region's identity across "Check now", because the demo's check keeps the rating (the remount on a rating change is pinned by `WatchWindow.test.tsx`).
 
 `pace=0` also freezes the JavaScript count-ups (the ring, `CountUp`) through `motionOff()` in `src/app/motion.ts`, so every screenshot walk stays byte-stable.
 

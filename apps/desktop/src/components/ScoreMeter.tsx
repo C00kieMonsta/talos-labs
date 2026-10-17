@@ -53,15 +53,15 @@ function ScoreMeterRing({ value, grade, cappedByCritical }: { value: number; gra
         onClick={restart}
         onKeyDown={onKeyDown}
       >
-        <RingFill key={replay} value={clamped} word={word} />
+        <RingFill value={clamped} word={word} replay={replay} />
       </div>
     </div>
   );
 }
 
-/** The ring and its centre; keyed by the replay counter so the eased value restarts from 0. */
-function RingFill({ value, word }: { value: number; word: string }) {
-  const shown = useEased(value);
+/** The ring and its centre; the replay counter restarts the ease without a remount, so the grade word keeps its node. */
+function RingFill({ value, word, replay }: { value: number; word: string; replay: number }) {
+  const shown = useEased(value, FIRST_MS, LATER_MS, replay);
   const offset = CIRCUMFERENCE * (1 - shown / 100);
   return (
     <>

@@ -1,5 +1,11 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AskInput, Turn } from "../../src/ports/explainer-port";
+import { SAFE_STRING_PATTERN } from "../../src/ports/explainer-port";
+import { SIGNAL_IDS } from "../../src/ports/watch-port";
+import { buildAllowed, toAllowedInput } from "../../src/chat/allowed";
+import { CHAT_EVENTS, type ChatInput } from "../../src/chat/input";
 import { evaluate } from "../../src/engine/evaluate";
 import { toExplainerContext } from "../../src/explainer/context";
 import { toWatchContext } from "../../src/explainer/watch-context";
@@ -8,23 +14,30 @@ import {
   DEFAULT_CHATGPT_MODEL,
   RESPONSES_MAX_OUTPUT_TOKENS,
   askTurns,
+  chatTurns,
   claudePromptFor,
   explainTurns,
+  plainNamesBlock,
   prioritiseTurns,
   responsesRequestBody,
   strictSchema,
   watchRequestBody,
   watchTurns,
+  CHAT_INSTRUCTIONS_BLOCK,
   WATCH_INSTRUCTIONS_BLOCK,
+  buildChatInstructions,
   buildWatchInstructions,
 } from "../../src/explainer/remote";
 import type { RemoteTask, RemoteTurn } from "../../src/explainer/remote";
-import { ANSWER_JSON_SCHEMA, EXPLANATION_JSON_SCHEMA, PRIORITISATION_JSON_SCHEMA, WATCH_JSON_SCHEMA } from "../../src/explainer/schemas";
+import { ANSWER_JSON_SCHEMA, CHAT_JSON_SCHEMA, EXPLANATION_JSON_SCHEMA, PRIORITISATION_JSON_SCHEMA, WATCH_JSON_SCHEMA } from "../../src/explainer/schemas";
 import { ACCEPTED_SENTENCE, buildExplainerSystemPrompt, buildSystemPrompt } from "../../src/explainer/system-prompt";
+import { EMPTY_GUIDED_MEMORY } from "../../src/guided/memory";
+import { buildGuidedPlan } from "../../src/guided/plan";
+import { freeFixRuleIds } from "../../src/license/entitled";
 import { MACOS_CATALOG } from "../../src/rules/macos/index";
-import { ctxFor } from "../helpers";
+import { ctxFor, NOW } from "../helpers";
 import { EMPTY_WATCH_MEMORY } from "../../src/watch/memory";
-import { CANARY, CANARY_NEXT, CANARY_PROFILE as PROFILE, INJECT } from "../helpers/canary-state";
+import { CANARY, CANARY_NEXT, CANARY_PROFILE as PROFILE, INJECT, inj } from "../helpers/canary-state";
 
 const report = evaluate(CANARY, MACOS_CATALOG, ctxFor(CANARY));
 const context = toExplainerContext(report, MACOS_CATALOG, PROFILE);
@@ -43,7 +56,8 @@ const watchContext = toWatchContext({
   lastVerdict: null,
 });
 const watchInstructions = buildWatchInstructions();
-const TASKS = ["explain", "prioritise", "ask", "watch"] as const;
+const chatInstructions = buildChatInstructions();
+const TASKS = ["explain", "prioritise", "ask", "watch", "chat"] as const;
 /** The WatchDetails field names, which may never appear in any body. */
 const DETAILS_FIELDS = ["plistPath", "label", "programPath", "port", "processName", "wifiAvailable"];
 
@@ -55,16 +69,40 @@ const HISTORY: readonly Turn[] = [
 ];
 const ASK: AskInput = { context, history: HISTORY, question: "What about backups?" };
 
+/** The chat input on the canary report: the plan and allow-lists from the real builders, every event once, the watch ids only. */
+function chatInputFor(question: string): ChatInput {
+  const gate = { freeFixes: freeFixRuleIds(report), licensed: true };
+  const plan = buildGuidedPlan(report, gate, PROFILE, EMPTY_GUIDED_MEMORY, NOW);
+  const allowed = buildAllowed({ plan, report, gate, scanReady: true, watchEnabled: true, memory: EMPTY_GUIDED_MEMORY, doneStepIds: [] });
+  const stepRuleIds = plan.steps.flatMap((step) => (step.kind === "batch" ? [step.ruleIds[0] ?? "TL-MAC-002"] : step.kind === "fix" || step.kind === "show" ? [step.ruleId] : []));
+  return {
+    context,
+    history: HISTORY,
+    question,
+    plan: { stepRuleIds, fixed: [], later: plan.later, accepted: plan.accepted, leftAlone: plan.leftAlone },
+    allowed: toAllowedInput(allowed),
+    events: CHAT_EVENTS.map((kind, i) => ({ kind, ruleIds: [stepRuleIds[0] ?? "TL-MAC-001"], turnsAgo: i })),
+    watch: {
+      enabled: true,
+      rating: "keep_an_eye",
+      lastCheckMinutesAgo: 10,
+      items: watchContext.signals.map((signal) => ({ signalId: signal.signalId, kind: "persistence" as const, change: signal.change })),
+    },
+  };
+}
+const CHAT = chatInputFor("Why does the disk matter?");
+
 const TURNS: Readonly<Record<RemoteTask, readonly RemoteTurn[]>> = {
   explain: explainTurns({ context, ruleId: "TL-MAC-001" }),
   prioritise: prioritiseTurns({ context }),
   ask: askTurns(ASK),
   watch: watchTurns(watchContext),
+  chat: chatTurns(CHAT),
 };
 
 /** One row per remote adapter: the exact bytes that leave the Mac for each task. The watch body is the Rust caller's. */
 const ADAPTERS = [
-  { id: "chatgpt", body: (task: RemoteTask) => JSON.stringify(task === "watch" ? watchRequestBody("gpt-5", watchInstructions, watchContext) : responsesRequestBody(task, "gpt-5", instructions, TURNS[task])) },
+  { id: "chatgpt", body: (task: RemoteTask) => JSON.stringify(task === "watch" ? watchRequestBody("gpt-5", watchInstructions, watchContext) : responsesRequestBody(task, "gpt-5", task === "chat" ? chatInstructions : instructions, TURNS[task])) },
   { id: "claude_plan", body: (task: RemoteTask) => claudePromptFor(TURNS[task]) },
 ] as const;
 
@@ -100,7 +138,7 @@ describe("remote request canary", () => {
   for (const task of TASKS) {
     it(`chatgpt ${task}: catalogue text is in instructions only, never in the input turns`, () => {
       const body = JSON.parse(ADAPTERS[0].body(task)) as { instructions: string; input: RemoteTurn[] };
-      expect(body.instructions).toBe(task === "watch" ? watchInstructions : instructions);
+      expect(body.instructions).toBe(task === "watch" ? watchInstructions : task === "chat" ? chatInstructions : instructions);
       const turns = JSON.stringify(body.input);
       expect(turns).not.toContain(CATALOG_MARKER);
       expect(turns).not.toContain(RULE_TITLE);
@@ -112,6 +150,54 @@ describe("remote request canary", () => {
       expect(body).not.toContain(RULE_TITLE);
     });
   }
+
+  /** The words the chat envelope may never carry: licence state, the password dialog, every path field. */
+  const CHAT_FORBIDDEN = ["licensed", "locked", "unlocked", "wrong_password", "cancelled", "/Users", "sharePath", "plistPath", "label"];
+
+  for (const adapter of ADAPTERS) {
+    it(`${adapter.id} chat: the envelope carries ids and enums only, none of the forbidden words`, () => {
+      const body = adapter.body("chat");
+      // The ChatGPT body wraps the instructions too, whose plain names say "locked"; the envelope is the turns.
+      const turns = adapter.id === "chatgpt" ? JSON.stringify((JSON.parse(body) as { input: unknown }).input) : body;
+      expect(turns).toContain('{\\"task\\":\\"chat\\"');
+      for (const word of CHAT_FORBIDDEN) expect(turns, word).not.toContain(word);
+      const last = JSON.parse(TURNS.chat.at(-1)?.content ?? "{}") as { plan: Record<string, string[]>; allowed: Record<string, string[]>; events: { ruleIds: string[] }[]; watch: { items: { signalId: string }[] } };
+      const known = new Set<string>(report.results.map((r) => r.ruleId));
+      const ids = [...Object.values(last.plan).flat(), ...Object.entries(last.allowed).filter(([k]) => k !== "kinds").flatMap(([, v]) => v), ...last.events.flatMap((e) => e.ruleIds)];
+      expect(ids.length).toBeGreaterThan(0);
+      for (const id of ids) {
+        expect(id, id).toMatch(SAFE_STRING_PATTERN);
+        expect(known.has(id), id).toBe(true);
+      }
+      expect(last.watch.items.length).toBeGreaterThan(0);
+      for (const item of last.watch.items) expect(SIGNAL_IDS as readonly string[]).toContain(item.signalId);
+    });
+  }
+
+  it("the injected question appears only inside \"question\":", () => {
+    const turns = chatTurns(chatInputFor(inj("question")));
+    const last = turns.at(-1)?.content ?? "";
+    const marker = `"question":${JSON.stringify(inj("question"))}`;
+    expect(last).toContain(marker);
+    expect(last.split(INJECT)).toHaveLength(2);
+    expect(JSON.stringify(turns.slice(0, -1))).not.toContain(INJECT);
+    for (const adapter of ADAPTERS) {
+      const body = adapter.body("chat");
+      expect(body).not.toContain(INJECT);
+    }
+  });
+
+  it("the chat block reaches neither the watch instructions nor their fixture, and the chat instructions equal their own", () => {
+    const dir = join(__dirname, "..", "..", "fixtures");
+    const pinnedWatch = readFileSync(join(dir, "watch-instructions.txt"), "utf8");
+    expect(pinnedWatch.startsWith(buildSystemPrompt(MACOS_CATALOG))).toBe(true);
+    for (const text of [pinnedWatch, watchInstructions]) {
+      expect(text).not.toContain(CHAT_INSTRUCTIONS_BLOCK);
+      expect(text).not.toContain("Plain names");
+      expect(text).not.toContain("`intents`");
+    }
+    expect(readFileSync(join(dir, "chat-instructions.txt"), "utf8")).toBe(chatInstructions);
+  });
 
   it("the ask body keeps the validated history and the question", () => {
     const turns = TURNS.ask;
@@ -163,6 +249,38 @@ describe("turn envelopes", () => {
     expect(asked.context.findings).toHaveLength(marked.findings.length);
   });
 
+  it("chatTurns keeps the clamped history, ends on the envelope, and takes the ask word for plainOutput", () => {
+    const turns = TURNS.chat;
+    expect(turns.map((t) => t.role)).toEqual(["user", "assistant", "user"]);
+    expect(turns[1]?.content).toBe(PRIOR_ANSWER);
+    const last = JSON.parse(turns[2]?.content ?? "{}") as Record<string, unknown>;
+    expect(Object.keys(last)).toEqual(["task", "context", "question", "plan", "allowed", "events", "watch"]);
+    expect(last["task"]).toBe("chat");
+    expect(last["question"]).toBe("Why does the disk matter?");
+    expect(Object.keys(last["allowed"] as object)).toEqual(["fix", "batch", "show", "explain", "details", "snooze", "accept", "kinds"]);
+    expect(Object.keys(last["plan"] as object)).toEqual(["stepRuleIds", "fixed", "later", "accepted", "leftAlone"]);
+    const asked = JSON.parse(chatTurns(CHAT, "ask").at(-1)?.content ?? "{}") as Record<string, unknown>;
+    expect(asked["task"]).toBe("ask");
+    expect({ ...asked, task: "chat" }).toEqual(last);
+    const long = chatTurns({ ...CHAT, question: "q".repeat(600), history: Array.from({ length: 9 }, (_, i) => ({ role: i % 2 === 0 ? ("user" as const) : ("assistant" as const), text: `${i}` })) });
+    // Nine turns clamp to six, the leading assistant turn is dropped, the envelope closes: six turns.
+    expect(long).toHaveLength(6);
+    expect(long[0]?.content).toBe("4");
+    expect((JSON.parse(long.at(-1)?.content ?? "{}") as { question: string }).question.length).toBe(500);
+    expect(chatTurns({ ...CHAT, history: [{ role: "assistant", text: PRIOR_ANSWER }] })).toHaveLength(1);
+  });
+
+  it("buildChatInstructions is the frozen prompt, the chat block and every guided headline, about 1,200 characters of names", () => {
+    expect(chatInstructions).toBe(`${buildSystemPrompt(MACOS_CATALOG)}\n\n${CHAT_INSTRUCTIONS_BLOCK}\n\n${plainNamesBlock()}`);
+    expect(chatInstructions.startsWith(watchInstructions.slice(0, watchInstructions.length - WATCH_INSTRUCTIONS_BLOCK.length))).toBe(true);
+    expect(CHAT_INSTRUCTIONS_BLOCK.startsWith("For the chat task: answer the person in plain British English, in the second person, in at most four short sentences.")).toBe(true);
+    expect(CHAT_INSTRUCTIONS_BLOCK).toContain("use `accept_rule`");
+    for (const rule of MACOS_CATALOG.rules) expect(plainNamesBlock()).toContain(`${rule.id}: ${rule.guided.headline}`);
+    expect(plainNamesBlock().length).toBeGreaterThan(900);
+    expect(plainNamesBlock().length).toBeLessThan(1800);
+    expect(chatInstructions).not.toContain(ACCEPTED_SENTENCE);
+  });
+
   it("claudePromptFor wraps the turns in one JSON document", () => {
     expect(claudePromptFor(TURNS.prioritise)).toBe(JSON.stringify({ turns: TURNS.prioritise }));
     expect(JSON.parse(claudePromptFor(TURNS.ask))).toEqual({ turns: TURNS.ask });
@@ -171,8 +289,8 @@ describe("turn envelopes", () => {
 
 describe("responsesRequestBody", () => {
   it("builds the strict streaming request for every task", () => {
-    const schemas = { explain: EXPLANATION_JSON_SCHEMA, prioritise: PRIORITISATION_JSON_SCHEMA, ask: ANSWER_JSON_SCHEMA } as const;
-    for (const task of ["explain", "prioritise", "ask"] as const) {
+    const schemas = { explain: EXPLANATION_JSON_SCHEMA, prioritise: PRIORITISATION_JSON_SCHEMA, ask: ANSWER_JSON_SCHEMA, chat: CHAT_JSON_SCHEMA } as const;
+    for (const task of ["explain", "prioritise", "ask", "chat"] as const) {
       const body = responsesRequestBody(task, "gpt-5", instructions, TURNS[task]);
       expect(body).toEqual({
         model: "gpt-5",

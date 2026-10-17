@@ -14,6 +14,8 @@ pub enum Task {
     Ask,
     /// The watch task: the model rates and picks ids; no partials.
     Watch,
+    /// The chat task: Claude Code only. The helper has no chat case, so the engine refuses it.
+    Chat,
 }
 
 /// A request written to the helper's stdin.

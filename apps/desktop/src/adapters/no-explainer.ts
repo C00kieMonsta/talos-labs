@@ -4,6 +4,8 @@ import type {
   AskInput,
   ExplainInput,
   ExplainerPort,
+  ChatCall,
+  ChatResult,
   ExplainerResult,
   Explanation,
   PrioritiseInput,
@@ -29,6 +31,10 @@ export class NoExplainer implements ExplainerPort {
   async ask(_input: AskInput): Promise<ExplainerResult<Answer>> {
     return { ok: false, reason: "not_configured" };
   }
+
+  async chat(_call: ChatCall): Promise<ExplainerResult<ChatResult>> {
+    return { ok: false, reason: "not_configured" };
+  }
 }
 
 /** Claude selected but no key in the keychain yet. */
@@ -48,6 +54,10 @@ export class NoApiKeyExplainer implements ExplainerPort {
   }
 
   async ask(_input: AskInput): Promise<ExplainerResult<Answer>> {
+    return { ok: false, reason: "no_api_key" };
+  }
+
+  async chat(_call: ChatCall): Promise<ExplainerResult<ChatResult>> {
     return { ok: false, reason: "no_api_key" };
   }
 }

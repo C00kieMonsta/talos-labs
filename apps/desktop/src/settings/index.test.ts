@@ -28,7 +28,7 @@ describe("settings defaults", () => {
       profile: { role: "individual", technical: "low", handlesClientData: false, laptopLeavesHome: true },
       onboarded: false,
       developer: { enabled: false, showCommands: true, showPlanExpanded: true },
-      guided: { home: true, autoScan: true },
+      guided: { home: true, autoScan: true, chatHome: true },
       watch: { enabled: true, startAtLogin: false, everyMinutes: 60, notify: true },
     });
     expect(WATCH_INTERVALS).toEqual([15, 60, 240]);
@@ -54,7 +54,7 @@ describe("settings round trip", () => {
       profile: { role: "small_business", technical: "high", handlesClientData: true, laptopLeavesHome: false },
       onboarded: true,
       developer: { enabled: true, showCommands: false, showPlanExpanded: false },
-      guided: { home: false, autoScan: false },
+      guided: { home: false, autoScan: false, chatHome: false },
       watch: { enabled: false, startAtLogin: true, everyMinutes: 15, notify: false },
     };
     saveSettings(next);
@@ -128,7 +128,7 @@ describe("tolerant parsing", () => {
       profile: { role: "individual", technical: "medium", handlesClientData: false, laptopLeavesHome: false },
       onboarded: true,
       developer: { enabled: true, showCommands: false, showPlanExpanded: true },
-      guided: { home: true, autoScan: true },
+      guided: { home: true, autoScan: true, chatHome: true },
       watch: { enabled: true, startAtLogin: false, everyMinutes: 60, notify: true },
     });
   });
@@ -150,10 +150,13 @@ describe("tolerant parsing", () => {
   });
 
   it("fills the guided block for a v0.2 value and repairs it field by field", () => {
-    expect(parseSettings({ onboarded: true }).guided).toEqual({ home: true, autoScan: true });
-    expect(parseSettings({ guided: { home: false } }).guided).toEqual({ home: false, autoScan: true });
-    expect(parseSettings({ guided: { autoScan: false, home: "yes" } }).guided).toEqual({ home: true, autoScan: false });
-    expect(parseSettings({ guided: "off" }).guided).toEqual({ home: true, autoScan: true });
+    expect(parseSettings({ onboarded: true }).guided).toEqual({ home: true, autoScan: true, chatHome: true });
+    expect(parseSettings({ guided: { home: false } }).guided).toEqual({ home: false, autoScan: true, chatHome: true });
+    expect(parseSettings({ guided: { autoScan: false, home: "yes" } }).guided).toEqual({ home: true, autoScan: false, chatHome: true });
+    expect(parseSettings({ guided: "off" }).guided).toEqual({ home: true, autoScan: true, chatHome: true });
+    // v0.3 stored no chatHome; the chat home defaults on and a non-boolean is repaired.
+    expect(parseSettings({ guided: { chatHome: false } }).guided).toEqual({ home: true, autoScan: true, chatHome: false });
+    expect(parseSettings({ guided: { chatHome: "no" } }).guided.chatHome).toBe(true);
   });
 
   it("drops unknown keys and non-object shapes", () => {

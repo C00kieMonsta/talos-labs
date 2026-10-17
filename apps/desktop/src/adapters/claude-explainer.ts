@@ -1,9 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import {
   ANSWER_JSON_SCHEMA,
+  CHAT_JSON_SCHEMA,
   EXPLANATION_JSON_SCHEMA,
   MACOS_CATALOG,
   PRIORITISATION_JSON_SCHEMA,
+  buildChatInstructions,
   buildExplainerSystemPrompt,
   validateAnswer,
   validateExplanation,
@@ -16,6 +18,8 @@ import {
   type ExplainInput,
   type ExplainOptions,
   type ExplainerPort,
+  type ChatCall,
+  type ChatResult,
   type ExplainerResult,
   type Explanation,
   type PrioritiseInput,
@@ -26,6 +30,8 @@ import {
 import {
   acceptedIds,
   askTurns,
+  chatTurns,
+  chatValidator,
   explainTurns,
   failure,
   parseJson,
@@ -84,12 +90,18 @@ export class ClaudeExplainerAdapter implements ExplainerPort {
     return this.request(askTurns(input), ANSWER_JSON_SCHEMA, "medium", validateAnswer, options);
   }
 
+  /** One answer, shown as one partial; the chat block and the plain names replace the explainer prompt for this task. */
+  chat(call: ChatCall, options?: ExplainOptions<ChatResult>): Promise<ExplainerResult<ChatResult>> {
+    return this.request(chatTurns(call.input), CHAT_JSON_SCHEMA, "medium", chatValidator(call), options, buildChatInstructions(MACOS_CATALOG));
+  }
+
   private async request<T>(
     turns: readonly ChatTurn[],
     schema: Record<string, unknown>,
     effort: Effort,
     validate: Validator<T>,
     options: ExplainOptions<T> | undefined,
+    system: string = this.systemPrompt,
   ): Promise<ExplainerResult<T>> {
     const signal = options?.signal;
     const apiKey = await this.secrets.get("anthropic_api_key");
@@ -111,7 +123,7 @@ export class ClaudeExplainerAdapter implements ExplainerPort {
         {
           model: this.model,
           max_tokens: MAX_TOKENS,
-          system: [{ type: "text", text: this.systemPrompt, cache_control: { type: "ephemeral" } }],
+          system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
           messages: turns.map((t): Anthropic.MessageParam => ({ role: t.role, content: t.content })),
           output_config: { effort, format: { type: "json_schema", schema } },
         },

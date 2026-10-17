@@ -34,4 +34,9 @@ describe("icons", () => {
     expect(ICONS.close).toBe(kit.CloseIcon);
     expect(FIX_COST_ICONS.deep_link).toBe(kit.ArrowUpRightIcon);
   });
+
+  it("the chat's Send is lucide ArrowUp and the name is pinned for the export test", () => {
+    expect(ICONS.send).toBe(lucide.ArrowUp);
+    expect(LUCIDE_NAMES).toContain("ArrowUp");
+  });
 });

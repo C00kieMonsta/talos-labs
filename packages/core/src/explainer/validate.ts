@@ -2,11 +2,17 @@ import type { RuleId } from "../domain/finding";
 import type { ScanReport } from "../domain/report";
 import {
   EXPLAINER_LIMITS,
+  SAFE_STRING_PATTERN,
   type Answer,
   type Explanation,
   type ExplainerResult,
   type Prioritisation,
 } from "../ports/explainer-port";
+import { ALLOWED_LIST_FOR, type Allowed } from "../chat/allowed";
+import type { ChatResult } from "../chat/input";
+import { INTENT_KINDS, INTENT_KINDS_WITHOUT_RULE, type ChatIntent, type IntentKind } from "../chat/intents";
+import { CHAT_LIMITS } from "./limits";
+import { claimsAction, containsAppVoice } from "./prose";
 
 const REJECTED: ExplainerResult<never> = { ok: false, reason: "rejected_output" };
 
@@ -64,7 +70,12 @@ function readRuleId(value: unknown, known: ReadonlySet<string>): RuleId {
   return value as RuleId;
 }
 
-function reportRuleIds(report: ScanReport): ReadonlySet<string> {
+/** What the chat validators read of a report: the ids it carries. A ScanReport satisfies it; a demo may pass the ids alone. */
+export interface KnownRules {
+  readonly results: readonly { readonly ruleId: RuleId }[];
+}
+
+function reportRuleIds(report: KnownRules): ReadonlySet<string> {
   return new Set(report.results.map((result) => result.ruleId));
 }
 
@@ -156,4 +167,107 @@ export function validateAnswer(raw: unknown, report: ScanReport): ExplainerResul
       outsideScope,
     };
   });
+}
+
+/** DESIGN-CHAT "Validator". Whole-response rules reject; intents are dropped per entry; locked collects the licence drops. */
+export function validateChat(raw: unknown, report: KnownRules, allowed: Allowed, locked: readonly RuleId[]): ExplainerResult<ChatResult> {
+  return guarded(() => {
+    if (!isRecord(raw)) {
+      throw new Rejected();
+    }
+    const known = reportRuleIds(report);
+    const reply = readReply(raw["reply"]);
+    const outsideScope = readBoolean(raw["outsideScope"]);
+    const relatedRuleIds = readRelated(raw["relatedRuleIds"], known, allowed);
+    const lockedSet = new Set<string>(locked);
+    const lockedOut: RuleId[] = [];
+    const kept: ChatIntent[] = [];
+    const seen = new Set<string>();
+    const rawIntents = Array.isArray(raw["intents"]) ? (raw["intents"] as readonly unknown[]) : [];
+    for (const entry of rawIntents) {
+      const intent = readIntent(entry, known, allowed, lockedSet, lockedOut);
+      if (intent === null) continue;
+      const key = `${intent.kind}:${intent.ruleId ?? ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      kept.push(intent);
+    }
+    const batchKept = kept.some((intent) => intent.kind === "fix_batch");
+    const batchIds = new Set<string>(allowed.batch);
+    const intents = kept
+      .filter((intent) => !(batchKept && intent.kind === "fix_rule" && intent.ruleId !== null && batchIds.has(intent.ruleId)))
+      .slice(0, CHAT_LIMITS.maxIntents);
+    return { reply, relatedRuleIds, outsideScope, intents, locked: [...new Set(lockedOut)] };
+  });
+}
+
+/** The ask-shaped reply (on this Mac, ChatGPT plainOutput): the prose rules, no intents, relatedRuleIds filtered per entry. */
+export function validateChatAnswer(raw: unknown, report: KnownRules, allowed: Allowed): ExplainerResult<ChatResult> {
+  return guarded(() => {
+    if (!isRecord(raw)) {
+      throw new Rejected();
+    }
+    const known = reportRuleIds(report);
+    const text = typeof raw["answer"] === "string" ? raw["answer"] : raw["reply"];
+    return {
+      reply: readReply(text),
+      relatedRuleIds: readRelated(raw["relatedRuleIds"], known, allowed),
+      outsideScope: readBoolean(raw["outsideScope"]),
+      intents: [],
+      locked: [],
+    };
+  });
+}
+
+function readReply(value: unknown): string {
+  const reply = readString(value, false);
+  if (containsAppVoice(reply) || claimsAction(reply)) {
+    throw new Rejected();
+  }
+  return reply;
+}
+
+function readBoolean(value: unknown): boolean {
+  if (typeof value !== "boolean") {
+    throw new Rejected();
+  }
+  return value;
+}
+
+/** Not an array rejects; each entry is kept only when it is a safe id in the report and neither accepted nor snoozed. */
+function readRelated(value: unknown, known: ReadonlySet<string>, allowed: Allowed): readonly RuleId[] {
+  if (!Array.isArray(value)) {
+    throw new Rejected();
+  }
+  const dropped = new Set<string>([...allowed.accepted, ...allowed.snoozed]);
+  const out: RuleId[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string" || !SAFE_STRING_PATTERN.test(entry) || !known.has(entry) || dropped.has(entry) || out.includes(entry as RuleId)) {
+      continue;
+    }
+    out.push(entry as RuleId);
+  }
+  return out.slice(0, CHAT_LIMITS.maxRelated);
+}
+
+/** One intent entry, or null when dropped. A locked fix, show or explain id lands in lockedOut instead. */
+function readIntent(entry: unknown, known: ReadonlySet<string>, allowed: Allowed, locked: ReadonlySet<string>, lockedOut: RuleId[]): ChatIntent | null {
+  if (!isRecord(entry)) return null;
+  const kind = entry["kind"];
+  if (typeof kind !== "string" || !INTENT_KINDS.includes(kind as IntentKind) || !allowed.kinds.includes(kind as IntentKind)) return null;
+  const intentKind = kind as IntentKind;
+  if (INTENT_KINDS_WITHOUT_RULE.includes(intentKind)) {
+    if (intentKind === "fix_batch" && allowed.batch.length === 0) return null;
+    return { kind: intentKind, ruleId: null };
+  }
+  const ruleId = entry["ruleId"];
+  if (typeof ruleId !== "string" || !SAFE_STRING_PATTERN.test(ruleId) || !known.has(ruleId)) return null;
+  const id = ruleId as RuleId;
+  if ((intentKind === "fix_rule" || intentKind === "show_where" || intentKind === "explain_rule") && locked.has(id)) {
+    lockedOut.push(id);
+    return null;
+  }
+  const list = ALLOWED_LIST_FOR[intentKind];
+  if (list === undefined || !(allowed[list] as readonly RuleId[]).includes(id)) return null;
+  return { kind: intentKind, ruleId: id };
 }

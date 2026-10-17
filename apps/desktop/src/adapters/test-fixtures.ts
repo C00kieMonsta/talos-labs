@@ -1,4 +1,6 @@
 import type {
+  ChatCall,
+  ChatInput,
   ExplainerContext,
   Finding,
   Fix,
@@ -7,7 +9,7 @@ import type {
   SectionKey,
   SectionSummary,
 } from "@talos/core";
-import { SECTION_KEYS } from "@talos/core";
+import { EMPTY_GUIDED_MEMORY, SECTION_KEYS, buildAllowed, buildGuidedPlan, freeFixRuleIds, lockedFor, toAllowedInput } from "@talos/core";
 
 const FIX: Fix = {
   summary: "Turn the setting on.",
@@ -136,3 +138,30 @@ export const VALID_ANSWER = {
   relatedRuleIds: ["TL-MAC-001", "TL-MAC-002"],
   outsideScope: false,
 } as const;
+
+/** One chat turn on TEST_REPORT: the plan and allow-lists from the real builders, licensed, the scan ready, the watch on. */
+export const TEST_CHAT_CALL: ChatCall = (() => {
+  const gate = { freeFixes: freeFixRuleIds(TEST_REPORT), licensed: true };
+  const plan = buildGuidedPlan(TEST_REPORT, gate, TEST_CONTEXT.profile, EMPTY_GUIDED_MEMORY, TEST_REPORT.scannedAt);
+  const allowed = buildAllowed({ plan, report: TEST_REPORT, gate, scanReady: true, watchEnabled: true, memory: EMPTY_GUIDED_MEMORY, doneStepIds: [] });
+  const stepRuleIds = plan.steps.flatMap((step) => (step.kind === "batch" ? [step.ruleIds[0] ?? "TL-MAC-002"] : step.kind === "fix" || step.kind === "show" ? [step.ruleId] : []));
+  const input: ChatInput = {
+    context: TEST_CONTEXT,
+    history: [],
+    question: "Why does the disk matter?",
+    plan: { stepRuleIds, fixed: [], later: plan.later, accepted: plan.accepted, leftAlone: plan.leftAlone },
+    allowed: toAllowedInput(allowed),
+    events: [],
+    watch: { enabled: true, rating: "calm", lastCheckMinutesAgo: null, items: [] },
+  };
+  return { input, allowed, locked: lockedFor(plan, gate) };
+})();
+
+/** A chat reply whose one intent is the first allowed show or fix id, so it survives the validator on TEST_REPORT. */
+export const VALID_CHAT = (() => {
+  const { allowed } = TEST_CHAT_CALL;
+  const showId = allowed.show[0];
+  const fixId = allowed.fix[0];
+  const intents = showId !== undefined ? [{ kind: "show_where", ruleId: showId }] : fixId !== undefined ? [{ kind: "fix_rule", ruleId: fixId }] : [];
+  return { reply: "Your disk is not locked. Start from the button below.", relatedRuleIds: ["TL-MAC-001"], outsideScope: false, intents } as const;
+})();

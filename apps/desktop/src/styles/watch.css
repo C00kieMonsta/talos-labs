@@ -23,7 +23,6 @@
 .watch-status {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
   font: var(--text-guided-list);
   font-weight: 600;
 }
@@ -141,7 +140,7 @@
   text-align: right;
 }
 
-/* The icon and word crossfade on a rating change (docs/DESIGN-PLAYFUL.md 3.9); WatchWindow.tsx keys this span by the rating. The gap stays on .watch-status until the span exists. */
+/* The icon and word crossfade on a rating change (docs/DESIGN-PLAYFUL.md 3.9); WatchWindow.tsx keys this span by the rating. */
 .watch-status-inner {
   display: inline-flex;
   align-items: center;

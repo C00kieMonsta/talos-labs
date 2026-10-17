@@ -1,4 +1,5 @@
 import type { RuleId } from "../domain/finding";
+import type { ExplainerId } from "../ports/explainer-port";
 
 export type PermissionKind = "full_disk_access" | "automation";
 
@@ -17,6 +18,15 @@ export interface GuidedMemory {
   readonly aiAskedAt: string | null;
   /** ruleId -> ISO when the person said "Leave it alone, I know the risk". */
   readonly accepted: Readonly<Record<string, string>>;
+  /** The last settled probe that answered available: which provider and when. The chat home reads it at boot. */
+  readonly aiLastAvailable: AiLastAvailable | null;
+}
+
+export type AiProviderId = Exclude<ExplainerId, "none">;
+
+export interface AiLastAvailable {
+  readonly provider: AiProviderId;
+  readonly at: string;
 }
 
 export const EMPTY_GUIDED_MEMORY: GuidedMemory = {
@@ -29,7 +39,21 @@ export const EMPTY_GUIDED_MEMORY: GuidedMemory = {
   permissionAskedAt: {},
   aiAskedAt: null,
   accepted: {},
+  aiLastAvailable: null,
 };
+
+/** How long a stored "available" keeps the chat as the home without a fresh probe. */
+export const AI_LAST_AVAILABLE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** True when the stored availability names `provider` and is less than the TTL old. */
+export function aiAvailableRecently(memory: Pick<GuidedMemory, "aiLastAvailable">, provider: AiProviderId, now: string): boolean {
+  const stored = memory.aiLastAvailable;
+  if (stored === null || stored.provider !== provider) return false;
+  const at = Date.parse(stored.at);
+  const current = Date.parse(now);
+  if (Number.isNaN(at) || Number.isNaN(current)) return false;
+  return current - at < AI_LAST_AVAILABLE_TTL_MS;
+}
 
 /** How long "Not now" on the AI connect screen is honoured. */
 export const AI_ASK_AGAIN_MS = 14 * 24 * 60 * 60 * 1000;
@@ -44,6 +68,7 @@ export function aiAskedRecently(memory: Pick<GuidedMemory, "aiAskedAt">, now: st
 }
 
 const PERMISSION_KINDS: readonly PermissionKind[] = ["full_disk_access", "automation"];
+const AI_PROVIDER_IDS: readonly AiProviderId[] = ["apple", "chatgpt", "claude_plan", "claude", "ollama"];
 const RULE_ID = /^TL-(MAC|WIN|LNX|ANY)-[A-Za-z0-9]+$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -105,6 +130,17 @@ function permissionMap(value: unknown): Readonly<Partial<Record<PermissionKind, 
   return out;
 }
 
+function aiLastAvailableOf(value: unknown): AiLastAvailable | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const { provider, at } = value;
+  if (typeof provider !== "string" || !(AI_PROVIDER_IDS as readonly string[]).includes(provider) || !isIsoDate(at)) {
+    return null;
+  }
+  return { provider: provider as AiProviderId, at };
+}
+
 /** Field by field with fallbacks, like parseSettings. A wrong version or a non-object yields the empty memory. */
 export function parseGuidedMemory(raw: unknown): GuidedMemory {
   if (!isRecord(raw) || raw.version !== 1) {
@@ -120,5 +156,6 @@ export function parseGuidedMemory(raw: unknown): GuidedMemory {
     permissionAskedAt: permissionMap(raw.permissionAskedAt),
     aiAskedAt: isIsoDate(raw.aiAskedAt) ? raw.aiAskedAt : null,
     accepted: dateMap(raw.accepted),
+    aiLastAvailable: aiLastAvailableOf(raw.aiLastAvailable),
   };
 }

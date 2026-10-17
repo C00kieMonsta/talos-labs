@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { formatTime } from "../app/labels";
 import { WATCH } from "../guided/copy";
-import { checkedLabel, relativeCheck } from "./relative-time";
+import { WATCH_WINDOW } from "./copy";
+import { checkedLabel, nextCheckLabel, relativeCheck } from "./relative-time";
 
 const NOW = "2026-10-16T12:00:00.000Z";
 
@@ -50,5 +52,51 @@ describe("checkedLabel", () => {
     expect(checkedLabel(ago(12), NOW)).toBe("Checked 10 minutes ago");
     expect(checkedLabel(ago(60), NOW)).toBe("Checked 60 minutes ago");
     expect(checkedLabel(ago(180), NOW)).toBe("Checked 3 hours ago");
+  });
+});
+
+describe("nextCheckLabel", () => {
+  const ahead = (minutes: number) => ago(-minutes);
+
+  it("reads soon for a null, unreadable or past next check, and under the first step", () => {
+    expect(nextCheckLabel(null, NOW, null)).toBe(WATCH_WINDOW.nextCheckSoon);
+    expect(nextCheckLabel("not a date", NOW, null)).toBe(WATCH_WINDOW.nextCheckSoon);
+    expect(nextCheckLabel(ago(5), NOW, null)).toBe(WATCH_WINDOW.nextCheckSoon);
+    expect(nextCheckLabel(NOW, NOW, null)).toBe(WATCH_WINDOW.nextCheckSoon);
+    expect(nextCheckLabel(ahead(2), NOW, null)).toBe(WATCH_WINDOW.nextCheckSoon);
+    expect(nextCheckLabel(ahead(10), "not a date", null)).toBe(WATCH_WINDOW.nextCheckSoon);
+  });
+
+  it("rounds minutes to the nearest five under 50", () => {
+    expect(nextCheckLabel(ahead(3), NOW, null)).toBe("Next check in 5 minutes");
+    expect(nextCheckLabel(ahead(12), NOW, null)).toBe("Next check in 10 minutes");
+    // 48 rounds to 50, which is already "about an hour".
+    expect(nextCheckLabel(ahead(48), NOW, null)).toBe(WATCH_WINDOW.nextCheckHour);
+    expect(nextCheckLabel(ahead(47), NOW, null)).toBe("Next check in 45 minutes");
+  });
+
+  it("reads about an hour from exactly 50 to exactly 90 rounded minutes", () => {
+    expect(nextCheckLabel(ahead(50), NOW, null)).toBe(WATCH_WINDOW.nextCheckHour);
+    expect(nextCheckLabel(ahead(60), NOW, null)).toBe(WATCH_WINDOW.nextCheckHour);
+    expect(nextCheckLabel(ahead(90), NOW, null)).toBe(WATCH_WINDOW.nextCheckHour);
+    expect(nextCheckLabel(ahead(92), NOW, null)).toBe(WATCH_WINDOW.nextCheckHour);
+  });
+
+  it("reads hours after 90 rounded minutes", () => {
+    expect(nextCheckLabel(ahead(93), NOW, null)).toBe("Next check in 2 hours");
+    expect(nextCheckLabel(ahead(180), NOW, null)).toBe("Next check in 3 hours");
+    expect(nextCheckLabel(ahead(240), NOW, null)).toBe("Next check in 4 hours");
+  });
+
+  it("a closer watch still running wins over the next check, and a past one does not", () => {
+    const until = ahead(25);
+    expect(nextCheckLabel(ahead(48), NOW, until)).toBe(`Checking every 15 minutes until ${formatTime(until)}`);
+    expect(nextCheckLabel(null, NOW, until)).toBe(`Checking every 15 minutes until ${formatTime(until)}`);
+    expect(nextCheckLabel(ahead(48), NOW, ago(1))).toBe("Next check in about an hour");
+    expect(nextCheckLabel(ahead(20), NOW, "not a date")).toBe("Next check in 20 minutes");
+  });
+
+  it("accepts a Date for now", () => {
+    expect(nextCheckLabel(ahead(20), new Date(NOW), null)).toBe("Next check in 20 minutes");
   });
 });

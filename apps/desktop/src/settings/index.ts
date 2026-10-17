@@ -34,6 +34,8 @@ export interface GuidedSettings {
   home: boolean;
   /** A check-up starts on every launch. */
   autoScan: boolean;
+  /** The chat opens after the check-up when the connected AI answered last time; off shows the step-by-step plan first. */
+  chatHome: boolean;
 }
 
 /**
@@ -77,7 +79,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   onboarded: false,
   developer: { enabled: false, showCommands: true, showPlanExpanded: true },
-  guided: { home: true, autoScan: true },
+  guided: { home: true, autoScan: true, chatHome: true },
   watch: { enabled: true, startAtLogin: false, everyMinutes: 60, notify: true },
 };
 
@@ -169,6 +171,7 @@ export function parseSettings(raw: unknown): AppSettings {
     guided: {
       home: pickBoolean(guided["home"], d.guided.home),
       autoScan: pickBoolean(guided["autoScan"], d.guided.autoScan),
+      chatHome: pickBoolean(guided["chatHome"], d.guided.chatHome),
     },
     watch: {
       enabled: pickBoolean(watch["enabled"], d.watch.enabled),

@@ -46,6 +46,7 @@ export const noExplainer: ExplainerPort = {
   explain: async () => ({ ok: false, reason: "not_configured" }),
   prioritise: async () => ({ ok: false, reason: "not_configured" }),
   ask: async () => ({ ok: false, reason: "not_configured" }),
+  chat: async () => ({ ok: false, reason: "not_configured" }),
 };
 
 /** collect returns `state`; collectSection reads from `sectionSource` so a recheck can observe a change. */
@@ -110,6 +111,14 @@ export function fakeWatchState(overrides: Partial<WatchState> = {}): WatchState 
     unavailable: [],
     gated: [],
     items: [],
+    nextCheckAt: null,
+    lastChangeAt: null,
+    ai: { enabled: true, provider: null },
+    judge: null,
+    recentCount: 0,
+    rulesSince: null,
+    report: null,
+    next: null,
     ...overrides,
   };
 }

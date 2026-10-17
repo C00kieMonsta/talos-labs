@@ -171,6 +171,7 @@ mod tests {
         assert_eq!(webview_task(Task::Explain), Ok(()));
         assert_eq!(webview_task(Task::Prioritise), Ok(()));
         assert_eq!(webview_task(Task::Ask), Ok(()));
+        assert_eq!(webview_task(Task::Chat), Ok(()));
         assert_eq!(webview_task(Task::Watch), Err("invalid_input".to_string()));
         let request: GenerateRequest =
             serde_json::from_str(r#"{"id":"abc","task":"watch","instructions":"","prompt":""}"#)

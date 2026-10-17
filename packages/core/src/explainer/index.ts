@@ -1,17 +1,24 @@
 export { toExplainerContext, explainerEligibleRuleIds, UNKNOWN_OS_VERSION } from "./context";
 export { buildSystemPrompt, buildExplainerSystemPrompt, ACCEPTED_SENTENCE } from "./system-prompt";
-export { EXPLANATION_JSON_SCHEMA, PRIORITISATION_JSON_SCHEMA, ANSWER_JSON_SCHEMA, WATCH_JSON_SCHEMA } from "./schemas";
-export { validateExplanation, validatePrioritisation, validateAnswer, containsCommandText } from "./validate";
-export { clampQuestion, clampHistory, clampString } from "./limits";
-export { ON_DEVICE_LIMITS, ON_DEVICE_BASE_INSTRUCTIONS, buildOnDeviceInstructions, buildOnDevicePrompt } from "./on-device-prompt";
+export { EXPLANATION_JSON_SCHEMA, PRIORITISATION_JSON_SCHEMA, ANSWER_JSON_SCHEMA, WATCH_JSON_SCHEMA, CHAT_JSON_SCHEMA } from "./schemas";
+export { validateExplanation, validatePrioritisation, validateAnswer, validateChat, validateChatAnswer, containsCommandText } from "./validate";
+export type { KnownRules } from "./validate";
+export { containsAppVoice, claimsAction, replyRejected } from "./prose";
+export { clampQuestion, clampHistory, clampString, CHAT_LIMITS, clampChatHistory, clampChatQuestion } from "./limits";
+export type { ChatHistoryTarget } from "./limits";
+export { ON_DEVICE_LIMITS, ON_DEVICE_CHAT_LIMITS, ON_DEVICE_CHAT_SENTENCE, ON_DEVICE_BASE_INSTRUCTIONS, buildOnDeviceInstructions, buildOnDeviceChatInstructions, buildOnDevicePrompt } from "./on-device-prompt";
 export type { OnDevicePrompt, OnDeviceTask, OnDeviceExtra } from "./on-device-prompt";
 export {
   explainTurns,
   prioritiseTurns,
   askTurns,
   watchTurns,
+  chatTurns,
   WATCH_INSTRUCTIONS_BLOCK,
   buildWatchInstructions,
+  CHAT_INSTRUCTIONS_BLOCK,
+  plainNamesBlock,
+  buildChatInstructions,
   watchRequestBody,
   claudePromptFor,
   strictSchema,

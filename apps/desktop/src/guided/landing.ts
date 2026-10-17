@@ -1,5 +1,5 @@
 import type { GuidedPlan, GuidedStep, RuleId, ScanReport } from "@talos/core";
-import { buildGuidedPlan, clearAcceptedThatPass, diffReports } from "@talos/core";
+import { aiAvailableRecently, buildGuidedPlan, clearAcceptedThatPass, diffReports } from "@talos/core";
 import { rulePasses } from "../scan/machine";
 import type { Core } from "./core";
 import { finalPlan, openStep, writeMemory } from "./core";
@@ -26,12 +26,20 @@ export function landed(core: Core, report: ScanReport): void {
   core.watchSeen = false;
   core.paywallMoved = false;
   core.checking = false;
+  const changed = diff.fixed.length + diff.appeared.length + diff.unreadable.length > 0;
+  // The home decision (DESIGN-CHAT section 2): the chat when the chosen AI answered within the TTL and the switch is on.
+  const chatHome = settings.explainer.aiEnabled && settings.guided.chatHome && aiAvailableRecently(core.memory, settings.explainer.provider, now);
+  if (chatHome) {
+    const resumed = core.resume;
+    core.resume = false;
+    core.setPhase({ kind: "chat", plan, diff: changed ? diff : null, active: null, walking: false, resumed });
+    return;
+  }
   if (core.resume) {
     core.resume = false;
     openStep(core, plan, 0);
     return;
   }
-  const changed = diff.fixed.length + diff.appeared.length + diff.unreadable.length > 0;
   if (changed) {
     core.setPhase({ kind: "since", diff, plan });
     return;
@@ -46,14 +54,15 @@ export function landed(core: Core, report: ScanReport): void {
 /** A recheck, a watch tick or a fix changed the report: rebuild with the frozen free set and keep the place. */
 export function rebuilt(core: Core, report: ScanReport): void {
   const { phase } = core;
-  if (phase.kind !== "since" && phase.kind !== "plan" && phase.kind !== "step" && phase.kind !== "end") return;
+  if (phase.kind !== "since" && phase.kind !== "plan" && phase.kind !== "step" && phase.kind !== "end" && phase.kind !== "chat") return;
   clearPassedAcceptances(core, report);
   const { gate, settings } = core.deps;
   const old = phase.plan;
   const fresh = buildGuidedPlan(report, { freeFixes: old.freeFixes, licensed: gate.licensed }, settings.profile, core.memory, core.now());
   core.plannedReport = report;
   const steps = releaseAskedAgain(core, old, fresh, phase.kind === "step" ? phase.index : null);
-  const index = phase.kind === "step" ? steps.index : phase.kind === "end" ? steps.kept.length : 0;
+  // The chat keeps every step it has shown, settled or not, as the passed prefix: the transcript's cards keep their ids.
+  const index = phase.kind === "step" ? steps.index : phase.kind === "end" || phase.kind === "chat" ? steps.kept.length : 0;
   const held: GuidedPlan = { ...old, steps: steps.kept };
   // A paywall the person is on stays where it is (Unlock may have moved it), so the fresh plan's copy is dropped and nothing lands before it.
   const onPaywall = phase.kind === "step" && old.steps[phase.index]?.kind === "paywall";
@@ -66,6 +75,10 @@ export function rebuilt(core: Core, report: ScanReport): void {
   switch (phase.kind) {
     case "since":
       core.setPhase({ ...phase, plan });
+      return;
+    case "chat":
+      // The transcript is kept; cardFor's live check collapses a card whose item left the allow-lists.
+      core.setPhase({ ...phase, plan, active: phase.active === null || plan.steps.some((s) => s.id === phase.active?.id) ? phase.active : null });
       return;
     case "plan":
       if (plan.steps.length === 0) core.setPhase({ kind: "end", plan: finalPlan(core, plan), fixed: [...core.fixed] });

@@ -9,6 +9,7 @@ import type { ScanState } from "../../scan/machine";
 import { STATUS } from "../copy";
 import type { GuidedController, StepState } from "../state";
 import { FixStep } from "./FixStep";
+import { INERT_CHAT_BRIDGE } from "../testing";
 
 afterEach(cleanup);
 
@@ -29,6 +30,7 @@ function controller(state: StepState): GuidedController {
     enterLicence: vi.fn(async () => undefined),
     doNext: vi.fn(),
     goToPaywall: vi.fn(),
+    chat: INERT_CHAT_BRIDGE,
     keepAsking: vi.fn(),
     accept: vi.fn(),
   };
@@ -49,7 +51,9 @@ describe("FixStep activity rows", () => {
     const rows = Array.from(container.querySelectorAll("li.chat-activity-row")).map((r) => r.textContent);
     expect(rows).toEqual(["Getting readydone", "Turning it onyour password"]);
     expect(container.querySelector(".guided-status")).toBeNull();
-    expect(container.querySelector("h1")?.textContent).toBe("The firewall is off");
+    const cut = STATUS.password.indexOf(". ") + 1;
+    expect(container.querySelector("h1")?.textContent).toBe(STATUS.password.slice(0, cut));
+    expect(container.querySelector(".guided-body")?.textContent).toBe(STATUS.password.slice(cut + 1));
     expect(container.querySelectorAll(".button-primary").length).toBe(0);
   });
 

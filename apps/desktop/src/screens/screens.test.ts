@@ -36,6 +36,7 @@ import type { SettingsProps } from "./Settings";
 import { AI_ACTIONS, AI_BADGES, ASK_CONNECT, PRIVACY_SENTENCE, PRIVACY_SENTENCE_REMOTE, PROVIDER_NAMES, YOUR_AI, aiPillWord, providerLines } from "../app/labels";
 import type { Adapters } from "../adapters";
 import type { AppSettings } from "../settings";
+import { INERT_CHAT_BRIDGE } from "../guided/testing";
 
 afterEach(cleanup);
 
@@ -1745,6 +1746,7 @@ describe("Settings and the checks the person chose to leave", () => {
       enterLicence: vi.fn(async () => undefined),
       doNext: vi.fn(),
       goToPaywall: vi.fn(),
+      chat: INERT_CHAT_BRIDGE,
       keepAsking: vi.fn(),
       accept: vi.fn(),
     };

@@ -39,6 +39,7 @@ fn rust_schemas_match_the_core_fixture() {
         (Task::Prioritise, "prioritise"),
         (Task::Ask, "ask"),
         (Task::Watch, "watch"),
+        (Task::Chat, "chat"),
     ] {
         let rust: serde_json::Value = serde_json::from_str(schemas::for_task(task)).unwrap();
         assert_eq!(rust, fixture[key], "{key}");

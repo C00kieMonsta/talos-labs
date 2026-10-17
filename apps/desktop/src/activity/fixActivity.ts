@@ -67,15 +67,23 @@ function batch(cardId: string, f: Batch, now: number): ActivityEvent[] {
   const prep = (status: ActivityStatus, outcome: ActivityOutcome = null) => row(cardId, now, "preparing", "preparing", status, { outcome });
   const admin = (status: ActivityStatus, outcome: ActivityOutcome) => row(cardId, now, "fixing", "fixing", status, { ruleId: null, count: adminCount, outcome });
   const check = (status: ActivityStatus, outcome: ActivityOutcome = null) => row(cardId, now, "rechecking", "rechecking", status, { count: f.plan.recheck.length, outcome });
-  const itemRow = (index: number, status: ActivityStatus, outcome: ActivityOutcome, step: number | null = null) => {
+  const itemRow = (index: number, status: ActivityStatus, outcome: ActivityOutcome, step: number | null = null, of: number | null = null) => {
     const item = items[index];
     if (item === undefined) return null;
-    return row(cardId, now, `fixing:${item.ruleId}`, "fixing", status, { ruleId: item.ruleId, step, of: item.lines.length, outcome });
+    return row(cardId, now, `fixing:${item.ruleId}`, "fixing", status, { ruleId: item.ruleId, step, of, outcome });
   };
+  // The recheck row fails only when no item passed; the verdicts land with batch_done.
+  const verdicts = Object.values(f.byRule);
+  const checkOutcome: ActivityOutcome = verdicts.length === 0 || verdicts.some((v) => v === "pass") ? null : verdicts.every((v) => v === "unreadable") ? "unreadable" : "still_failing";
+  const checked = () => check(checkOutcome === null ? "done" : "failed", checkOutcome);
   // Rows the batch has reported so far: the admin block, then the user-level items up to `f.item`.
   const reported = (last: number | null): ActivityEvent[] => {
     const out: ActivityEvent[] = [prep("done")];
-    if (f.plan.needsPassword) out.push(admin("done", null));
+    if (f.plan.needsPassword) {
+      // Rust reads one R marker per admin item, so the block fails when any of them did.
+      const adminFailed = f.outcome?.items.find((o) => o.status === "failed" && items.some((i) => i.ruleId === o.ruleId && isAdminItem(i))) ?? null;
+      out.push(adminFailed === null ? admin("done", null) : admin("failed", adminFailed.error ?? "command_failed"));
+    }
     if (last === null) return out;
     for (let i = 0; i <= last; i += 1) {
       const item = items[i];
@@ -95,19 +103,18 @@ function batch(cardId: string, f: Batch, now: number): ActivityEvent[] {
       return [prep("done"), admin("running", "waiting_for_password")];
     case "running": {
       if (f.item === null || current === undefined || isAdminItem(current)) {
-        return f.plan.needsPassword ? [prep("done"), admin("running", "waiting_for_password")] : [prep("done")];
+        return f.plan.needsPassword ? [prep("done"), admin("running", "waiting_for_password")] : [prep("running")];
       }
-      const before = items.slice(0, f.item).reduce((sum, item) => sum + item.lines.length, 0);
-      const step = Math.min(Math.max(f.step - before, 1), current.lines.length);
-      const running = itemRow(f.item, "running", null, step);
+      // Rust counts steps inside the item (batch.rs emits j + 1 of the item's steps).
+      const running = itemRow(f.item, "running", null, Math.max(1, f.step), f.of);
       return [...reported(f.item - 1), ...(running === null ? [] : [running])];
     }
     case "rechecking":
       return [...reported(f.item), check("running")];
     case "done":
-      return [...reported(f.item), check("done")];
+      return [...reported(f.item), checked()];
     case "failed": {
-      if (f.error === null) return [...reported(f.item), check("done")];
+      if (f.error === null) return [...reported(f.item), checked()];
       if (PRE_RUN.includes(f.error)) return [prep("failed", f.error)];
       if (current !== undefined && !isAdminItem(current) && f.item !== null) {
         const failedRow = itemRow(f.item, "failed", f.error);

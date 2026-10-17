@@ -46,7 +46,7 @@ describe("useRouter", () => {
   });
 
   it("can open connect from every shell route and return to it", () => {
-    const origins: Route[] = [{ name: "guided" }, { name: "overview" }, { name: "ask" }, { name: "settings" }];
+    const origins: Route[] = [{ name: "guided" }, { name: "overview" }, { name: "chat" }, { name: "settings" }];
     for (const origin of origins) {
       const { result } = renderHook(() => useRouter(origin));
       act(() => result.current.navigate({ name: "connect", returnTo: origin }));
@@ -72,7 +72,7 @@ describe("the fishy route", () => {
   });
 
   it("can open fishy from every shell route without a start", () => {
-    const origins: Route[] = [{ name: "guided" }, { name: "overview" }, { name: "settings" }];
+    const origins: Route[] = [{ name: "guided" }, { name: "overview" }, { name: "chat" }, { name: "settings" }];
     for (const origin of origins) {
       const { result } = renderHook(() => useRouter(origin));
       act(() => result.current.navigate({ name: "fishy", returnTo: origin }));

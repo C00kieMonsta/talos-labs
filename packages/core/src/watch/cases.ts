@@ -2,17 +2,20 @@ import type { Finding, RuleId, RuleResult } from "../domain/finding";
 import type { ScanReport } from "../domain/report";
 import { evaluate } from "../engine/evaluate";
 import { toWatchContext, type WatchContextInput } from "../explainer/watch-context";
-import { buildWatchInstructions, watchRequestBody, type ResponsesRequest } from "../explainer/remote";
+import { watchRequestBody, type ResponsesRequest } from "../explainer/remote";
+import { buildWatchJudgeInstructions } from "../explainer/watch-prompt";
 import { DEV_MACHINE } from "../fixtures/dev-machine";
 import { HARDENED } from "../fixtures/hardened";
 import type { ExplainerProfile } from "../ports/explainer-port";
-import type { Change, FishyKind, Rating, SignalId, WatchContext, WatchRule, WatchSignal, WatchVerdict } from "../ports/watch-port";
+import type { Change, FishyKind, Rating, SignalId, WatchContext, WatchItem, WatchReport, WatchRule, WatchSignal, WatchState, WatchVerdict } from "../ports/watch-port";
 import { ACTION_IDS, MODEL_PROBE_IDS } from "../ports/watch-port";
 import { MACOS_CATALOG } from "../rules/macos/index";
 import { EMPTY_WATCH_MEMORY } from "./memory";
 import { applyHysteresis, boundsFor, rateWatch, topItems } from "./rate";
+import { watchReportRow } from "./report-row";
 import { GATED_SIGNALS, PAIR_SIGNALS, SIGNAL_KIND, SIGNAL_SEVERITY, STAND_ALONE_SIGNALS, type SignalReading } from "./signals";
 import { validateWatchVerdict } from "./validate";
+import { WATCH_BANNED_WORDS } from "./words";
 
 /**
  * The parity cases written to packages/core/fixtures/watch-cases.json. The contexts and raw
@@ -50,6 +53,10 @@ export const WATCH_STATUS_WORDS = {
 
 function minutesBefore(minutes: number): string {
   return new Date(Date.parse(NOW) - minutes * 60_000).toISOString();
+}
+
+function minutesAfter(minutes: number): string {
+  return minutesBefore(-minutes);
 }
 
 function sig(signalId: SignalId, over: Partial<WatchSignal> = {}): WatchSignal {
@@ -258,7 +265,15 @@ export const VALIDATE_CASES: readonly ValidateCase[] = [
   validateCase("dropped: command text in the reason", ACT_CONTEXT, { ...GOOD, ratingReason: "Run this:\n```\nls\n```" }),
   validateCase("dropped: a path in the reason", ACT_CONTEXT, { ...GOOD, ratingReason: "Look under /usr/local/bin for it." }),
   validateCase("dropped: a port in the reason", ACT_CONTEXT, { ...GOOD, ratingReason: "Something listens on :8080 now." }),
-  validateCase("dropped: a reason over 300 characters", ACT_CONTEXT, { ...GOOD, ratingReason: "a".repeat(301) }),
+  validateCase("dropped: a reason over 120 characters", ACT_CONTEXT, { ...GOOD, ratingReason: "a".repeat(121) }),
+  validateCase("kept: a reason of exactly 120 characters", ACT_CONTEXT, { ...GOOD, ratingReason: "a".repeat(120) }),
+  validateCase("dropped: an action sentence over 300 characters stays dropped, a 200-character one is kept", ACT_CONTEXT, {
+    ...GOOD,
+    actions: [
+      { actionId: "act.disconnect_network", sentence: "a".repeat(301) },
+      { actionId: "act.block_incoming", sentence: "a".repeat(200) },
+    ],
+  }),
   validateCase("dropped: a path in a probe reason", ACT_CONTEXT, { ...GOOD, probes: [{ probeId: "probe.hosts", reason: "Check ~/.zshrc too." }] }),
   ...VERBS.map((verb) => validateCase(`dropped: the verb ${verb} in an action sentence`, ACT_CONTEXT, { ...GOOD, actions: [{ actionId: "act.disconnect_network", sentence: `You should ${verb} it now.` }] })),
   validateCase("dropped: an action whose floor is above the clamped rating", LOOK_CONTEXT, { ...GOOD, rating: "keep_an_eye", basedOn: ["sig.share_count"], actions: [{ actionId: "act.disconnect_network", sentence: "" }] }),
@@ -414,10 +429,181 @@ const BODY_CONTEXT = CONTEXT_CASES[1]?.expected ?? ctx([]);
 
 export const CHATGPT_BODY_CASE: ChatgptBodyCase = {
   model: "gpt-test",
-  instructions: buildWatchInstructions(),
+  instructions: buildWatchJudgeInstructions(),
   context: BODY_CONTEXT,
-  body: watchRequestBody("gpt-test", buildWatchInstructions(), BODY_CONTEXT),
+  body: watchRequestBody("gpt-test", buildWatchJudgeInstructions(), BODY_CONTEXT),
 };
+
+export interface WindowSentenceCase {
+  readonly name: string;
+  readonly text: string;
+  readonly rating: Rating;
+  /** Hand-written; window-sentence.test.ts asserts safeWindowSentence agrees. */
+  readonly kept: boolean;
+}
+
+/** A sentence of exactly 121 characters: one over the window cap, dropped and never cut. */
+export const LONG_WINDOW_SENTENCE = `${"a".repeat(120)}.`;
+
+/** The window line cases of docs/DESIGN-WATCH-WINDOW.md section 7; Rust pins safe_window_sentence to them. */
+export const WINDOW_SENTENCE_CASES: readonly WindowSentenceCase[] = [
+  { name: "kept: what is open and why, under 120 characters", text: "The one thing still open is the update you have been putting off, and it closes the hole attackers try first.", rating: "calm", kept: true },
+  { name: "kept: a clock time is not a port", text: "It comes back at 18:00.", rating: "calm", kept: true },
+  { name: "kept: and/or is not a path", text: "Nothing here is and/or stuck.", rating: "calm", kept: true },
+  { name: "kept: malware alone is allowed", text: "A new start-up program is how malware usually stays on a Mac.", rating: "keep_an_eye", kept: true },
+  { name: "kept: a duration on keep_an_eye", text: "Three days without a change.", rating: "keep_an_eye", kept: true },
+  { name: "dropped: a duration on calm", text: "Three days without a change.", rating: "calm", kept: false },
+  { name: "dropped: the app's voice", text: "I'll keep an eye on it for you.", rating: "calm", kept: false },
+  { name: "dropped: a reassurance word", text: "Your Mac is safe for now.", rating: "calm", kept: false },
+  { name: "dropped: no malware", text: "There is no malware here.", rating: "calm", kept: false },
+  { name: "dropped: an action claim", text: "Done, the firewall is back on.", rating: "keep_an_eye", kept: false },
+  { name: "dropped: an imperative start", text: "Turn the firewall on first.", rating: "keep_an_eye", kept: false },
+  { name: "dropped: a banned word", text: "A new rule appeared.", rating: "keep_an_eye", kept: false },
+  { name: "dropped: a path", text: "~/Library/LaunchAgents changed.", rating: "keep_an_eye", kept: false },
+  { name: "dropped: a port", text: "port :8080 opened.", rating: "keep_an_eye", kept: false },
+  { name: "dropped: a 121-character sentence", text: LONG_WINDOW_SENTENCE, rating: "keep_an_eye", kept: false },
+  { name: "dropped: two sentences", text: "Two things changed. One of them is new.", rating: "keep_an_eye", kept: false },
+  { name: "dropped: empty", text: "", rating: "calm", kept: false },
+];
+
+export interface HeightCase {
+  readonly name: string;
+  readonly state: WatchState;
+  /** Hand-computed from the sum rule of docs/DESIGN-WATCH-WINDOW.md contract F. */
+  readonly height: number;
+}
+
+/** The judge lines the demo shows; each passes safeWindowSentence for its rating (pinned in the tests). */
+export const DEMO_REASONS: Readonly<Record<Rating, string>> = {
+  calm: "The one thing still open is your unlocked disk, and it matters most on a laptop that leaves the house.",
+  keep_an_eye: "Two start-up changes in a day is more than this Mac usually sees.",
+  act_now: "A new start-up program and a new open port appeared within the same hour.",
+};
+
+const DEMO_REPORT_ID = "demo-report";
+const DEMO_REPORT: WatchReport = { reportId: DEMO_REPORT_ID, scannedAt: minutesBefore(120), score: 72, grade: "fair" };
+const DEMO_NEXT: WatchState["next"] = { reportId: DEMO_REPORT_ID, ruleId: "TL-MAC-001", kind: "fix" };
+const DEMO_AI: WatchState["ai"] = { enabled: true, provider: "chatgpt" };
+
+function judge(rating: Rating): WatchState["judge"] {
+  return { provider: "chatgpt", at: minutesBefore(12), rating, reason: DEMO_REASONS[rating] };
+}
+
+function item(signalId: SignalId, kind: FishyKind, over: Partial<WatchItem> = {}): WatchItem {
+  const severity = SIGNAL_SEVERITY[signalId];
+  return {
+    signalId,
+    kind,
+    severity,
+    points: { critical: 10, high: 6, medium: 3, low: 1, info: 0 }[severity],
+    change: "changed",
+    changedAt: minutesBefore(30),
+    gated: false,
+    snoozedUntil: null,
+    hasStartupEntry: false,
+    isListener: false,
+    actionIds: [],
+    modelSentence: null,
+    modelProvider: null,
+    ...over,
+  };
+}
+
+const LOOK_ITEMS: readonly WatchItem[] = [item("sig.persistence_new", "persistence", { hasStartupEntry: true })];
+const ACT_ITEMS: readonly WatchItem[] = [
+  item("sig.persistence_new", "persistence", { hasStartupEntry: true }),
+  item("sig.listener_new_ports", "listener", { isListener: true }),
+  item("sig.cron_lines", "persistence"),
+];
+
+/** The three socket-table probes an unsigned build cannot read. */
+const UNREADABLE: WatchState["unavailable"] = [
+  { probeId: "probe.listeners", reason: "unsigned_build" },
+  { probeId: "probe.remote_access", reason: "unsigned_build" },
+  { probeId: "probe.file_sharing", reason: "unsigned_build" },
+];
+const UNREADABLE_ONE: WatchState["unavailable"] = [{ probeId: "probe.listeners", reason: "unsigned_build" }];
+
+/** A full calm WatchState on the demo machine; every key present so Rust's serde and the window's parser see whole states. */
+export function baseState(over: Partial<WatchState> = {}): WatchState {
+  return {
+    enabled: true,
+    licensed: true,
+    firstRun: false,
+    hiddenLaunch: false,
+    rating: "calm",
+    since: minutesBefore(3 * 24 * 60),
+    lastCheckAt: minutesBefore(12),
+    checking: false,
+    cycleIndex: 7,
+    everyMinutes: 60,
+    notify: true,
+    pausedUntil: null,
+    closeWatchUntil: null,
+    unavailable: [],
+    gated: [],
+    items: [],
+    nextCheckAt: minutesAfter(48),
+    lastChangeAt: minutesBefore(3 * 24 * 60),
+    ai: DEMO_AI,
+    judge: null,
+    recentCount: 0,
+    rulesSince: null,
+    report: DEMO_REPORT,
+    next: DEMO_NEXT,
+    ...over,
+  };
+}
+
+function heightCase(name: string, height: number, over: Partial<WatchState>): HeightCase {
+  return { name, state: baseState(over), height };
+}
+
+/** The sixteen named states of contract F; the heights are written by hand from the sum rule. */
+export const HEIGHT_CASES: readonly HeightCase[] = [
+  heightCase("first-run", 170, { firstRun: true, since: null, lastCheckAt: null, cycleIndex: 0, nextCheckAt: null, lastChangeAt: null, report: null, next: null }),
+  heightCase("paused", 152, { pausedUntil: minutesAfter(60) }),
+  heightCase("calm-reason", 332, { judge: judge("calm") }),
+  heightCase("calm", 280, {}),
+  heightCase("calm-unreadable", 400, { judge: judge("calm"), unavailable: UNREADABLE }),
+  heightCase("calm-not-connected", 288, { ai: { enabled: false, provider: null } }),
+  heightCase("calm-no-ai", 228, { ai: { enabled: false, provider: "chatgpt" } }),
+  heightCase("calm-no-report", 252, { report: null, next: null }),
+  heightCase("look-reason", 396, { rating: "keep_an_eye", since: minutesBefore(30), items: LOOK_ITEMS, recentCount: 1, lastChangeAt: minutesBefore(30), judge: judge("keep_an_eye") }),
+  heightCase("look-reason-no-link", 356, { rating: "keep_an_eye", since: minutesBefore(30), items: LOOK_ITEMS, recentCount: 1, lastChangeAt: minutesBefore(30), judge: judge("keep_an_eye"), ai: { enabled: false, provider: "chatgpt" } }),
+  heightCase("look", 316, { rating: "keep_an_eye", since: minutesBefore(30), items: LOOK_ITEMS, recentCount: 1, lastChangeAt: minutesBefore(30) }),
+  heightCase("look-plain", 276, { rating: "keep_an_eye", since: minutesBefore(30), items: LOOK_ITEMS, recentCount: 1, lastChangeAt: minutesBefore(30), ai: { enabled: false, provider: "chatgpt" } }),
+  heightCase("look-empty", 324, { rating: "keep_an_eye", since: minutesBefore(30), recentCount: 1, rulesSince: { reportId: DEMO_REPORT_ID, appeared: 1 }, judge: judge("keep_an_eye") }),
+  heightCase("act-reason", 404, { rating: "act_now", since: minutesBefore(30), items: ACT_ITEMS, recentCount: 3, lastChangeAt: minutesBefore(30), judge: judge("act_now") }),
+  heightCase("act", 324, { rating: "act_now", since: minutesBefore(30), items: ACT_ITEMS, recentCount: 3, lastChangeAt: minutesBefore(30) }),
+  heightCase("act-reason-unreadable", 420, { rating: "act_now", since: minutesBefore(30), items: ACT_ITEMS, recentCount: 3, lastChangeAt: minutesBefore(30), judge: judge("act_now"), unavailable: UNREADABLE_ONE }),
+];
+
+export interface ReportRowCase {
+  readonly name: string;
+  readonly report: unknown;
+  readonly row: WatchReport | null;
+}
+
+function reportRowCase(name: string, report: unknown): ReportRowCase {
+  return { name, report, row: watchReportRow(report) };
+}
+
+/** A real evaluate() report with the id and score the cases need; the nested score shape is the engine's. */
+const ROW_REPORT: ScanReport = { ...REPORT, reportId: "r-1", score: { ...REPORT.score, value: 72, grade: "fair" } };
+
+/** The last-report.json shapes Rust context::report_row and watchReportRow must read alike. */
+export const REPORT_ROW_CASES: readonly ReportRowCase[] = [
+  reportRowCase("a real report gives the flat row", ROW_REPORT),
+  reportRowCase("a null score value and grade give null fields", { ...ROW_REPORT, score: { ...ROW_REPORT.score, value: null, grade: null } }),
+  reportRowCase("a bare number for score nulls the fields, not the row", { ...ROW_REPORT, score: 72 }),
+  reportRowCase("a score value over 100 is null", { ...ROW_REPORT, score: { ...ROW_REPORT.score, value: 101 } }),
+  reportRowCase("a grade outside the four words is null", { ...ROW_REPORT, score: { ...ROW_REPORT.score, grade: "great" } }),
+  reportRowCase("a report id with a space and a bang is no row", { ...ROW_REPORT, reportId: "bad id!" }),
+  reportRowCase("a report id of 65 characters is no row", { ...ROW_REPORT, reportId: "r".repeat(65) }),
+  reportRowCase("a scannedAt that does not parse is no row", { ...ROW_REPORT, scannedAt: "yesterday" }),
+  reportRowCase("no report id is no row", (({ reportId: _dropped, ...rest }) => rest)(ROW_REPORT)),
+];
 
 export interface WatchCases {
   readonly signalSeverity: typeof SIGNAL_SEVERITY;
@@ -432,6 +618,10 @@ export interface WatchCases {
   readonly validate: readonly ValidateCase[];
   readonly contexts: readonly ContextCase[];
   readonly chatgptBody: ChatgptBodyCase;
+  readonly bannedWords: readonly string[];
+  readonly windowSentences: readonly WindowSentenceCase[];
+  readonly heights: readonly HeightCase[];
+  readonly reportRows: readonly ReportRowCase[];
 }
 
 export const WATCH_CASES: WatchCases = {
@@ -447,6 +637,10 @@ export const WATCH_CASES: WatchCases = {
   validate: VALIDATE_CASES,
   contexts: CONTEXT_CASES,
   chatgptBody: CHATGPT_BODY_CASE,
+  bannedWords: WATCH_BANNED_WORDS,
+  windowSentences: WINDOW_SENTENCE_CASES,
+  heights: HEIGHT_CASES,
+  reportRows: REPORT_ROW_CASES,
 };
 
 /** The JSON written to packages/core/fixtures/watch-cases.json. Keys stay in declaration order. */

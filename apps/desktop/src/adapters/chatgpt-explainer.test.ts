@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEV_MACHINE, MACOS_CATALOG, buildExplainerSystemPrompt, evaluate, explainTurns, responsesRequestBody, toExplainerContext } from "@talos/core";
-import type { Explanation, SystemState } from "@talos/core";
+import { DEV_MACHINE, MACOS_CATALOG, buildChatInstructions, buildExplainerSystemPrompt, chatTurns, evaluate, explainTurns, responsesRequestBody, toExplainerContext } from "@talos/core";
+import type { ChatResult, Explanation, SystemState } from "@talos/core";
 import { DEFAULT_SETTINGS } from "../settings";
 import { CHATGPT_PARTIAL_EVERY_MS, CHATGPT_RESPONSES_URL, ChatGptExplainerAdapter, LIMIT_TTL_MS } from "./chatgpt-explainer";
-import { TEST_CONTEXT, TEST_REPORT, VALID_ANSWER, VALID_EXPLANATION, VALID_PRIORITISATION } from "./test-fixtures";
+import { TEST_CHAT_CALL, TEST_CONTEXT, TEST_REPORT, VALID_ANSWER, VALID_CHAT, VALID_EXPLANATION, VALID_PRIORITISATION } from "./test-fixtures";
 
 const NOW = "2026-10-16T12:00:00.000Z";
 const TOKEN = "eyJ-secret-access-token-7f3a";
@@ -264,6 +264,69 @@ describe("ChatGptExplainerAdapter streaming", () => {
     const pending = h.adapter.explain(explainInput);
     await vi.advanceTimersByTimeAsync(90_000);
     expect(await pending).toEqual({ ok: false, reason: "timeout" });
+  });
+});
+
+describe("ChatGptExplainerAdapter chat", () => {
+  it("sends the chat instructions and the chat envelope under the chat schema, forwards { reply } partials, validates the intents", async () => {
+    const h = harness();
+    h.fetchMock.mockResolvedValueOnce(sse(streamed(VALID_CHAT, 4)));
+    const partials: Partial<ChatResult>[] = [];
+    const result = await h.adapter.chat(TEST_CHAT_CALL, { onPartial: (p) => partials.push(p) });
+    expect(result).toEqual({ ok: true, value: { ...VALID_CHAT, locked: [] } });
+    expect(h.sentBodies()[0]).toBe(JSON.stringify(responsesRequestBody("chat", "gpt-5-account", buildChatInstructions(MACOS_CATALOG), chatTurns(TEST_CHAT_CALL.input))));
+    const body = JSON.parse(h.sentBodies()[0] ?? "{}") as { instructions: string; input: { content: string }[]; text: { format: { name: string } } };
+    expect(body.instructions).toContain("For the chat task");
+    expect(body.instructions).toContain("TL-MAC-001: Your disk is not locked");
+    expect(body.text.format.name).toBe("chat");
+    expect(body.input.at(-1)?.content).toContain('"task":"chat"');
+    expect(body.input.at(-1)?.content).not.toContain("locked");
+    expect(partials.length).toBeGreaterThan(0);
+    for (const partial of partials) expect(Object.keys(partial)).toEqual(["reply"]);
+    expect(VALID_CHAT.reply.startsWith(String(partials[0]?.reply))).toBe(true);
+  });
+
+  it("an app-voice partial aborts the stream as rejected_output before the text is shown further", async () => {
+    const h = harness();
+    const bad = { ...VALID_CHAT, reply: "Done. I have turned your firewall on for you." };
+    const text = JSON.stringify(bad);
+    h.fetchMock.mockResolvedValueOnce(sse([delta(text.slice(0, 20)), delta(text.slice(20)), completed(bad)]));
+    const partials: Partial<ChatResult>[] = [];
+    expect(await h.adapter.chat(TEST_CHAT_CALL, { onPartial: (p) => partials.push(p) })).toEqual({ ok: false, reason: "rejected_output" });
+    expect(h.sentInit().signal?.aborted).toBe(true);
+    expect(partials).toEqual([]);
+  });
+
+  it("response.incomplete is rejected_output and leaves availability alone; the usage-limit failed event is limit_reached and cached", async () => {
+    const h = harness();
+    h.fetchMock.mockResolvedValueOnce(sse([delta("{"), 'event: response.incomplete\ndata: {"type":"response.incomplete"}\n\n']));
+    expect(await h.adapter.chat(TEST_CHAT_CALL)).toEqual({ ok: false, reason: "rejected_output" });
+    // Nothing is cached, so availability asks Rust and gets the live answer.
+    expect(await h.adapter.availability()).toBe("available");
+    h.fetchMock.mockResolvedValueOnce(sse([delta("{"), 'event: response.failed\ndata: {"type":"response.failed","response":{"error":{"code":"subscription_sharing_usage_limit_exceeded"}}}\n\n']));
+    expect(await h.adapter.chat(TEST_CHAT_CALL)).toEqual({ ok: false, reason: "limit_reached" });
+    const probes = h.invoke.mock.calls.filter((c) => c[0] === "ai_provider_status").length;
+    expect(await h.adapter.availabilityDetail()).toEqual({ state: "limit_reached", until: null });
+    expect(h.invoke.mock.calls.filter((c) => c[0] === "ai_provider_status")).toHaveLength(probes);
+  });
+
+  it("in the plainOutput session the chat sends the ask word and reads the ask shape with no intents", async () => {
+    const h = harness();
+    h.fetchMock
+      .mockResolvedValueOnce(errorResponse(400, { error: { code: "subscription_sharing_unsupported_capability", message: "no" } }))
+      .mockResolvedValueOnce(sse(streamed(VALID_EXPLANATION)))
+      .mockResolvedValueOnce(sse(streamed({ answer: "Your disk is not locked. Use the button below.", relatedRuleIds: ["TL-MAC-001", "TL-MAC-999"], outsideScope: false })));
+    expect(await h.adapter.explain(explainInput)).toEqual({ ok: true, value: VALID_EXPLANATION });
+    const partials: Partial<ChatResult>[] = [];
+    const result = await h.adapter.chat(TEST_CHAT_CALL, { onPartial: (p) => partials.push(p) });
+    expect(result).toEqual({ ok: true, value: { reply: "Your disk is not locked. Use the button below.", relatedRuleIds: ["TL-MAC-001"], outsideScope: false, intents: [], locked: [] } });
+    const body = JSON.parse(h.sentBodies()[2] ?? "{}") as { instructions: string; input: { content: string }[]; text?: unknown };
+    expect(body.text).toBeUndefined();
+    expect(body.instructions).toBe(buildChatInstructions(MACOS_CATALOG));
+    expect(body.input.at(-1)?.content).toContain('"task":"ask"');
+    expect(body.input.at(-1)?.content).toContain('"allowed":');
+    expect(partials.length).toBeGreaterThan(0);
+    for (const partial of partials) expect(Object.keys(partial)).toEqual(["reply"]);
   });
 });
 

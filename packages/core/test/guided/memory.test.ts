@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AI_ASK_AGAIN_MS, EMPTY_GUIDED_MEMORY, aiAskedRecently, parseGuidedMemory } from "../../src/guided/memory";
+import { AI_ASK_AGAIN_MS, AI_LAST_AVAILABLE_TTL_MS, EMPTY_GUIDED_MEMORY, aiAskedRecently, aiAvailableRecently, parseGuidedMemory } from "../../src/guided/memory";
 
 describe("parseGuidedMemory", () => {
   it("null, a string and an array give the empty memory", () => {
@@ -25,6 +25,7 @@ describe("parseGuidedMemory", () => {
       permissionAskedAt: { full_disk_access: "2026-10-15T10:00:00.000Z" },
       aiAskedAt: "2026-10-14T10:00:00.000Z",
       accepted: { "TL-MAC-001": "2026-10-10T09:00:00.000Z" },
+      aiLastAvailable: { provider: "chatgpt", at: "2026-10-16T09:00:00.000Z" },
       extra: "ignored",
       lastStep: 3,
     };
@@ -45,6 +46,7 @@ describe("parseGuidedMemory", () => {
       permissionAskedAt: { full_disk_access: "2026-10-15T10:00:00.000Z", camera: "2026-10-15T10:00:00.000Z", automation: 3 },
       aiAskedAt: "yesterday",
       accepted: { "TL-MAC-001": "2026-10-10T09:00:00.000Z", "TL-MAC-002": "last week", "/Users/alice": "2026-10-10T09:00:00.000Z" },
+      aiLastAvailable: { provider: "chatgpt", at: "not a date" },
     });
     expect(parsed).toEqual({
       version: 1,
@@ -56,7 +58,18 @@ describe("parseGuidedMemory", () => {
       permissionAskedAt: { full_disk_access: "2026-10-15T10:00:00.000Z" },
       aiAskedAt: null,
       accepted: { "TL-MAC-001": "2026-10-10T09:00:00.000Z" },
+      aiLastAvailable: null,
     });
+  });
+
+  it("reads aiLastAvailable as a known provider with a date, else null", () => {
+    expect(EMPTY_GUIDED_MEMORY.aiLastAvailable).toBeNull();
+    expect(parseGuidedMemory({ version: 1 }).aiLastAvailable).toBeNull();
+    expect(parseGuidedMemory({ version: 1, aiLastAvailable: { provider: "claude_plan", at: "2026-10-16T09:00:00.000Z" } }).aiLastAvailable).toEqual({ provider: "claude_plan", at: "2026-10-16T09:00:00.000Z" });
+    expect(parseGuidedMemory({ version: 1, aiLastAvailable: { provider: "none", at: "2026-10-16T09:00:00.000Z" } }).aiLastAvailable).toBeNull();
+    expect(parseGuidedMemory({ version: 1, aiLastAvailable: { provider: "chatgpt" } }).aiLastAvailable).toBeNull();
+    expect(parseGuidedMemory({ version: 1, aiLastAvailable: "chatgpt" }).aiLastAvailable).toBeNull();
+    expect(parseGuidedMemory({ version: 1, aiLastAvailable: { provider: "chatgpt", at: "2026-10-16T09:00:00.000Z", extra: 1 } }).aiLastAvailable).toEqual({ provider: "chatgpt", at: "2026-10-16T09:00:00.000Z" });
   });
 
   it("accepted holds rule ids and dates only, and an older memory loads with an empty map", () => {
@@ -96,5 +109,26 @@ describe("aiAskedRecently", () => {
   it("treats an unparseable date as never asked", () => {
     expect(aiAskedRecently({ aiAskedAt: "soon" }, now)).toBe(false);
     expect(aiAskedRecently({ aiAskedAt: now }, "soon")).toBe(false);
+  });
+});
+
+describe("aiAvailableRecently", () => {
+  const now = "2026-10-16T12:00:00.000Z";
+
+  it("is false with nothing stored or another provider", () => {
+    expect(aiAvailableRecently(EMPTY_GUIDED_MEMORY, "chatgpt", now)).toBe(false);
+    expect(aiAvailableRecently({ aiLastAvailable: { provider: "claude_plan", at: now } }, "chatgpt", now)).toBe(false);
+  });
+
+  it("is true inside the 7 day window and false at or past it", () => {
+    expect(AI_LAST_AVAILABLE_TTL_MS).toBe(7 * 24 * 60 * 60 * 1000);
+    expect(aiAvailableRecently({ aiLastAvailable: { provider: "chatgpt", at: now } }, "chatgpt", now)).toBe(true);
+    expect(aiAvailableRecently({ aiLastAvailable: { provider: "chatgpt", at: "2026-10-10T12:00:00.000Z" } }, "chatgpt", now)).toBe(true);
+    expect(aiAvailableRecently({ aiLastAvailable: { provider: "chatgpt", at: "2026-10-09T12:00:00.000Z" } }, "chatgpt", now)).toBe(false);
+  });
+
+  it("treats an unparseable date as never", () => {
+    expect(aiAvailableRecently({ aiLastAvailable: { provider: "apple", at: "soon" } }, "apple", now)).toBe(false);
+    expect(aiAvailableRecently({ aiLastAvailable: { provider: "apple", at: now } }, "apple", "soon")).toBe(false);
   });
 });

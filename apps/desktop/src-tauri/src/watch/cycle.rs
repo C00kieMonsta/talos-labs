@@ -15,7 +15,9 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 
 use super::baseline::{Baseline, Entry, Observed as StoredObserved, RuleSnapshot, StoredValue};
-use super::context::{ContextInput, ContextMemory, RecentEntry, minutes_between, to_watch_context};
+use super::context::{
+    ContextInput, ContextMemory, RecentEntry, minutes_between, report_row, to_watch_context,
+};
 use super::notify;
 use super::playbook::PLAYBOOK;
 use super::probes::{self, MemberDetail, Observation, Observed, ProbeOutcome, SWEEP_BUDGET};
@@ -23,15 +25,15 @@ use super::rate::{Hysteresis, apply_hysteresis, bounds_for, rate_watch, top_item
 use super::settings::WatchSettingsFile;
 use super::signals::{self, CodesignOutcome, kind_of};
 use super::types::{
-    GateAnswer, ReadingKind, SignalReading, WatchContext, WatchCycle, WatchDetailsItem,
-    WatchLastVerdict, WatchVerdict,
+    GateAnswer, ReadingKind, RuleChange, SignalReading, WatchContext, WatchCycle,
+    WatchDetailsItem, WatchLastVerdict, WatchVerdict,
 };
 use super::validate;
 use super::{
-    Change, FishyKind, Freshness, ModelProvider, Rating, SignalId, UnavailableProbe, WatchItem,
-    WatchStore,
+    Change, FishyKind, Freshness, JudgeLine, ModelProvider, ProbeReason, Rating, RulesSince,
+    SignalId, UnavailableProbe, WatchItem, WatchStore,
 };
-use crate::state::{Os, UnavailableReason};
+use crate::state::Os;
 
 pub const STATE_EVENT: &str = "watch:state";
 pub const CYCLE_EVENT: &str = "watch:cycle";
@@ -47,6 +49,8 @@ pub const SNOOZE_MS: i64 = 14 * 24 * 60 * 60 * 1000;
 pub const CLOSE_WATCH_MS: i64 = 24 * 60 * 60 * 1000;
 pub const CLOSE_WATCH_MINUTES: u32 = 15;
 pub const MAX_MODEL_PROBES: usize = 3;
+/// While the floor holds at keep_an_eye the judge is asked again this often, not every tick.
+pub const LOOK_RECALL_MS: i64 = 6 * 60 * 60 * 1000;
 
 /// Verifies the programs new launch items name; injected so tests never run `codesign`.
 pub type Codesign<'a> = &'a dyn Fn(&[Option<String>]) -> Vec<Option<CodesignOutcome>>;
@@ -240,7 +244,7 @@ pub fn compare(
 ) -> Compared {
     let now_ms = ms_of(now).unwrap_or(0);
     let mut observed: BTreeMap<SignalId, Observed> = BTreeMap::new();
-    let mut unavailable_signals: BTreeMap<SignalId, UnavailableReason> = BTreeMap::new();
+    let mut unavailable_signals: BTreeMap<SignalId, ProbeReason> = BTreeMap::new();
     let mut unavailable = Vec::new();
     for outcome in outcomes {
         match &outcome.result {
@@ -606,6 +610,30 @@ pub fn prepare(baseline: &mut Baseline, input: &PrepareInput<'_>) -> (WatchConte
         },
         last_verdict: input.last_verdict,
     });
+    // The appeared count is taken on the first cycle after a new check-up (the only cycle whose
+    // diff is non-empty, since the watch's own full check never writes last-report.json) and
+    // kept until the report id changes; no report, or an id that fails the shape, clears it.
+    baseline.rules_since = match input.report.and_then(report_row) {
+        Some(row) => {
+            let same = baseline
+                .rules_since
+                .as_ref()
+                .is_some_and(|r| r.report_id == row.report_id);
+            if same {
+                baseline.rules_since.take()
+            } else {
+                Some(RulesSince {
+                    report_id: row.report_id,
+                    appeared: context
+                        .rules
+                        .iter()
+                        .filter(|r| r.change == RuleChange::Appeared)
+                        .count() as u32,
+                })
+            }
+        }
+        None => None,
+    };
     if let Some(report) = input.report {
         baseline.rules = snapshot_of(report);
     }
@@ -624,12 +652,17 @@ pub fn prepare(baseline: &mut Baseline, input: &PrepareInput<'_>) -> (WatchConte
     (context, compared)
 }
 
-/// Whether the model gate is open: the switch, the daily cap, and something worth a call.
+/// Whether the model gate is open: the switch, the daily cap, and something worth a call. A
+/// change since the last call, a day passed, a follow-up (the previous cycle ran model-chosen
+/// probes, so this sweep holds the answer the model asked for), or the floor at keep_an_eye
+/// with the last call older than `LOOK_RECALL_MS`. The old rule opened on every tick while the
+/// floor held, which spent the cap in six hours at the 15-minute interval.
 pub fn model_gate(
     baseline: &Baseline,
     context: &WatchContext,
     settings: &WatchSettingsFile,
     now: DateTime<Utc>,
+    follow_up: bool,
 ) -> bool {
     if !settings.ai.enabled || context.cycle.index == 0 {
         return false;
@@ -648,7 +681,56 @@ pub fn model_gate(
         (None, _) => false,
     };
     let day_passed = last_call.is_none_or(|call| now_ms - call >= ACCEPT_AFTER_MS);
-    changed_since || context.floor.rank() >= Rating::KeepAnEye.rank() || day_passed
+    let look_recall = context.floor.rank() >= Rating::KeepAnEye.rank()
+        && last_call.is_none_or(|call| now_ms - call >= LOOK_RECALL_MS);
+    changed_since || day_passed || follow_up || look_recall
+}
+
+/// `baseline.recent` entries within the last 24 h, for the window's "N changes in the last day".
+pub fn recent_count(baseline: &Baseline, now: DateTime<Utc>) -> u32 {
+    let now_ms = now.timestamp_millis();
+    baseline
+        .recent
+        .iter()
+        .filter(|entry| {
+            ms_of(&entry.at).is_some_and(|at| (0..ACCEPT_AFTER_MS).contains(&(now_ms - at)))
+        })
+        .count() as u32
+}
+
+/// The judge's window line from this cycle's call: the validated reason when it survived
+/// `safe_window_sentence` and the verdict's rating equals the shown rating.
+pub fn judge_line(
+    judged: Option<(&WatchVerdict, ModelProvider)>,
+    shown: Rating,
+    started: &str,
+) -> Option<JudgeLine> {
+    judged
+        .filter(|(v, _)| !v.rating_reason.is_empty() && v.rating == shown)
+        .map(|(v, provider)| JudgeLine {
+            provider,
+            at: started.to_owned(),
+            rating: v.rating,
+            reason: v.rating_reason.clone(),
+        })
+}
+
+/// The judge line after a cycle (DESIGN-WATCH-WINDOW section 3, "Cache and currency"): a kept
+/// reason replaces it; with none, it is cleared when the gate opened (no provider, busy, limit,
+/// rejected, dropped), when a change was recorded, or when the shown rating moved; otherwise
+/// the previous line stands.
+pub fn next_judge(
+    current: Option<JudgeLine>,
+    kept: Option<JudgeLine>,
+    gate_open: bool,
+    change_moved: bool,
+    rating_changed: bool,
+) -> Option<JudgeLine> {
+    match kept {
+        Some(line) => Some(line),
+        None if gate_open || change_moved || rating_changed => None,
+        None => current,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1125,12 +1207,17 @@ pub fn run_once(app: &AppHandle, now: DateTime<Utc>) {
     }
     let manual = store.manual_requested.load(Ordering::SeqCst);
     let refresh = store.refresh_requested.load(Ordering::SeqCst);
-    let paused = store
-        .snapshot()
-        .paused_until
+    let paused_until = store.snapshot().paused_until;
+    let paused = paused_until
         .as_deref()
         .and_then(ms_of)
         .is_some_and(|until| until > now.timestamp_millis());
+    if paused_until.is_some() && !paused {
+        // The loop clears a finished pause on its own wake (`watch::ends_pause`); this is the
+        // fallback for a cycle that lands first, so the window never reads "paused" past the hour.
+        store.update(|s| s.paused_until = None);
+        publish(app, &store);
+    }
     if pause_holds(paused, refresh) {
         // A manual check lifts the pause before it wakes the loop; a request that lands here was
         // overtaken by "Pause for an hour" and is dropped with the window told so.
@@ -1169,6 +1256,8 @@ pub fn run_once(app: &AppHandle, now: DateTime<Utc>) {
             return;
         }
     }
+    // The rating the window shows going in: the judge line goes when it moves.
+    let previous_rating = store.snapshot().rating;
     store.update(|s| {
         s.checking = true;
     });
@@ -1176,6 +1265,8 @@ pub fn run_once(app: &AppHandle, now: DateTime<Utc>) {
     let started = iso(now);
 
     let pending = std::mem::take(&mut *store.pending.lock().unwrap_or_else(|p| p.into_inner()));
+    // Model-chosen probes ran last cycle: this sweep holds what the model asked for.
+    let follow_up = !pending.is_empty();
     let outcomes = merge_pending(
         probes::run_sweep(&probes::sweep_probes(), SWEEP_BUDGET),
         pending,
@@ -1219,6 +1310,7 @@ pub fn run_once(app: &AppHandle, now: DateTime<Utc>) {
     // The copy is taken after the long reads, so the commands' edits land on the live baseline
     // until here and are replayed onto the copy before it is saved.
     let mut baseline = store.begin_cycle(dir.as_deref());
+    let change_before = baseline.last_change_at.clone();
     if full_check {
         baseline.last_full_check_at = Some(started.clone());
     }
@@ -1249,7 +1341,8 @@ pub fn run_once(app: &AppHandle, now: DateTime<Utc>) {
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .is_some_and(|until| until > now);
-    if model_gate(&baseline, &context, &settings, now)
+    let gate_open = model_gate(&baseline, &context, &settings, now, follow_up);
+    if gate_open
         && !limit_blocked
         && let Some(judge) = choose_judge(app, &settings)
     {
@@ -1272,8 +1365,8 @@ pub fn run_once(app: &AppHandle, now: DateTime<Utc>) {
             }
         }
     }
-    if let Some((v, _)) = &judged {
-        store.remember_verdict(v.clone(), now);
+    if let Some((v, p)) = &judged {
+        store.remember_verdict(v.clone(), now, *p);
     }
     let conclusion = conclude(
         &mut baseline,
@@ -1298,6 +1391,15 @@ pub fn run_once(app: &AppHandle, now: DateTime<Utc>) {
     *store.last_context.lock().unwrap_or_else(|p| p.into_inner()) = Some(context);
     let finished = iso(Utc::now());
     let index = baseline.cycle_index;
+    let kept = judge_line(
+        judged.as_ref().map(|(v, p)| (v, *p)),
+        conclusion.rating,
+        &started,
+    );
+    let change_moved = baseline.last_change_at != change_before;
+    let rating_changed = conclusion.rating != previous_rating;
+    let recent = recent_count(&baseline, now);
+    let report_row = report.as_ref().and_then(report_row);
     store.update(|s| {
         s.checking = false;
         s.first_run = false;
@@ -1309,6 +1411,17 @@ pub fn run_once(app: &AppHandle, now: DateTime<Utc>) {
         s.unavailable = unavailable.clone();
         s.gated = conclusion.gated.clone();
         s.items = conclusion.items.clone();
+        s.judge = next_judge(
+            s.judge.take(),
+            kept.clone(),
+            gate_open,
+            change_moved,
+            rating_changed,
+        );
+        s.last_change_at = baseline.last_change_at.clone();
+        s.recent_count = recent;
+        s.rules_since = baseline.rules_since.clone();
+        s.report = report_row.clone();
     });
     publish(app, &store);
     let _ = app.emit(
@@ -1349,7 +1462,7 @@ fn run_model_probes(store: &WatchStore, verdict: &WatchVerdict) {
             continue;
         }
         let result = probes::run_probe(row.id, &std::sync::atomic::AtomicBool::new(false))
-            .map_err(|f| f.reason);
+            .map_err(|f| probes::reason_of(&f));
         ran.push(ProbeOutcome {
             probe: row.id,
             result,
@@ -1468,7 +1581,7 @@ mod tests {
             ),
             ProbeOutcome {
                 probe: ProbeId::Listeners,
-                result: Err(UnavailableReason::PermissionDenied),
+                result: Err(ProbeReason::PermissionDenied),
             },
         ]
     }
@@ -1573,7 +1686,7 @@ mod tests {
             compared.unavailable,
             vec![UnavailableProbe {
                 probe_id: ProbeId::Listeners,
-                reason: UnavailableReason::PermissionDenied
+                reason: ProbeReason::PermissionDenied
             }]
         );
         assert!(baseline.baselines.contains_key(&SignalId::PersistenceSet));
@@ -1599,7 +1712,7 @@ mod tests {
         assert_eq!(conclusion.notify, None);
         assert_eq!(baseline.cycle_index, 1);
         assert!(
-            !model_gate(&baseline, &context, &settings, at(T0)),
+            !model_gate(&baseline, &context, &settings, at(T0), false),
             "no call on the first cycle"
         );
     }
@@ -1658,7 +1771,7 @@ mod tests {
         assert_eq!(conclusion.items[0].signal_id, SignalId::PersistenceNew);
         assert!(conclusion.items[0].has_startup_entry);
         assert_eq!(conclusion.notify, None, "look never notifies");
-        assert!(model_gate(&baseline, &context, &settings, at(T1)));
+        assert!(model_gate(&baseline, &context, &settings, at(T1), false));
 
         let mut third = sweep(
             vec![
@@ -2724,17 +2837,14 @@ mod tests {
         )];
         let gone = vec![ProbeOutcome {
             probe: ProbeId::Firewall,
-            result: Err(UnavailableReason::ToolMissing),
+            result: Err(ProbeReason::ToolMissing),
         }];
         cycle(&mut baseline, &fresh, &settings, T0, &all_valid);
         let (context, compared) = prepare(&mut baseline, &input(&gone, &settings, T1, &all_valid));
         assert_eq!(context.signals[0].change, Change::Changed);
         assert_eq!(context.signals[0].freshness, Freshness::Unavailable);
         assert_eq!(context.floor, Rating::KeepAnEye);
-        assert_eq!(
-            compared.unavailable[0].reason,
-            UnavailableReason::ToolMissing
-        );
+        assert_eq!(compared.unavailable[0].reason, ProbeReason::ToolMissing);
         let (context, _) = prepare(&mut baseline, &input(&gone, &settings, T2, &all_valid));
         assert_eq!(
             context.signals[0].change,
@@ -2757,7 +2867,7 @@ mod tests {
         )];
         let gone = vec![ProbeOutcome {
             probe: ProbeId::Firewall,
-            result: Err(UnavailableReason::Timeout),
+            result: Err(ProbeReason::Timeout),
         }];
         cycle(&mut baseline, &on, &settings, T0, &all_valid);
         let (context, _) = cycle(&mut baseline, &off, &settings, T1, &all_valid);
@@ -3089,7 +3199,7 @@ mod tests {
         let sweep = vec![
             ProbeOutcome {
                 probe: ProbeId::Hosts,
-                result: Err(UnavailableReason::Timeout),
+                result: Err(ProbeReason::Timeout),
             },
             ok(ProbeId::Firewall, vec![]),
         ];

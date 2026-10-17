@@ -1003,3 +1003,20 @@
     animation: none;
   }
 }
+
+/* Iteration 4 build A: fixes appended after review. */
+
+/* Tick draw: the path is 22.6 units, so a 24 unit dash draws across the whole 240 ms. */
+.guided-tick,
+.chat-activity-row .guided-tick {
+  stroke-dasharray: 24;
+}
+
+@keyframes guided-tick {
+  from {
+    stroke-dashoffset: 24;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}

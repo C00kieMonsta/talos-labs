@@ -1,8 +1,10 @@
 import {
   ANSWER_JSON_SCHEMA,
+  CHAT_JSON_SCHEMA,
   EXPLANATION_JSON_SCHEMA,
   MACOS_CATALOG,
   PRIORITISATION_JSON_SCHEMA,
+  buildChatInstructions,
   buildExplainerSystemPrompt,
   validateAnswer,
   validateExplanation,
@@ -15,6 +17,8 @@ import {
   type ExplainInput,
   type ExplainOptions,
   type ExplainerPort,
+  type ChatCall,
+  type ChatResult,
   type ExplainerResult,
   type Explanation,
   type PrioritiseInput,
@@ -24,6 +28,8 @@ import {
 import {
   acceptedIds,
   askTurns,
+  chatTurns,
+  chatValidator,
   explainTurns,
   failure,
   parseJson,
@@ -80,11 +86,17 @@ export class OllamaExplainerAdapter implements ExplainerPort {
     return this.request(askTurns(input), ANSWER_JSON_SCHEMA, validateAnswer, options);
   }
 
+  /** One answer, shown as one partial; the chat block and the plain names replace the explainer prompt for this task. */
+  chat(call: ChatCall, options?: ExplainOptions<ChatResult>): Promise<ExplainerResult<ChatResult>> {
+    return this.request(chatTurns(call.input), CHAT_JSON_SCHEMA, chatValidator(call), options, buildChatInstructions(MACOS_CATALOG));
+  }
+
   private async request<T>(
     turns: readonly ChatTurn[],
     schema: Record<string, unknown>,
     validate: Validator<T>,
     options: ExplainOptions<T> | undefined,
+    system: string = this.systemPrompt,
   ): Promise<ExplainerResult<T>> {
     const signal = options?.signal;
     const report = await this.reportSource();
@@ -104,7 +116,7 @@ export class OllamaExplainerAdapter implements ExplainerPort {
       model: this.model,
       stream: false,
       format: schema,
-      messages: [{ role: "system", content: this.systemPrompt }, ...turns],
+      messages: [{ role: "system", content: system }, ...turns],
     };
 
     let text: string;

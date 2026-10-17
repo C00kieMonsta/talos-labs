@@ -1,5 +1,7 @@
 import type { RuleId, RuleStatus, Severity } from "../domain/finding";
+import type { Grade } from "../domain/report";
 import type { Os, UnavailableReason } from "../domain/system-state";
+import { UNAVAILABLE_REASONS } from "../domain/system-state.guard";
 import type { ExplainerProfile } from "./explainer-port";
 import type { FixApplyOptions, FixChoice, FixOutcome, FixPlanLine } from "./fix-port";
 
@@ -273,7 +275,7 @@ export interface WatchContext {
 
 export interface WatchVerdict {
   readonly rating: Rating;
-  /** <= 300 chars; shown on Advise rows only. */
+  /** <= 120 chars; the window line. */
   readonly ratingReason: string;
   /** <= 6. */
   readonly basedOn: readonly SignalId[];
@@ -286,7 +288,12 @@ export interface WatchVerdict {
 export const WATCH_LIMITS = {
   maxPromptChars: 12000,
   maxOutputTokens: 1200,
-  maxReasonChars: 300,
+  /** ratingReason: the window line, never cut. */
+  maxReasonChars: 120,
+  /** probes[].reason and actions[].sentence. */
+  maxSentenceChars: 300,
+  /** A question typed in the watch window, after trimming. */
+  maxQuestionChars: 500,
   maxBasedOn: 6,
   maxProbes: 3,
   maxActions: 3,
@@ -297,14 +304,66 @@ export const WATCH_LIMITS = {
 export type WatchInterval = 15 | 60 | 240;
 export const WATCH_INTERVALS: readonly WatchInterval[] = [15, 60, 240];
 
-export type WatchOpenScreen = "home" | "noticed" | "settings_watch";
+export type WatchOpenScreen = "home" | "noticed" | "settings_watch" | "chat" | "connect";
+export const WATCH_OPEN_SCREENS: readonly WatchOpenScreen[] = ["home", "noticed", "settings_watch", "chat", "connect"];
+
+/** What the small window hands the main one: the screen, and with "chat" the person's own question as a draft. */
+export interface WatchOpenEvent {
+  readonly screen: WatchOpenScreen;
+  readonly question?: string;
+}
 
 export type WatchModelProvider = "apple" | "chatgpt" | "claude_plan";
 
-/** What the webview tells Rust about the AI layer: whether it is on and which consumer provider is chosen (null lets Rust pick a connected one). */
+/**
+ * What the webview tells Rust about the AI layer. `enabled` means a consumer provider is chosen
+ * and the switch is on, not that anything is connected; `provider` null lets Rust pick a connected one.
+ */
 export interface WatchAi {
   readonly enabled: boolean;
   readonly provider: WatchModelProvider | null;
+}
+
+/** The reasons a watch probe can report: the collector's nine plus the socket table an unsigned build cannot read. */
+export type WatchUnavailableReason = UnavailableReason | "unsigned_build";
+export const WATCH_UNAVAILABLE_REASONS: readonly WatchUnavailableReason[] = [...UNAVAILABLE_REASONS, "unsigned_build"];
+
+/** A report id as the window may carry it; a failing id drops the whole field. */
+export const WATCH_REPORT_ID = /^[A-Za-z0-9._-]{1,64}$/;
+
+export const NEXT_KINDS = ["fix", "show", "details"] as const;
+export type WatchNextKind = (typeof NEXT_KINDS)[number];
+
+export const WATCH_GRADES: readonly Grade[] = ["good", "fair", "poor", "at_risk"];
+
+/** The judge's line the window may show; Rust owns its currency and never persists it. */
+export interface WatchJudge {
+  readonly provider: WatchModelProvider;
+  readonly at: string;
+  readonly rating: Rating;
+  /** 1 to 120 characters; passed safeWindowSentence before publication. */
+  readonly reason: string;
+}
+
+/** How many rules appeared in the last check-up; kept until report.reportId changes. */
+export interface WatchRulesSince {
+  readonly reportId: string;
+  readonly appeared: number;
+}
+
+/** The last check-up as the window shows it: the score and the grade word, never the grade sentence. */
+export interface WatchReport {
+  readonly reportId: string;
+  readonly scannedAt: string;
+  readonly score: number | null;
+  readonly grade: Grade | null;
+}
+
+/** The plan's "Do this next", pushed by the main webview. */
+export interface WatchNext {
+  readonly reportId: string;
+  readonly ruleId: RuleId;
+  readonly kind: WatchNextKind;
 }
 
 export interface WatchItem {
@@ -325,7 +384,7 @@ export interface WatchItem {
 
 export interface UnavailableProbe {
   readonly probeId: ProbeId;
-  readonly reason: UnavailableReason;
+  readonly reason: WatchUnavailableReason;
 }
 
 export interface WatchState {
@@ -352,6 +411,22 @@ export interface WatchState {
    * (SIGNAL_KIND != null) with change != same and not acknowledged appear.
    */
   readonly items: readonly WatchItem[];
+  /** Written by the loop at the top of each wait; null before the first pass. */
+  readonly nextCheckAt: string | null;
+  /** baseline.last_change_at. */
+  readonly lastChangeAt: string | null;
+  /** watch-settings.json ai; provider null means auto-pick. */
+  readonly ai: WatchAi;
+  /** The judge's line for this rating, or null; drawn only when judge.rating equals rating. */
+  readonly judge: WatchJudge | null;
+  /** baseline.recent entries in the last 24 h. */
+  readonly recentCount: number;
+  /** Kept until report.reportId changes. */
+  readonly rulesSince: WatchRulesSince | null;
+  /** From last-report.json, read each cycle. */
+  readonly report: WatchReport | null;
+  /** Pushed by the main webview. */
+  readonly next: WatchNext | null;
 }
 
 export type WatchDetailsScope = "user_agent" | "system_agent" | "system_daemon";
@@ -415,14 +490,19 @@ export interface WatchPort {
    * Rust auto-picks a connected provider without `ai`. `licensed` is the product gate the webview
    * reports; Rust runs the watch only when enabled and licensed and never verifies a key.
    * `accepted`: the rule ids the person chose to leave alone; ids only; Rust stores them and does not read them.
+   * `next`: the plan's "Do this next"; undefined leaves Rust's stored row alone, null clears it.
    */
-  setProfile(profile: ExplainerProfile, ai: WatchAi | undefined, licensed: boolean, accepted?: readonly RuleId[]): Promise<void>;
+  setProfile(profile: ExplainerProfile, ai: WatchAi | undefined, licensed: boolean, accepted?: readonly RuleId[], next?: WatchNext | null): Promise<void>;
   acknowledge(signalId: SignalId): Promise<void>;
   answerGate(signalId: SignalId, mine: boolean): Promise<void>;
   snooze(signalId: SignalId): Promise<void>;
   context(): Promise<WatchContext>;
   details(): Promise<WatchDetails>;
-  openMain(screen: WatchOpenScreen): Promise<void>;
+  /**
+   * Opens the main window on a screen. `question` is accepted with "chat" only: the person's own
+   * words, trimmed, at most 500 characters, control characters refused; it lands as a composer draft.
+   */
+  openMain(screen: WatchOpenScreen, question?: string): Promise<void>;
   openSource(actionId: ActionId): Promise<void>;
   actionPreview(actionId: WatchActionId, choice: FixChoice): Promise<WatchPlan>;
   actionApply(planId: string, options?: FixApplyOptions): Promise<FixOutcome>;
@@ -431,7 +511,7 @@ export interface WatchPort {
   autostartIsEnabled(): Promise<boolean>;
   onState(listener: (state: WatchState) => void): () => void;
   onNotified(listener: (event: { readonly signalId: SignalId }) => void): () => void;
-  onOpen(listener: (event: { readonly screen: WatchOpenScreen }) => void): () => void;
+  onOpen(listener: (event: WatchOpenEvent) => void): () => void;
   /** A hidden main window was shown; `home` for a plain open (Dock, second launch). The launch check-up runs on it. */
-  onShown(listener: (event: { readonly screen: WatchOpenScreen }) => void): () => void;
+  onShown(listener: (event: WatchOpenEvent) => void): () => void;
 }

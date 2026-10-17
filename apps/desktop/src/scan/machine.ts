@@ -159,7 +159,7 @@ export type ScanAction =
   | { type: "fix_preview_failed"; ruleId: RuleId; error: FixError }
   /** `item` lands on the batch variant and is ignored on the single one. */
   | { type: "fix_progress"; phase: "waiting_for_password" | "running"; step: number; of: number; item?: number }
-  | { type: "fix_rechecking" }
+  | { type: "fix_rechecking"; outcome?: BatchOutcome }
   | { type: "fix_done"; state: SystemState; report: ScanReport; result: RecheckResult; byRule: Record<string, Explanation> }
   | { type: "fix_failed"; error: FixError; step: number | null }
   | { type: "fix_dismissed" }
@@ -410,7 +410,9 @@ function reduceFix(state: ReadyState, action: ScanAction): ReadyState | null {
       return { ...state, fixing: { ...fixing, phase: action.phase, step: action.step, of: action.of } };
 
     case "fix_rechecking":
-      return fixing === null ? state : { ...state, fixing: { ...fixing, phase: "rechecking" } };
+      if (fixing === null) return state;
+      if (fixing.kind === "batch") return { ...state, fixing: { ...fixing, phase: "rechecking", outcome: action.outcome ?? fixing.outcome } };
+      return { ...state, fixing: { ...fixing, phase: "rechecking" } };
 
     case "fix_done":
       if (fixing === null || fixing.kind !== "single") return state;

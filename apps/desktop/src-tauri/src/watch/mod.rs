@@ -93,7 +93,56 @@ closed_enum! {
 
 closed_enum! {
     /// What `tray::open_main` asks the main window to show.
-    OpenScreen { Home = "home", Noticed = "noticed", SettingsWatch = "settings_watch" }
+    OpenScreen {
+        Home = "home",
+        Noticed = "noticed",
+        SettingsWatch = "settings_watch",
+        Chat = "chat",
+        Connect = "connect",
+    }
+}
+
+closed_enum! {
+    /// The check-up grade words of `packages/core/src/domain/report.ts`.
+    Grade { Good = "good", Fair = "fair", Poor = "poor", AtRisk = "at_risk" }
+}
+
+closed_enum! {
+    /// What the main webview's "Do this next" step does.
+    NextKind { Fix = "fix", Show = "show", Details = "details" }
+}
+
+closed_enum! {
+    /// Why a probe could not read: the nine `UnavailableReason` words plus the socket table an
+    /// unsigned build cannot read, which the main window's reason set has no word for.
+    ProbeReason {
+        NeedsFullDiskAccess = "needs_full_disk_access",
+        NeedsAutomationPermission = "needs_automation_permission",
+        NeedsAdmin = "needs_admin",
+        PermissionDenied = "permission_denied",
+        ToolMissing = "tool_missing",
+        Timeout = "timeout",
+        ParseError = "parse_error",
+        NotSupportedOnOs = "not_supported_on_os",
+        CollectorError = "collector_error",
+        UnsignedBuild = "unsigned_build",
+    }
+}
+
+impl From<UnavailableReason> for ProbeReason {
+    fn from(reason: UnavailableReason) -> Self {
+        match reason {
+            UnavailableReason::NeedsFullDiskAccess => ProbeReason::NeedsFullDiskAccess,
+            UnavailableReason::NeedsAutomationPermission => ProbeReason::NeedsAutomationPermission,
+            UnavailableReason::NeedsAdmin => ProbeReason::NeedsAdmin,
+            UnavailableReason::PermissionDenied => ProbeReason::PermissionDenied,
+            UnavailableReason::ToolMissing => ProbeReason::ToolMissing,
+            UnavailableReason::Timeout => ProbeReason::Timeout,
+            UnavailableReason::ParseError => ProbeReason::ParseError,
+            UnavailableReason::NotSupportedOnOs => ProbeReason::NotSupportedOnOs,
+            UnavailableReason::CollectorError => ProbeReason::CollectorError,
+        }
+    }
 }
 
 closed_enum! {
@@ -249,12 +298,61 @@ pub struct WatchItem {
     pub model_provider: Option<ModelProvider>,
 }
 
-/// A probe the last cycle could not read, with the v0.2 reason word.
+/// A probe the last cycle could not read, with the reason word.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UnavailableProbe {
     pub probe_id: ProbeId,
-    pub reason: UnavailableReason,
+    pub reason: ProbeReason,
+}
+
+/// The judge's sentence the window may show. In memory only; never persisted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JudgeLine {
+    pub provider: ModelProvider,
+    pub at: String,
+    pub rating: Rating,
+    pub reason: String,
+}
+
+/// How many rules appeared in the last check-up, kept until the report id changes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RulesSince {
+    pub report_id: String,
+    pub appeared: u32,
+}
+
+/// The last check-up as the window shows it: an id, a date, a score and a grade.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportRow {
+    pub report_id: String,
+    pub scanned_at: String,
+    pub score: Option<u32>,
+    pub grade: Option<Grade>,
+}
+
+/// The main webview's "Do this next" step, pushed with the profile and stored in
+/// watch-settings.json.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NextRow {
+    pub report_id: String,
+    pub rule_id: String,
+    pub kind: NextKind,
+}
+
+/// `next` as `watch_set_profile` receives it; `clean_next` turns it into a row or nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NextWire {
+    pub kind: String,
+    #[serde(default)]
+    pub report_id: Option<String>,
+    #[serde(default)]
+    pub rule_id: Option<String>,
 }
 
 /// What `watch_status` returns and `watch:state` carries. Mirrors `WatchState`.
@@ -283,6 +381,30 @@ pub struct WatchState {
     pub gated: Vec<SignalId>,
     /// Sorted by points desc then SignalId order; the first is the top item.
     pub items: Vec<WatchItem>,
+    /// Written by the loop before each wait; None before the first pass.
+    #[serde(default)]
+    pub next_check_at: Option<String>,
+    /// `baseline.last_change_at`.
+    #[serde(default)]
+    pub last_change_at: Option<String>,
+    /// watch-settings.json's `ai`: enabled means a consumer provider is chosen and the switch
+    /// is on, not that one is connected.
+    #[serde(default)]
+    pub ai: WatchAi,
+    /// The judge's current sentence, or None (section 3 of DESIGN-WATCH-WINDOW).
+    #[serde(default)]
+    pub judge: Option<JudgeLine>,
+    /// `baseline.recent` entries within the last 24 h.
+    #[serde(default)]
+    pub recent_count: u32,
+    #[serde(default)]
+    pub rules_since: Option<RulesSince>,
+    /// From last-report.json, read each cycle.
+    #[serde(default)]
+    pub report: Option<ReportRow>,
+    /// From watch-settings.json's `next`.
+    #[serde(default)]
+    pub next: Option<NextRow>,
 }
 
 impl Default for WatchState {
@@ -304,6 +426,14 @@ impl Default for WatchState {
             unavailable: Vec::new(),
             gated: Vec::new(),
             items: Vec::new(),
+            next_check_at: None,
+            last_change_at: None,
+            ai: WatchAi::default(),
+            judge: None,
+            recent_count: 0,
+            rules_since: None,
+            report: None,
+            next: None,
         }
     }
 }
@@ -389,6 +519,7 @@ pub struct WatchStore {
 struct LastVerdict {
     verdict: WatchVerdict,
     at: DateTime<Utc>,
+    provider: ModelProvider,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -422,6 +553,8 @@ impl WatchStore {
             s.licensed = loaded.licensed;
             s.every_minutes = loaded.every_minutes;
             s.notify = loaded.notify;
+            s.ai = loaded.ai;
+            s.next = loaded.next.clone();
         });
         *cache = Some(loaded.clone());
         loaded
@@ -442,6 +575,8 @@ impl WatchStore {
             s.licensed = settings.licensed;
             s.every_minutes = settings.every_minutes;
             s.notify = settings.notify;
+            s.ai = settings.ai;
+            s.next = settings.next.clone();
         });
         *lock(&self.settings) = Some(settings);
         Ok(())
@@ -539,8 +674,9 @@ impl WatchStore {
 
     /// The store's half of an inactive settle: watch.json and the baseline go, the requests,
     /// details, context and verdict are cleared, and the state is reset keeping the switch,
-    /// the interval, the notify flag and the licence flag. Idempotent; a missing watch.json is
-    /// fine.
+    /// the interval, the notify flag, the licence flag, the AI pair and the next step (all
+    /// settings-file fields). The judge line goes with the reset. Idempotent; a missing
+    /// watch.json is fine.
     fn settle(&self, dir: Option<&Path>) -> Result<(), String> {
         // A running cycle sees the watch inactive in `finish_cycle` and writes nothing.
         self.clear_baseline(dir)?;
@@ -555,14 +691,25 @@ impl WatchStore {
                 licensed: s.licensed,
                 every_minutes: s.every_minutes,
                 notify: s.notify,
+                ai: s.ai,
+                next: s.next.take(),
                 ..WatchState::default()
             };
         });
         Ok(())
     }
 
-    pub fn remember_verdict(&self, verdict: WatchVerdict, at: DateTime<Utc>) {
-        *lock(&self.last_verdict) = Some(LastVerdict { verdict, at });
+    pub fn remember_verdict(&self, verdict: WatchVerdict, at: DateTime<Utc>, provider: ModelProvider) {
+        *lock(&self.last_verdict) = Some(LastVerdict {
+            verdict,
+            at,
+            provider,
+        });
+    }
+
+    /// The provider that gave the last validated answer, for the window's badge tests.
+    pub fn last_verdict_provider(&self) -> Option<ModelProvider> {
+        lock(&self.last_verdict).as_ref().map(|last| last.provider)
     }
 
     pub fn last_verdict_for(&self, now: DateTime<Utc>) -> Option<WatchLastVerdict> {
@@ -655,6 +802,8 @@ pub fn start(app: AppHandle) {
             let baseline = baseline::load(&dir);
             store.update(|s| {
                 s.close_watch_until = baseline.close_watch_until.clone();
+                s.last_change_at = baseline.last_change_at.clone();
+                s.rules_since = baseline.rules_since.clone();
             });
             store.put_baseline(baseline);
         }
@@ -665,12 +814,25 @@ pub fn start(app: AppHandle) {
             let every = period(&app);
             let woken = {
                 let store = app.state::<WatchStore>();
-                tokio::time::timeout(every, store.notify.notified())
+                let now = Utc::now();
+                let paused_until = store.snapshot().paused_until;
+                let wait = wait_for(every, paused_until.as_deref(), now);
+                store.update(|s| s.next_check_at = Some(next_check_at(now, every)));
+                publish(&app);
+                tokio::time::timeout(wait, store.notify.notified())
                     .await
                     .is_ok()
             };
             let skip = {
                 let store = app.state::<WatchStore>();
+                let paused_until = store.snapshot().paused_until;
+                if ends_pause(woken, pause_over(paused_until.as_deref(), Utc::now())) {
+                    // The pause ran out: the window reads "paused" from the field alone, so it
+                    // is cleared here and the next tick runs on its own timer.
+                    store.update(|s| s.paused_until = None);
+                    publish(&app);
+                    continue;
+                }
                 let reconfigure = woken && store.reconfigure.swap(false, Ordering::SeqCst);
                 let pending = store.manual_requested.load(Ordering::SeqCst)
                     || store.refresh_requested.load(Ordering::SeqCst)
@@ -690,6 +852,39 @@ pub fn start(app: AppHandle) {
 /// cycle ran would otherwise wait a whole interval.
 pub fn skip_wake(reconfigure: bool, pending: bool) -> bool {
     reconfigure && !pending
+}
+
+/// When the next timer tick lands: `now + every`, as the window's "Next check in" line reads it.
+pub fn next_check_at(now: DateTime<Utc>, every: Duration) -> String {
+    let millis = i64::try_from(every.as_millis()).unwrap_or(i64::MAX);
+    cycle::iso(now + chrono::Duration::milliseconds(millis))
+}
+
+/// How long the loop sleeps: the interval, shortened to the end of a pause so the window stops
+/// reading "paused" the moment the hour is up.
+pub fn wait_for(every: Duration, paused_until: Option<&str>, now: DateTime<Utc>) -> Duration {
+    let Some(until) = paused_until.and_then(signals::parse_ms) else {
+        return every;
+    };
+    let left = until - now.timestamp_millis();
+    if left <= 0 {
+        return every;
+    }
+    every.min(Duration::from_millis(left.unsigned_abs()))
+}
+
+/// True when a pause is recorded and has ended. An unparsable value counts as over, so a
+/// corrupt string never pins the window on "paused".
+pub fn pause_over(paused_until: Option<&str>, now: DateTime<Utc>) -> bool {
+    match paused_until {
+        None => false,
+        Some(text) => signals::parse_ms(text).is_none_or(|until| until <= now.timestamp_millis()),
+    }
+}
+
+/// A timeout (not a wake) that lands after the pause ended clears it without a cycle.
+pub fn ends_pause(woken: bool, pause_over: bool) -> bool {
+    !woken && pause_over
 }
 
 /// Asks the loop for one cycle now, as the person's own check. It lifts "Pause for an hour":
@@ -882,16 +1077,76 @@ pub fn clean_accepted(ids: Vec<String>) -> Vec<String> {
     clean
 }
 
-/// One profile push onto the settings file. `ai` and `accepted` keep the stored value when
-/// absent; `accepted` is persisted only, no cycle reads it.
+/// The most UTF-16 units a typed question may carry: the input's `maxLength` and the TS
+/// `.length` count the same units.
+pub const MAX_QUESTION_UNITS: usize = 500;
+
+/// The person's own question, as `watch_open_main` may carry it to the main window's composer.
+/// Only the `chat` screen takes one. CR and LF fold to spaces, any other control character
+/// refuses, the text is trimmed, an empty draft is nothing, and over 500 UTF-16 units refuses.
+/// Held in memory only; never logged, never written.
+pub fn clean_question(
+    screen: OpenScreen,
+    question: Option<String>,
+) -> Result<Option<String>, String> {
+    let Some(raw) = question else {
+        return Ok(None);
+    };
+    if screen != OpenScreen::Chat {
+        return Err("invalid_input".to_owned());
+    }
+    let folded: String = raw
+        .chars()
+        .map(|c| if c == '\r' || c == '\n' { ' ' } else { c })
+        .collect();
+    if folded.chars().any(char::is_control) {
+        return Err("invalid_input".to_owned());
+    }
+    let trimmed = folded.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.encode_utf16().count() > MAX_QUESTION_UNITS {
+        return Err("invalid_input".to_owned());
+    }
+    Ok(Some(trimmed.to_owned()))
+}
+
+/// The pushed "Do this next" step: `none` clears it; a kind with two well-formed ids stores it;
+/// anything else is `invalid_input`.
+pub fn clean_next(wire: NextWire) -> Result<Option<NextRow>, String> {
+    if wire.kind == "none" {
+        return Ok(None);
+    }
+    let kind = NextKind::parse(&wire.kind).ok_or_else(|| "invalid_input".to_owned())?;
+    let report_id = wire
+        .report_id
+        .filter(|id| context::report_id_ok(id))
+        .ok_or_else(|| "invalid_input".to_owned())?;
+    let rule_id = wire
+        .rule_id
+        .filter(|id| context::rule_id_ok(id))
+        .ok_or_else(|| "invalid_input".to_owned())?;
+    Ok(Some(NextRow {
+        report_id,
+        rule_id,
+        kind,
+    }))
+}
+
+/// One profile push onto the settings file. `ai`, `accepted` and `next` keep the stored value
+/// when absent; `accepted` is persisted only, no cycle reads it. Returns whether the judge line
+/// must go: the AI switched off never leaves a model sentence behind.
 pub fn apply_profile(
     settings: &mut WatchSettingsFile,
     profile: ExplainerProfile,
     ai: Option<WatchAi>,
     licensed: bool,
     accepted: Option<Vec<String>>,
-) {
+    next: Option<Option<NextRow>>,
+) -> bool {
     settings.profile = profile;
+    let clears = clears_judge(ai.as_ref());
     if let Some(ai) = ai {
         settings.ai = ai;
     }
@@ -899,41 +1154,65 @@ pub fn apply_profile(
     if let Some(ids) = accepted {
         settings.accepted = clean_accepted(ids);
     }
+    if let Some(next) = next {
+        settings.next = next;
+    }
+    clears
 }
 
-/// The profile, the AI choice when sent, the webview's product gate and the accepted ids when
-/// sent. A push that flips the gate starts or stops the watch exactly as the switch does; Rust
-/// never verifies a key.
+/// True when a pushed AI pair has the switch off.
+pub fn clears_judge(ai: Option<&WatchAi>) -> bool {
+    ai.is_some_and(|a| !a.enabled)
+}
+
+/// The profile, the AI choice when sent, the webview's product gate, the accepted ids when
+/// sent and the next step when sent. A push that flips the gate starts or stops the watch
+/// exactly as the switch does; Rust never verifies a key.
 pub fn set_profile(
     app: &AppHandle,
     profile: ExplainerProfile,
     ai: Option<WatchAi>,
     licensed: bool,
     accepted: Option<Vec<String>>,
+    next: Option<Option<NextRow>>,
 ) -> Result<(), String> {
     let store = app.state::<WatchStore>();
     let before = active(&store.settings(app));
-    store.set_settings(app, |s| apply_profile(s, profile, ai, licensed, accepted))?;
+    let mut clears = false;
+    store.set_settings(app, |s| {
+        clears = apply_profile(s, profile, ai, licensed, accepted, next);
+    })?;
+    if clears {
+        store.update(|s| s.judge = None);
+    }
     let after = active(&store.settings(app));
     apply_transition(app, &store, before, after)
+}
+
+/// A baseline edit makes the judge's sentence stale: it goes before the refresh re-rates.
+fn forget_judge(store: &WatchStore) {
+    store.update(|s| s.judge = None);
 }
 
 /// "This is fine, I know it": re-baseline the signal and its siblings and count the answer;
 /// three answers on one signal mute it until a full check sees a new change.
 pub fn acknowledge(app: &AppHandle, signal: SignalId) -> Result<(), String> {
-    app.state::<WatchStore>().edit(
+    let store = app.state::<WatchStore>();
+    store.edit(
         app,
         Edit::Acknowledge {
             signal,
             at: cycle::iso(Utc::now()),
         },
     )?;
+    forget_judge(&store);
     request_refresh(app);
     Ok(())
 }
 
 pub fn answer_gate(app: &AppHandle, signal: SignalId, mine: bool) -> Result<(), String> {
-    app.state::<WatchStore>().edit(
+    let store = app.state::<WatchStore>();
+    store.edit(
         app,
         Edit::AnswerGate {
             signal,
@@ -941,6 +1220,7 @@ pub fn answer_gate(app: &AppHandle, signal: SignalId, mine: bool) -> Result<(), 
             at: cycle::iso(Utc::now()),
         },
     )?;
+    forget_judge(&store);
     request_refresh(app);
     Ok(())
 }
@@ -967,6 +1247,7 @@ pub fn snooze(app: &AppHandle, signal: SignalId) -> Result<(), String> {
     for target in snooze_targets(&store.snapshot(), signal) {
         store.edit(app, Edit::Snooze { signal: target, at })?;
     }
+    forget_judge(&store);
     request_refresh(app);
     Ok(())
 }
@@ -981,6 +1262,7 @@ pub fn record_fix(app: &AppHandle) {
                 at: cycle::iso(Utc::now()),
             },
         );
+        forget_judge(&store);
     }
     on_idle(app);
 }
@@ -1080,6 +1362,31 @@ mod tests {
             OpenScreen::parse("settings_watch"),
             Some(OpenScreen::SettingsWatch)
         );
+        assert_eq!(OpenScreen::parse("chat"), Some(OpenScreen::Chat));
+        assert_eq!(OpenScreen::parse("connect"), Some(OpenScreen::Connect));
+        assert_eq!(OpenScreen::ALL.len(), 5);
+        assert_eq!(Grade::parse("at_risk"), Some(Grade::AtRisk));
+        assert_eq!(NextKind::parse("details"), Some(NextKind::Details));
+        assert_eq!(ProbeReason::ALL.len(), 10);
+        for reason in [
+            UnavailableReason::NeedsFullDiskAccess,
+            UnavailableReason::NeedsAutomationPermission,
+            UnavailableReason::NeedsAdmin,
+            UnavailableReason::PermissionDenied,
+            UnavailableReason::ToolMissing,
+            UnavailableReason::Timeout,
+            UnavailableReason::ParseError,
+            UnavailableReason::NotSupportedOnOs,
+            UnavailableReason::CollectorError,
+        ] {
+            let word = serde_json::to_value(reason).unwrap();
+            assert_eq!(
+                serde_json::to_value(ProbeReason::from(reason)).unwrap(),
+                word,
+                "the nine wire words are shared"
+            );
+        }
+        assert_eq!(ProbeReason::UnsignedBuild.as_str(), "unsigned_build");
         assert!(Rating::ActNow > Rating::Calm);
     }
 
@@ -1292,7 +1599,22 @@ mod tests {
                 actions: Vec::new(),
             },
             Utc::now(),
+            ModelProvider::Chatgpt,
         );
+        assert_eq!(
+            store.last_verdict_provider(),
+            Some(ModelProvider::Chatgpt),
+            "the provider is kept beside the verdict"
+        );
+        let ai = WatchAi {
+            enabled: false,
+            provider: Some(ModelProvider::Apple),
+        };
+        let next = NextRow {
+            report_id: "r-1".into(),
+            rule_id: "TL-MAC-001".into(),
+            kind: NextKind::Fix,
+        };
         store.update(|s| {
             s.enabled = true;
             s.licensed = false;
@@ -1301,12 +1623,27 @@ mod tests {
             s.rating = Rating::ActNow;
             s.cycle_index = 4;
             s.first_run = false;
+            s.ai = ai;
+            s.next = Some(next.clone());
+            s.judge = Some(JudgeLine {
+                provider: ModelProvider::Chatgpt,
+                at: "2026-10-17T12:00:00.000Z".into(),
+                rating: Rating::ActNow,
+                reason: "A guard went off.".into(),
+            });
+            s.report = Some(ReportRow {
+                report_id: "r-1".into(),
+                scanned_at: "2026-10-17T10:00:00.000Z".into(),
+                score: Some(72),
+                grade: Some(Grade::Fair),
+            });
         });
         store.settle(Some(&dir)).unwrap();
         assert!(!baseline::path(&dir).exists(), "watch.json is deleted");
         assert!(!store.manual_requested.load(Ordering::SeqCst));
         assert!(!store.refresh_requested.load(Ordering::SeqCst));
         assert!(store.last_verdict_for(Utc::now()).is_none());
+        assert!(store.last_verdict_provider().is_none());
         let state = store.snapshot();
         assert_eq!(
             state,
@@ -1315,9 +1652,12 @@ mod tests {
                 licensed: false,
                 every_minutes: 15,
                 notify: false,
+                ai,
+                next: Some(next),
                 ..WatchState::default()
             },
-            "the switch, the interval, the notify flag and the licence flag survive"
+            "the switch, the interval, the notify flag, the licence flag, the AI pair and the \
+             next step survive; the judge line and the report go"
         );
         assert!(lock(&store.baseline).is_none(), "the baseline is forgotten");
         assert!(store.settle(Some(&dir)).is_ok(), "a second settle is fine");
@@ -1348,10 +1688,10 @@ mod tests {
             ..WatchSettingsFile::default()
         };
         let profile = ExplainerProfile::default();
-        apply_profile(&mut settings, profile, None, true, None);
+        assert!(!apply_profile(&mut settings, profile, None, true, None, None));
         assert_eq!(settings.accepted, stored, "None keeps the stored list");
         assert!(settings.licensed, "the gate still follows the push");
-        apply_profile(&mut settings, profile, None, true, Some(Vec::new()));
+        apply_profile(&mut settings, profile, None, true, Some(Vec::new()), None);
         assert!(settings.accepted.is_empty(), "an empty list clears it");
         apply_profile(
             &mut settings,
@@ -1365,6 +1705,7 @@ mod tests {
                 "TL-IOS-001".to_owned(),
                 "TL-ANY-2b".to_owned(),
             ]),
+            None,
         );
         assert_eq!(
             settings.accepted,
@@ -1376,9 +1717,211 @@ mod tests {
             enabled: false,
             provider: None,
         };
-        apply_profile(&mut settings, profile, Some(ai), false, None);
+        assert!(
+            apply_profile(&mut settings, profile, Some(ai), false, None, None),
+            "the AI switched off clears the judge line"
+        );
         assert_eq!(settings.ai, ai, "the AI choice still lands beside it");
         assert_eq!(settings.accepted.len(), 2);
+        let on = WatchAi {
+            enabled: true,
+            provider: Some(ModelProvider::Chatgpt),
+        };
+        assert!(
+            !apply_profile(&mut settings, profile, Some(on), false, None, None),
+            "the switch on keeps it"
+        );
+        assert!(!clears_judge(None) && clears_judge(Some(&ai)) && !clears_judge(Some(&on)));
+    }
+
+    #[test]
+    fn a_profile_push_keeps_the_next_step_without_the_field_and_clears_it_with_none() {
+        let row = NextRow {
+            report_id: "r-1".into(),
+            rule_id: "TL-MAC-001".into(),
+            kind: NextKind::Fix,
+        };
+        let mut settings = WatchSettingsFile {
+            next: Some(row.clone()),
+            ..WatchSettingsFile::default()
+        };
+        let profile = ExplainerProfile::default();
+        apply_profile(&mut settings, profile, None, true, None, None);
+        assert_eq!(settings.next, Some(row.clone()), "absent keeps the stored row");
+        apply_profile(&mut settings, profile, None, true, None, Some(None));
+        assert_eq!(settings.next, None, "`none` clears it");
+        let other = NextRow {
+            rule_id: "TL-MAC-002".into(),
+            ..row
+        };
+        apply_profile(
+            &mut settings,
+            profile,
+            None,
+            true,
+            None,
+            Some(Some(other.clone())),
+        );
+        assert_eq!(settings.next, Some(other));
+    }
+
+    fn wire(kind: &str, report_id: Option<&str>, rule_id: Option<&str>) -> NextWire {
+        NextWire {
+            kind: kind.to_owned(),
+            report_id: report_id.map(str::to_owned),
+            rule_id: rule_id.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn clean_next_takes_none_and_a_well_formed_row_and_refuses_the_rest() {
+        assert_eq!(clean_next(wire("none", None, None)), Ok(None));
+        assert_eq!(
+            clean_next(wire("fix", Some("r-1"), Some("TL-MAC-001"))),
+            Ok(Some(NextRow {
+                report_id: "r-1".into(),
+                rule_id: "TL-MAC-001".into(),
+                kind: NextKind::Fix,
+            }))
+        );
+        for kind in ["show", "details"] {
+            assert!(clean_next(wire(kind, Some("r-1"), Some("TL-ANY-2b"))).is_ok());
+        }
+        let bad = Err("invalid_input".to_owned());
+        assert_eq!(
+            clean_next(wire("fix", Some("r-1"), Some("/Users/x"))),
+            bad,
+            "a bad rule id"
+        );
+        assert_eq!(
+            clean_next(wire("fix", Some("bad id!"), Some("TL-MAC-001"))),
+            bad,
+            "a bad report id"
+        );
+        assert_eq!(
+            clean_next(wire("open", Some("r-1"), Some("TL-MAC-001"))),
+            bad,
+            "an unknown kind"
+        );
+        assert_eq!(clean_next(wire("fix", None, Some("TL-MAC-001"))), bad);
+        assert_eq!(clean_next(wire("fix", Some("r-1"), None)), bad);
+        let json: NextWire = serde_json::from_value(serde_json::json!({ "kind": "none" })).unwrap();
+        assert_eq!(json, wire("none", None, None), "the ids are optional on the wire");
+        let json: NextWire = serde_json::from_value(
+            serde_json::json!({ "kind": "fix", "reportId": "r-1", "ruleId": "TL-MAC-001" }),
+        )
+        .unwrap();
+        assert_eq!(json.report_id.as_deref(), Some("r-1"));
+    }
+
+    #[test]
+    fn clean_question_takes_a_chat_draft_only_and_counts_utf16_units() {
+        let ok = |text: &str| clean_question(OpenScreen::Chat, Some(text.to_owned()));
+        let bad = Err("invalid_input".to_owned());
+        assert_eq!(clean_question(OpenScreen::Chat, None), Ok(None));
+        assert_eq!(clean_question(OpenScreen::Home, None), Ok(None));
+        assert_eq!(
+            clean_question(OpenScreen::Home, Some("hi".into())),
+            bad,
+            "a question goes with chat only"
+        );
+        assert_eq!(
+            clean_question(OpenScreen::Connect, Some("hi".into())),
+            bad
+        );
+        assert_eq!(ok("  What changed?  "), Ok(Some("What changed?".into())));
+        assert_eq!(
+            ok(" hi\r\nthere\n"),
+            Ok(Some("hi  there".into())),
+            "CR and LF fold to spaces before the trim"
+        );
+        assert_eq!(ok("   "), Ok(None), "an empty draft is nothing");
+        assert_eq!(ok(""), Ok(None));
+        assert_eq!(ok("a\u{0007}b"), bad, "a control character refuses");
+        assert_eq!(ok("a\tb"), bad);
+        assert_eq!(ok("a\u{007f}b"), bad);
+        assert_eq!(ok(&"a".repeat(500)), Ok(Some("a".repeat(500))));
+        assert_eq!(ok(&"a".repeat(501)), bad);
+        let smile = "\u{1F600}".repeat(250);
+        assert_eq!(ok(&smile), Ok(Some(smile.clone())), "250 non-BMP: 500 units");
+        assert_eq!(ok(&"\u{1F600}".repeat(251)), bad, "251 non-BMP: 502 units");
+        assert_eq!(MAX_QUESTION_UNITS, 500);
+    }
+
+    #[test]
+    fn the_four_baseline_edits_forget_the_judge_line() {
+        let judge = JudgeLine {
+            provider: ModelProvider::Chatgpt,
+            at: "2026-10-17T12:00:00.000Z".into(),
+            rating: Rating::KeepAnEye,
+            reason: "Two start-up changes in a day is unusual here.".into(),
+        };
+        for _ in 0..4 {
+            let store = WatchStore::default();
+            store.update(|s| s.judge = Some(judge.clone()));
+            assert!(store.snapshot().judge.is_some());
+            forget_judge(&store);
+            assert_eq!(store.snapshot().judge, None);
+        }
+    }
+
+    #[test]
+    fn the_next_check_is_now_plus_the_interval() {
+        let now = DateTime::parse_from_rfc3339("2026-10-17T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(
+            next_check_at(now, Duration::from_secs(60 * 60)),
+            "2026-10-17T13:00:00.000Z"
+        );
+        assert_eq!(
+            next_check_at(now, Duration::from_secs(15 * 60)),
+            "2026-10-17T12:15:00.000Z"
+        );
+    }
+
+    #[test]
+    fn the_wait_is_the_interval_or_the_rest_of_the_pause() {
+        let now = DateTime::parse_from_rfc3339("2026-10-17T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let hour = Duration::from_secs(60 * 60);
+        assert_eq!(wait_for(hour, None, now), hour);
+        assert_eq!(
+            wait_for(hour, Some("2026-10-17T11:00:00.000Z"), now),
+            hour,
+            "a past pause changes nothing"
+        );
+        assert_eq!(
+            wait_for(hour, Some("2026-10-17T14:00:00.000Z"), now),
+            hour,
+            "a pause further than the interval changes nothing"
+        );
+        assert_eq!(
+            wait_for(hour, Some("2026-10-17T12:20:00.000Z"), now),
+            Duration::from_secs(20 * 60),
+            "the pause ends first"
+        );
+        assert_eq!(wait_for(hour, Some("nope"), now), hour);
+    }
+
+    #[test]
+    fn a_pause_is_over_when_past_or_unreadable_and_a_timeout_ends_it() {
+        let now = DateTime::parse_from_rfc3339("2026-10-17T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert!(pause_over(Some("2026-10-17T11:59:59.000Z"), now));
+        assert!(pause_over(Some("2026-10-17T12:00:00.000Z"), now));
+        assert!(!pause_over(Some("2026-10-17T12:00:01.000Z"), now));
+        assert!(!pause_over(None, now));
+        assert!(
+            pause_over(Some("yesterday"), now),
+            "a corrupt string never pins the window"
+        );
+        assert!(ends_pause(false, true));
+        assert!(!ends_pause(true, true), "a wake runs the skip and cycle logic");
+        assert!(!ends_pause(false, false));
+        assert!(!ends_pause(true, false));
     }
 
     #[test]
@@ -1483,6 +2026,43 @@ mod tests {
             "the state carries the licence flag to the webview"
         );
         assert_eq!(json["items"], serde_json::json!([]));
+        assert_eq!(json["nextCheckAt"], serde_json::Value::Null);
+        assert_eq!(json["lastChangeAt"], serde_json::Value::Null);
+        assert_eq!(
+            json["ai"],
+            serde_json::json!({ "enabled": true, "provider": null })
+        );
+        assert_eq!(json["judge"], serde_json::Value::Null);
+        assert_eq!(json["recentCount"], 0);
+        assert_eq!(json["rulesSince"], serde_json::Value::Null);
+        assert_eq!(json["report"], serde_json::Value::Null);
+        assert_eq!(json["next"], serde_json::Value::Null);
+        let keys: Vec<&str> = json.as_object().unwrap().keys().map(String::as_str).collect();
+        let tail = &keys[keys.len() - 9..];
+        assert_eq!(
+            tail,
+            [
+                "items",
+                "nextCheckAt",
+                "lastChangeAt",
+                "ai",
+                "judge",
+                "recentCount",
+                "rulesSince",
+                "report",
+                "next"
+            ],
+            "the new fields follow items in the contract's order"
+        );
+        let old: WatchState = serde_json::from_value(serde_json::json!({
+            "enabled": true, "firstRun": false, "hiddenLaunch": false, "rating": "calm",
+            "since": null, "lastCheckAt": null, "checking": false, "cycleIndex": 3,
+            "everyMinutes": 60, "notify": true, "pausedUntil": null, "closeWatchUntil": null,
+            "unavailable": [], "gated": [], "items": []
+        }))
+        .unwrap();
+        assert_eq!(old.judge, None, "a pre-change document still parses");
+        assert_eq!(old.recent_count, 0);
         let store = WatchStore::default();
         assert_eq!(store.snapshot(), state);
         store.update(|s| s.checking = true);

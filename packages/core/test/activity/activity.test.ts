@@ -31,6 +31,7 @@ const sections = Object.fromEntries(SECTION_KEYS.map((key) => [key, `Section ${k
 const STRINGS: ActivityStrings = {
   preparing: "Getting ready",
   batchAdmin: "Fixing {n} things",
+  batchAdminOne: "Fixing 1 thing",
   checking: "Checking it worked",
   watching: "Watching for the change",
   watchCheck: "Checking your Mac",
@@ -77,6 +78,7 @@ describe("activityLabel", () => {
   it("names the fix rows from the strings table", () => {
     expect(activityLabel(event({ id: "1", kind: "preparing" }), STRINGS)).toBe("Getting ready");
     expect(activityLabel(event({ id: "2", kind: "fixing", ruleId: null, count: 3 }), STRINGS)).toBe("Fixing 3 things");
+    expect(activityLabel(event({ id: "2b", kind: "fixing", ruleId: null, count: 1 }), STRINGS)).toBe("Fixing 1 thing");
     expect(activityLabel(event({ id: "3", kind: "fixing", ruleId: TURN_IT_ON }), STRINGS)).toBe("Turning it on");
     expect(activityLabel(event({ id: "4", kind: "rechecking" }), STRINGS)).toBe("Checking it worked");
     expect(activityLabel(event({ id: "5", kind: "watching" }), STRINGS)).toBe("Watching for the change");

@@ -30,6 +30,15 @@ export {
   PRIORITISATION_JSON_SCHEMA,
   ANSWER_JSON_SCHEMA,
   WATCH_JSON_SCHEMA,
+  CHAT_JSON_SCHEMA,
+  validateChat,
+  validateChatAnswer,
+  containsAppVoice,
+  claimsAction,
+  replyRejected,
+  CHAT_LIMITS,
+  clampChatHistory,
+  clampChatQuestion,
   toWatchContext,
   WATCH_RULE_ID,
   buildOnDeviceWatchPrompt,
@@ -41,14 +50,21 @@ export {
   clampQuestion,
   clampHistory,
   ON_DEVICE_LIMITS,
+  ON_DEVICE_CHAT_LIMITS,
+  ON_DEVICE_CHAT_SENTENCE,
   buildOnDeviceInstructions,
+  buildOnDeviceChatInstructions,
   buildOnDevicePrompt,
   explainTurns,
   prioritiseTurns,
   askTurns,
   watchTurns,
+  chatTurns,
   WATCH_INSTRUCTIONS_BLOCK,
   buildWatchInstructions,
+  CHAT_INSTRUCTIONS_BLOCK,
+  plainNamesBlock,
+  buildChatInstructions,
   watchRequestBody,
   claudePromptFor,
   strictSchema,
@@ -61,14 +77,16 @@ export {
   parseResponsesEvent,
   parseResponsesError,
 } from "./explainer/index";
-export type { OnDevicePrompt, OnDeviceTask, OnDeviceExtra, RemoteTask, RemoteTurn, ResponsesRequest, ResponsesOptions, ResponsesEvent, ResponsesError, WatchContextInput, WatchOnDevicePrompt } from "./explainer/index";
+export type { KnownRules, ChatHistoryTarget, OnDevicePrompt, OnDeviceTask, OnDeviceExtra, RemoteTask, RemoteTurn, ResponsesRequest, ResponsesOptions, ResponsesEvent, ResponsesError, WatchContextInput, WatchOnDevicePrompt } from "./explainer/index";
 
 export { parseLicense, entitled, freeFixRuleIds, FREE_FIX_COUNT, LICENSE_PREFIX, LICENSE_PRODUCT } from "./license/index";
 
-export { buildGuidedPlan, planLocked, convertedShowStep, nextAction, LEFT_ALONE, WATCH_EVERY_MS, diffReports, EMPTY_GUIDED_MEMORY, parseGuidedMemory, AI_ASK_AGAIN_MS, aiAskedRecently } from "./guided/index";
-export type { GuidedStep, GuidedPlan, GuidedGate, NextAction, NextActionKind, ReportDiff, GuidedMemory, PermissionKind } from "./guided/index";
+export { buildGuidedPlan, planLocked, convertedShowStep, nextAction, LEFT_ALONE, WATCH_EVERY_MS, diffReports, EMPTY_GUIDED_MEMORY, parseGuidedMemory, AI_ASK_AGAIN_MS, aiAskedRecently, AI_LAST_AVAILABLE_TTL_MS, aiAvailableRecently } from "./guided/index";
+export type { GuidedStep, GuidedPlan, GuidedGate, NextAction, NextActionKind, ReportDiff, GuidedMemory, PermissionKind, AiLastAvailable, AiProviderId } from "./guided/index";
 
 export * from "./activity/index";
+
+export * from "./chat/index";
 
 export * from "./watch/index";
 

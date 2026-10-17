@@ -44,6 +44,15 @@ function renderEnd(p: GuidedPlan, fixed: readonly GuidedPlan["later"][number][],
   return { navigate: value.router.navigate, onNext, fishy };
 }
 
+/** The body paragraphs as a person reads them: the CountUp's hidden copy of the figure is dropped. */
+function bodyLines(): string[] {
+  return Array.from(document.querySelectorAll(".guided-body p")).map((p) => {
+    const copy = p.cloneNode(true) as HTMLElement;
+    copy.querySelectorAll(".visually-hidden").forEach((n) => n.remove());
+    return copy.textContent ?? "";
+  });
+}
+
 const ACT_ITEM: WatchItem = {
   signalId: "sig.persistence_new",
   kind: "persistence",
@@ -84,7 +93,7 @@ describe("EndScreen", () => {
   it("lists the partial result as labelled 44 px rows with an icon and a chevron, each a control that opens Details", () => {
     const { navigate } = renderEnd(plan({ later: ["TL-MAC-010", "TL-MAC-001"], locked: ["TL-MAC-003", "TL-MAC-022"], leftAlone: ["TL-MAC-014"], technical: ["TL-MAC-029"], unreadable: 1 }), ["TL-MAC-002"]);
     expect(screen.getByRole("heading", { level: 1, name: END.partial })).toBeTruthy();
-    expect(screen.getByText("1 thing fixed today.")).toBeTruthy();
+    expect(bodyLines()).toContain("1 thing fixed today.");
     for (const label of [END.next, END.waiting, END.locked, END.leftAlone, END.technical, END.unreadable]) expect(screen.getByRole("heading", { level: 2, name: label })).toBeTruthy();
     expect(document.querySelector(".guided-status-mark .guided-status-disc circle")?.getAttribute("fill")).toBe("url(#talos-mark-gradient)");
     // 001 is the next card, so five rows remain: 010, two locked, one left alone, one technical, the unreadable line.
@@ -132,6 +141,37 @@ describe("EndScreen", () => {
     expect(screen.getByText(END.nextTime)).toBeTruthy();
     expect(document.querySelector(".guided-next-card")).toBeNull();
     expect(document.querySelectorAll(".guided-end-row").length).toBe(1);
+  });
+
+  it("draws the fixed figure through CountUp, whole under ten, with the final value hidden for assistive tech", () => {
+    renderEnd(plan({ later: ["TL-MAC-010"] }), ["TL-MAC-002", "TL-MAC-003"]);
+    const line = document.querySelector(".guided-body p") as HTMLElement;
+    expect(line.textContent).toBe("22 things fixed today.");
+    expect(line.querySelector("span[aria-hidden='true']")?.textContent).toBe("2");
+    expect(line.querySelector("span.visually-hidden")?.textContent).toBe("2");
+    expect(bodyLines()[0]).toBe("2 things fixed today.");
+  });
+
+  it("reads That's all for today. between the all-done title and the next-time line, and nowhere else", () => {
+    renderEnd(plan(), ["TL-MAC-002"]);
+    expect(screen.getByRole("heading", { level: 1, name: END.allDone })).toBeTruthy();
+    expect(bodyLines()).toEqual([END.allDoneLine, END.nextTime]);
+    cleanup();
+    renderEnd(plan({ later: ["TL-MAC-010"] }), ["TL-MAC-002"]);
+    expect(bodyLines()).toEqual(["1 thing fixed today.", `${guidedFor("TL-MAC-010").headline}.`]);
+    cleanup();
+    renderEnd(plan({ accepted: ["TL-MAC-022"] }), ["TL-MAC-002"]);
+    expect(bodyLines()).not.toContain(END.allDoneLine);
+    cleanup();
+    renderEnd(plan(), [], null);
+    expect(bodyLines()).toEqual([END.nextTime]);
+  });
+
+  it("drops That's all for today. while the watch is on, so the watch's own line stays the one under the title", () => {
+    renderEnd(plan(), ["TL-MAC-002"], REPORT, { watchOn: true });
+    expect(screen.getByRole("heading", { level: 1, name: END.allDone })).toBeTruthy();
+    expect(bodyLines()).toEqual([WATCH_ON.nextTime]);
+    expect(document.body.textContent).not.toContain(END.allDoneLine);
   });
 
   it("shows the mark and the next-time line when all done or nothing to fix, with no card and no rows", () => {
@@ -379,7 +419,7 @@ describe("EndScreen and the rules the person chose to leave", () => {
   it("reads Your Mac is safer than it was. with an accepted high and one fixed, never in good shape", () => {
     renderEnd(plan({ accepted: ["TL-MAC-022"] }), ["TL-MAC-002"]);
     expect(screen.getByRole("heading", { level: 1, name: END.partial })).toBeTruthy();
-    expect(screen.getByText("1 thing fixed today.")).toBeTruthy();
+    expect(bodyLines()).toContain("1 thing fixed today.");
     expect(screen.queryByText(END.allDone)).toBeNull();
     expect(document.body.textContent).not.toContain("in good shape");
     expect(document.body.textContent).not.toContain("Nothing needs fixing");

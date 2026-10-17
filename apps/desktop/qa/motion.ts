@@ -24,8 +24,6 @@ interface Moment {
 const SKIPPED: readonly { name: string; reason: string }[] = [
   { name: "motion-breathe", reason: "needs the chat home (DESIGN-CHAT-UI), not built" },
   { name: "motion-reading", reason: "needs the daily reading (DESIGN-DAILY), not built" },
-  { name: "motion-watch-status", reason: "WatchWindow.tsx is held; the inner span does not exist yet" },
-  { name: "motion-fixed-count", reason: "EndScreen.tsx is held; the fixed line has no CountUp yet" },
 ];
 
 function log(line: string): void {
@@ -189,16 +187,28 @@ const ringReplay: Moment = {
   async run(page, baseUrl, mode) {
     const final = await reachRing(page, baseUrl);
     await sleep(1000);
+    const gradeAnim = await animationOf(page, ".score-meter-grade");
     // Click inside the page and read the figure two frames later, before the round trip can hide the restart.
-    const after = await page.evaluate(
+    const { after, sameGrade, gradeOpacity } = await page.evaluate(
       () =>
-        new Promise<string>((resolve) => {
+        new Promise<{ after: string; sameGrade: boolean; gradeOpacity: string }>((resolve) => {
+          const grade = document.querySelector(".score-meter-grade");
           (document.querySelector("[role='meter']") as HTMLElement).click();
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve(document.querySelector(".score-meter-figure")?.textContent ?? "")));
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              const now = document.querySelector(".score-meter-grade");
+              resolve({ after: document.querySelector(".score-meter-figure")?.textContent ?? "", sameGrade: now === grade, gradeOpacity: now === null ? "" : getComputedStyle(now).opacity });
+            }),
+          );
         }),
     );
     if (mode === "motion") {
       check(Number(after) < final, `the ring figure reads ${after} after a click, expected under ${final}`);
+      // The grade word stays (DESIGN-PLAYFUL 3.11): same node, visible, its fade-in not restarted.
+      check(sameGrade, "the grade word was remounted by the replay");
+      check(gradeOpacity === "1", `the grade word reads opacity ${gradeOpacity} after a click, expected 1`);
+      const gradeAfter = await animationOf(page, ".score-meter-grade");
+      check(gradeAfter.name === gradeAnim.name && gradeAfter.delay === gradeAnim.delay, "the grade word's animation changed on replay");
       await sleep(950);
     } else {
       check(Number(after) === final, `a click moved the ring figure to ${after} under reduced motion`);
@@ -240,20 +250,44 @@ async function expectCueBar(page: Page, mode: Mode): Promise<void> {
   check(resting(after), `the cue bar rests at ${after}, expected none`);
 }
 
+/** The dev-machine walk with one fix and the rest put off, landing on the partial end screen with its next card. */
+async function reachPartialEnd(page: Page, baseUrl: string): Promise<void> {
+  await goto(page, baseUrl, `${DEV}&fix=ok&fix_delay=0`);
+  await guidedTitle(page, PLAN_TITLE);
+  await primary(page, "Let's go");
+  await primary(page, "Turn it on");
+  await guidedTitle(page, "Your disk is not locked");
+  await link(page, "Do this later");
+  await link(page, "Do this later");
+  await link(page, "Not now");
+  await link(page, "Not now");
+}
+
 const cueBar: Moment = {
   name: "motion-cue-bar",
   async run(page, baseUrl, mode) {
-    await goto(page, baseUrl, `${DEV}&fix=ok&fix_delay=0`);
-    await guidedTitle(page, PLAN_TITLE);
-    await primary(page, "Let's go");
-    await primary(page, "Turn it on");
-    await guidedTitle(page, "Your disk is not locked");
-    await link(page, "Do this later");
-    await link(page, "Do this later");
-    await link(page, "Not now");
-    await link(page, "Not now");
+    await reachPartialEnd(page, baseUrl);
     await expectCueBar(page, mode);
     await guidedTitle(page, "Your Mac is safer than it was.");
+  },
+};
+
+/** The dev-machine walk fixes fewer than ten, so the figure is drawn whole in both modes: the hidden copy final throughout, the visible one equal on the first frame. */
+const fixedCount: Moment = {
+  name: "motion-fixed-count",
+  async run(page, baseUrl) {
+    await reachPartialEnd(page, baseUrl);
+    const line = ".guided-end .guided-body p";
+    const hidden = await firstSight(page, `${line} span.visually-hidden`, "text");
+    const visible = await styleOf(page, `${line} span[aria-hidden='true']`, "text");
+    check(hidden === "1", `the hidden fixed figure reads "${hidden}", expected 1`);
+    check(visible === hidden, `the visible fixed figure reads "${visible}" on its first frame, expected ${hidden}`);
+    await guidedTitle(page, "Your Mac is safer than it was.");
+    await sleep(700);
+    check((await styleOf(page, `${line} span.visually-hidden`, "text")) === "1", "the hidden fixed figure moved");
+    check((await styleOf(page, `${line} span[aria-hidden='true']`, "text")) === "1", "the visible fixed figure did not stay at 1");
+    const text = await styleOf(page, line, "text");
+    check(text.endsWith(" thing fixed today."), `the fixed line reads "${text}"`);
   },
 };
 
@@ -322,7 +356,33 @@ const caret: Moment = {
   },
 };
 
-const MOMENTS: readonly Moment[] = [welcomeDrift, hello, scanDot, ringFill, ringReplay, doneDisc, cueBar, cueBarAct, press, horizon, caret];
+/**
+ * The inner span fades in and the live region stays one node. The demo's "Check now" keeps the rating, so the remount
+ * on a rating change is pinned by WatchWindow.test.tsx; here the first paint's fade and the node's identity are measured.
+ */
+const watchStatus: Moment = {
+  name: "motion-watch-status",
+  async run(page, baseUrl, mode) {
+    await page.goto(`${baseUrl}/watch.html?watch=calm`);
+    const inner = ".watch-status[role='status'] > .watch-status-inner";
+    const first = await firstSight(page, inner, "animation-name");
+    const anim = await animationOf(page, inner);
+    if (mode === "motion") check(first === "fade-in" && anim.duration === "0.2s", `the status span runs ${first} over ${anim.duration}, expected fade-in over 0.2s`);
+    else check(frozen(anim.name, anim.duration), `the status span fades under reduced motion (${anim.name} ${anim.duration})`);
+    check((await styleOf(page, `${inner} .watch-status-word`, "text")) === "Nothing changed", "the calm word is not in the span");
+    await page.evaluate(() => {
+      (document.querySelector(".watch-status[role='status']") as HTMLElement).dataset.motionProbe = "same";
+    });
+    await page.locator(".watch-footer .watch-link").filter({ hasText: "Check now" }).click({ timeout: STEP_TIMEOUT });
+    await page.locator(".watch-meta-checking").waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".watch-meta-checking").waitFor({ state: "detached", timeout: STEP_TIMEOUT });
+    const same = await page.evaluate(() => (document.querySelector(".watch-status[role='status']") as HTMLElement | null)?.dataset.motionProbe === "same");
+    check(same, "the status live region was remounted by a check");
+    check((await page.locator(inner).count()) === 1, "the status line holds one inner span");
+  },
+};
+
+const MOMENTS: readonly Moment[] = [welcomeDrift, hello, scanDot, ringFill, ringReplay, doneDisc, cueBar, cueBarAct, press, horizon, caret, fixedCount, watchStatus];
 
 /** After 5 s idle on the plan screen only the caret, the spinner and the shimmer may still run; finished `both` animations stay listed but are not running. */
 async function idle(page: Page, baseUrl: string): Promise<void> {
