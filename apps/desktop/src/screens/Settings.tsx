@@ -144,7 +144,7 @@ function AcceptedSection() {
             <span className="setting-text">
               <strong>{headline(id)}</strong>
             </span>
-            <button type="button" className="toolbar-button" onClick={() => router.navigate({ name: "finding", ruleId: id })}>
+            <button type="button" className="toolbar-button" aria-label={`${headline(id)} ${END.details}`} onClick={() => router.navigate({ name: "finding", ruleId: id })}>
               {END.details}
             </button>
           </li>

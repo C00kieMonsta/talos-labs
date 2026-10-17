@@ -1,11 +1,11 @@
 import { mkdir } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { SCHEMES, SIZES, WARNINGS, captureWholeScreen, ensureServer, launchChrome, parseArgs, parseOnly, walk, walkAi, walkGuided, walkWatch } from "./harness";
+import { SCHEMES, SIZES, WARNINGS, captureWholeScreen, ensureServer, launchChrome, parseArgs, parseOnly, walk, walkAccept, walkAi, walkGuided, walkWatch } from "./harness";
 import type { Shot } from "./harness";
 
 /**
  * Screenshots every screen of the demo build in light and dark at two window sizes.
- *   cd apps/desktop && pnpm exec tsx qa/snap.ts --port 1430 --out qa/screenshots/<name> [--only expert|guided|ai|watch]
+ *   cd apps/desktop && pnpm exec tsx qa/snap.ts --port 1430 --out qa/screenshots/<name> [--only expert|guided|ai|watch|accept]
  */
 async function main(): Promise<number> {
   const args = parseArgs(process.argv.slice(2), { port: 1430, out: "qa/screenshots/latest" });
@@ -39,6 +39,7 @@ async function main(): Promise<number> {
     if (only === null || only === "guided") await walkGuided(page, server.baseUrl, visit);
     if (only === null || only === "ai") await walkAi(page, server.baseUrl, visit);
     if (only === null || only === "watch") await walkWatch(page, server.baseUrl, visit);
+    if (only === null || only === "accept") await walkAccept(page, server.baseUrl, visit);
     await context.close();
   } finally {
     await browser.close();

@@ -176,7 +176,7 @@ export function EndScreen({ plan, fixed, onCheckAgain, onNext, onConnect }: EndS
     <p>{watchOn ? WATCH_ON.tryAgain : END.tryAgain}</p>
   ) : (
     <>
-      {fixed.length > 0 && !allDone && <p>{things(fixed.length)} fixed today.</p>}
+      {fixed.length > 0 && (!allDone || chosen) && <p>{things(fixed.length)} fixed today.</p>}
       <p>{actNow !== null ? `${FISHY.noticed.headline[actNow.kind]}.` : urgencyLine(next, watchOn)}</p>
     </>
   );

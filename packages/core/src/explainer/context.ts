@@ -55,13 +55,14 @@ function safeEvidence(finding: Finding, rule: Rule | undefined): readonly SafeEv
   return out;
 }
 
-/** Finding ids the explainer may see, in report order, after the cap; accepted ids are dropped before the cap. */
+/** Finding ids the explainer may see, in report order: the capped rows of toExplainerContext minus the accepted ids. */
 export function explainerEligibleRuleIds(report: ScanReport, accepted: readonly RuleId[] = []): readonly Finding["ruleId"][] {
   const left = new Set<string>(accepted);
   return report.findings
-    .filter((finding) => SAFE_STRING_PATTERN.test(finding.ruleId) && !left.has(finding.ruleId))
+    .filter((finding) => SAFE_STRING_PATTERN.test(finding.ruleId))
     .slice(0, EXPLAINER_LIMITS.maxFindings)
-    .map((finding) => finding.ruleId);
+    .map((finding) => finding.ruleId)
+    .filter((ruleId) => !left.has(ruleId));
 }
 
 /** The single chokepoint between a report and the model. Nothing machine-originated survives it. */

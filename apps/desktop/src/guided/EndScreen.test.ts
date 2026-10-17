@@ -379,6 +379,7 @@ describe("EndScreen and the rules the person chose to leave", () => {
   it("reads Your Mac is safer than it was. with an accepted high and one fixed, never in good shape", () => {
     renderEnd(plan({ accepted: ["TL-MAC-022"] }), ["TL-MAC-002"]);
     expect(screen.getByRole("heading", { level: 1, name: END.partial })).toBeTruthy();
+    expect(screen.getByText("1 thing fixed today.")).toBeTruthy();
     expect(screen.queryByText(END.allDone)).toBeNull();
     expect(document.body.textContent).not.toContain("in good shape");
     expect(document.body.textContent).not.toContain("Nothing needs fixing");

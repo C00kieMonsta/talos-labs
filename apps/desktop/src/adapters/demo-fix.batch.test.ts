@@ -45,6 +45,10 @@ describe("DemoFixPort batch", () => {
     expect(outcome).toEqual({ ok: true, items: IDS.map((ruleId) => ({ ruleId, status: "done", error: null, step: null })), error: null });
     expect(progress[0]).toEqual({ planId: plan.planId, phase: "waiting_for_password", step: 1, of: 1 });
     expect(progress.filter((p) => p.phase === "running").map((p) => p.item)).toEqual(plan.items.flatMap((item, i) => item.lines.map(() => i)));
+    // Each item counts its own lines, as batch.rs does.
+    expect(progress.filter((p) => p.phase === "running").map((p) => [p.step, p.of])).toEqual(
+      plan.items.flatMap((item) => item.lines.map((_, line) => [line + 1, item.lines.length])),
+    );
     expect((await adapters.systemState.collectSection("firewall")).status).toBe("ok");
     expect(window.__talosDemoCalls?.map((c) => c.kind)).toEqual(["fixPreviewBatch", "fixApplyBatch"]);
     expect(window.__talosDemoCalls?.[1]?.arg).toBe(plan.planId);

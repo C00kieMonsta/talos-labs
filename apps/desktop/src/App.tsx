@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AiAvailability, Capabilities, GuidedMemory, LicenseState, ScanReport, WatchAi, WatchMemory, WatchOpenScreen } from "@talos/core";
-import { EMPTY_GUIDED_MEMORY } from "@talos/core";
+import type { AiAvailability, Capabilities, GuidedMemory, LicenseState, RuleId, ScanReport, WatchAi, WatchMemory, WatchOpenScreen } from "@talos/core";
+import { EMPTY_GUIDED_MEMORY, acceptRules, unacceptRule } from "@talos/core";
 import { AppContext, useApp } from "./app/context";
 import type { AppContextValue } from "./app/context";
 import { adapters, buildContext, catalog, loadSettings, runEngine, saveSettings } from "./app/container";
@@ -177,6 +177,10 @@ export default function App() {
   // True once license.current() has resolved; a rejected read never pushes a gate to Rust.
   const [licenseRead, setLicenseRead] = useState(false);
   const [memory, setMemory] = useState<GuidedMemory>(() => loadGuidedMemory());
+  // Ids only: the model and the watch see which checks were left alone, never why.
+  const acceptedIds = useMemo(() => Object.keys(memory.accepted) as RuleId[], [memory]);
+  const acceptedRef = useRef<readonly RuleId[]>([]);
+  acceptedRef.current = acceptedIds;
   const [watchMemory, setWatchMemory] = useState<WatchMemory>(() => loadWatchMemory());
   if (continueNote === undefined) continueNote = readContinue();
   const resume = continueNote?.kind === "guided";
@@ -197,7 +201,7 @@ export default function App() {
       adapters,
       engine: runEngine,
       createExplainer: () => adapters.createExplainer(settings.explainer),
-      toContext: (report: ScanReport) => buildContext(report, settings.profile),
+      toContext: (report: ScanReport) => buildContext(report, settings.profile, acceptedRef.current),
     }),
     [settings.explainer, settings.profile],
   );
@@ -270,6 +274,10 @@ export default function App() {
     saveGuidedMemory(next);
     setMemory(next);
   }, []);
+  const memoryRef = useRef(memory);
+  memoryRef.current = memory;
+  const acceptRule = useCallback((id: RuleId) => saveMemory(acceptRules(memoryRef.current, [id], new Date().toISOString())), [saveMemory]);
+  const unaccept = useCallback((id: RuleId) => saveMemory(unacceptRule(memoryRef.current, id)), [saveMemory]);
   // Lives here, not in the Connect screen, so a running sign-in keeps being polled while the person visits other screens.
   const connect = useAiConnect({ port: adapters.aiConnect, router, settings, updateSettings, memory, saveMemory, ai, windowFocused: !inactive, reducedMotion });
   const saveWatch = useCallback((next: WatchMemory) => {
@@ -290,6 +298,7 @@ export default function App() {
     profile: settings.profile,
     ai: watchAiFor(settings),
     licensed: licenseRead ? gate.licensed : null,
+    accepted: acceptedIds,
     updateSettings: updateWatchSettings,
     memory: watchMemory,
     saveMemory: saveWatch,
@@ -363,8 +372,8 @@ export default function App() {
   }, [pendingAnchor, router.route.name]);
 
   const value: AppContextValue = useMemo(
-    () => ({ adapters, catalog, settings, updateSettings, license, setLicense, gate, scan, router, aiUsable, ai, capabilities, refreshCapabilities }),
-    [settings, updateSettings, license, gate, scan, router, aiUsable, ai, capabilities, refreshCapabilities],
+    () => ({ adapters, catalog, settings, updateSettings, license, setLicense, gate, scan, router, aiUsable, ai, capabilities, refreshCapabilities, guidedMemory: memory, acceptRule, unacceptRule: unaccept }),
+    [settings, updateSettings, license, gate, scan, router, aiUsable, ai, capabilities, refreshCapabilities, memory, acceptRule, unaccept],
   );
 
   const guidedHome = settings.guided.home;

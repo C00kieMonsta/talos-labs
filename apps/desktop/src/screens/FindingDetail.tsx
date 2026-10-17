@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import type { RefObject } from "react";
 import type { Evidence, Explanation, Finding, Rule, RuleId, RuleStatus, SettingsPane } from "@talos/core";
 import { isAccepted } from "@talos/core";
 import { AiCard, useAiCardFlow } from "../components/AiCard";
@@ -101,6 +102,19 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
   const view: DetailView | null =
     finding !== undefined ? finding : rule !== undefined ? fromRule(rule, result?.status ?? "pass", result?.evidence ?? []) : null;
 
+  // "Left alone" only while the check fails: a rule in the map that passed since the last landing shows nothing.
+  const accepted = view !== null && view.status === "fail" && isAccepted(guidedMemory, ruleId);
+  // Each of the two buttons unmounts itself, so focus moves to the block that takes its place; opening the screen moves nothing.
+  const offer = useRef<HTMLDivElement>(null);
+  const strip = useRef<HTMLDivElement>(null);
+  const wasAccepted = useRef({ ruleId, accepted });
+  useEffect(() => {
+    const was = wasAccepted.current;
+    wasAccepted.current = { ruleId, accepted };
+    if (was.ruleId !== ruleId || was.accepted === accepted) return;
+    (accepted ? strip : offer).current?.focus();
+  }, [ruleId, accepted]);
+
   if (view === null) {
     return (
       <div className="screen detail">
@@ -118,10 +132,8 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
   const fixable = !unsignedBuild && (view.status === "fail" || view.status === "review");
   const actionable = fixable || (!unsignedBuild && view.status === "unknown");
   const locked = fixable && gate.fixLocked({ ruleId: view.ruleId, status: view.status });
-  // "Left alone" only while the check fails: a rule in the map that passed since the last landing shows nothing.
-  const accepted = view.status === "fail" && isAccepted(guidedMemory, view.ruleId);
   const acceptedAt = accepted ? (guidedMemory.accepted[view.ruleId] ?? null) : null;
-  const offer = fixable && view.status === "fail" && !accepted;
+  const offered = fixable && view.status === "fail" && !accepted;
   const permissionPane = paneForReason(view.unknownReason);
   const openPane = (pane: SettingsPane) => void adapters.openSettingsPane(pane);
   const lastRecheck = scan.scan.kind === "ready" ? scan.scan.lastRecheck : null;
@@ -170,7 +182,7 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
 
       {!fixable && passedAt !== null && <PassedStrip at={passedAt} />}
 
-      {accepted && acceptedAt !== null && <AcceptStrip at={acceptedAt} onUndo={() => unacceptRule(view.ruleId)} />}
+      {accepted && acceptedAt !== null && <AcceptStrip at={acceptedAt} onUndo={() => unacceptRule(view.ruleId)} focusRef={strip} />}
 
       {fixable &&
         !accepted &&
@@ -197,7 +209,7 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
           />
         ))}
 
-      {offer && <AcceptOffer onAccept={() => acceptRule(view.ruleId)} />}
+      {offered && <AcceptOffer onAccept={() => acceptRule(view.ruleId)} focusRef={offer} />}
 
       <section className="card" aria-labelledby="evidence-heading">
         <h2 id="evidence-heading">What was found</h2>
@@ -229,9 +241,9 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
 }
 
 /** Under the fix card or the lock: the one place that offers "Leave it alone" in the expert shell (DESIGN-ACCEPT.md section 2). */
-function AcceptOffer({ onAccept }: { onAccept(): void }) {
+function AcceptOffer({ onAccept, focusRef }: { onAccept(): void; focusRef: RefObject<HTMLDivElement | null> }) {
   return (
-    <div className="accept-offer">
+    <div ref={focusRef} tabIndex={-1} className="accept-offer">
       <p>{ACCEPT.offer}</p>
       <button type="button" className="button" onClick={onAccept}>
         {ACCEPT.link}
@@ -241,9 +253,9 @@ function AcceptOffer({ onAccept }: { onAccept(): void }) {
 }
 
 /** In place of the fix card while the check is left alone: the date and the one undo. */
-function AcceptStrip({ at, onUndo }: { at: string; onUndo(): void }) {
+function AcceptStrip({ at, onUndo, focusRef }: { at: string; onUndo(): void; focusRef: RefObject<HTMLDivElement | null> }) {
   return (
-    <div role="status" className="status-strip accept-strip">
+    <div ref={focusRef} tabIndex={-1} role="status" className="status-strip accept-strip">
       <Icon icon={ICONS.eyeOff} />
       <span>{ACCEPT.strip.replace("{date}", formatDate(at))}</span>
       <button type="button" className="toolbar-button" onClick={onUndo}>

@@ -31,8 +31,7 @@ export function BatchStep({ step, state, controller, notice }: { step: BatchStep
       const asking = state.label === STATUS.password;
       const cut = STATUS.password.indexOf(". ") + 1;
       const title = asking ? STATUS.password.slice(0, cut) : `I can fix ${things(step.ruleIds.length)} for you now.`;
-      // The password phase keeps the one status line; the harness waits for it.
-      const activity = asking ? null : fixing !== null || preparing ? rows : null;
+      const activity = fixing !== null || preparing ? rows : null;
       return (
         <StepFrame progress={progress} devId={devId} title={title} body={asking ? <p>{STATUS.password.slice(cut + 1)}</p> : null} status={asking ? STATUS.waiting : state.label} activity={activity} notice={notice}>
           {settings.developer.enabled && <WhatWillRun />}

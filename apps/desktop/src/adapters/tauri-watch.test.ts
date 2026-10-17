@@ -259,7 +259,8 @@ describe("TauriWatchAdapter", () => {
       ["watch_set_profile", { profile, licensed: true }],
       ["watch_set_profile", { profile, licensed: false, accepted: many.slice(0, 64) }],
     ]);
-    expect("accepted" in (invoke.mock.calls[2]?.[1] as object)).toBe(false);
+    const third: unknown = (invoke.mock.calls[2] as unknown[] | undefined)?.[1];
+    expect(Object.keys(third as object)).not.toContain("accepted");
     expect(JSON.stringify(invoke.mock.calls)).not.toMatch(/\/Users/);
   });
 

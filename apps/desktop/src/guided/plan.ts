@@ -76,17 +76,19 @@ export interface MergeInput {
  */
 export function mergePlan(input: MergeInput): GuidedPlan {
   const { old, index, pinCurrent, fresh, report, extras, leftAlone } = input;
-  const passed = old.steps.slice(0, index);
+  // A passed paywall keeps its id but not an accepted rule: "Unlock" at the end reopens it with its list.
+  const passed = old.steps.slice(0, index).map((s) => (s.kind === "paywall" ? { ...s, lockedRuleIds: s.lockedRuleIds.filter((r) => !fresh.accepted.includes(r)) } : s));
   const current = old.steps[index];
   const pinned = pinCurrent && current !== undefined ? [current] : [];
   const taken = new Set<string>([...passed, ...pinned].map((s) => s.id));
   const takenRules = new Set<RuleId>([...passed, ...pinned].flatMap(ruleIdsOf));
   // An accepted rule leaves the extras too: a converted show step or an unlocked fix is never proposed again.
+  // A batch shrunk to one rule is re-keyed, so the shrunk form is checked against the passed steps as well.
   const liveExtras = extras
     .filter((e) => !taken.has(e.id) && ruleIdsOf(e).every((r) => !rulePasses(report, r)))
     .flatMap((e) => {
       const kept = withoutAccepted(e, fresh.accepted);
-      return kept === null ? [] : [kept];
+      return kept === null || taken.has(kept.id) ? [] : [kept];
     });
   for (const e of liveExtras) for (const r of ruleIdsOf(e)) takenRules.add(r);
   const dropRule = (r: RuleId) => takenRules.has(r) || leftAlone.has(r);

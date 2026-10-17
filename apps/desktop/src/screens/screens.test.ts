@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createElement } from "react";
+import { createElement, useState } from "react";
 import { createRequire } from "node:module";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { AiAvailability, Capabilities, Explanation, FixPlan, LicenseState, Rule, RuleCatalog, RuleId, SystemState } from "@talos/core";
@@ -1600,6 +1600,31 @@ describe("FindingDetail and the checks the person chose to leave", () => {
     expect(document.querySelector(".status-left-alone")).toBeNull();
     expect(screen.getByText("Passed")).toBeTruthy();
   });
+
+  /** The memory as real state, so the strip and the offer swap under the press as they do in App. */
+  function AcceptHost({ value, ruleId }: { value: ReturnType<typeof detail>; ruleId: RuleId }) {
+    const [memory, setMemory] = useState(value.guidedMemory);
+    const live = {
+      ...value,
+      guidedMemory: memory,
+      acceptRule: (id: RuleId) => setMemory((m) => ({ ...m, accepted: { ...m.accepted, [id]: "2026-10-10T09:00:00.000Z" } })),
+      unacceptRule: (id: RuleId) => setMemory((m) => ({ ...m, accepted: Object.fromEntries(Object.entries(m.accepted).filter(([k]) => k !== id)) })),
+    };
+    return createElement(AppContext.Provider, { value: live }, createElement(FindingDetail, { ruleId }));
+  }
+
+  it("moves focus to the strip after Leave it alone and to the offer after Ask me again, and moves nothing on open", () => {
+    render(createElement(AcceptHost, { value: detail(NONE), ruleId: "TL-MAC-001" }));
+    expect(document.activeElement).toBe(document.body);
+    fireEvent.click(screen.getByRole("button", { name: ACCEPT.link }));
+    expect(document.activeElement).toBe(document.querySelector(".accept-strip"));
+    fireEvent.click(screen.getByRole("button", { name: ACCEPT.undo }));
+    expect(document.activeElement).toBe(document.querySelector(".accept-offer"));
+    expect(screen.getByRole("heading", { name: "How to fix it" })).toBeTruthy();
+    cleanup();
+    render(createElement(AcceptHost, { value: detail(NONE, leftAlone("TL-MAC-001")), ruleId: "TL-MAC-001" }));
+    expect(document.activeElement).toBe(document.body);
+  });
 });
 
 describe("Findings and the checks the person chose to leave", () => {
@@ -1693,6 +1718,8 @@ describe("Settings and the checks the person chose to leave", () => {
     const list = document.querySelector(".settings-accepted-list") as HTMLElement;
     expect(list.querySelectorAll("li").length).toBe(1);
     expect(list.textContent).toContain("Your disk is not encrypted");
+    // Each row's button is named by its headline, as the end screen's rows are, so two rows never read alike.
+    expect(screen.getByRole("button", { name: `Your disk is not encrypted ${END.details}` })).toBe(list.querySelector("button"));
     expect(screen.queryByRole("button", { name: ACCEPT.undo })).toBeNull();
     expect(screen.queryByRole("switch", { name: /leave/i })).toBeNull();
     fireEvent.click(list.querySelector("button") as HTMLButtonElement);

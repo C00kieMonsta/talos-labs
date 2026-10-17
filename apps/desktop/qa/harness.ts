@@ -36,10 +36,10 @@ export function parseArgs(argv: readonly string[], defaults: CliArgs): CliArgs {
   return { port, out: resolve(out) };
 }
 
-export type WalkName = "expert" | "guided" | "ai" | "watch";
-const WALK_NAMES: readonly WalkName[] = ["expert", "guided", "ai", "watch"];
+export type WalkName = "expert" | "guided" | "ai" | "watch" | "accept";
+const WALK_NAMES: readonly WalkName[] = ["expert", "guided", "ai", "watch", "accept"];
 
-/** `--only expert|guided|ai|watch` limits a script to one walk; absent, every walk runs. */
+/** `--only expert|guided|ai|watch|accept` limits a script to one walk; absent, every walk runs. */
 export function parseOnly(argv: readonly string[]): WalkName | null {
   const index = argv.indexOf("--only");
   const raw = index >= 0 ? argv[index + 1] : argv.find((arg) => arg.startsWith("--only="))?.slice("--only=".length);
@@ -778,9 +778,9 @@ export async function walkGuided(page: Page, baseUrl: string, visit: Visit): Pro
     await primary(page, "Let's go");
     await blur(page);
     await primary(page, "Fix these for me");
-    // One idea while it runs: the password sentence is headline and body, the status reads "Waiting for macOS", the list is gone.
+    // One idea while it runs: the password sentence is headline and body, the activity rows name the password step, the list is gone.
     await guidedTitle(page, "Your Mac is asking for your password.");
-    await page.locator(".guided .guided-status").filter({ hasText: "Waiting for macOS" }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".guided .guided-activity .activity-word").filter({ hasText: "your password" }).first().waitFor({ timeout: STEP_TIMEOUT });
     if ((await page.locator(".guided .guided-list").count()) !== 0) throw new Error("the working batch shows no list");
     await assertGuidedScreen(page, { primaries: 0 });
     if ((await page.locator(".guided .guided-link").count()) !== 0) throw new Error("the batch exposes no cancel while it runs");
@@ -2007,6 +2007,220 @@ export async function walkWatch(page: Page, baseUrl: string, visit: Visit): Prom
     await assertRecorded(page, "watch_request_notify_permission");
     await assertRecorded(page, "watch_set_notify", true);
     await assertGuidedScreen(page, { foldLink: false });
+    await assertNoUrlRecorded(page);
+  });
+}
+
+/** DESIGN-ACCEPT.md section 4: the strings the accept walk reads. */
+const ACCEPT_TITLE = "Shall I stop asking about this?";
+const ACCEPT_TITLE_MANY = "Shall I stop asking about these?";
+const ACCEPT_BODY = "I've asked about this a few times. I can stop asking, but your Mac stays at risk until it's done.";
+const ACCEPT_PRIMARY = "No, keep asking";
+const ACCEPT_LINK = "Leave it alone, I know the risk";
+const ACCEPT_LINK_MANY = "Leave them alone, I know the risks";
+const ACCEPT_FLASH = "OK, I'll leave it alone.";
+const ACCEPT_OFFER = "Don't want to do this? I'll stop proposing it. It still counts against the score.";
+const ACCEPT_STRIP = "You chose to leave this on 10 October. It still counts against the score.";
+const ACCEPT_UNDO = "Ask me again";
+const ACCEPT_PILL = "Left alone";
+const END_CHOSEN = "Things you chose to leave";
+const END_NOTHING_LEFT = "Nothing left for me to do.";
+const END_PARTIAL = "Your Mac is safer than it was.";
+const END_NEXT_TIME = "I'll check again next time you open me.";
+const CHOSEN_LINE_ONE = "1 thing you chose to leave still counts.";
+const DISK_HEADLINE = "Your disk is not locked";
+const DISK_FINDING = /Your disk is not encrypted/;
+/** `memory=` with 001 left alone on 10 October. */
+const ACCEPTED_001 = encodeURIComponent(JSON.stringify({ version: 1, accepted: { "TL-MAC-001": "2026-10-10T09:00:00.000Z" } }));
+const FIX_CALLS = ["fixPreview", "fixApply", "fixPreviewBatch", "fixApplyBatch"];
+
+async function guidedMemory(page: Page): Promise<Record<string, unknown> | null> {
+  const raw = await page.evaluate(() => localStorage.getItem("talos.guided"));
+  return raw === null ? null : (JSON.parse(raw) as Record<string, unknown>);
+}
+
+/** The ask screen: the given title, one primary "No, keep asking", one link, a progress line, never the word accept. */
+async function assertAskScreen(page: Page, title: string, linkLabel: string): Promise<void> {
+  await guidedTitle(page, title);
+  await assertGuidedScreen(page);
+  const primaryLabel = (await page.locator(".guided .button-primary").textContent())?.trim();
+  if (primaryLabel !== ACCEPT_PRIMARY) throw new Error(`the ask primary reads "${primaryLabel}"`);
+  const linkText = (await page.locator(".guided .guided-link").textContent())?.trim();
+  if (linkText !== linkLabel) throw new Error(`the ask link reads "${linkText}"`);
+  await page.locator(".guided-progress .guided-meta").first().waitFor({ timeout: STEP_TIMEOUT });
+  if ((await page.locator(".guided-ask-accept").count()) !== 1) throw new Error("the ask screen lacks its class");
+  const text = (await page.locator(".guided").textContent()) ?? "";
+  if (/accept/i.test(text)) throw new Error("the word accept reached the screen");
+}
+
+/** The end screen must never read calm over a rule the person chose to leave. */
+async function assertNoCalmTitle(page: Page): Promise<void> {
+  const text = (await page.locator(".guided").textContent()) ?? "";
+  for (const calm of ["in good shape", "Nothing needs fixing"]) if (text.includes(calm)) throw new Error(`the end screen reads "${calm}" over a rule left alone`);
+}
+
+/** "Leave it alone, I know the risk" (DESIGN-ACCEPT.md section 7), light and dark, both sizes, axe on all. */
+export async function walkAccept(page: Page, baseUrl: string, visit: Visit): Promise<void> {
+  const goto = async (query: string, options: { paced?: boolean } = {}) => {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await page.goto(`${baseUrl}/?${query}${options.paced === true ? "" : "&pace=0"}`);
+  };
+  const askAbout001 = async (options: { paced?: boolean } = {}) => {
+    await goto(`${DEV}&memory=${encodeURIComponent(JSON.stringify({ version: 1, laterCount: { "TL-MAC-001": 2 } }))}`, options);
+    await primary(page, "Let's go");
+    await guidedTitle(page, "The firewall is off");
+    await link(page, "Do this later");
+    await guidedTitle(page, DISK_HEADLINE);
+    await link(page, "Do this later");
+  };
+
+  await visit({ name: "guided-ask-accept" }, async () => {
+    await askAbout001();
+    await assertAskScreen(page, ACCEPT_TITLE, ACCEPT_LINK);
+    await page.locator(".guided-body").getByText(ACCEPT_BODY, { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator(".guided details").count()) === 0) throw new Error("the single-rule ask keeps the Explain disclosure");
+    if ((await page.locator(".guided .guided-list").count()) !== 0) throw new Error("a single-rule ask lists nothing");
+    const memory = await guidedMemory(page);
+    const counts = (memory?.["laterCount"] ?? {}) as Record<string, number>;
+    if (counts["TL-MAC-001"] !== 3) throw new Error(`the third Later wrote a count of ${counts["TL-MAC-001"]}`);
+    if (((memory?.["snoozed"] ?? {}) as Record<string, string>)["TL-MAC-001"] === undefined) throw new Error("the third Later did not snooze");
+  });
+  await visit({ name: "guided-ask-accept-batch" }, async () => {
+    await goto(`${DEV_LICENSED}&memory=${encodeURIComponent(JSON.stringify({ version: 1, laterCount: { "TL-MAC-002": 2, "TL-MAC-003": 2, "TL-MAC-011": 0 } }))}`);
+    await primary(page, "Let's go");
+    await guidedTitle(page, "I can fix 3 things for you now.");
+    await link(page, "Do these later");
+    await assertAskScreen(page, ACCEPT_TITLE_MANY, ACCEPT_LINK_MANY);
+    const rows = await page.locator(".guided .guided-list .guided-row-text").allTextContents();
+    const want = ["The firewall is off", "Your Mac answers strangers on the network"];
+    if (JSON.stringify(rows.map((r) => r.trim())) !== JSON.stringify(want)) throw new Error(`the batch ask lists ${JSON.stringify(rows)}`);
+  });
+  await visit({ name: "guided-accept-flash", volatile: true }, async () => {
+    await askAbout001({ paced: true });
+    await guidedTitle(page, ACCEPT_TITLE);
+    const before = (await demoCalls(page)).length;
+    await link(page, ACCEPT_LINK);
+    await guidedTitle(page, ACCEPT_FLASH);
+    await assertGuidedScreen(page, { primaries: 0 });
+    if ((await page.locator(".guided .guided-link").count()) !== 0) throw new Error("the flash shows a link");
+    const memory = await guidedMemory(page);
+    const accepted = (memory?.["accepted"] ?? {}) as Record<string, string>;
+    if (accepted["TL-MAC-001"] === undefined) throw new Error("Leave it alone did not write accepted");
+    if (((memory?.["snoozed"] ?? {}) as Record<string, string>)["TL-MAC-001"] !== undefined) throw new Error("the snooze survived the acceptance");
+    if (((memory?.["laterCount"] ?? {}) as Record<string, number>)["TL-MAC-001"] !== undefined) throw new Error("the count survived the acceptance");
+    const after = (await demoCalls(page)).slice(before);
+    if (after.some((c) => FIX_CALLS.includes(c.kind))) throw new Error(`a fix call followed the acceptance: ${JSON.stringify(after)}`);
+    await assertNoUrlRecorded(page);
+  });
+  await visit({ name: "guided-end-chosen" }, async () => {
+    await goto(`${DEV}&fix=ok&fix_delay=0&memory=${ACCEPTED_001}`);
+    await primary(page, "Let's go");
+    await primary(page, "Turn it on");
+    await guidedTitle(page, "An update is waiting");
+    await link(page, "Do this later");
+    await link(page, "Not now");
+    await link(page, "Not now");
+    await guidedTitle(page, END_PARTIAL);
+    await assertNoCalmTitle(page);
+    const labels = (await page.locator(".guided-end-group:not(.guided-next) .guided-end-label").allTextContents()).map((t) => t.trim());
+    const at = labels.indexOf(END_CHOSEN);
+    if (at < 0) throw new Error(`no "${END_CHOSEN}" group: ${JSON.stringify(labels)}`);
+    if (labels.indexOf("In the full version") > at) throw new Error(`the chosen group comes before the locked one: ${JSON.stringify(labels)}`);
+    const leftAloneAt = labels.indexOf("Things I left alone");
+    if (leftAloneAt >= 0 && leftAloneAt < at) throw new Error(`the chosen group comes after the left-alone one: ${JSON.stringify(labels)}`);
+    const group = page.locator("section[aria-labelledby='guided-end-accepted']");
+    await group.getByRole("button", { name: `${DISK_HEADLINE} Details` }).waitFor({ timeout: STEP_TIMEOUT });
+    const nextHeadline = (await page.locator(".guided-next-headline").textContent())?.trim();
+    if (nextHeadline === DISK_HEADLINE) throw new Error("the rule left alone became the next card");
+    await assertEndScreen(page, { label: "Show me where", cue: "high" });
+  });
+  await visit({ name: "guided-end-nothing-left" }, async () => {
+    await goto(`reset=1&fixture=hardened&fail=001&onboarded=1&delay=0&memory=${ACCEPTED_001}`);
+    await guidedTitle(page, END_NOTHING_LEFT);
+    await assertNoCalmTitle(page);
+    await page.getByText(END_NEXT_TIME, { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    const group = page.locator("section[aria-labelledby='guided-end-accepted']");
+    if ((await group.locator(".guided-end-row").count()) !== 1) throw new Error("the chosen group holds one row");
+    await assertEndScreen(page, null);
+  });
+  await visit({ name: "finding-detail-offer" }, async () => {
+    await goto(`${DEV}&guided=0`);
+    await runCheckUp(page);
+    await openCard(page, DISK_FINDING);
+    await heading(page, "How to fix it", 2);
+    const offer = page.locator(".accept-offer");
+    await offer.getByText(ACCEPT_OFFER, { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    await offer.getByRole("button", { name: ACCEPT_LINK }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator(".accept-strip").count()) !== 0) throw new Error("the strip is drawn before any choice");
+    const fix = await page.locator("section").filter({ has: page.getByRole("heading", { name: "How to fix it" }) }).first().boundingBox();
+    const box = await offer.boundingBox();
+    if (fix === null || box === null || box.y < fix.y + fix.height) throw new Error("the offer sits under the fix card");
+  });
+  await visit({ name: "finding-detail-left-alone" }, async () => {
+    await goto(`${DEV}&guided=0&memory=${ACCEPTED_001}`);
+    await runCheckUp(page);
+    await nav(page, "Findings");
+    await openCard(page, DISK_FINDING);
+    const strip = page.locator(".accept-strip[role='status']");
+    await strip.getByText(ACCEPT_STRIP, { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    await strip.getByRole("button", { name: ACCEPT_UNDO }).waitFor({ timeout: STEP_TIMEOUT });
+    const pill = (await page.locator(".detail-meta .status-left-alone").textContent())?.trim();
+    if (pill !== ACCEPT_PILL) throw new Error(`the pill reads "${pill}"`);
+    if ((await page.getByRole("heading", { name: "How to fix it" }).count()) !== 0) throw new Error("the fix card is drawn while left alone");
+    if ((await page.locator(".lock").count()) !== 0) throw new Error("the lock is drawn while left alone");
+    await page.locator(".ai-card").waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".recheck").waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator(".accept-offer").count()) !== 0) throw new Error("the offer is drawn while left alone");
+    await assertNoUrlRecorded(page);
+  });
+  // The shot above keeps the strip; the undo gets its own visit so the capture shows the state it asserts.
+  await visit({ name: "finding-detail-ask-again" }, async () => {
+    await goto(`${DEV}&guided=0&memory=${ACCEPTED_001}`);
+    await runCheckUp(page);
+    await nav(page, "Findings");
+    await openCard(page, DISK_FINDING);
+    const strip = page.locator(".accept-strip[role='status']");
+    await strip.getByRole("button", { name: ACCEPT_UNDO }).click();
+    await heading(page, "How to fix it", 2);
+    if ((await page.locator(".accept-strip").count()) !== 0) throw new Error("the strip stayed after Ask me again");
+    await page.locator(".accept-offer").waitFor({ timeout: STEP_TIMEOUT });
+    const memory = await guidedMemory(page);
+    if (((memory?.["accepted"] ?? {}) as Record<string, string>)["TL-MAC-001"] !== undefined) throw new Error("Ask me again did not clear the entry");
+    await assertNoUrlRecorded(page);
+  });
+  await visit({ name: "findings-left-alone-pill" }, async () => {
+    await goto(`${DEV}&guided=0&memory=${ACCEPTED_001}`);
+    await runCheckUp(page);
+    const tile = (await page.locator(".grid-stats li").filter({ hasText: "Needs fixing" }).locator("b").textContent())?.trim();
+    await nav(page, "Findings");
+    const group = page.locator("section[aria-labelledby='group-needs-fixing']");
+    await group.waitFor({ timeout: STEP_TIMEOUT });
+    const cards = group.locator(".finding-card");
+    const last = cards.last();
+    if ((await last.getAttribute("data-rule-id")) !== "TL-MAC-001") throw new Error("the rule left alone is not last in Needs fixing");
+    const pill = (await last.locator(".badge-left-alone").textContent())?.trim();
+    if (pill !== ACCEPT_PILL) throw new Error(`the card pill reads "${pill}"`);
+    if ((await last.locator(".badge-rank").count()) !== 0) throw new Error("the rule left alone carries an AI rank");
+    const count = (await group.locator(".count-inline").textContent())?.trim();
+    if (count !== String(await cards.count())) throw new Error(`the group count reads ${count} over ${await cards.count()} cards`);
+    if (count !== tile) throw new Error(`Findings counts ${count} and the Overview tile ${tile}`);
+    const text = (await page.locator(".findings").textContent()) ?? "";
+    if (/accept/i.test(text)) throw new Error("the word accept reached the Findings screen");
+  });
+  await visit({ name: "overview-chosen-line" }, async () => {
+    await goto(`${DEV}&guided=0&provider=chatgpt&ai=available&memory=${ACCEPTED_001}`);
+    await runCheckUp(page);
+    const line = (await page.locator(".score-chosen").textContent())?.trim();
+    if (line !== CHOSEN_LINE_ONE) throw new Error(`the score line reads "${line}"`);
+    const next = page.locator("section[aria-labelledby='next-fixes']");
+    await next.waitFor({ timeout: STEP_TIMEOUT });
+    if ((await next.locator('[data-rule-id="TL-MAC-001"]').count()) !== 0) throw new Error("Next three fixes proposes the rule left alone");
+    await page.getByRole("button", { name: "Suggest an order" }).click();
+    await page.locator(".ai-card[data-ai-state='ready']").waitFor({ timeout: STEP_TIMEOUT });
+    const body = page.locator(".suggested-order");
+    await body.waitFor({ timeout: STEP_TIMEOUT });
+    if ((await body.locator('[data-rule-id="TL-MAC-001"]').count()) !== 0) throw new Error("the suggested order lists the rule left alone");
+    if ((await body.locator("[data-rule-id]").count()) === 0) throw new Error("the suggested order is empty");
     await assertNoUrlRecorded(page);
   });
 }

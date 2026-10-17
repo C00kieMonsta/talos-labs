@@ -181,7 +181,6 @@ export class DemoFixPort implements FixPort {
     const batch = this.options.batch ?? "ok";
     const { delayMs } = this.options;
     const signal = options?.signal;
-    const of = plan.items.reduce((sum, item) => sum + item.lines.length, 0);
     const notRun = (from: number): BatchItemOutcome[] =>
       plan.items.slice(from).map((item) => ({ ruleId: item.ruleId, status: "not_run", error: null, step: null }));
     const done: BatchItemOutcome[] = [];
@@ -191,11 +190,10 @@ export class DemoFixPort implements FixPort {
         await wait(delayMs, signal);
         if (batch === "cancelled" || batch === "wrong_password") return { ok: false, items: notRun(0), error: batch };
       }
-      let step = 0;
       for (const [index, item] of plan.items.entries()) {
         for (let line = 0; line < item.lines.length; line += 1) {
-          step += 1;
-          options?.onProgress?.({ planId, phase: "running", step, of, item: index });
+          // Numbered per item, as batch.rs reports it: "1 of 2" is the item's own lines.
+          options?.onProgress?.({ planId, phase: "running", step: line + 1, of: item.lines.length, item: index });
           await wait(delayMs, signal);
           if (batch === "partial" && index === 1 && line === 0) {
             this.options.onApplied(done.flatMap((d) => plan.items.find((i) => i.ruleId === d.ruleId)?.recheck ?? []));

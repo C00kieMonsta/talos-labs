@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, waitFor } from "@testing-library/react";
 import type { BatchOutcome, FixOutcome, GuidedMemory } from "@talos/core";
-import { DEV_MACHINE, EMPTY_GUIDED_MEMORY, HARDENED, acceptRules, nextAction } from "@talos/core";
+import { DEV_MACHINE, EMPTY_GUIDED_MEMORY, HARDENED, acceptRules, nextAction, unacceptRule } from "@talos/core";
 import { fakeAdapters, fakeBatchPlan, fakeFixPort, fakePlan, fakeSystemState } from "../app/testing";
 import { DEFAULT_SETTINGS } from "../settings";
 import { ACCEPT, FIX, WATCH_ON } from "./copy";
@@ -366,7 +366,7 @@ function counted(laterCount: Record<string, number>, extra: Partial<GuidedMemory
   return { ...EMPTY_GUIDED_MEMORY, laterCount, ...extra };
 }
 
-async function flash(h: Harness, ms: number) {
+async function flash(ms: number) {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(ms);
   });
@@ -385,7 +385,7 @@ describe("the third Later asks instead of retiring", () => {
     act(() => h.hook.result.current.guided.later());
     expect(stepState(h)?.kind).toBe("later_flash");
     expect(lastSaved(h).laterCount["TL-MAC-002"]).toBe(2);
-    await flash(h, LATER_FLASH_MS);
+    await flash(LATER_FLASH_MS);
     expect(stepId(h)).toBe("show:TL-MAC-001");
     cleanup();
     const third = renderGuided({ memory: counted({ "TL-MAC-002": 2 }) });
@@ -397,7 +397,7 @@ describe("the third Later asks instead of retiring", () => {
     expect(Date.parse(memory.snoozed["TL-MAC-002"] ?? "") - Date.now()).toBeGreaterThan(6.9 * 86_400_000);
     expect(memory.accepted).toEqual({});
     // Nothing moves on its own: the question waits for an answer.
-    await flash(third, ACCEPT_FLASH_MS);
+    await flash(ACCEPT_FLASH_MS);
     expect(stepState(third)?.kind).toBe("ask_accept");
   });
 
@@ -406,7 +406,7 @@ describe("the third Later asks instead of retiring", () => {
     const h = renderGuided({ memory: counted({ "TL-MAC-001": 2 }) });
     await toFirstStep(h);
     act(() => h.hook.result.current.guided.later());
-    await flash(h, LATER_FLASH_MS);
+    await flash(LATER_FLASH_MS);
     expect(stepId(h)).toBe("show:TL-MAC-001");
     act(() => h.hook.result.current.guided.primary());
     expect(stepState(h)?.kind).toBe("watching");
@@ -445,9 +445,9 @@ describe("the third Later asks instead of retiring", () => {
     expect(memory.snoozed["TL-MAC-002"]).toBeUndefined();
     expect(memory.laterCount["TL-MAC-002"]).toBeUndefined();
     expect(memory.waiting["TL-MAC-002"]).toBeUndefined();
-    await flash(h, ACCEPT_FLASH_MS - 1);
+    await flash(ACCEPT_FLASH_MS - 1);
     expect(stepState(h)?.kind).toBe("later_flash");
-    await flash(h, 1);
+    await flash(1);
     expect(stepId(h)).toBe("show:TL-MAC-001");
     // No fix ran on the way.
     expect(h.adapters.fixes.preview).not.toHaveBeenCalled();
@@ -493,7 +493,7 @@ describe("the third Later asks instead of retiring", () => {
     expect(phase.kind === "step" && phase.plan.steps.map((s) => s.id)).toContain("show:TL-MAC-010");
     for (let i = 0; i < 2; i += 1) {
       act(() => h.hook.result.current.guided.later());
-      await flash(h, LATER_FLASH_MS);
+      await flash(LATER_FLASH_MS);
     }
     expect(stepId(h)).toBe("show:TL-MAC-010");
     act(() => h.hook.result.current.guided.later());
@@ -506,13 +506,13 @@ describe("the third Later asks instead of retiring", () => {
     const h = renderGuided({ memory: counted({ "TL-MAC-001": 2 }) });
     await toFirstStep(h);
     act(() => h.hook.result.current.guided.later());
-    await flash(h, LATER_FLASH_MS);
+    await flash(LATER_FLASH_MS);
     expect(stepId(h)).toBe("show:TL-MAC-001");
     act(() => h.hook.result.current.guided.later());
     act(() => h.hook.result.current.guided.accept());
-    await flash(h, ACCEPT_FLASH_MS);
+    await flash(ACCEPT_FLASH_MS);
     act(() => h.hook.result.current.guided.later());
-    await flash(h, LATER_FLASH_MS);
+    await flash(LATER_FLASH_MS);
     act(() => h.hook.result.current.guided.later());
     act(() => h.hook.result.current.guided.later());
     const end = h.hook.result.current.guided.phase;
@@ -542,7 +542,7 @@ describe("the third Later asks instead of retiring", () => {
     // The fix port's promises have settled; the flashes from here run on fake timers.
     vi.useFakeTimers();
     act(() => h.hook.result.current.guided.accept());
-    await flash(h, ACCEPT_FLASH_MS);
+    await flash(ACCEPT_FLASH_MS);
     expect(stepId(h)).toBe("show:TL-MAC-001");
     // A rebuild from the same report: the converted step is not proposed again ahead of the person.
     await act(async () => {
@@ -556,9 +556,9 @@ describe("the third Later asks instead of retiring", () => {
     expect(phase.plan.accepted).toEqual(["TL-MAC-002"]);
     expect(phase.plan.leftAlone).not.toContain("TL-MAC-002");
     act(() => h.hook.result.current.guided.later());
-    await flash(h, LATER_FLASH_MS);
+    await flash(LATER_FLASH_MS);
     act(() => h.hook.result.current.guided.later());
-    await flash(h, LATER_FLASH_MS);
+    await flash(LATER_FLASH_MS);
     act(() => h.hook.result.current.guided.later());
     act(() => h.hook.result.current.guided.later());
     const end = h.hook.result.current.guided.phase;
@@ -639,8 +639,10 @@ describe("the third Later asks instead of retiring", () => {
     const after = h.hook.result.current.guided.phase;
     expect(after.kind === "step" && after.plan.steps.map((s) => s.id)).toContain("fix:TL-MAC-002");
     expect(after.kind === "step" && after.plan.accepted).toEqual([]);
-    // The person keeps their place: the rule lands before the current step, as any rebuild does.
+    // The person keeps their place: the rule lands directly after the current step, so it is shown rather than counted as passed.
     expect(stepId(h)).toBe("show:TL-MAC-001");
+    expect(after.kind === "step" && after.index).toBe(0);
+    expect(after.kind === "step" && after.plan.steps[1]?.id).toBe("fix:TL-MAC-002");
   });
 
   it("landing clears an acceptance whose check now passes and keeps 010 and 027 through theirs", async () => {
@@ -657,5 +659,326 @@ describe("the third Later asks instead of retiring", () => {
     expect(Object.keys(saved.accepted).sort()).toEqual(["TL-MAC-001", "TL-MAC-010", "TL-MAC-027"]);
     const { phase } = h.hook.result.current.guided;
     expect(phase.kind === "plan" && phase.plan.accepted).toEqual(["TL-MAC-001"]);
+  });
+
+  it("an accept on Details while the ask screen is up retires the step: nothing is left to ask and the index holds", async () => {
+    vi.useFakeTimers();
+    const h = renderGuided({ memory: counted({ "TL-MAC-002": 2 }) });
+    await toFirstStep(h);
+    act(() => h.hook.result.current.guided.later());
+    expect(stepState(h)).toEqual({ kind: "ask_accept", ruleIds: ["TL-MAC-002"] });
+    // Details, then "Leave it alone, I know the risk" on the Finding detail: an outside write of the same rule.
+    h.control.memory = acceptRules(h.control.memory, ["TL-MAC-002"], NOW);
+    h.hook.rerender();
+    const phase = h.hook.result.current.guided.phase;
+    expect(phase.kind).toBe("step");
+    if (phase.kind !== "step") return;
+    expect(phase.index).toBe(0);
+    expect(stepId(h)).toBe("show:TL-MAC-001");
+    expect(stepState(h)?.kind).toBe("idle");
+    expect(phase.plan.steps.map((s) => s.id)).not.toContain("fix:TL-MAC-002");
+    expect(phase.plan.accepted).toEqual(["TL-MAC-002"]);
+    // "No, keep asking" is not on screen any more; the acceptance stands and nothing was written.
+    act(() => h.hook.result.current.guided.keepAsking());
+    expect(stepId(h)).toBe("show:TL-MAC-001");
+    expect(h.control.memory.accepted["TL-MAC-002"]).toBe(NOW);
+  });
+
+  it("an accept on Details of one asked batch rule leaves the ask screen for the others only", async () => {
+    vi.useFakeTimers();
+    const h = renderGuided({ licensed: true, memory: counted({ "TL-MAC-002": 2, "TL-MAC-003": 2, "TL-MAC-011": 0 }) });
+    await toFirstStep(h);
+    expect(stepId(h)).toBe("batch");
+    act(() => h.hook.result.current.guided.later());
+    expect(stepState(h)).toEqual({ kind: "ask_accept", ruleIds: ["TL-MAC-002", "TL-MAC-003"] });
+    h.control.memory = acceptRules(h.control.memory, ["TL-MAC-002"], NOW);
+    h.hook.rerender();
+    expect(stepId(h)).toBe("batch");
+    expect(stepState(h)).toEqual({ kind: "ask_accept", ruleIds: ["TL-MAC-003"] });
+    act(() => h.hook.result.current.guided.keepAsking());
+    const memory = lastSaved(h);
+    expect(memory.laterCount["TL-MAC-003"]).toBe(0);
+    expect(memory.laterCount["TL-MAC-002"]).toBeUndefined();
+    expect(memory.accepted["TL-MAC-002"]).toBe(NOW);
+  });
+
+  it("'Ask me again' from the end screen opens the rule's step instead of leaving the end phase over it", async () => {
+    vi.useFakeTimers();
+    const h = renderGuided({ memory: counted({ "TL-MAC-001": 2 }) });
+    await toFirstStep(h);
+    act(() => h.hook.result.current.guided.later());
+    await flash(LATER_FLASH_MS);
+    expect(stepId(h)).toBe("show:TL-MAC-001");
+    act(() => h.hook.result.current.guided.later());
+    act(() => h.hook.result.current.guided.accept());
+    await flash(ACCEPT_FLASH_MS);
+    act(() => h.hook.result.current.guided.later());
+    await flash(LATER_FLASH_MS);
+    act(() => h.hook.result.current.guided.later());
+    act(() => h.hook.result.current.guided.later());
+    const end = h.hook.result.current.guided.phase;
+    expect(end.kind).toBe("end");
+    if (end.kind !== "end") return;
+    expect(end.plan.accepted).toEqual(["TL-MAC-001"]);
+    // The step it was accepted on stays in the walked plan; the rebuild must give it up or the fresh step counts as handled.
+    expect(end.plan.steps.map((s) => s.id)).toContain("show:TL-MAC-001");
+    // "Things you chose to leave" row, Details, "Ask me again": an outside write that drops the acceptance.
+    const savedBefore = h.saved.length;
+    h.control.memory = unacceptRule(h.control.memory, "TL-MAC-001");
+    h.hook.rerender();
+    const phase = h.hook.result.current.guided.phase;
+    expect(phase.kind).toBe("step");
+    if (phase.kind !== "step") return;
+    expect(stepId(h)).toBe("show:TL-MAC-001");
+    expect(stepState(h)?.kind).toBe("idle");
+    expect(phase.plan.steps.filter((s) => s.id === "show:TL-MAC-001")).toHaveLength(1);
+    expect(phase.plan.steps.length).toBe(end.plan.steps.length);
+    expect(phase.index).toBe(phase.plan.steps.length - 1);
+    expect(phase.plan.accepted).toEqual([]);
+    // The only end phase shown on the way still listed the rule as chosen, so its title was never "Nothing needs fixing."
+    expect(end.plan.accepted).toEqual(["TL-MAC-001"]);
+    expect(h.saved).toHaveLength(savedBefore);
+  });
+
+  it("'Ask me again' at the end for a rule accepted before this run appends its step and opens it", async () => {
+    vi.useFakeTimers();
+    const h = renderGuided({ memory: { ...EMPTY_GUIDED_MEMORY, accepted: { "TL-MAC-001": NOW } } });
+    await toFirstStep(h);
+    expect(stepId(h)).toBe("fix:TL-MAC-002");
+    act(() => h.hook.result.current.guided.later());
+    await flash(LATER_FLASH_MS);
+    expect(stepId(h)).toBe("show:TL-MAC-010");
+    act(() => h.hook.result.current.guided.later());
+    await flash(LATER_FLASH_MS);
+    act(() => h.hook.result.current.guided.later());
+    act(() => h.hook.result.current.guided.later());
+    const end = h.hook.result.current.guided.phase;
+    expect(end.kind).toBe("end");
+    if (end.kind !== "end") return;
+    expect(end.plan.accepted).toEqual(["TL-MAC-001"]);
+    expect(end.plan.steps.map((s) => s.id)).not.toContain("show:TL-MAC-001");
+    h.control.memory = unacceptRule(h.control.memory, "TL-MAC-001");
+    h.hook.rerender();
+    const phase = h.hook.result.current.guided.phase;
+    expect(phase.kind).toBe("step");
+    if (phase.kind !== "step") return;
+    expect(stepId(h)).toBe("show:TL-MAC-001");
+    expect(phase.index).toBe(end.plan.steps.length);
+    expect(phase.plan.steps.length).toBe(end.plan.steps.length + 1);
+    expect(h.hook.result.current.guided.progress.of).toBe(end.plan.steps.length + 1);
+  });
+
+  it("'Ask me again' mid-run for a rule accepted on an earlier step proposes it again directly after the person's place, never as a passed step", async () => {
+    vi.useFakeTimers();
+    const h = renderGuided({ memory: counted({ "TL-MAC-002": 2 }) });
+    await toFirstStep(h);
+    expect(stepId(h)).toBe("fix:TL-MAC-002");
+    act(() => h.hook.result.current.guided.later());
+    act(() => h.hook.result.current.guided.accept());
+    await flash(ACCEPT_FLASH_MS);
+    expect(stepId(h)).toBe("show:TL-MAC-001");
+    const before = h.hook.result.current.guided.phase;
+    if (before.kind !== "step") return;
+    expect(before.plan.steps[0]?.id).toBe("fix:TL-MAC-002");
+    h.control.memory = unacceptRule(h.control.memory, "TL-MAC-002");
+    h.hook.rerender();
+    const phase = h.hook.result.current.guided.phase;
+    expect(phase.kind).toBe("step");
+    if (phase.kind !== "step") return;
+    expect(stepId(h)).toBe("show:TL-MAC-001");
+    expect(phase.index).toBe(0);
+    expect(phase.plan.steps.map((s) => s.id).slice(0, 2)).toEqual(["show:TL-MAC-001", "fix:TL-MAC-002"]);
+    expect(phase.plan.steps.filter((s) => s.id === "fix:TL-MAC-002")).toHaveLength(1);
+    expect(phase.plan.accepted).toEqual([]);
+    // A rebuild while idle on the same step (a recheck from Details) keeps that order: the merge refiles nothing before the person.
+    await act(async () => {
+      await h.hook.result.current.scan.recheck(["firewall"]);
+    });
+    const again = h.hook.result.current.guided.phase;
+    expect(again.kind).toBe("step");
+    if (again.kind !== "step") return;
+    expect(again.index).toBe(0);
+    expect(again.plan.steps.map((s) => s.id).slice(0, 2)).toEqual(["show:TL-MAC-001", "fix:TL-MAC-002"]);
+  });
+
+  it("a rule asked about again mid-run is shown as a step and reaches the end screen as a row, not as nothing", async () => {
+    vi.useFakeTimers();
+    const h = renderGuided({ memory: counted({ "TL-MAC-002": 2 }) });
+    await toFirstStep(h);
+    act(() => h.hook.result.current.guided.later());
+    act(() => h.hook.result.current.guided.accept());
+    await flash(ACCEPT_FLASH_MS);
+    expect(stepId(h)).toBe("show:TL-MAC-001");
+    h.control.memory = unacceptRule(h.control.memory, "TL-MAC-002");
+    h.hook.rerender();
+    // Leaving the disk step opens the firewall step the person asked about again.
+    act(() => h.hook.result.current.guided.later());
+    await flash(LATER_FLASH_MS);
+    expect(stepId(h)).toBe("fix:TL-MAC-002");
+    act(() => h.hook.result.current.guided.later());
+    await flash(LATER_FLASH_MS);
+    expect(stepId(h)).toBe("show:TL-MAC-010");
+    act(() => h.hook.result.current.guided.later());
+    await flash(LATER_FLASH_MS);
+    act(() => h.hook.result.current.guided.later());
+    act(() => h.hook.result.current.guided.later());
+    const end = h.hook.result.current.guided.phase;
+    expect(end.kind).toBe("end");
+    if (end.kind !== "end") return;
+    expect(end.plan.steps.map((s) => s.id)).toContain("fix:TL-MAC-002");
+    expect(end.plan.later).toContain("TL-MAC-002");
+    expect(end.plan.accepted).toEqual([]);
+  });
+
+  it("an outside memory change at the end that adds no step keeps the end phase", async () => {
+    vi.useFakeTimers();
+    const h = renderGuided({ memory: counted({ "TL-MAC-001": 2 }) });
+    await toFirstStep(h);
+    act(() => h.hook.result.current.guided.later());
+    await flash(LATER_FLASH_MS);
+    act(() => h.hook.result.current.guided.later());
+    act(() => h.hook.result.current.guided.accept());
+    await flash(ACCEPT_FLASH_MS);
+    act(() => h.hook.result.current.guided.later());
+    await flash(LATER_FLASH_MS);
+    act(() => h.hook.result.current.guided.later());
+    act(() => h.hook.result.current.guided.later());
+    expect(h.hook.result.current.guided.phase.kind).toBe("end");
+    // Another rule accepted on Details: nothing new to show, the end screen lists it.
+    h.control.memory = acceptRules(h.control.memory, ["TL-MAC-002"], NOW);
+    h.hook.rerender();
+    const phase = h.hook.result.current.guided.phase;
+    expect(phase.kind).toBe("end");
+    if (phase.kind !== "end") return;
+    expect(phase.plan.accepted).toEqual(["TL-MAC-001", "TL-MAC-002"]);
+  });
+
+  it("'No, keep asking' drops an acceptance that reached the asked rule while its check could not be read", async () => {
+    vi.useFakeTimers();
+    // On recheck the firewall cannot be read: 002 goes unknown, which keeps an acceptance and leaves plan.accepted.
+    const unreadable = { ...DEV_MACHINE, sections: { ...DEV_MACHINE.sections, firewall: { status: "unavailable" as const, reason: "tool_missing" as const, detail: null } } };
+    const adapters = fakeAdapters({ systemState: fakeSystemState(DEV_MACHINE, {}, unreadable) });
+    const h = renderGuided({ adapters, memory: counted({ "TL-MAC-002": 2 }) });
+    await toFirstStep(h);
+    expect(stepId(h)).toBe("fix:TL-MAC-002");
+    act(() => h.hook.result.current.guided.later());
+    expect(stepState(h)).toEqual({ kind: "ask_accept", ruleIds: ["TL-MAC-002"] });
+    await act(async () => {
+      await h.hook.result.current.scan.recheck(["firewall"]);
+    });
+    expect(stepState(h)).toEqual({ kind: "ask_accept", ruleIds: ["TL-MAC-002"] });
+    // Details, "Leave it alone, I know the risk", back: the rebuild cannot retire the step, since 002 is not a failing accepted rule.
+    h.control.memory = acceptRules(h.control.memory, ["TL-MAC-002"], NOW);
+    h.hook.rerender();
+    expect(stepId(h)).toBe("fix:TL-MAC-002");
+    expect(stepState(h)).toEqual({ kind: "ask_accept", ruleIds: ["TL-MAC-002"] });
+    act(() => h.hook.result.current.guided.keepAsking());
+    const memory = lastSaved(h);
+    expect(memory.accepted["TL-MAC-002"]).toBeUndefined();
+    expect(memory.laterCount["TL-MAC-002"]).toBe(0);
+    expect(stepId(h)).toBe("show:TL-MAC-001");
+  });
+
+  it("accepting one rule of an unlocked batch keeps the batch passed: a rebuild does not propose the other rule again", async () => {
+    vi.useFakeTimers();
+    // Unlicensed: the paywall locks 003 and 011, which unlock as one batch extra. Only 003 is at the count.
+    const h = renderGuided({ memory: counted({ "TL-MAC-003": 2, "TL-MAC-011": 0 }) });
+    await toFirstStep(h);
+    for (let i = 0; i < 4; i += 1) {
+      act(() => h.hook.result.current.guided.later());
+      await flash(LATER_FLASH_MS);
+    }
+    expect(stepId(h)).toBe("paywall");
+    await act(async () => {
+      await h.hook.result.current.guided.enterLicence("TL1.DEMO");
+    });
+    await flash(LATER_FLASH_MS);
+    expect(stepId(h)).toBe("batch");
+    act(() => h.hook.result.current.guided.later());
+    expect(stepState(h)).toEqual({ kind: "ask_accept", ruleIds: ["TL-MAC-003"] });
+    act(() => h.hook.result.current.guided.accept());
+    await flash(ACCEPT_FLASH_MS);
+    const after = h.hook.result.current.guided.phase;
+    expect(after.kind).toBe("step");
+    if (after.kind !== "step") return;
+    expect(after.plan.steps[after.index - 1]?.id).toBe("batch");
+    await act(async () => {
+      await h.hook.result.current.scan.recheck(["firewall"]);
+    });
+    const rebuilt = h.hook.result.current.guided.phase;
+    expect(rebuilt.kind).toBe("step");
+    if (rebuilt.kind !== "step") return;
+    // The batch is the one step for 011 and stays passed; a re-keyed fix:011 would land before the person as a passed step nobody did.
+    const ids = rebuilt.plan.steps.map((s) => s.id);
+    expect(ids).not.toContain("fix:TL-MAC-011");
+    expect(ids.filter((id) => id === "batch")).toEqual(["batch"]);
+    expect(ids.slice(0, rebuilt.index)).toContain("batch");
+    expect(rebuilt.index).toBe(after.index);
+    expect(rebuilt.plan.steps[rebuilt.index]?.id).toBe(after.plan.steps[after.index]?.id);
+    expect(rebuilt.plan.accepted).toEqual(["TL-MAC-003"]);
+    expect(lastSaved(h).snoozed["TL-MAC-011"]).toBeTruthy();
+  });
+
+  it("accepting a per-path rule on one of its steps skips its other paths: the next step is for another rule or the end", async () => {
+    vi.useFakeTimers();
+    // Two folders open to everyone: 022 plans one fix step per path. The count is per rule, so the ask comes on the first path.
+    const shared = { ...DEV_MACHINE, sections: { ...DEV_MACHINE.sections, fileSharing: { status: "ok" as const, data: { enabled: true, shares: [{ path: "/Users/alice/Public", guestAccess: true }, { path: "/Users/alice/Drop", guestAccess: true }] } } } };
+    const h = renderGuided({ adapters: fakeAdapters({ systemState: fakeSystemState(shared) }), licensed: true, memory: counted({ "TL-MAC-022": 2 }) });
+    await toFirstStep(h);
+    expect(stepId(h)).toBe("batch");
+    act(() => h.hook.result.current.guided.later());
+    await flash(LATER_FLASH_MS);
+    expect(stepId(h)).toBe("fix:TL-MAC-022:/Users/alice/Public");
+    const before = h.hook.result.current.guided.phase;
+    expect(before.kind === "step" && before.plan.steps[before.index + 1]?.id).toBe("fix:TL-MAC-022:/Users/alice/Drop");
+    act(() => h.hook.result.current.guided.later());
+    expect(stepState(h)).toEqual({ kind: "ask_accept", ruleIds: ["TL-MAC-022"] });
+    act(() => h.hook.result.current.guided.accept());
+    await flash(ACCEPT_FLASH_MS);
+    expect(stepId(h)).toBe("show:TL-MAC-026");
+    const phase = h.hook.result.current.guided.phase;
+    expect(phase.kind).toBe("step");
+    if (phase.kind !== "step") return;
+    expect(phase.plan.steps.map((s) => s.id)).not.toContain("fix:TL-MAC-022:/Users/alice/Drop");
+    expect(phase.plan.steps.map((s) => s.id)).toContain("fix:TL-MAC-022:/Users/alice/Public");
+    expect(lastSaved(h).accepted["TL-MAC-022"]).toBeTruthy();
+  });
+
+  it("'Unlock' on the end screen reopens a passed paywall without a locked rule accepted since", async () => {
+    vi.useFakeTimers();
+    // Unlicensed with the three free fixes accepted before this run: the plan is the permission step and the paywall.
+    const h = renderGuided({ memory: { ...EMPTY_GUIDED_MEMORY, accepted: { "TL-MAC-001": NOW, "TL-MAC-002": NOW, "TL-MAC-010": NOW } } });
+    await toFirstStep(h);
+    expect(stepId(h)).toBe("permission:full_disk_access");
+    act(() => h.hook.result.current.guided.later());
+    expect(stepId(h)).toBe("paywall");
+    act(() => h.hook.result.current.guided.later());
+    const end = h.hook.result.current.guided.phase;
+    expect(end.kind).toBe("end");
+    if (end.kind !== "end") return;
+    const scan = h.hook.result.current.scan.scan;
+    if (scan.kind !== "ready") return;
+    const first = nextAction(end.plan, scan.report);
+    expect(first).toMatchObject({ kind: "unlock", ruleId: "TL-MAC-022" });
+    expect(first?.step?.kind === "paywall" && first.step.lockedRuleIds).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-022", "TL-MAC-026"]);
+    // Details on the best locked rule, "Leave it alone, I know the risk", back to the end screen.
+    h.control.memory = acceptRules(h.control.memory, ["TL-MAC-022"], NOW);
+    h.hook.rerender();
+    const after = h.hook.result.current.guided.phase;
+    expect(after.kind).toBe("end");
+    if (after.kind !== "end") return;
+    expect(after.plan.locked).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-026"]);
+    const action = nextAction(after.plan, scan.report);
+    expect(action).toMatchObject({ kind: "unlock", ruleId: "TL-MAC-026" });
+    expect(action?.step?.kind === "paywall" && action.step.lockedRuleIds).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-026"]);
+    if (action === null) return;
+    act(() => h.hook.result.current.guided.doNext(action));
+    const phase = h.hook.result.current.guided.phase;
+    expect(phase.kind).toBe("step");
+    if (phase.kind !== "step") return;
+    const step = phase.plan.steps[phase.index];
+    expect(step?.kind).toBe("paywall");
+    expect(step?.kind === "paywall" && step.lockedRuleIds).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-026"]);
+    expect(phase.plan.steps.filter((s) => s.kind === "paywall")).toHaveLength(1);
   });
 });

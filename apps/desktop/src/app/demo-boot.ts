@@ -56,12 +56,12 @@ function isoDate(value: string | null): string | null {
 const AUTOMATION: readonly AutomationStatus[] = ["granted", "denied", "not_determined"];
 
 /** `fail=` values and the rule each forces (`withForcedFailures`). */
-const FORCED_FAILURES: Readonly<Record<string, ForcedFailure>> = {
-  "013": "TL-MAC-013",
-  "TL-MAC-013": "TL-MAC-013",
-  "001": "TL-MAC-001",
-  "TL-MAC-001": "TL-MAC-001",
-};
+const FORCED_FAILURES: ReadonlyMap<string, ForcedFailure> = new Map([
+  ["013", "TL-MAC-013"],
+  ["TL-MAC-013", "TL-MAC-013"],
+  ["001", "TL-MAC-001"],
+  ["TL-MAC-001", "TL-MAC-001"],
+]);
 
 export type WatchDemoState = "calm" | "look" | "act" | "unreadable" | "first-run";
 export type WatchDemoAi = "off" | "apple" | "chatgpt" | "claude" | "limit";
@@ -166,7 +166,7 @@ export function parseDemoQuery(search: string): DemoFlags {
   const technical = pickOne(params.get("technical"), TECHNICAL);
   const fail = (params.get("fail") ?? "")
     .split(",")
-    .map((id) => FORCED_FAILURES[id])
+    .map((id) => FORCED_FAILURES.get(id))
     .filter((id): id is ForcedFailure => id !== undefined);
   return {
     options: {

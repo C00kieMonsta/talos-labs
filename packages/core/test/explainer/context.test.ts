@@ -186,6 +186,24 @@ describe("toExplainerContext key injection and caps", () => {
     expect(explainerEligibleRuleIds(withFindings(many))).toHaveLength(EXPLAINER_LIMITS.maxFindings);
   });
 
+  it("the eligible set is exactly the unaccepted rows under the cap: an accepted id inside the cap frees no slot past it", () => {
+    const many = Array.from({ length: EXPLAINER_LIMITS.maxFindings + 1 }, (_, i) => ({
+      ...f022,
+      ruleId: `TL-MAC-${String(100 + i)}` as Finding["ruleId"],
+    }));
+    const accepted = ["TL-MAC-110" as Finding["ruleId"]];
+    const report: ScanReport = { ...withFindings(many), results: many.map((f) => ({ ruleId: f.ruleId, status: "fail" as const, evidence: [], unknownReason: null, points: f.points })) };
+    const context = toExplainerContext(report, MACOS_CATALOG, PROFILE, accepted);
+    const sent = context.findings.filter((f) => !f.accepted).map((f) => f.ruleId);
+    const eligible = explainerEligibleRuleIds(report, accepted);
+    expect(eligible).toEqual(sent);
+    expect(eligible).toHaveLength(EXPLAINER_LIMITS.maxFindings - 1);
+    expect(eligible).not.toContain(`TL-MAC-${String(100 + EXPLAINER_LIMITS.maxFindings)}`);
+    // The model answers over exactly the rows it was sent, and that answer validates.
+    const raw = { order: [...sent].reverse(), reasons: [], startWith: sent.slice(0, 1) };
+    expect(validatePrioritisation(raw, report, eligible).ok).toBe(true);
+  });
+
   it("drops a finding whose ruleId fails the pattern", () => {
     const bad: Finding = { ...f022, ruleId: `TL-MAC-${INJECT}` as Finding["ruleId"] };
     const context = toExplainerContext(withFindings([bad, f022]), MACOS_CATALOG, PROFILE);

@@ -250,5 +250,6 @@ describe("parseDemoQuery fail=", () => {
     expect(parseDemoQuery("?fail=013,TL-MAC-001").options.fail).toEqual(["TL-MAC-013", "TL-MAC-001"]);
     expect(parseDemoQuery("?fail=099").options.fail).toBeUndefined();
     expect(parseDemoQuery("?fail=001,099").options.fail).toEqual(["TL-MAC-001"]);
+    expect(parseDemoQuery("?fail=constructor,__proto__,001").options.fail).toEqual(["TL-MAC-001"]);
   });
 });

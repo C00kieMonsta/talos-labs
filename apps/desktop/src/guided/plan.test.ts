@@ -63,6 +63,24 @@ describe("plan helpers", () => {
     expect(withoutAccepted(paywall, ["TL-MAC-022"])).toBe(paywall);
   });
 
+  it("drops a batch extra whose one unaccepted rule was already passed under the re-keyed single fix id", () => {
+    const base = plan(true);
+    const single: GuidedStep = { id: "fix:TL-MAC-003", kind: "fix", ruleId: "TL-MAC-003", choice: { kind: "none" }, passphrase: false };
+    const old: GuidedPlan = { ...base, steps: [single, ...base.steps.filter((s) => s.id !== "batch")] };
+    const fresh: GuidedPlan = { ...base, accepted: ["TL-MAC-022"], steps: base.steps.filter((s) => !ruleIdsOf(s).includes("TL-MAC-022")) };
+    const batch: GuidedStep = { id: "batch", kind: "batch", ruleIds: ["TL-MAC-022", "TL-MAC-003"] };
+    const merged = mergePlan({ old, index: 1, pinCurrent: false, fresh, report, extras: [batch], leftAlone: new Set() });
+    expect(merged.steps.filter((s) => s.id === "fix:TL-MAC-003")).toEqual([single]);
+    // The fresh plan's own batch stays, shrunk past the passed rule; the extra is not appended as a second fix:TL-MAC-003.
+    expect(merged.steps.find((s) => s.id === "batch")).toMatchObject({ ruleIds: ["TL-MAC-002", "TL-MAC-011"] });
+    expect(merged.steps.filter((s) => s.kind === "batch")).toHaveLength(1);
+    // A passed paywall keeps its id and loses the accepted rule, so "Unlock" at the end lists only what is still proposed.
+    const paywall: GuidedStep = { id: "paywall", kind: "paywall", lockedRuleIds: ["TL-MAC-022", "TL-MAC-026"] };
+    const walked: GuidedPlan = { ...base, steps: [paywall] };
+    const refreshed = mergePlan({ old: walked, index: 1, pinCurrent: false, fresh, report, extras: [], leftAlone: new Set() });
+    expect(refreshed.steps[0]).toEqual({ ...paywall, lockedRuleIds: ["TL-MAC-026"] });
+  });
+
   it("turns a batch left with one rule into a single fix step", () => {
     const old = plan(true);
     const extras: GuidedStep[] = [

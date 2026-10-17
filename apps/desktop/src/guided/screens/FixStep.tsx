@@ -35,12 +35,24 @@ export function FixStep({ step, state, controller, notice }: { step: FixStepT; s
     </>
   );
   switch (state.kind) {
-    case "working":
+    case "working": {
+      // While the box is up the password sentence is the headline, split like the batch step.
+      const asking = state.label === STATUS.password;
+      const cut = STATUS.password.indexOf(". ") + 1;
       return (
-        <StepFrame progress={progress} devId={step.ruleId} title={strings.headline} body={body} status={state.label} activity={fixing !== null || preparing ? rows : null} notice={notice}>
+        <StepFrame
+          progress={progress}
+          devId={step.ruleId}
+          title={asking ? STATUS.password.slice(0, cut) : strings.headline}
+          body={asking ? <p>{STATUS.password.slice(cut + 1)}</p> : body}
+          status={asking ? STATUS.waiting : state.label}
+          activity={fixing !== null || preparing ? rows : null}
+          notice={notice}
+        >
           {settings.developer.enabled && <WhatWillRun />}
         </StepFrame>
       );
+    }
     case "done":
       return <StepFrame progress={progress} devId={step.ruleId} title={state.line} done link={{ label: FIX.next, onClick: controller.next }} notice={notice} />;
     case "failed": {

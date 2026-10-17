@@ -1,5 +1,5 @@
 import type { GuidedPlan, GuidedStep, NextAction, RuleId } from "@talos/core";
-import { LATER_ASK_COUNT, acceptRules, planLocked } from "@talos/core";
+import { LATER_ASK_COUNT, acceptRules, planLocked, unacceptRule } from "@talos/core";
 import { lastReport } from "../scan/machine";
 import type { Core } from "./core";
 import { advance, appendSteps, currentStep, finalPlan, initialStepState, openStep, setStep, writeMemory } from "./core";
@@ -58,7 +58,9 @@ export function keepAsking(core: Core): void {
   if (asked.length === 0) return;
   const laterCount = { ...core.memory.laterCount };
   for (const id of asked) laterCount[id] = 0;
-  writeMemory(core, { laterCount });
+  // An acceptance written on Details while the question stood goes too: the answer is the last word.
+  const { accepted } = asked.reduce((memory, id) => unacceptRule(memory, id), core.memory);
+  writeMemory(core, { laterCount, accepted });
   advance(core);
 }
 
@@ -69,10 +71,18 @@ export function accept(core: Core): void {
   writeMemory(core, acceptRules(core.memory, asked, core.now()));
   const accepted = Object.keys(core.memory.accepted) as RuleId[];
   for (const id of asked) core.leftAlone.delete(id);
-  core.extras = core.extras.flatMap((e) => {
-    const kept = withoutAccepted(e, accepted);
-    return kept === null ? [] : [kept];
-  });
+  // Only a fully accepted extra leaves; a batch keeps its id so the rebuild still counts it as passed, and mergePlan shrinks it.
+  core.extras = core.extras.filter((e) => ruleIdsOf(e).some((r) => !accepted.includes(r)));
+  // The steps ahead lose the accepted rules too: a per-path rule has one step per path, and the next must not open as a proposal.
+  const { phase } = core;
+  if (phase.kind === "step") {
+    const steps = phase.plan.steps.flatMap((s, i) => {
+      if (i <= phase.index) return [s];
+      const kept = withoutAccepted(s, accepted);
+      return kept === null ? [] : [kept];
+    });
+    core.setPhase({ ...phase, plan: { ...phase.plan, steps } });
+  }
   flashThenAdvance(core, asked.length === 1 ? ACCEPT.flash : ACCEPT.flashMany, paced(ACCEPT_FLASH_MS));
 }
 

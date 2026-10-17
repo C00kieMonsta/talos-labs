@@ -243,7 +243,7 @@ describe("App", () => {
     expect(watch.status).toHaveBeenCalled();
     expect(watch.autostartIsEnabled).toHaveBeenCalled();
     // Developer mode with the Claude API provider: the AI layer is on in the webview, but the watch has no consumer provider to call. No licence: false.
-    expect(watch.setProfile).toHaveBeenLastCalledWith(expect.objectContaining({ role: "individual" }), { enabled: false, provider: null }, false);
+    expect(watch.setProfile).toHaveBeenLastCalledWith(expect.objectContaining({ role: "individual" }), { enabled: false, provider: null }, false, []);
     expect(watch.setEnabled).not.toHaveBeenCalled();
     expect(watch.setInterval).not.toHaveBeenCalled();
     expect(watch.setNotify).not.toHaveBeenCalled();
@@ -263,7 +263,7 @@ describe("App", () => {
     expect(watch.setProfile).not.toHaveBeenCalled();
     await act(async () => resolve(VALID));
     await waitFor(() => expect(watch.setProfile).toHaveBeenCalledTimes(1));
-    expect(watch.setProfile).toHaveBeenLastCalledWith(expect.objectContaining({ role: "individual" }), { enabled: false, provider: null }, true);
+    expect(watch.setProfile).toHaveBeenLastCalledWith(expect.objectContaining({ role: "individual" }), { enabled: false, provider: null }, true, []);
     expect(watch.requestNotifyPermission).not.toHaveBeenCalled();
     cleanup();
     vi.mocked(watch.setProfile).mockClear();
@@ -280,7 +280,7 @@ describe("App", () => {
     const { default: App } = await import("../App");
     render(createElement(App));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Next three fixes" })).toBeTruthy());
-    await waitFor(() => expect(watch.setProfile).toHaveBeenCalledWith(expect.anything(), expect.anything(), false));
+    await waitFor(() => expect(watch.setProfile).toHaveBeenCalledWith(expect.anything(), expect.anything(), false, []));
     expect(watch.requestNotifyPermission).not.toHaveBeenCalled();
     fireEvent.click(document.querySelector(".sidebar-foot button.nav-row") as HTMLElement);
     await waitFor(() => expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy());
@@ -293,11 +293,11 @@ describe("App", () => {
     };
     await paste();
     await waitFor(() => expect(watch.requestNotifyPermission).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(watch.setProfile).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), true));
+    await waitFor(() => expect(watch.setProfile).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), true, []));
     expect(JSON.parse(localStorage.getItem("talos.watch") ?? "{}").notifyAskedAt).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
     await waitFor(() => expect(screen.getByLabelText("Licence key")).toBeTruthy());
-    await waitFor(() => expect(watch.setProfile).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), false));
+    await waitFor(() => expect(watch.setProfile).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), false, []));
     await paste();
     await act(async () => undefined);
     expect(watch.requestNotifyPermission).toHaveBeenCalledTimes(1);
@@ -309,7 +309,7 @@ describe("App", () => {
     render(createElement(App));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Next three fixes" })).toBeTruthy());
     await waitFor(() => expect(watch.setProfile).toHaveBeenCalled());
-    expect(watch.setProfile).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), true);
+    expect(watch.setProfile).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), true, []);
     await act(async () => undefined);
     expect(watch.requestNotifyPermission).not.toHaveBeenCalled();
   });
