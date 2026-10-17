@@ -1,9 +1,9 @@
 import type { AiAvailability, AutomationStatus, ExplainerFailure, ExplainerProfile, RuleId, ScanReport } from "@talos/core";
 import { evaluate, MACOS_CATALOG } from "@talos/core";
 import type { Adapters } from "../adapters";
-import { createDemoAdapters, DEMO_BATCH_OUTCOMES, DEMO_FIX_OUTCOMES, DEMO_FIXTURE_NAMES, DEMO_FIXTURES, DEMO_LICENSE_KEY, DEMO_SCAN_ERRORS, withForcedFailures } from "../adapters/demo";
+import { createDemoAdapters, DEMO_BATCH_OUTCOMES, DEMO_CONNECT_OUTCOMES, DEMO_FIX_OUTCOMES, DEMO_FIXTURE_NAMES, DEMO_FIXTURES, DEMO_LICENSE_KEY, DEMO_SCAN_ERRORS, withForcedFailures } from "../adapters/demo";
 import type { DemoFixture, DemoOptions } from "../adapters/demo";
-import { loadSettings, PROVIDERS, saveSettings } from "../settings";
+import { isDeveloperProvider, loadSettings, PROVIDERS, saveSettings } from "../settings";
 import type { AppSettings, ExplainerProvider } from "../settings";
 
 /** Mirrors guided/continue.ts and guided/memory.ts; the keys are fixed by DESIGN-V03.md section 7. */
@@ -26,15 +26,30 @@ const EXPLAINER_FAILURES: readonly ExplainerFailure[] = [
   "too_long",
   "cancelled",
   "busy",
+  "needs_sign_in",
+  "limit_reached",
+  "provider_unavailable",
 ];
 
+/** Every state but off, which the aiEnabled switch carries. */
 const AI_STATES: readonly AiAvailability[] = [
   "available",
   "device_not_eligible",
   "apple_intelligence_not_enabled",
   "model_not_ready",
   "helper_unavailable",
+  "not_connected",
+  "connecting",
+  "needs_sign_in",
+  "limit_reached",
+  "plan_not_eligible",
+  "provider_unavailable",
+  "not_offered",
 ];
+
+function isoDate(value: string | null): string | null {
+  return value !== null && value.length > 0 && !Number.isNaN(Date.parse(value)) ? value : null;
+}
 
 const AUTOMATION: readonly AutomationStatus[] = ["granted", "denied", "not_determined"];
 
@@ -85,6 +100,10 @@ export function parseDemoQuery(search: string): DemoFlags {
   const fix = pickOne(params.get("fix"), DEMO_FIX_OUTCOMES);
   const fixDelay = count(params, "fix_delay");
   const ai = pickOne(params.get("ai"), AI_STATES);
+  const aiUntil = isoDate(params.get("ai_until"));
+  const connect = pickOne(params.get("connect"), DEMO_CONNECT_OUTCOMES);
+  const connectDelay = count(params, "connect_delay");
+  const claudeFetch = flag(params, "claude_fetch");
   const aiReady = count(params, "ai_ready");
   const fdaAfter = count(params, "fda_after");
   const automation = pickOne(params.get("automation"), AUTOMATION);
@@ -107,7 +126,12 @@ export function parseDemoQuery(search: string): DemoFlags {
       ...(batch !== null ? { batch } : {}),
       ...(scanError !== null ? { scanError } : {}),
       ...(fixDelay !== null ? { fixDelayMs: fixDelay } : {}),
+      ...(provider !== null ? { provider } : {}),
       ...(ai !== null ? { ai } : {}),
+      ...(aiUntil !== null ? { aiUntil } : {}),
+      ...(connect !== null ? { connect } : {}),
+      ...(connectDelay !== null ? { connectDelayMs: connectDelay } : {}),
+      ...(claudeFetch ? { claudeFetch } : {}),
       ...(aiReady !== null ? { aiReadyMs: aiReady } : {}),
       ...(fdaAfter !== null ? { fdaAfter } : {}),
       ...(automation !== null ? { automation } : {}),
@@ -118,7 +142,8 @@ export function parseDemoQuery(search: string): DemoFlags {
     reset: flag(params, "reset"),
     licensed: flag(params, "licensed"),
     provider,
-    developerMode: flag(params, "dev") || (provider !== null && provider !== "apple"),
+    // Only the Developer providers force Developer mode; chatgpt and claude_plan are for everyone.
+    developerMode: flag(params, "dev") || (provider !== null && isDeveloperProvider(provider)),
     onboarded: flag(params, "onboarded"),
     pace,
     guided: params.get("guided") !== "0",

@@ -74,7 +74,7 @@ struct ProgressPayload {
 
 pub const PROGRESS_EVENT: &str = "scan:progress";
 
-fn app_data_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+pub(crate) fn app_data_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     app.path().app_data_dir().map_err(|e| e.to_string())
 }
 
@@ -258,21 +258,21 @@ pub fn app_restart(app: AppHandle) {
 
 #[tauri::command]
 pub async fn secret_get(name: String) -> Result<Option<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || secret::get(&name))
+    tauri::async_runtime::spawn_blocking(move || secret::webview_get(&name))
         .await
         .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 pub async fn secret_set(name: String, value: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || secret::set(&name, &value))
+    tauri::async_runtime::spawn_blocking(move || secret::webview_set(&name, &value))
         .await
         .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 pub async fn secret_delete(name: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || secret::delete(&name))
+    tauri::async_runtime::spawn_blocking(move || secret::webview_delete(&name))
         .await
         .map_err(|e| e.to_string())?
 }

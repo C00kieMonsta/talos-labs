@@ -1,0 +1,159 @@
+/* AI connect screen, the Explain disclosure's AI rows and the end-screen connect row. Owned by GUIDED-UI. */
+
+/* The radiogroup: rows at the list size with a 20 px icon slot, 44 px tall, between hairlines. Native radios take the accent. */
+.guided-choice {
+  max-width: 525px;
+  margin: -4px 0 4px;
+  border-top: 1px solid var(--border);
+}
+
+.guided-choice-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 6px 10px 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font: var(--text-guided-list);
+  letter-spacing: -0.1px;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.guided-choice-row:hover {
+  background: var(--bg-inset);
+}
+
+.guided-choice-row > input[type="radio"] {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 0 0 0 2px;
+  accent-color: var(--accent);
+  cursor: inherit;
+}
+
+.guided-choice-row:has(> input:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+/* A disabled row keeps text colours that clear 4.5:1; the native radio and "Not available yet" carry the state. */
+.guided-choice-row[aria-disabled="true"] {
+  color: var(--fg-secondary);
+  cursor: default;
+}
+
+.guided-choice-row[aria-disabled="true"]:hover {
+  background: none;
+}
+
+.guided-choice-icon {
+  flex: 0 0 auto;
+  color: var(--fg-secondary);
+}
+
+.guided-choice-row[aria-disabled="true"] .guided-choice-icon {
+  color: var(--fg-tertiary);
+}
+
+.guided-choice-text {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.guided-choice-plan {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: var(--text-guided-meta);
+  font-weight: 400;
+  color: var(--fg-secondary);
+}
+
+/* The spinner line under a connecting headline, like .guided-status with the loader in place of the dot. */
+.guided-connect-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 12px 0 0;
+  font: var(--text-guided-meta);
+  font-weight: 400;
+  color: var(--fg-secondary);
+}
+
+.guided-connect-status > svg {
+  flex: 0 0 16px;
+  color: var(--accent);
+}
+
+.guided-connect-status + .guided-actions {
+  margin-top: 24px;
+}
+
+/* The disclosure's not-connected body and the one-line state rows. */
+.guided-explain-connect > p {
+  margin: 0 0 var(--space-1);
+  color: var(--fg-secondary);
+}
+
+.guided-explain-connect > p:last-child {
+  margin-bottom: 0;
+}
+
+.guided-explain-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px var(--space-2);
+  margin: 0;
+}
+
+.guided-explain-line .guided-text-button {
+  font: var(--text-guided-meta);
+  font-weight: 400;
+}
+
+.guided-explain-connect .link-button {
+  color: var(--fg-secondary);
+}
+
+.guided-explain-badge {
+  margin-top: var(--space-1);
+  font-weight: 400;
+}
+
+/* The "Get things explained" row: a second line in the secondary colour under the headline. */
+.guided-end-group + .guided-end-list {
+  margin-top: 24px;
+}
+
+.guided-end-row-connect {
+  align-items: center;
+}
+
+.guided-end-row-sub {
+  display: block;
+  margin-top: 1px;
+  font: var(--text-guided-meta);
+  font-weight: 400;
+  color: var(--fg-secondary);
+}
+
+@media (max-height: 700px) {
+  .guided-choice-row {
+    min-height: 40px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  .guided-end-group + .guided-end-list {
+    margin-top: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guided-connect-status > .spin {
+    animation: none;
+  }
+}

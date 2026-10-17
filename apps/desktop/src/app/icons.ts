@@ -121,7 +121,7 @@ export const FIX_COST_ICONS: Readonly<Record<FixCostKey, IconComponent>> = {
 
 /**
  * Status and action icons by plain name. Lucide stays only where the kit has no glyph:
- * eyeOff, question, spinner, fix, reveal, download, cpu, alert, stop, chevronLeft, copy.
+ * eyeOff, question, spinner, fix, reveal, download, cpu, alert, stop, chevronLeft, copy, signIn.
  */
 export const ICONS = {
   check: CheckIcon,
@@ -160,6 +160,7 @@ export const ICONS = {
   terminal: TerminalIcon,
   extensions: ExtensionsIcon,
   shield: ShieldIcon,
+  signIn: LogIn,
 } as const satisfies Readonly<Record<string, IconComponent>>;
 
 export type IconKey = keyof typeof ICONS;

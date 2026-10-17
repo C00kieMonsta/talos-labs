@@ -183,6 +183,80 @@ describe("createDemoAdapters: explainer", () => {
     expect(answered.value.relatedRuleIds).toContain("TL-MAC-001");
   });
 
+  it("returns the ChatGPT and Claude fakes for their providers, with availability from the demo connect", async () => {
+    const adapters = createDemoAdapters({ fixture: "dev-machine" });
+    const chatgpt = await adapters.createExplainer(settings("chatgpt"));
+    const claude = await adapters.createExplainer(settings("claude_plan"));
+    expect(chatgpt.id).toBe("chatgpt");
+    expect(claude.id).toBe("claude_plan");
+    expect(await chatgpt.availability()).toBe("not_connected");
+    expect(await claude.availability()).toBe("not_connected");
+    // The same instance comes back, so a connect done in the demo is seen by the explainer in use.
+    expect(await adapters.createExplainer(settings("chatgpt"))).toBe(chatgpt);
+    await expect(chatgpt.explain({ context, ruleId: "TL-MAC-001" })).resolves.toEqual({ ok: false, reason: "not_configured" });
+  });
+
+  it("seeds the named provider's state from ai and ai_until and leaves the Apple fake alone", async () => {
+    const adapters = createDemoAdapters({ fixture: "dev-machine", provider: "claude_plan", ai: "limit_reached", aiUntil: "2026-10-16T18:00:00.000Z" });
+    const claude = await adapters.createExplainer(settings("claude_plan"));
+    expect(await claude.availabilityDetail?.()).toEqual({ state: "limit_reached", until: "2026-10-16T18:00:00.000Z" });
+    await expect(claude.explain({ context, ruleId: "TL-MAC-001" })).resolves.toEqual({ ok: false, reason: "limit_reached" });
+    expect(await (await adapters.createExplainer(settings("chatgpt"))).availability()).toBe("not_connected");
+    expect(await (await adapters.createExplainer(settings("apple"))).availability()).toBe("available");
+    expect(await adapters.aiConnect.offered()).toEqual({ chatgpt: true, claude_plan: true, apple: true });
+    const off = createDemoAdapters({ fixture: "dev-machine", provider: "chatgpt", ai: "not_offered" });
+    expect(await off.aiConnect.offered()).toEqual({ chatgpt: false, claude_plan: true, apple: true });
+    expect(await (await off.createExplainer(settings("chatgpt"))).availability()).toBe("not_offered");
+  });
+
+  it("a connected provider streams word by word and passes the validators; Disconnect flips the demo flag", async () => {
+    vi.useFakeTimers();
+    const adapters = createDemoAdapters({ fixture: "dev-machine", provider: "chatgpt", ai: "available" });
+    const chatgpt = await adapters.createExplainer(settings("chatgpt"));
+    expect(await chatgpt.availability()).toBe("available");
+    const partials: unknown[] = [];
+    const pending = chatgpt.explain({ context, ruleId: "TL-MAC-001" }, { onPartial: (p) => partials.push(p) });
+    await vi.advanceTimersByTimeAsync(60_000);
+    const explained = await pending;
+    expect(explained.ok).toBe(true);
+    if (!explained.ok) return;
+    expect(validateExplanation(explained.value, report).ok).toBe(true);
+    expect(partials.length).toBeGreaterThan(3);
+    const prioritised = chatgpt.prioritise({ context });
+    await vi.advanceTimersByTimeAsync(5000);
+    const order = await prioritised;
+    expect(order.ok && validatePrioritisation(order.value, report, explainerEligibleRuleIds(report)).ok).toBe(true);
+    const asked = chatgpt.ask({ context, history: [], question: "What first?" });
+    await vi.advanceTimersByTimeAsync(60_000);
+    const answer = await asked;
+    expect(answer.ok && validateAnswer(answer.value, report).ok).toBe(true);
+
+    await adapters.aiConnect.disconnect("chatgpt");
+    expect(window.__talosDemoCalls).toEqual([{ kind: "aiDisconnect", arg: "chatgpt" }]);
+    expect(await chatgpt.availability()).toBe("not_connected");
+    await expect(chatgpt.explain({ context, ruleId: "TL-MAC-001" })).resolves.toEqual({ ok: false, reason: "not_configured" });
+    // Secrets are untouched by a demo disconnect.
+    expect(await adapters.secrets.get("anthropic_api_key")).toBeNull();
+  });
+
+  it("a demo connect turns the provider available for the explainer in use", async () => {
+    vi.useFakeTimers();
+    const adapters = createDemoAdapters({ fixture: "dev-machine", connectDelayMs: 10 });
+    const claude = await adapters.createExplainer(settings("claude_plan"));
+    await adapters.aiConnect.start("claude_plan");
+    expect(await claude.availability()).toBe("connecting");
+    await vi.advanceTimersByTimeAsync(10);
+    expect(await adapters.aiConnect.poll("claude_plan")).toEqual({ stage: "done" });
+    expect(await claude.availability()).toBe("available");
+    expect(window.__talosDemoCalls).toEqual([{ kind: "aiConnectStart", arg: "claude_plan" }]);
+  });
+
+  it("the provider fakes honour the configured failure", async () => {
+    const adapters = createDemoAdapters({ fixture: "dev-machine", provider: "chatgpt", ai: "available", explainerFailure: "provider_unavailable" });
+    const chatgpt = await adapters.createExplainer(settings("chatgpt"));
+    await expect(chatgpt.explain({ context, ruleId: "TL-MAC-001" })).resolves.toEqual({ ok: false, reason: "provider_unavailable" });
+  });
+
   it("identifies as ollama for that provider", async () => {
     const adapters = createDemoAdapters({ fixture: "dev-machine" });
     expect((await adapters.createExplainer(settings("ollama"))).id).toBe("ollama");

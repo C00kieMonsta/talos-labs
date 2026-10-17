@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EMPTY_GUIDED_MEMORY, parseGuidedMemory } from "../../src/guided/memory";
+import { AI_ASK_AGAIN_MS, EMPTY_GUIDED_MEMORY, aiAskedRecently, parseGuidedMemory } from "../../src/guided/memory";
 
 describe("parseGuidedMemory", () => {
   it("null, a string and an array give the empty memory", () => {
@@ -23,6 +23,7 @@ describe("parseGuidedMemory", () => {
       pendingRestart: ["TL-MAC-001"],
       paywallSnoozedUntil: "2026-10-29T10:00:00.000Z",
       permissionAskedAt: { full_disk_access: "2026-10-15T10:00:00.000Z" },
+      aiAskedAt: "2026-10-14T10:00:00.000Z",
       extra: "ignored",
       lastStep: 3,
     };
@@ -41,6 +42,7 @@ describe("parseGuidedMemory", () => {
       pendingRestart: ["TL-MAC-001", "nope", 7, "TL-MAC-001"],
       paywallSnoozedUntil: 42,
       permissionAskedAt: { full_disk_access: "2026-10-15T10:00:00.000Z", camera: "2026-10-15T10:00:00.000Z", automation: 3 },
+      aiAskedAt: "yesterday",
     });
     expect(parsed).toEqual({
       version: 1,
@@ -50,6 +52,36 @@ describe("parseGuidedMemory", () => {
       pendingRestart: ["TL-MAC-001"],
       paywallSnoozedUntil: null,
       permissionAskedAt: { full_disk_access: "2026-10-15T10:00:00.000Z" },
+      aiAskedAt: null,
     });
+  });
+
+  it("reads aiAskedAt as a date or null and never from a v0.3 value", () => {
+    expect(EMPTY_GUIDED_MEMORY.aiAskedAt).toBeNull();
+    expect(parseGuidedMemory({ version: 1 }).aiAskedAt).toBeNull();
+    expect(parseGuidedMemory({ version: 1, aiAskedAt: "2026-10-16T09:00:00.000Z" }).aiAskedAt).toBe("2026-10-16T09:00:00.000Z");
+    expect(parseGuidedMemory({ version: 1, aiAskedAt: 1760000000 }).aiAskedAt).toBeNull();
+    expect(parseGuidedMemory({ version: 1, aiAskedAt: "" }).aiAskedAt).toBeNull();
+  });
+});
+
+describe("aiAskedRecently", () => {
+  const now = "2026-10-16T12:00:00.000Z";
+
+  it("is false when never asked", () => {
+    expect(aiAskedRecently(EMPTY_GUIDED_MEMORY, now)).toBe(false);
+  });
+
+  it("is true inside the 14 day window and false at or past it", () => {
+    expect(AI_ASK_AGAIN_MS).toBe(14 * 24 * 60 * 60 * 1000);
+    expect(aiAskedRecently({ aiAskedAt: now }, now)).toBe(true);
+    expect(aiAskedRecently({ aiAskedAt: "2026-10-03T12:00:00.000Z" }, now)).toBe(true);
+    expect(aiAskedRecently({ aiAskedAt: "2026-10-02T12:00:00.000Z" }, now)).toBe(false);
+    expect(aiAskedRecently({ aiAskedAt: "2026-01-01T00:00:00.000Z" }, now)).toBe(false);
+  });
+
+  it("treats an unparseable date as never asked", () => {
+    expect(aiAskedRecently({ aiAskedAt: "soon" }, now)).toBe(false);
+    expect(aiAskedRecently({ aiAskedAt: now }, "soon")).toBe(false);
   });
 });

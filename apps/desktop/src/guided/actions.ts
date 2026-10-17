@@ -1,4 +1,4 @@
-import type { GuidedPlan, NextAction, RuleId } from "@talos/core";
+import type { GuidedPlan, GuidedStep, NextAction, RuleId } from "@talos/core";
 import { planLocked } from "@talos/core";
 import { lastReport } from "../scan/machine";
 import type { Core } from "./core";
@@ -15,8 +15,13 @@ export function later(core: Core): void {
   const now = core.now();
   if (step.kind === "paywall") {
     writeMemory(core, { paywallSnoozedUntil: daysAfter(now, 14) });
-    const { phase } = core;
-    if (phase.kind === "step") core.setPhase({ kind: "end", plan: finalPlan(core, phase.plan), fixed: [...core.fixed] });
+    // Unlock moved the paywall before a step: carry on to it. Otherwise the end screen, even when a converted show step was appended behind the paywall.
+    if (core.paywallMoved) {
+      core.paywallMoved = false;
+      advance(core);
+      return;
+    }
+    if (core.phase.kind === "step") core.setPhase({ kind: "end", plan: finalPlan(core, core.phase.plan), fixed: [...core.fixed] });
     return;
   }
   if (step.kind === "permission") {
@@ -92,6 +97,7 @@ export function start(core: Core): void {
   core.ofFloor = 0;
   core.batchFailures = 0;
   core.watchSeen = false;
+  core.paywallMoved = false;
   core.previousReport = lastReport(core.scan.scan);
   core.setPhase({ kind: "scanning" });
   void core.scan.start();
@@ -105,6 +111,7 @@ export function licenceAccepted(core: Core): void {
   const report = lastReport(core.scan.scan);
   const unlocked: readonly RuleId[] = step.lockedRuleIds;
   const steps = report === null ? [] : planLocked(report, unlocked, core.deps.settings.profile, core.memory, core.now());
+  core.paywallMoved = false;
   appendSteps(core, steps);
   const after = core.phase;
   if (after.kind !== "step") return;
@@ -132,4 +139,26 @@ export function doNext(core: Core, action: NextAction, primary: () => void): voi
   core.watchSeen = false;
   core.setPhase({ kind: "step", plan, index: steps.length - 1, state: initialStepState(step), notice: null });
   if (step.kind === "show" || (step.kind === "fix" && !step.passphrase)) primary();
+}
+
+/**
+ * Unlock from a step's Explain disclosure. The paywall step moves to just before the current step and opens,
+ * so "Not now" and a valid key both carry on to the step the person was on. The total does not grow.
+ */
+export function goToPaywall(core: Core): void {
+  const { phase } = core;
+  if (phase.kind !== "step") return;
+  const current = phase.plan.steps[phase.index];
+  if (current === undefined || current.kind === "paywall") return;
+  // Not an extra: a rebuild pins the paywall while it is the current step and keeps it as passed afterwards.
+  const paywall: GuidedStep = phase.plan.steps.find((s) => s.kind === "paywall") ?? { id: "paywall", kind: "paywall", lockedRuleIds: phase.plan.locked };
+  const rest = phase.plan.steps.filter((s) => s.id !== paywall.id);
+  const at = rest.findIndex((s) => s.id === current.id);
+  const steps = [...rest.slice(0, at), paywall, ...rest.slice(at)];
+  const plan: GuidedPlan = { ...phase.plan, steps };
+  core.ofFloor = Math.max(core.ofFloor, steps.length);
+  core.batchFailures = 0;
+  core.watchSeen = false;
+  core.paywallMoved = true;
+  core.setPhase({ kind: "step", plan, index: at, state: initialStepState(paywall), notice: null });
 }

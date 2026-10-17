@@ -1,0 +1,106 @@
+{
+  "explain": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "ruleId",
+      "whyItMattersForYou",
+      "whatCouldHappen",
+      "urgency"
+    ],
+    "properties": {
+      "ruleId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 32
+      },
+      "whyItMattersForYou": {
+        "type": "string"
+      },
+      "whatCouldHappen": {
+        "type": "string"
+      },
+      "urgency": {
+        "type": "string",
+        "enum": [
+          "today",
+          "this_week",
+          "when_convenient"
+        ]
+      }
+    }
+  },
+  "prioritise": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "order",
+      "reasons",
+      "startWith"
+    ],
+    "properties": {
+      "order": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        }
+      },
+      "reasons": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ruleId",
+            "reason"
+          ],
+          "properties": {
+            "ruleId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "startWith": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        }
+      }
+    }
+  },
+  "ask": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "answer",
+      "relatedRuleIds",
+      "outsideScope"
+    ],
+    "properties": {
+      "answer": {
+        "type": "string"
+      },
+      "relatedRuleIds": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        }
+      },
+      "outsideScope": {
+        "type": "boolean"
+      }
+    }
+  }
+}

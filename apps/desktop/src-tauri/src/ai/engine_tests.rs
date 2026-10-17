@@ -187,7 +187,8 @@ fn a_helper_error_is_forwarded_with_its_code() {
             id: "g1".into(),
             kind: StreamKind::Error,
             json: None,
-            code: Some("guardrail".into())
+            code: Some("guardrail".into()),
+            until: None,
         }]
     );
     let json = serde_json::to_value(&events[0]).unwrap();

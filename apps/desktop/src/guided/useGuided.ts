@@ -31,6 +31,7 @@ export function useGuided(scan: ScanController, deps: GuidedDeps): GuidedControl
       ofFloor: 0,
       batchFailures: 0,
       watchSeen: false,
+      paywallMoved: false,
       resume: deps.resume === true,
       checking: false,
       inScan: false,
@@ -96,6 +97,7 @@ export function useGuided(scan: ScanController, deps: GuidedDeps): GuidedControl
       toggleList: () => act.toggleList(core),
       enterLicence: async () => act.licenceAccepted(core),
       doNext: (action) => act.doNext(core, action, () => primary()),
+      goToPaywall: () => act.goToPaywall(core),
     }),
     [phase, progress, core, primary],
   );

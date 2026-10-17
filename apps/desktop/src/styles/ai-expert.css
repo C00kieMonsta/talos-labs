@@ -1,0 +1,79 @@
+/* Settings "Your AI" rows, the AiCard provider states, the Ask connect row and the Developer AI lines. Owned by EXPERT-UI. */
+
+/* Your AI: name and pill at the left, the buttons right-aligned. */
+.your-ai-row {
+  flex-wrap: wrap;
+}
+
+.your-ai-row > .setting-text {
+  flex: 0 1 auto;
+}
+
+.your-ai-row > .setting-text:focus {
+  outline: none;
+}
+
+.your-ai-row > .setting-text:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+  border-radius: var(--radius-sm);
+}
+
+.your-ai-name {
+  color: var(--fg-secondary);
+}
+
+.your-ai-pill {
+  flex: 0 0 auto;
+}
+
+.your-ai-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* A refused Disconnect: one line under the buttons, full width of the row. */
+.your-ai-note {
+  flex: 1 0 100%;
+  margin: 0;
+  text-align: right;
+}
+
+/* The time a limit comes back, in the AiCard line. */
+.ai-card-until {
+  white-space: nowrap;
+}
+
+/* Ask, not connected: one muted card with the sentence and the Connect button at the right. */
+.ask-connect-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  max-width: 720px;
+  margin-bottom: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-inset);
+}
+
+.ask-connect-row p {
+  margin: 0;
+  font: var(--text-body);
+}
+
+.ask-form-disabled {
+  opacity: 0.55;
+}
+
+/* Developer mode: the fetched Claude Code and the ChatGPT client id, read-only. */
+.subsection > p.dev-ai-info {
+  font: var(--text-mono);
+  color: var(--fg-secondary);
+  overflow-wrap: anywhere;
+}

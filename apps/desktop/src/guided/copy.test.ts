@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as copy from "./copy";
-import { GUIDED_SECTION_LABELS, failureCopy } from "./copy";
+import { CONNECT, CONNECTING, CONNECT_FAILED, END, EXPLAIN, GUIDED_SECTION_LABELS, PAYWALL, failureCopy } from "./copy";
+import { AI_BADGES, AI_OPEN_APPLE_SETTINGS, AI_UNAVAILABLE_COPY } from "../app/labels";
 
 const BANNED = ["finding", "findings", "severity", "CIS", "rule", "rules", "policy", "configuration", "SSH", "launchd", "plist", "daemon", "sudo", "Terminal", "TCC", "stealth", "sysadminctl", "command", "points"];
 const BANNED_PATTERN = new RegExp(`\\b(${BANNED.join("|")})\\b`, "i");
@@ -16,6 +17,23 @@ describe("guided copy", () => {
     const all = strings(Object.fromEntries(Object.entries(copy).filter(([, v]) => typeof v !== "function")));
     expect(all.length).toBeGreaterThan(50);
     for (const text of all) expect(text, text).not.toMatch(BANNED_PATTERN);
+  });
+
+  it("walks the AI strings, including the badges EXPLAIN.badge points at", () => {
+    const all = strings({ CONNECT, CONNECTING, CONNECT_FAILED, EXPLAIN, PAYWALL, END });
+    expect(all).toContain(AI_BADGES.chatgpt);
+    expect(all).toContain(AI_BADGES.apple);
+    expect(all.length).toBeGreaterThan(60);
+    for (const text of all) expect(text, text).not.toMatch(BANNED_PATTERN);
+    expect(EXPLAIN.badge).toBe(AI_BADGES);
+    // The Apple Intelligence lines and their button are the expert card's, walked here under the banned words.
+    expect(EXPLAIN.apple).toBe(AI_UNAVAILABLE_COPY);
+    expect(all).toContain(AI_UNAVAILABLE_COPY.apple_intelligence_not_enabled);
+    expect(EXPLAIN.openAppleSettings).toBe(AI_OPEN_APPLE_SETTINGS);
+    expect(EXPLAIN.notOffered.chatgpt).toBe("ChatGPT isn't available in this version yet.");
+    expect(CONNECT.primary).toEqual({ chatgpt: "Connect ChatGPT", claude_plan: "Connect Claude", apple: "Use this Mac" });
+    expect(PAYWALL.buy).toBe("Buy the full version, €24 a year");
+    expect(END.explained).toBe("Get things explained");
   });
 
   it("overrides the three scanning rows that carried banned words", () => {

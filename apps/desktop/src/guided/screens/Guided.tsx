@@ -1,4 +1,5 @@
 import { useApp } from "../../app/context";
+import { useConnect } from "../../scan/ai-connect";
 import { SCAN_ERROR_LABELS } from "../../app/labels";
 import type { GuidedController } from "../state";
 import { EndScreen } from "../EndScreen";
@@ -16,6 +17,7 @@ import { ShowStep } from "./ShowStep";
 /** One screen per phase. The scanning phase is drawn by App.tsx, which owns the pacer. */
 export function Guided({ controller, onWelcomeStart }: { controller: GuidedController; onWelcomeStart(): void }) {
   const { settings, scan } = useApp();
+  const connect = useConnect();
   const { phase } = controller;
   switch (phase.kind) {
     case "welcome":
@@ -38,7 +40,7 @@ export function Guided({ controller, onWelcomeStart }: { controller: GuidedContr
     case "plan":
       return <PlanScreen plan={phase.plan} listOpen={phase.listOpen} same={phase.same} progress={controller.progress} onGo={controller.carryOn} onToggleList={controller.toggleList} />;
     case "end":
-      return <EndScreen plan={phase.plan} fixed={phase.fixed} onCheckAgain={controller.start} onNext={controller.doNext} />;
+      return <EndScreen plan={phase.plan} fixed={phase.fixed} onCheckAgain={controller.start} onNext={controller.doNext} onConnect={() => connect.open({ name: "guided" })} />;
     case "step": {
       const step = phase.plan.steps[phase.index];
       if (step === undefined) return null;

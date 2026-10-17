@@ -17,6 +17,7 @@ export function landed(core: Core, report: ScanReport): void {
   core.ofFloor = plan.steps.length;
   core.batchFailures = 0;
   core.watchSeen = false;
+  core.paywallMoved = false;
   core.checking = false;
   if (core.resume) {
     core.resume = false;
@@ -44,7 +45,9 @@ export function rebuilt(core: Core, report: ScanReport): void {
   const fresh = buildGuidedPlan(report, { freeFixes: old.freeFixes, licensed: gate.licensed }, settings.profile, core.memory, core.now());
   core.plannedReport = report;
   const index = phase.kind === "step" ? phase.index : phase.kind === "end" ? old.steps.length : 0;
-  const pinCurrent = phase.kind === "step" && phase.state.kind !== "idle" && phase.state.kind !== "question";
+  // A paywall the person is on stays where it is (Unlock may have moved it), so the fresh plan's copy is dropped and nothing lands before it.
+  const onPaywall = phase.kind === "step" && old.steps[phase.index]?.kind === "paywall";
+  const pinCurrent = phase.kind === "step" && ((phase.state.kind !== "idle" && phase.state.kind !== "question") || onPaywall);
   const plan = mergePlan({ old, index, pinCurrent, fresh, report, extras: core.extras, leftAlone: core.leftAlone });
   core.ofFloor = Math.max(core.ofFloor, plan.steps.length);
   switch (phase.kind) {

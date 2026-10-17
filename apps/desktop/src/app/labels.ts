@@ -13,6 +13,8 @@ import type {
   UnknownReason,
 } from "@talos/core";
 import type { ScanError } from "../scan/machine";
+import type { ConnectProvider } from "../scan/ai-connect";
+import type { ExplainerProvider } from "../settings";
 
 /** Shown while a section is being read. */
 export const SECTION_PROGRESS_LABELS: Readonly<Record<SectionKey, string>> = {
@@ -207,6 +209,9 @@ export const EXPLAINER_FAILURE_LABELS: Readonly<Record<ExplainerFailure, string>
   too_long: "This check-up is too long for the on-device model to read in one go.",
   cancelled: "The explanation was stopped before it finished.",
   busy: "Another explanation is still being written. Wait for it to finish.",
+  needs_sign_in: "Your AI signed me out. Sign in again from Settings.",
+  limit_reached: "Your AI allowance is used up for now. It comes back on its own.",
+  provider_unavailable: "Your AI didn't answer. Try again in a little while.",
 };
 
 export const SCAN_ERROR_LABELS: Readonly<Record<ScanError, string>> = {
@@ -264,15 +269,137 @@ export function summariseProfile(profile: ExplainerProfile): string {
   return `${role}, ${technical}, ${data}, ${laptop}`;
 }
 
-/** The word and the button for each AI availability state in Settings. */
+/** The word and the button for each AI availability state in Settings. The action button is Apple-only; provider rows have their own buttons. */
 export const AI_AVAILABILITY_LABELS: Readonly<Record<AiAvailability, { word: string; action: string | null }>> = {
   available: { word: "Ready", action: null },
   model_not_ready: { word: "Model downloading", action: null },
   apple_intelligence_not_enabled: { word: "Needs Apple Intelligence", action: "Open Apple Intelligence settings" },
   device_not_eligible: { word: "This Mac can't run it", action: null },
   helper_unavailable: { word: "Not available right now", action: "Try again" },
+  not_connected: { word: "Not connected", action: null },
+  connecting: { word: "Connecting", action: null },
+  needs_sign_in: { word: "Needs sign-in", action: null },
+  limit_reached: { word: "Limit reached", action: null },
+  plan_not_eligible: { word: "Plan doesn't include this", action: null },
+  provider_unavailable: { word: "Didn't answer", action: null },
+  not_offered: { word: "Not available yet", action: null },
   off: { word: "Off", action: null },
 };
+
+/** The Settings pill word: a connected subscription reads "Connected", everything else as the table. */
+export function aiPillWord(provider: ExplainerProvider, state: AiAvailability): string {
+  if (state === "available") return provider === "chatgpt" || provider === "claude_plan" ? "Connected" : "Ready";
+  return AI_AVAILABILITY_LABELS[state].word;
+}
+
+export const PROVIDER_NAMES: Readonly<Record<ExplainerProvider, string>> = {
+  apple: "On this Mac",
+  chatgpt: "ChatGPT",
+  claude_plan: "Claude",
+  claude: "Claude API key",
+  ollama: "Local Ollama",
+};
+
+/** The plans a subscription route needs. */
+export const PROVIDER_PLANS: Readonly<Record<ConnectProvider, string>> = {
+  chatgpt: "Plus or Pro",
+  claude_plan: "Pro or Max",
+};
+
+/** Under every AI text. Every provider is named and nothing is verified. */
+export const AI_BADGES: Readonly<Record<ExplainerProvider, string>> = {
+  apple: "Written on this Mac by Apple Intelligence. Not verified.",
+  chatgpt: "Written by ChatGPT. Not verified.",
+  claude_plan: "Written by Claude. Not verified.",
+  claude: "Written by Claude. Not verified.",
+  ollama: "Written by a local model. Not verified.",
+};
+
+export function aiBadge(provider: ExplainerProvider): string {
+  return AI_BADGES[provider];
+}
+
+const ASK_ANSWERED_BY: Readonly<Record<ExplainerProvider, string>> = {
+  apple: "Answered on this Mac by Apple Intelligence.",
+  chatgpt: "Answered by ChatGPT.",
+  claude_plan: "Answered by Claude.",
+  claude: "Answered by Claude.",
+  ollama: "Answered by a local model.",
+};
+
+/** The Ask header sentence. */
+export function askSubtitle(provider: ExplainerProvider): string {
+  return `Questions are answered from this report only. ${ASK_ANSWERED_BY[provider]} Not verified.`;
+}
+
+export const ASK_CONNECT = { line: "Connect your AI to ask questions.", button: "Connect" } as const;
+
+export type AppleAiState = "device_not_eligible" | "apple_intelligence_not_enabled" | "model_not_ready" | "helper_unavailable";
+
+/** The v0.2 lines for the Apple Intelligence states; they do not depend on the provider. */
+export const AI_UNAVAILABLE_COPY: Readonly<Record<AppleAiState, string>> = {
+  device_not_eligible: "AI explanations need Apple Intelligence, which this Mac can't run. Everything else works without it.",
+  apple_intelligence_not_enabled: "Turn on Apple Intelligence to get explanations written for you on this Mac.",
+  model_not_ready: "Apple Intelligence is still downloading its model. This finishes on its own; keep the Mac on Wi-Fi and plugged in.",
+  helper_unavailable: "AI explanations aren't available right now.",
+};
+
+export const AI_OPEN_APPLE_SETTINGS = "Open Apple Intelligence settings";
+
+export interface ProviderLines {
+  readonly probing: string;
+  /** The Overview card: the order is what it explains. */
+  readonly notConnected: string;
+  /** The finding and Ask cards, where there is no order. */
+  readonly notConnectedFinding: string;
+  readonly connecting: string;
+  readonly needsSignIn: string;
+  readonly limitReached: string;
+  limitReachedAt(until: string): string;
+  readonly planNotEligible: string;
+  readonly providerUnavailable: string;
+  readonly notOffered: string;
+}
+
+/** The AiCard and Explain panel lines for a provider's states, with its name filled in. */
+export function providerLines(provider: ExplainerProvider): ProviderLines {
+  const name = PROVIDER_NAMES[provider];
+  const plans = provider === "chatgpt" || provider === "claude_plan" ? PROVIDER_PLANS[provider] : null;
+  return {
+    probing: provider === "apple" ? "Checking whether Apple Intelligence is available" : provider === "chatgpt" || provider === "claude_plan" ? `Checking whether ${name} is connected` : "Checking your AI",
+    notConnected: "Get the order explained by the AI you already use.",
+    notConnectedFinding: "Get this explained by the AI you already use.",
+    connecting: `Waiting for you to sign in to ${name} in your browser.`,
+    needsSignIn: `${name} signed me out.`,
+    limitReached: `Your ${name} allowance is used up for now. It comes back on its own.`,
+    limitReachedAt: (until) => `Your ${name} allowance is used up for now. It comes back at ${formatTime(until)}.`,
+    planNotEligible: plans === null ? `That ${name} account's plan doesn't include this.` : `That ${name} account's plan doesn't include this. ${plans} is needed.`,
+    providerUnavailable: `${name} didn't answer.`,
+    notOffered: `${name} isn't available in this version yet.`,
+  };
+}
+
+export const AI_ACTIONS = {
+  connect: "Connect my AI",
+  cancel: "Cancel",
+  signInAgain: "Sign in again",
+  chooseAnother: "Choose another",
+  tryAgain: "Try again",
+} as const;
+
+/** The Settings "Your AI" section. */
+export const YOUR_AI = {
+  title: "Your AI",
+  switch: "Explain things with my AI",
+  sentence: "Talos Labs sends your AI a short summary of the check-up: which things passed or failed, and how you use your Mac. Never file names, paths, passwords or your computer's name.",
+  change: "Change",
+  disconnect: "Disconnect",
+  disconnectFailed: "The sign-in couldn't be cleared. Try again.",
+  claudeCodeLine: "Claude Code",
+  chatgptClientLine: "ChatGPT client id",
+  none: "None",
+  notFetched: "not fetched",
+} as const;
 
 export type PermissionStatus = "granted" | "not_granted" | "not_determined" | "unknown";
 
@@ -284,6 +411,13 @@ export const PERMISSION_STATUS_LABELS: Readonly<Record<PermissionStatus, string>
 };
 
 export const PRIVACY_SENTENCE = "Nothing leaves this Mac. AI explanations are written here by Apple Intelligence.";
+export const PRIVACY_SENTENCE_REMOTE =
+  "Your check-up and your fixes never leave this Mac. With ChatGPT or Claude connected, Talos Labs sends them a short summary of the results and nothing else.";
+
+/** The About sentence: the v0.2 line for On this Mac, the two-part statement for every other provider. */
+export function privacySentence(provider: ExplainerProvider): string {
+  return provider === "apple" ? PRIVACY_SENTENCE : PRIVACY_SENTENCE_REMOTE;
+}
 
 /** The sidebar row and the toolbar back label that lead to the guided check-up. */
 export const CHECKUP_LABEL = "Check-up";

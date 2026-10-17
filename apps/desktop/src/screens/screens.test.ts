@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
+import { createRequire } from "node:module";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { AiAvailability, Capabilities, Explanation, FixPlan, LicenseState, Rule, RuleCatalog, RuleId, SystemState } from "@talos/core";
 import { ALL_UNAVAILABLE, DEV_MACHINE, HARDENED, MACOS_CATALOG, evaluate } from "@talos/core";
@@ -7,26 +8,32 @@ import { DEFAULT_SETTINGS, MAX_MODEL_ID_LENGTH } from "../settings";
 import { AppContext } from "../app/context";
 import { buildGate } from "../app/gate";
 import type { Gate } from "../app/gate";
-import { StatefulProvider, fakeAdapters, fakeContextValue, fakeFinding, fakePlan, fakeReport } from "../app/testing";
+import { StatefulProvider, fakeAdapters, fakeConnectController, fakeContextValue, fakeFinding, fakePlan, fakeReport } from "../app/testing";
 import type { ExplainerProvider } from "../settings";
 import type { ExplainState, FixingState, LastRecheck, ReadyState, SingleFixingState, WatchingState } from "../scan/machine";
 import type { PacerView, RowState } from "../scan/useScanPacer";
 import { Scanning, PROMPTING_ROW_COPY } from "./Scanning";
 import { SECTION_PROGRESS_LABELS } from "../app/labels";
+const AI_BADGE = AI_BADGES.apple;
 import { GUIDED_SECTION_LABELS } from "../guided/copy";
 import { Welcome } from "./Welcome";
 import { Findings } from "./Findings";
 import { FindingDetail } from "./FindingDetail";
 import { Overview } from "./Overview";
 import { AI_OFF_COPY, Ask, NEAR_LIMIT_NOTICE } from "./Ask";
-import { AI_BADGE, AI_LOCKED_COPY, AI_UNAVAILABLE_COPY } from "../components/AiCard";
+import { AI_LOCKED_COPY, AI_UNAVAILABLE_COPY } from "../components/AiCard";
 import { PASSWORD_SENTENCE, NO_PASSWORD_SENTENCE } from "../components/fix-copy";
-import { DEV_BUILD_FDA_COPY, Settings } from "./Settings";
+import { DEV_BUILD_FDA_COPY, Settings, chatgptClientLine, claudeCodeLine } from "./Settings";
 import type { SettingsProps } from "./Settings";
+import { AI_ACTIONS, AI_BADGES, ASK_CONNECT, PRIVACY_SENTENCE, PRIVACY_SENTENCE_REMOTE, PROVIDER_NAMES, YOUR_AI, aiPillWord, providerLines } from "../app/labels";
 import type { Adapters } from "../adapters";
 import type { AppSettings } from "../settings";
 
 afterEach(cleanup);
+
+const require = createRequire(import.meta.url);
+const axe = require("axe-core") as { run(ctx: Element, opts: object): Promise<{ violations: { id: string }[] }> };
+const AXE_RULES = { runOnly: ["button-name", "nested-interactive", "aria-allowed-role", "aria-valid-attr-value", "label"] };
 
 const NONE: LicenseState = { status: "none" };
 const VALID: LicenseState = {
@@ -35,7 +42,7 @@ const VALID: LicenseState = {
 };
 
 function stubGate(licensed: boolean): Gate {
-  return { licensed, freeFixes: [], has: () => licensed, fixLocked: () => !licensed };
+  return { licensed, freeFixes: [], has: () => licensed, fixLocked: () => !licensed, explainLocked: () => !licensed };
 }
 
 function rule(id: Rule["id"], title: string, failTitle: string): Rule {
@@ -331,6 +338,7 @@ function readyContext(input: {
   aiEnabled?: boolean;
   /** The probed on-device availability; undefined leaves it unprobed. */
   ai?: AiAvailability | null;
+  until?: string | null;
   developerMode?: boolean;
   fixing?: FixingState | null;
   watching?: WatchingState | null;
@@ -357,7 +365,8 @@ function readyContext(input: {
       watching: input.watching ?? null,
     },
   });
-  return { ...withAi(value, input.ai === undefined ? "available" : input.ai), capabilities: input.capabilities ?? null };
+  const probed = withAi(value, input.ai === undefined ? "available" : input.ai);
+  return { ...probed, ai: { ...probed.ai, until: input.until ?? null }, capabilities: input.capabilities ?? null };
 }
 
 describe("Overview", () => {
@@ -407,6 +416,54 @@ describe("Overview", () => {
     cleanup();
     render(createElement(AppContext.Provider, { value: readyContext({ state: DEV_MACHINE, license: NONE, aiEnabled: false }) }, createElement(Overview)));
     expect(document.querySelector(".ai-card")).toBeNull();
+  });
+
+  it("renders the seven provider states on the order card, with Connect my AI and Choose another opening the connect screen for the Overview", () => {
+    const lines = providerLines("chatgpt");
+    const connect = fakeConnectController();
+    const show = (ai: AiAvailability, until: string | null = null) =>
+      render(createElement(StatefulProvider, { value: readyContext({ state: DEV_MACHINE, license: NONE, provider: "chatgpt", ai, until }), connect }, createElement(Overview)));
+    show("not_connected");
+    expect(document.querySelector("[data-ai-state='not_connected']")).not.toBeNull();
+    expect(screen.getByText(lines.notConnected)).toBeTruthy();
+    expect(screen.queryByText(AI_LOCKED_COPY)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: AI_ACTIONS.connect }));
+    expect(connect.open).toHaveBeenCalledWith({ name: "overview" });
+    cleanup();
+    show("connecting");
+    expect(screen.getByRole("status").textContent).toBe(lines.connecting);
+    fireEvent.click(screen.getByRole("button", { name: AI_ACTIONS.cancel }));
+    expect(connect.cancel).toHaveBeenCalled();
+    cleanup();
+    show("needs_sign_in");
+    fireEvent.click(screen.getByRole("button", { name: AI_ACTIONS.signInAgain }));
+    expect(connect.signInAgain).toHaveBeenCalledWith({ name: "overview" });
+    cleanup();
+    const sixPm = new Date(2026, 9, 16, 18, 0, 0).toISOString();
+    show("limit_reached", sixPm);
+    expect(document.querySelector(".ai-card-head p")?.textContent).toBe("Your ChatGPT allowance is used up for now. It comes back at 18:00.");
+    expect(document.querySelectorAll(".ai-card button").length).toBe(0);
+    cleanup();
+    show("plan_not_eligible");
+    expect(screen.getByText(lines.planNotEligible)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: AI_ACTIONS.chooseAnother }));
+    expect(connect.open).toHaveBeenLastCalledWith({ name: "overview" });
+    cleanup();
+    show("provider_unavailable");
+    expect(screen.getByText(lines.providerUnavailable)).toBeTruthy();
+    expect(screen.getByRole("button", { name: AI_ACTIONS.tryAgain })).toBeTruthy();
+    cleanup();
+    show("not_offered");
+    expect(screen.getByText(lines.notOffered)).toBeTruthy();
+    expect(screen.getByRole("button", { name: AI_ACTIONS.chooseAnother })).toBeTruthy();
+  });
+
+  it("signs a ChatGPT order with the ChatGPT badge", () => {
+    const priority = { order: ["TL-MAC-002", "TL-MAC-001"] as RuleId[], reasons: [], startWith: ["TL-MAC-002"] as RuleId[] };
+    const ready = readyContext({ state: DEV_MACHINE, license: VALID, provider: "chatgpt", explain: { kind: "ready", byRule: {}, order: ["TL-MAC-002", "TL-MAC-001"], priority } });
+    render(createElement(AppContext.Provider, { value: ready }, createElement(Overview)));
+    expect(screen.getByText(AI_BADGES.chatgpt)).toBeTruthy();
+    expect(screen.queryByText(AI_BADGE)).toBeNull();
   });
 
   it("probes availability lazily when the card mounts and re-probes after opening Apple Intelligence settings", () => {
@@ -704,6 +761,24 @@ describe("FindingDetail", () => {
     expect(screen.getByText(/socketfilterfw --setglobalstate on/)).toBeTruthy();
   });
 
+  it("locks the explanation per rule: free for a free fix, locked otherwise, and never when the AI is not connected", () => {
+    const value = readyContext({ state: DEV_MACHINE, license: NONE });
+    const failing = evaluate(DEV_MACHINE, MACOS_CATALOG, { now: NOW, os: "macos" }).findings.filter((f) => f.status === "fail");
+    const free = failing.find((f) => value.gate.freeFixes.includes(f.ruleId))?.ruleId as RuleId;
+    const paid = failing.find((f) => !value.gate.freeFixes.includes(f.ruleId))?.ruleId as RuleId;
+    expect(free).toBeTruthy();
+    expect(paid).toBeTruthy();
+    renderDetail(value, free);
+    expect(document.querySelector(".ai-card")?.getAttribute("data-ai-state")).toBe("available_idle");
+    cleanup();
+    renderDetail(value, paid);
+    expect(document.querySelector(".ai-card")?.getAttribute("data-ai-state")).toBe("locked");
+    cleanup();
+    renderDetail(readyContext({ state: DEV_MACHINE, license: NONE, provider: "claude_plan", ai: "not_connected" }), paid);
+    expect(document.querySelector(".ai-card")?.getAttribute("data-ai-state")).toBe("not_connected");
+    expect(screen.getByRole("button", { name: AI_ACTIONS.connect })).toBeTruthy();
+  });
+
   it("hides the AI card when AI is off and shows the model-not-ready state without a lock", () => {
     renderDetail(readyContext({ state: DEV_MACHINE, license: NONE, aiEnabled: false }), "TL-MAC-002");
     expect(document.querySelector(".ai-card")).toBeNull();
@@ -832,6 +907,52 @@ describe("Ask", () => {
     expect(screen.queryByLabelText("Your question")).toBeNull();
   });
 
+  it("shows the connect row above a disabled composer when no AI is connected, and keeps the card for the other states", () => {
+    const connect = fakeConnectController();
+    const settings: AppSettings = { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: "chatgpt" } };
+    const value = withAi(fakeContextValue({ adapters: fakeAdapters(), license: VALID, gate: stubGate(true), settings, scanState: { kind: "idle", report: null, last: report } }), "not_connected");
+    render(createElement(StatefulProvider, { value, connect }, createElement(Ask)));
+    const row = document.querySelector(".ask-connect-row") as HTMLElement;
+    expect(row.querySelector("p")?.textContent).toBe(ASK_CONNECT.line);
+    const button = screen.getByRole("button", { name: ASK_CONNECT.button }) as HTMLButtonElement;
+    expect(button.tagName).toBe("BUTTON");
+    expect(row.contains(button)).toBe(true);
+    fireEvent.click(button);
+    expect(connect.open).toHaveBeenCalledWith({ name: "ask" });
+    const form = document.querySelector("form.ask-form") as HTMLFormElement;
+    expect(form.classList.contains("ask-form-disabled")).toBe(true);
+    expect(form.getAttribute("aria-disabled")).toBe("true");
+    expect((screen.getByLabelText("Your question") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Ask" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(document.querySelector(".ai-card")).toBeNull();
+    cleanup();
+    const signedOut = withAi(fakeContextValue({ adapters: fakeAdapters(), license: VALID, gate: stubGate(true), settings, scanState: { kind: "idle", report: null, last: report } }), "needs_sign_in");
+    render(createElement(StatefulProvider, { value: signedOut, connect }, createElement(Ask)));
+    expect(document.querySelector(".ask-connect-row")).toBeNull();
+    expect(document.querySelector("[data-ai-state='needs_sign_in']")).not.toBeNull();
+    expect(screen.getByText(providerLines("chatgpt").needsSignIn)).toBeTruthy();
+    expect(screen.queryByLabelText("Your question")).toBeNull();
+  });
+
+  it("keeps the connect row and the disabled composer clean under axe", async () => {
+    const settings: AppSettings = { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: "chatgpt" } };
+    const value = withAi(fakeContextValue({ adapters: fakeAdapters(), license: VALID, gate: stubGate(true), settings, scanState: { kind: "idle", report: null, last: report } }), "not_connected");
+    const { container } = render(createElement(StatefulProvider, { value }, createElement(Ask)));
+    const result = await axe.run(container, AXE_RULES);
+    expect(result.violations.map((v) => v.id)).toEqual([]);
+  });
+
+  it("signs each answer with the provider's badge", async () => {
+    const value = askContext();
+    value.settings = { ...value.settings, explainer: { ...value.settings.explainer, provider: "claude_plan" } };
+    render(createElement(StatefulProvider, { value }, createElement(Ask)));
+    fireEvent.change(screen.getByLabelText("Your question"), { target: { value: "What first?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await waitFor(() => expect(screen.getByText("<b>Start</b> with the disk.")).toBeTruthy());
+    expect(screen.getByText(AI_BADGES.claude_plan)).toBeTruthy();
+    expect(screen.queryByText(AI_BADGE)).toBeNull();
+  });
+
   function askContext() {
     const value = withAi(
       fakeContextValue({ adapters: fakeAdapters(), license: VALID, gate: stubGate(true), scanState: { kind: "idle", report: null, last: report } }),
@@ -955,7 +1076,7 @@ describe("Ask", () => {
 describe("Settings", () => {
   const caps: Capabilities = { fullDiskAccess: false, automation: "not_determined", bundled: true };
   function settingsProps(overrides: Partial<SettingsProps> = {}): SettingsProps {
-    return { aiAvailability: "available", onAiAction: vi.fn(), capabilities: caps, onPermission: vi.fn(), onBuy: vi.fn(), ...overrides };
+    return { aiAvailability: "available", onAiAction: vi.fn(), capabilities: caps, onPermission: vi.fn(), onBuy: vi.fn(), onChangeAi: vi.fn(), onDisconnect: vi.fn(async () => true), ...overrides };
   }
   function dev(provider: ExplainerProvider, explainer: Partial<AppSettings["explainer"]> = {}): AppSettings {
     return { ...DEFAULT_SETTINGS, onboarded: true, developer: { ...DEFAULT_SETTINGS.developer, enabled: true }, explainer: { ...DEFAULT_SETTINGS.explainer, provider, ...explainer } };
@@ -971,32 +1092,108 @@ describe("Settings", () => {
   it("keeps the six sections in the design order", () => {
     mount();
     const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-    expect(headings).toEqual(["Check-up", "AI explanations", "Permissions", "Licence", "Developer mode", "About"]);
+    expect(headings).toEqual(["Check-up", YOUR_AI.title, "Permissions", "Licence", "Developer mode", "About"]);
   });
 
-  it("drives the AI status line from the availability prop and its one button from onAiAction", () => {
+  it("drives the Your AI pill from the availability prop, the Apple button from onAiAction, and the switch from the settings", () => {
     const { value, props } = mount({ aiAvailability: "apple_intelligence_not_enabled" });
-    const toggle = screen.getByRole("switch", { name: "Explain findings with Apple Intelligence" }) as HTMLInputElement;
+    const toggle = screen.getByRole("switch", { name: YOUR_AI.switch }) as HTMLInputElement;
     expect(toggle.checked).toBe(true);
-    expect(screen.getByText("Needs Apple Intelligence")).toBeTruthy();
+    const row = document.querySelector(".your-ai-row") as HTMLElement;
+    expect(row.querySelector(".your-ai-name")?.textContent).toBe(PROVIDER_NAMES.apple);
+    expect(row.querySelector(".your-ai-pill")?.textContent).toBe("Needs Apple Intelligence");
     fireEvent.click(screen.getByRole("button", { name: "Open Apple Intelligence settings" }));
     expect(props.onAiAction).toHaveBeenCalledWith("apple_intelligence_not_enabled");
-    const sentence = screen.getByText(/Only the check-up results are used, never file names, paths or passwords\./);
-    expect(sentence.tagName).toBe("SMALL");
-    expect(sentence.closest(".setting-row")?.querySelector("[role='switch']")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: YOUR_AI.change }));
+    expect(props.onChangeAi).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: YOUR_AI.disconnect })).toBeNull();
+    const sentence = screen.getByText(YOUR_AI.sentence);
+    expect(sentence.tagName).toBe("P");
+    expect(sentence.closest(".settings-group")).toBe(row.closest(".settings-group"));
     fireEvent.click(toggle);
     expect(value.updateSettings).toHaveBeenCalledWith({ explainer: { ...value.settings.explainer, aiEnabled: false } });
+    cleanup();
+    mount({ aiAvailability: "available" });
+    const ready = document.querySelector(".your-ai-pill") as HTMLElement;
+    expect(ready.textContent).toBe("Ready");
+    expect(ready.classList.contains("pill-accent")).toBe(true);
     cleanup();
     mount({ aiAvailability: "device_not_eligible" });
     expect(screen.getByText("This Mac can't run it")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Try again|Open Apple/ })).toBeNull();
     cleanup();
     mount({ aiAvailability: null });
-    expect(screen.getByText("Checking")).toBeTruthy();
+    expect(document.querySelector(".your-ai-pill")?.textContent).toBe("Checking");
     cleanup();
     mount({ aiAvailability: "off" }, { settings: { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, aiEnabled: false } } });
     expect(screen.queryByText("Off")).toBeNull();
-    expect((screen.getByRole("switch", { name: "Explain findings with Apple Intelligence" }) as HTMLInputElement).checked).toBe(false);
+    expect(document.querySelector(".your-ai-pill")).toBeNull();
+    expect((screen.getByRole("switch", { name: YOUR_AI.switch }) as HTMLInputElement).checked).toBe(false);
+    expect(screen.getByRole("button", { name: YOUR_AI.change })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: YOUR_AI.disconnect })).toBeNull();
+    cleanup();
+    // The Connect screen would have no row: Change is hidden and the honest line stays.
+    mount({ aiAvailability: "device_not_eligible", canChangeAi: false });
+    expect(screen.queryByRole("button", { name: YOUR_AI.change })).toBeNull();
+    expect(screen.getByText("This Mac can't run it")).toBeTruthy();
+    cleanup();
+    // With the switch off nothing probes, so a ChatGPT or Claude sign-in can still be removed from this Mac.
+    for (const provider of ["chatgpt", "claude_plan"] as const) {
+      const onDisconnect = vi.fn(async () => true);
+      mount({ aiAvailability: "off", onDisconnect }, { settings: { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, aiEnabled: false, provider } } });
+      expect(document.querySelector(".your-ai-pill")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: YOUR_AI.disconnect }));
+      expect(onDisconnect).toHaveBeenCalledTimes(1);
+      cleanup();
+    }
+  });
+
+  it("words the pill for every ChatGPT state and offers Disconnect only while a sign-in exists", async () => {
+    const chatgpt: AppSettings = { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: "chatgpt" } };
+    const states: AiAvailability[] = ["available", "not_connected", "connecting", "needs_sign_in", "limit_reached", "plan_not_eligible", "provider_unavailable", "not_offered"];
+    const disconnectable = ["available", "needs_sign_in", "limit_reached", "plan_not_eligible", "provider_unavailable"];
+    for (const state of states) {
+      mount({ aiAvailability: state }, { settings: chatgpt });
+      const pill = document.querySelector(".your-ai-pill") as HTMLElement;
+      expect(pill.textContent, state).toBe(aiPillWord("chatgpt", state));
+      expect(pill.classList.contains("pill-accent"), state).toBe(state === "available");
+      expect(document.querySelector(".your-ai-name")?.textContent).toBe("ChatGPT");
+      expect(screen.queryByRole("button", { name: YOUR_AI.disconnect }) !== null, state).toBe(disconnectable.includes(state));
+      expect(screen.queryByRole("button", { name: /Try again|Open Apple/ }), state).toBeNull();
+      cleanup();
+    }
+    expect(aiPillWord("chatgpt", "available")).toBe("Connected");
+    expect(aiPillWord("claude_plan", "not_offered")).toBe("Not available yet");
+    let release: () => void = () => undefined;
+    const onDisconnect = vi.fn(() => new Promise<boolean>((resolve) => (release = () => resolve(true))));
+    mount({ aiAvailability: "available", onDisconnect }, { settings: chatgpt });
+    const disconnect = screen.getByRole("button", { name: YOUR_AI.disconnect }) as HTMLButtonElement;
+    disconnect.focus();
+    fireEvent.click(disconnect);
+    expect(onDisconnect).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(disconnect.getAttribute("aria-busy")).toBe("true"));
+    expect(disconnect.disabled).toBe(false);
+    release();
+    await waitFor(() => expect(document.activeElement).toBe(document.querySelector(".your-ai-row .setting-text")));
+  });
+
+  it("a refused Disconnect keeps the pill and the button and says the sign-in could not be cleared", async () => {
+    const claude: AppSettings = { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: "claude_plan" } };
+    const onDisconnect = vi.fn(async () => false);
+    mount({ aiAvailability: "available", onDisconnect }, { settings: claude });
+    expect(screen.queryByRole("alert")).toBeNull();
+    const disconnect = screen.getByRole("button", { name: YOUR_AI.disconnect }) as HTMLButtonElement;
+    disconnect.focus();
+    fireEvent.click(disconnect);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(YOUR_AI.disconnectFailed));
+    expect((document.querySelector(".your-ai-pill") as HTMLElement).textContent).toBe("Connected");
+    expect(disconnect.disabled).toBe(false);
+    expect(document.activeElement).toBe(disconnect);
+    // A second try that is accepted clears the line.
+    onDisconnect.mockResolvedValueOnce(true);
+    fireEvent.click(disconnect);
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(onDisconnect).toHaveBeenCalledTimes(2);
   });
 
   it("collapses the profile to one line and expands the controls on Edit", () => {
@@ -1080,14 +1277,55 @@ describe("Settings", () => {
     const on = mount({}, { settings: dev("ollama") });
     expect((screen.getByRole("switch", { name: "Show Terminal commands next to fixes" }) as HTMLInputElement).checked).toBe(true);
     expect((screen.getByRole("switch", { name: "Show the plan expanded in fix sheets" }) as HTMLInputElement).checked).toBe(true);
-    expect(screen.getByLabelText("On this Mac")).toBeTruthy();
-    expect(screen.getByLabelText("Claude API key")).toBeTruthy();
+    const radios = screen.getAllByRole("radio").map((r) => (r.closest("label") as HTMLElement).textContent?.trim());
+    expect(radios).toEqual(["On this Mac", "ChatGPT", "Claude", "Claude API key", "Local Ollama"]);
     expect((screen.getByLabelText("Local Ollama") as HTMLInputElement).checked).toBe(true);
     expect(screen.getByLabelText("Model name")).toBeTruthy();
+    expect(screen.getByText(claudeCodeLine(null))).toBeTruthy();
+    expect(screen.getByText(chatgptClientLine(null))).toBeTruthy();
+    expect(screen.queryByLabelText("Anthropic API key")).toBeNull();
     fireEvent.click(screen.getByRole("switch", { name: "Show Terminal commands next to fixes" }));
     expect(on.value.updateSettings).toHaveBeenCalledWith({ developer: { ...on.value.settings.developer, showCommands: false } });
     fireEvent.click(screen.getByRole("switch", { name: "Developer mode" }));
     expect(on.value.updateSettings).toHaveBeenCalledWith({ developer: { ...on.value.settings.developer, enabled: false }, explainer: { ...on.value.settings.explainer, provider: "apple" } });
+    cleanup();
+    // A connected subscription survives leaving Developer mode; only the API-key and Ollama providers reset.
+    const sub = mount({}, { settings: dev("chatgpt") });
+    fireEvent.click(screen.getByRole("switch", { name: "Developer mode" }));
+    expect(sub.value.updateSettings).toHaveBeenCalledWith({ developer: { ...sub.value.settings.developer, enabled: false }, explainer: sub.value.settings.explainer });
+  });
+
+  it("keeps the Your AI rows clean under axe for a connected and a signed-out subscription", async () => {
+    const chatgpt: AppSettings = { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: "chatgpt" } };
+    for (const state of ["available", "needs_sign_in", "not_connected"] as const) {
+      mount({ aiAvailability: state }, { settings: chatgpt });
+      const result = await axe.run(document.querySelector(".your-ai-row") as Element, AXE_RULES);
+      expect(result.violations.map((v) => v.id), state).toEqual([]);
+      cleanup();
+    }
+  });
+
+  it("shows the ChatGPT model id field with an empty value allowed, and the read-only Claude Code and client id lines", () => {
+    const info = { offered: true, version: "2.1.287", path: "/Users/me/.local/share/claude/versions/2.1.287", signed: true, identity: "Developer ID Application: Anthropic PBC (Q6L2SF6YDW)", source: "existing" as const };
+    const { value } = mount({ providerInfo: { claudeCode: info, chatgptClientId: "oaiapp_abc123" } }, { settings: dev("chatgpt") });
+    const input = screen.getByLabelText("Model id") as HTMLInputElement;
+    expect(input.value).toBe("");
+    expect(input.getAttribute("aria-invalid")).toBe("false");
+    expect(screen.getByText("Empty uses your account's default")).toBeTruthy();
+    expect(screen.queryByLabelText("Anthropic API key")).toBeNull();
+    expect(screen.queryByRole("textbox", { name: /API key/ })).toBeNull();
+    fireEvent.change(input, { target: { value: "gpt-5" } });
+    expect(value.updateSettings).toHaveBeenCalledWith({ explainer: { ...value.settings.explainer, chatgptModel: "gpt-5" } });
+    const lines = Array.from(document.querySelectorAll(".dev-ai-info")).map((n) => n.textContent);
+    expect(lines).toEqual(["Claude Code: 2.1.287, Developer ID Application: Anthropic PBC (Q6L2SF6YDW), /Users/me/.local/share/claude/versions/2.1.287", "ChatGPT client id: oaiapp_abc123"]);
+    cleanup();
+    mount({}, { settings: dev("chatgpt", { chatgptModel: "GPT 5" }) });
+    expect((screen.getByLabelText("Model id") as HTMLInputElement).getAttribute("aria-invalid")).toBe("true");
+    expect(document.getElementById("chatgpt-model-error")?.textContent).toContain("lowercase letters, digits, dots and dashes");
+    cleanup();
+    mount({ providerInfo: { claudeCode: { ...info, version: null, path: null, signed: false, identity: null, source: "none" }, chatgptClientId: null } }, { settings: dev("claude_plan") });
+    expect(Array.from(document.querySelectorAll(".dev-ai-info")).map((n) => n.textContent)).toEqual(["Claude Code: not fetched", "ChatGPT client id: None"]);
+    expect(screen.queryByLabelText("Model id")).toBeNull();
   });
 
   it("shows key status without the key, writes to the secret store, and moves focus to the field when Remove goes away", async () => {
@@ -1139,7 +1377,15 @@ describe("Settings", () => {
     expect(screen.getByText(__BUILD_DATE__)).toBeTruthy();
     expect(screen.getByText(/01HXYZ/)).toBeTruthy();
     expect(screen.getByText(/cafebabe/)).toBeTruthy();
-    expect(screen.getByText("Nothing leaves this Mac. AI explanations are written here by Apple Intelligence.")).toBeTruthy();
+    expect(screen.getByText(PRIVACY_SENTENCE)).toBeTruthy();
+    expect(screen.queryByText(PRIVACY_SENTENCE_REMOTE)).toBeNull();
     expect(screen.queryByText(/ChatGPT/)).toBeNull();
+    cleanup();
+    for (const provider of ["chatgpt", "claude_plan", "claude", "ollama"] as const) {
+      mount({}, { license, settings: { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider } } });
+      expect(screen.getByText(PRIVACY_SENTENCE_REMOTE), provider).toBeTruthy();
+      expect(screen.queryByText(PRIVACY_SENTENCE), provider).toBeNull();
+      cleanup();
+    }
   });
 });

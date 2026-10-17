@@ -20,7 +20,10 @@ interface TalosDemoCall {
     | "fixReveal"
     | "fixPreviewBatch"
     | "fixApplyBatch"
-    | "aiCancel";
+    | "aiCancel"
+    | "aiConnectStart"
+    | "aiConnectCancel"
+    | "aiDisconnect";
   readonly arg?: string | readonly string[];
   readonly prompt?: string;
 }

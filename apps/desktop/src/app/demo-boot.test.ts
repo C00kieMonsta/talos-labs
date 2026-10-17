@@ -27,7 +27,7 @@ describe("parseDemoQuery", () => {
 
   it("reads every parameter", () => {
     const flags = parseDemoQuery(
-      "?fixture=hardened&explainer=timeout&delay=50&reset=1&provider=ollama&dev=1&onboarded=1&licensed=1&fix=wrong_password&batch=partial&scan_error=timeout&fix_delay=10&ai=model_not_ready&ai_ready=500&fda_after=2&automation=denied&bundled=0&poll_after=3&pace=0&guided=0&memory=%7B%22version%22%3A1%7D&since=1&continue=guided&technical=medium",
+      "?fixture=hardened&explainer=timeout&delay=50&reset=1&provider=ollama&dev=1&onboarded=1&licensed=1&fix=wrong_password&batch=partial&scan_error=timeout&fix_delay=10&ai=model_not_ready&ai_ready=500&ai_until=2026-10-16T18%3A00%3A00.000Z&connect=closed&connect_delay=0&claude_fetch=1&fda_after=2&automation=denied&bundled=0&poll_after=3&pace=0&guided=0&memory=%7B%22version%22%3A1%7D&since=1&continue=guided&technical=medium",
     );
     expect(flags).toEqual({
       options: {
@@ -38,7 +38,12 @@ describe("parseDemoQuery", () => {
         batch: "partial",
         scanError: "timeout",
         fixDelayMs: 10,
+        provider: "ollama",
         ai: "model_not_ready",
+        aiUntil: "2026-10-16T18:00:00.000Z",
+        connect: "closed",
+        connectDelayMs: 0,
+        claudeFetch: true,
         aiReadyMs: 500,
         fdaAfter: 2,
         automation: "denied",
@@ -70,14 +75,48 @@ describe("parseDemoQuery", () => {
     expect(flags.guided).toBe(true);
   });
 
-  it("turns developer mode on for an in-app provider and ignores unknown values", () => {
+  it("turns developer mode on for a Developer provider and ignores unknown values", () => {
     const flags = parseDemoQuery("?fixture=nope&explainer=nope&delay=-3&provider=claude&reset=yes");
-    expect(flags.options).toEqual({ fixture: "dev-machine", explainerFailure: null });
+    expect(flags.options).toEqual({ fixture: "dev-machine", explainerFailure: null, provider: "claude" });
     expect(flags.provider).toBe("claude");
     expect(flags.developerMode).toBe(true);
     expect(flags.reset).toBe(false);
     expect(parseDemoQuery("?provider=apple").developerMode).toBe(false);
     expect(parseDemoQuery("?provider=browser").provider).toBeNull();
+  });
+
+  it("seeds chatgpt and claude_plan without forcing Developer mode", () => {
+    for (const provider of ["chatgpt", "claude_plan"] as const) {
+      const flags = parseDemoQuery(`?provider=${provider}&ai=not_connected`);
+      expect(flags.provider).toBe(provider);
+      expect(flags.developerMode).toBe(false);
+      expect(flags.options.provider).toBe(provider);
+      expect(flags.options.ai).toBe("not_connected");
+    }
+  });
+
+  it("reads the seven provider states, ai_until, connect, connect_delay and claude_fetch", () => {
+    for (const state of ["not_connected", "connecting", "needs_sign_in", "limit_reached", "plan_not_eligible", "provider_unavailable", "not_offered"] as const) {
+      expect(parseDemoQuery(`?ai=${state}`).options.ai).toBe(state);
+    }
+    expect(parseDemoQuery("?ai=off").options.ai).toBeUndefined();
+    expect(parseDemoQuery("?ai_until=2026-10-16T18:00:00Z").options.aiUntil).toBe("2026-10-16T18:00:00Z");
+    expect(parseDemoQuery("?ai_until=teatime").options.aiUntil).toBeUndefined();
+    for (const outcome of ["ok", "closed", "plan_not_eligible", "unavailable", "timeout", "fetch_failed"] as const) {
+      expect(parseDemoQuery(`?connect=${outcome}`).options.connect).toBe(outcome);
+    }
+    expect(parseDemoQuery("?connect=nope").options.connect).toBeUndefined();
+    expect(parseDemoQuery("?connect_delay=250").options.connectDelayMs).toBe(250);
+    expect(parseDemoQuery("?connect_delay=-1").options.connectDelayMs).toBeUndefined();
+    expect(parseDemoQuery("?claude_fetch=1").options.claudeFetch).toBe(true);
+    expect(parseDemoQuery("?claude_fetch=0").options.claudeFetch).toBeUndefined();
+    expect(parseDemoQuery("").options).toEqual({ fixture: "dev-machine", explainerFailure: null });
+  });
+
+  it("accepts the three new explainer failures", () => {
+    for (const reason of ["needs_sign_in", "limit_reached", "provider_unavailable"] as const) {
+      expect(parseDemoQuery(`?explainer=${reason}`).options.explainerFailure).toBe(reason);
+    }
   });
 });
 
@@ -94,6 +133,16 @@ describe("seedSettings", () => {
       developer: { ...DEFAULT_SETTINGS.developer, enabled: true },
       onboarded: true,
     });
+  });
+
+  it("seeds chatgpt as the provider with Developer mode untouched", () => {
+    const seeded = seedSettings(DEFAULT_SETTINGS, parseDemoQuery("?provider=chatgpt&onboarded=1"));
+    expect(seeded).toEqual({
+      ...DEFAULT_SETTINGS,
+      explainer: { ...DEFAULT_SETTINGS.explainer, provider: "chatgpt" },
+      onboarded: true,
+    });
+    expect(seeded?.developer.enabled).toBe(false);
   });
 
   it("guided=0 turns the guided home off and technical sets the profile", () => {

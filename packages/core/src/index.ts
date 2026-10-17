@@ -37,12 +37,25 @@ export {
   ON_DEVICE_LIMITS,
   buildOnDeviceInstructions,
   buildOnDevicePrompt,
+  explainTurns,
+  prioritiseTurns,
+  askTurns,
+  claudePromptFor,
+  strictSchema,
+  responsesRequestBody,
+  RESPONSES_MAX_OUTPUT_TOKENS,
+  CHATGPT_MODEL_PATTERN,
+  DEFAULT_CHATGPT_MODEL,
+  completeJsonPrefix,
+  splitSseEvents,
+  parseResponsesEvent,
+  parseResponsesError,
 } from "./explainer/index";
-export type { OnDevicePrompt, OnDeviceTask, OnDeviceExtra } from "./explainer/index";
+export type { OnDevicePrompt, OnDeviceTask, OnDeviceExtra, RemoteTask, RemoteTurn, ResponsesRequest, ResponsesEvent, ResponsesError } from "./explainer/index";
 
 export { parseLicense, entitled, freeFixRuleIds, FREE_FIX_COUNT, LICENSE_PREFIX, LICENSE_PRODUCT } from "./license/index";
 
-export { buildGuidedPlan, planLocked, convertedShowStep, nextAction, LEFT_ALONE, WATCH_EVERY_MS, diffReports, EMPTY_GUIDED_MEMORY, parseGuidedMemory } from "./guided/index";
+export { buildGuidedPlan, planLocked, convertedShowStep, nextAction, LEFT_ALONE, WATCH_EVERY_MS, diffReports, EMPTY_GUIDED_MEMORY, parseGuidedMemory, AI_ASK_AGAIN_MS, aiAskedRecently } from "./guided/index";
 export type { GuidedStep, GuidedPlan, GuidedGate, NextAction, NextActionKind, ReportDiff, GuidedMemory, PermissionKind } from "./guided/index";
 
 export { DEV_MACHINE, HARDENED, ALL_UNAVAILABLE, FRESH_INSTALL, WINDOWS_MINIMAL, FIXTURES } from "./fixtures/index";

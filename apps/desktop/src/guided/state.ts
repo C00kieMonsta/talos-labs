@@ -51,6 +51,8 @@ export interface GuidedController {
   enterLicence(key: string): Promise<void>;
   /** "Do this next" on the end screen: reopen the action's step as the last step and run it. */
   doNext(action: NextAction): void;
+  /** Unlock in the Explain disclosure: open the paywall step before the current one, so leaving it returns here. */
+  goToPaywall(): void;
 }
 
 export interface GuidedDeps {

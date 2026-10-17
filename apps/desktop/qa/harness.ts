@@ -36,6 +36,18 @@ export function parseArgs(argv: readonly string[], defaults: CliArgs): CliArgs {
   return { port, out: resolve(out) };
 }
 
+export type WalkName = "expert" | "guided" | "ai";
+const WALK_NAMES: readonly WalkName[] = ["expert", "guided", "ai"];
+
+/** `--only expert|guided|ai` limits a script to one walk; absent, every walk runs. */
+export function parseOnly(argv: readonly string[]): WalkName | null {
+  const index = argv.indexOf("--only");
+  const raw = index >= 0 ? argv[index + 1] : argv.find((arg) => arg.startsWith("--only="))?.slice("--only=".length);
+  if (raw === undefined) return null;
+  if (!(WALK_NAMES as readonly string[]).includes(raw)) throw new Error(`bad --only: ${raw} (expected ${WALK_NAMES.join(", ")})`);
+  return raw as WalkName;
+}
+
 async function answers(url: string): Promise<boolean> {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(1500) });
@@ -154,6 +166,21 @@ async function runCheckUp(page: Page): Promise<void> {
   await heading(page, "Overview");
   await page.getByRole("button", { name: "Run check-up" }).click();
   await page.getByText("Last check-up").waitFor({ timeout: STEP_TIMEOUT });
+  await settleScore(page);
+}
+
+/** The score ring eases up over 900 ms; waits until its figure matches the meter value, or there is no ring. */
+async function settleScore(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const meter = document.querySelector(".score-meter [role='meter']");
+      if (meter === null) return true;
+      const figure = meter.querySelector(".score-meter-figure")?.textContent?.trim();
+      return figure === meter.getAttribute("aria-valuenow");
+    },
+    undefined,
+    { timeout: STEP_TIMEOUT },
+  );
 }
 
 /** A card is an article whose headline link opens the finding. */
@@ -561,6 +588,8 @@ export async function settle(page: Page): Promise<void> {
 export async function captureWholeScreen(page: Page, size: { width: number; height: number }, scheme: Scheme, file: string): Promise<void> {
   await page.setViewportSize(size);
   await page.emulateMedia({ colorScheme: scheme });
+  // Park the pointer so the row under the last click is not captured in its hover state.
+  await page.mouse.move(0, 0);
   await unrollPage(page);
   await settle(page);
   const height = await page.evaluate(() => document.documentElement.scrollHeight);
@@ -960,5 +989,390 @@ export async function walkGuided(page: Page, baseUrl: string, visit: Visit): Pro
     await nav(page, "Settings");
     await heading(page, "Settings");
     await page.getByRole("switch", { name: "Start on the guided check-up" }).waitFor({ timeout: STEP_TIMEOUT });
+  });
+}
+
+/** The Settings pill and the Disconnect button per seeded ChatGPT state (DESIGN-AI.md section 5). */
+const SETTINGS_AI_STATES = [
+  { name: "connected", ai: "available", pill: "Connected", disconnect: true },
+  { name: "not-connected", ai: "not_connected", pill: "Not connected", disconnect: false },
+  { name: "needs-sign-in", ai: "needs_sign_in", pill: "Needs sign-in", disconnect: true },
+  { name: "limit-reached", ai: "limit_reached", pill: "Limit reached", disconnect: true },
+  { name: "not-offered", ai: "not_offered", pill: "Not available yet", disconnect: false },
+] as const;
+
+/** The Overview card line and action per provider state (DESIGN-AI.md section 4, "Overview AiCard"), ChatGPT seeded. */
+const OVERVIEW_AI_STATES = [
+  { ai: "not_connected", text: "Get the order explained by the AI you already use.", action: "Connect my AI" },
+  { ai: "connecting", text: "Waiting for you to sign in to ChatGPT in your browser.", action: "Cancel" },
+  { ai: "needs_sign_in", text: "ChatGPT signed me out.", action: "Sign in again" },
+  { ai: "limit_reached", text: /^Your ChatGPT allowance is used up for now\. It comes back at \d{2}:\d{2}\.$/, action: null },
+  { ai: "plan_not_eligible", text: "That ChatGPT account's plan doesn't include this. Plus or Pro is needed.", action: "Choose another" },
+  { ai: "provider_unavailable", text: "ChatGPT didn't answer.", action: "Try again" },
+  { ai: "not_offered", text: "ChatGPT isn't available in this version yet.", action: "Choose another" },
+] as const;
+
+/** The connect failures: the demo outcome, the headline and sentence, the primary (DESIGN-AI.md section 4, "Connect failures"). */
+const CONNECT_FAILURES = [
+  { name: "closed", connect: "closed", provider: "chatgpt", title: "You stopped before signing in.", body: "Nothing was connected.", primary: "Try again" },
+  { name: "plan", connect: "plan_not_eligible", provider: "chatgpt", title: "That account's plan doesn't include this.", body: "ChatGPT Plus or Pro is needed.", primary: "Choose another" },
+  { name: "unavailable", connect: "unavailable", provider: "chatgpt", title: "ChatGPT didn't answer.", body: "Nothing was connected. Try again in a little while.", primary: "Try again" },
+  { name: "timeout", connect: "timeout", provider: "chatgpt", title: "I stopped waiting.", body: "Nothing was connected.", primary: "Try again" },
+  { name: "fetch", connect: "fetch_failed", provider: "claude_plan", title: "I couldn't fetch Claude's helper.", body: "Check your internet connection and try again.", primary: "Try again" },
+] as const;
+
+/** Today at 18:00 local time, the `until` of a limit_reached shot; the card prints it as "It comes back at 18:00." */
+function limitUntil(): string {
+  const date = new Date();
+  date.setHours(18, 0, 0, 0);
+  return date.toISOString();
+}
+
+/** The AI-layer shots (DESIGN-AI.md section 11): the Connect screen, the Explain disclosure, the end-screen row, Settings, Ask and the Overview card. */
+export async function walkAi(page: Page, baseUrl: string, visit: Visit): Promise<void> {
+  // Base G: a dev-machine check-up with the Welcome skipped and every timer collapsed; the provider is seeded as not connected.
+  const G = "reset=1&onboarded=1&delay=0";
+  const CHATGPT = `${G}&provider=chatgpt&ai=not_connected`;
+  const CLAUDE = `${G}&provider=claude_plan&ai=not_connected`;
+  const EXPERT = `${G}&guided=0&provider=chatgpt`;
+  const AI_UNTIL = encodeURIComponent(limitUntil());
+  let lastTotal = 0;
+  // pace=0 collapses the guided timers; the done tick needs a pace so it stays long enough to capture.
+  const goto = async (query: string, options: { pace?: number } = {}) => {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await page.goto(`${baseUrl}/?${query}&pace=${options.pace ?? 0}`);
+    lastTotal = 0;
+  };
+  const totalNeverDrops = async () => {
+    const total = await progressTotal(page);
+    if (total < lastTotal) throw new Error(`the progress total went down from ${lastTotal} to ${total}`);
+    lastTotal = total;
+  };
+  const radio = (value: "chatgpt" | "claude_plan" | "apple") => page.locator(`.guided-choice input[name='ai-provider'][value='${value}']`);
+
+  /** The first fix step with its disclosure open on the not-connected body. */
+  const openExplainNotConnected = async (query: string, options: { pace?: number } = {}) => {
+    await goto(query, options);
+    await primary(page, "Let's go");
+    await guidedTitle(page, "The firewall is off");
+    await page.locator(".guided-explain summary").click();
+    await page.locator(".guided-explain-connect").waitFor({ timeout: STEP_TIMEOUT });
+    await totalNeverDrops();
+  };
+  /** The Connect screen, reached from the disclosure's "Connect my AI". */
+  const openConnect = async (query: string, options: { pace?: number } = {}) => {
+    await openExplainNotConnected(query, options);
+    await page.locator(".guided-explain-connect").getByRole("button", { name: "Connect my AI" }).click();
+    await guidedTitle(page, "Which AI do you use?");
+    await page.getByRole("radiogroup", { name: "Which AI do you use?" }).waitFor({ timeout: STEP_TIMEOUT });
+  };
+  /** A connecting screen: no primary, a live status line, and Cancel as the one link on the browser screen (none on the Claude fetch). */
+  const assertConnecting = async ({ cancel = true }: { cancel?: boolean } = {}) => {
+    await assertGuidedScreen(page, { primaries: 0 });
+    const links = page.locator(".guided .guided-link");
+    if (cancel) {
+      if ((await links.count()) !== 1 || (await links.first().textContent())?.trim() !== "Cancel") throw new Error("Cancel is the only link while connecting");
+    } else if ((await links.count()) !== 0) throw new Error("the fetch screen has no link");
+    await page.locator(".guided-connect-status[role='status']").waitFor({ timeout: STEP_TIMEOUT });
+  };
+  /** The demo recorded the start for `provider` and, as everywhere, never a URL. */
+  const assertConnectStarted = async (provider: "chatgpt" | "claude_plan") => {
+    const calls = await demoCalls(page);
+    if (!calls.some((c) => c.kind === "aiConnectStart" && c.arg === provider)) throw new Error(`no aiConnectStart for ${provider}: ${JSON.stringify(calls)}`);
+    await assertNoUrlRecorded(page);
+  };
+  const primaryLabel = async (): Promise<string> => ((await page.locator(".guided .button-primary").first().textContent()) ?? "").trim();
+
+  await visit({ name: "guided-explain-not-connected" }, async () => {
+    await openExplainNotConnected(CHATGPT);
+    const body = page.locator(".guided-explain-connect");
+    await body.getByText(/^Talos Labs can explain each of these using the AI you already pay for, .*Nothing to install and no extra cost\.$/).waitFor({ timeout: STEP_TIMEOUT });
+    await body.getByRole("button", { name: "Connect my AI" }).waitFor({ timeout: STEP_TIMEOUT });
+    await body.getByRole("button", { name: "Not now" }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertGuidedScreen(page);
+  });
+  await visit({ name: "guided-connect" }, async () => {
+    await page.locator(".guided-explain-connect").getByRole("button", { name: "Connect my AI" }).click();
+    await guidedTitle(page, "Which AI do you use?");
+    await page.getByRole("radiogroup", { name: "Which AI do you use?" }).waitFor({ timeout: STEP_TIMEOUT });
+    // The rows are native radios; the demo offers all three, ChatGPT first and selected.
+    if ((await page.locator(".guided-choice input[type='radio'][name='ai-provider']").count()) !== 3) throw new Error("the Connect screen lists three radios");
+    if (!(await radio("chatgpt").isChecked())) throw new Error("ChatGPT is the default row");
+    if ((await primaryLabel()) !== "Connect ChatGPT") throw new Error(`the primary reads "${await primaryLabel()}", expected "Connect ChatGPT"`);
+    // No progress line: the screen is not a step.
+    if ((await page.locator(".guided-progress").count()) !== 0) throw new Error("the Connect screen shows no progress line");
+    await page.locator(".guided .guided-link").filter({ hasText: "Not now" }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertGuidedScreen(page);
+  });
+  await visit({ name: "guided-connect-claude-selected" }, async () => {
+    await radio("claude_plan").check();
+    if ((await primaryLabel()) !== "Connect Claude") throw new Error(`the primary reads "${await primaryLabel()}", expected "Connect Claude"`);
+    await radio("apple").check();
+    if ((await primaryLabel()) !== "Use this Mac") throw new Error(`the primary reads "${await primaryLabel()}", expected "Use this Mac"`);
+    await radio("claude_plan").check();
+    await assertGuidedScreen(page);
+  });
+  await visit({ name: "guided-connect-not-offered" }, async () => {
+    await openConnect(`${G}&provider=chatgpt&ai=not_offered`);
+    if (!(await radio("chatgpt").isDisabled())) throw new Error("the ChatGPT row is disabled when the build cannot offer it");
+    const row = page.locator(".guided-choice-row[aria-disabled='true']");
+    if ((await row.count()) !== 1) throw new Error("one row is marked aria-disabled");
+    await row.getByText("Not available yet").waitFor({ timeout: STEP_TIMEOUT });
+    if ((await primaryLabel()) !== "Connect Claude") throw new Error(`the primary reads "${await primaryLabel()}", expected "Connect Claude"`);
+    await assertGuidedScreen(page);
+  });
+  await visit({ name: "guided-connect-chatgpt-waiting", volatile: true }, async () => {
+    await openConnect(`${CHATGPT}&connect=ok&connect_delay=60000`);
+    await primary(page, "Connect ChatGPT");
+    await guidedTitle(page, "I've opened ChatGPT in your browser.");
+    await page.getByText("Sign in there and say yes when it asks. Then come back here.").waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".guided-connect-status").filter({ hasText: "I'll notice when you're done." }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertConnecting();
+    await assertConnectStarted("chatgpt");
+  });
+  await visit({ name: "guided-connect-cancelled" }, async () => {
+    await link(page, "Cancel");
+    await guidedTitle(page, "You stopped before signing in.");
+    await page.getByText("Nothing was connected.").waitFor({ timeout: STEP_TIMEOUT });
+    await assertGuidedScreen(page);
+    const calls = await demoCalls(page);
+    if (!calls.some((c) => c.kind === "aiConnectCancel" && c.arg === "chatgpt")) throw new Error(`no aiConnectCancel recorded: ${JSON.stringify(calls)}`);
+  });
+  await visit({ name: "guided-connect-claude-fetching", volatile: true }, async () => {
+    await openConnect(`${CLAUDE}&claude_fetch=1&connect_delay=60000`);
+    await radio("claude_plan").check();
+    await primary(page, "Connect Claude");
+    await guidedTitle(page, "Getting Claude ready.");
+    await page.getByText("I'm fetching Claude's own helper from Anthropic. This happens once.").waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".guided-connect-status").filter({ hasText: "About a minute." }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertConnecting({ cancel: false });
+    await assertConnectStarted("claude_plan");
+  });
+  await visit({ name: "guided-connect-claude-waiting", volatile: true }, async () => {
+    await openConnect(`${CLAUDE}&connect=ok&connect_delay=60000`);
+    await radio("claude_plan").check();
+    await primary(page, "Connect Claude");
+    await guidedTitle(page, "I've opened Claude in your browser.");
+    await assertConnecting();
+  });
+  // The tick shows for paced(1400) ms; pace=2 keeps it 2800 ms so the capture lands on it.
+  await visit({ name: "guided-connect-done", volatile: true }, async () => {
+    await openConnect(`${CHATGPT}&connect=ok&connect_delay=0`, { pace: 2 });
+    await primary(page, "Connect ChatGPT");
+    await guidedTitle(page, "Done. ChatGPT is connected.");
+    await page.locator(".guided-step[data-guided-done='true']").waitFor({ timeout: STEP_TIMEOUT });
+    await assertGuidedScreen(page, { primaries: 0 });
+    if ((await page.locator(".guided .guided-link").count()) !== 0) throw new Error("the done screen has no link");
+    await assertConnectStarted("chatgpt");
+  });
+  await visit({ name: "guided-explain-after-connect" }, async () => {
+    // Back on the step: the disclosure that asked to connect is open and the explanation streams, then the badge names the provider.
+    await guidedTitle(page, "The firewall is off");
+    await page.locator(".guided-explain[open] .guided-explain-body").waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".guided-explain-body [role='status']").waitFor({ state: "detached", timeout: STEP_TIMEOUT });
+    await page.locator(".guided-explain-badge").filter({ hasText: "Written by ChatGPT. Not verified." }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertGuidedScreen(page);
+    await totalNeverDrops();
+  });
+  for (const failure of CONNECT_FAILURES) {
+    await visit({ name: `guided-connect-failed-${failure.name}` }, async () => {
+      const seeded = failure.provider === "claude_plan" ? `${CLAUDE}&claude_fetch=1` : CHATGPT;
+      await openConnect(`${seeded}&connect=${failure.connect}&connect_delay=0`);
+      await radio(failure.provider).check();
+      await primary(page, failure.provider === "claude_plan" ? "Connect Claude" : "Connect ChatGPT");
+      await guidedTitle(page, failure.title);
+      await page.locator(".guided-step").getByText(failure.body, { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+      if ((await primaryLabel()) !== failure.primary) throw new Error(`the primary reads "${await primaryLabel()}", expected "${failure.primary}"`);
+      await page.locator(".guided .guided-link").filter({ hasText: "Not now" }).waitFor({ timeout: STEP_TIMEOUT });
+      await assertGuidedScreen(page);
+      await assertConnectStarted(failure.provider);
+    });
+  }
+  await visit({ name: "guided-connect-choose-another" }, async () => {
+    // "Choose another" returns to the rows with the failed one still selectable.
+    await openConnect(`${CHATGPT}&connect=plan_not_eligible&connect_delay=0`);
+    await primary(page, "Connect ChatGPT");
+    await guidedTitle(page, "That account's plan doesn't include this.");
+    await primary(page, "Choose another");
+    await guidedTitle(page, "Which AI do you use?");
+    if (await radio("chatgpt").isDisabled()) throw new Error("the failed row stays selectable");
+    if (!(await radio("chatgpt").isChecked())) throw new Error("the failed row is still selected");
+    await assertGuidedScreen(page);
+  });
+  await visit({ name: "guided-connect-not-now" }, async () => {
+    // "Not now" goes back to the step with the disclosure closed and writes aiAskedAt.
+    await link(page, "Not now");
+    await guidedTitle(page, "The firewall is off");
+    if ((await page.locator(".guided-explain[open]").count()) !== 0) throw new Error("the disclosure is closed after Not now");
+    const memory = await page.evaluate(() => localStorage.getItem("talos.guided"));
+    if (!/"aiAskedAt":"\d{4}-/.test(memory ?? "")) throw new Error(`aiAskedAt was not written: ${memory}`);
+    await assertGuidedScreen(page);
+    await totalNeverDrops();
+  });
+
+  const walkToPartialEnd = async (query: string) => {
+    await goto(query);
+    await primary(page, "Let's go");
+    await primary(page, "Turn it on");
+    await guidedTitle(page, "Your disk is not locked");
+    await link(page, "Do this later");
+    await link(page, "Do this later");
+    await link(page, "Not now");
+    await link(page, "Not now");
+    await guidedTitle(page, "Your Mac is safer than it was.");
+  };
+  await visit({ name: "guided-end-connect-row" }, async () => {
+    await walkToPartialEnd(`${CHATGPT}&fix=ok&fix_delay=0`);
+    const row = page.locator(".guided-end-row-connect");
+    await row.waitFor({ timeout: STEP_TIMEOUT });
+    if ((await row.count()) !== 1) throw new Error("one connect row on the end screen");
+    if ((await row.getAttribute("aria-label")) !== "Get things explained. Connect the AI you already use") throw new Error(`the row's aria-label is ${await row.getAttribute("aria-label")}`);
+    const text = (await row.textContent()) ?? "";
+    if (/[·›]/.test(text)) throw new Error(`the row carries a literal separator: ${text}`);
+    if (!text.includes("Get things explained") || !text.includes("Connect the AI you already use")) throw new Error(`the row text is "${text}"`);
+    const box = await row.boundingBox();
+    if (box === null || box.height < 44) throw new Error(`the connect row is ${box?.height} px tall, under 44`);
+    if ((await page.locator(".guided-next-card .guided-end-row-connect").count()) !== 0) throw new Error("the connect row is never the next card");
+    await assertEndScreen(page, { label: "Show me where", cue: "critical" });
+  });
+  await visit({ name: "guided-connect-from-end" }, async () => {
+    await page.locator(".guided-end-row-connect").click();
+    await guidedTitle(page, "Which AI do you use?");
+    await assertGuidedScreen(page);
+  });
+  await visit({ name: "guided-end-after-not-now" }, async () => {
+    // Not now returns to the end screen; the row is gone for 14 days.
+    await link(page, "Not now");
+    await guidedTitle(page, "Your Mac is safer than it was.");
+    await page.locator(".guided-next-card").waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator(".guided-end-row-connect").count()) !== 0) throw new Error("the row is gone after Not now");
+    await assertEndScreen(page, { label: "Show me where", cue: "critical" });
+  });
+  await visit({ name: "guided-end-connect-row-asked" }, async () => {
+    const memory = encodeURIComponent(JSON.stringify({ version: 1, aiAskedAt: new Date().toISOString() }));
+    await walkToPartialEnd(`${CHATGPT}&fix=ok&fix_delay=0&memory=${memory}`);
+    await page.locator(".guided-next-card").waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator(".guided-end-row-connect").count()) !== 0) throw new Error("the connect row is skipped for 14 days after Not now");
+    await assertEndScreen(page, { label: "Show me where", cue: "critical" });
+  });
+  await visit({ name: "guided-paywall-yearly" }, async () => {
+    await goto(CHATGPT);
+    await primary(page, "Let's go");
+    for (let i = 0; i < 3; i += 1) await link(page, "Do this later");
+    await link(page, "Not now");
+    await guidedTitle(page, "There are 4 more things to fix.");
+    await page.getByText("The full version does them all, explains everything with your own AI, and lets you ask questions.", { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await primaryLabel()) !== "Buy the full version, €24 a year") throw new Error(`the buy button reads "${await primaryLabel()}"`);
+    if ((await page.getByText("One payment, yours to keep.").count()) !== 0) throw new Error("the one-payment sentence is gone under the yearly price");
+    await assertGuidedScreen(page);
+  });
+
+  // Expert shell: Settings, Ask and the Overview card, ChatGPT seeded in each state.
+  for (const row of SETTINGS_AI_STATES) {
+    await visit({ name: `settings-your-ai-${row.name}` }, async () => {
+      await goto(`${EXPERT}&ai=${row.ai}${row.ai === "limit_reached" ? `&ai_until=${AI_UNTIL}` : ""}`);
+      await nav(page, "Settings");
+      await heading(page, "Settings");
+      await heading(page, "Your AI", 2);
+      const section = page.locator("section[aria-labelledby='ai-heading']");
+      await section.locator(".your-ai-name").filter({ hasText: "ChatGPT" }).waitFor({ timeout: STEP_TIMEOUT });
+      await section.locator(".your-ai-pill").filter({ hasText: row.pill }).waitFor({ timeout: STEP_TIMEOUT });
+      await section.getByRole("button", { name: "Change" }).waitFor({ timeout: STEP_TIMEOUT });
+      const disconnect = await section.getByRole("button", { name: "Disconnect" }).count();
+      if (disconnect !== (row.disconnect ? 1 : 0)) throw new Error(`Disconnect ${row.disconnect ? "missing" : "shown"} for ${row.ai}`);
+      await section.getByRole("switch", { name: "Explain things with my AI" }).waitFor({ timeout: STEP_TIMEOUT });
+      await section.getByText("Talos Labs sends your AI a short summary of the check-up: which things passed or failed, and how you use your Mac. Never file names, paths, passwords or your computer's name.").waitFor({ timeout: STEP_TIMEOUT });
+      // No password or key field outside Developer mode.
+      if ((await page.locator("input[type='password']").count()) !== 0) throw new Error("a password field is drawn outside Developer mode");
+    });
+  }
+  await visit({ name: "settings-your-ai-disconnected" }, async () => {
+    await goto(`${EXPERT}&ai=available`);
+    await nav(page, "Settings");
+    await heading(page, "Your AI", 2);
+    const section = page.locator("section[aria-labelledby='ai-heading']");
+    await section.getByRole("button", { name: "Disconnect" }).click();
+    await section.locator(".your-ai-pill").filter({ hasText: "Not connected" }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await section.getByRole("button", { name: "Disconnect" }).count()) !== 0) throw new Error("Disconnect is gone once nothing is connected");
+    const calls = await demoCalls(page);
+    if (!calls.some((c) => c.kind === "aiDisconnect" && c.arg === "chatgpt")) throw new Error(`no aiDisconnect recorded: ${JSON.stringify(calls)}`);
+    await assertNoUrlRecorded(page);
+  });
+  await visit({ name: "connect-from-settings" }, async () => {
+    // Change opens the Connect screen in the guided shell; Not now returns to Settings.
+    await page.locator("section[aria-labelledby='ai-heading']").getByRole("button", { name: "Change" }).click();
+    await guidedTitle(page, "Which AI do you use?");
+    await assertGuidedScreen(page);
+    await link(page, "Not now");
+    await heading(page, "Settings");
+    await page.locator("section[aria-labelledby='ai-heading']").getByRole("button", { name: "Change" }).click();
+    await guidedTitle(page, "Which AI do you use?");
+  });
+  await visit({ name: "ask-not-connected" }, async () => {
+    await goto(`${EXPERT}&ai=not_connected`);
+    await runCheckUp(page);
+    await nav(page, "Ask");
+    await heading(page, "Ask about your report");
+    await page.getByText("Questions are answered from this report only. Answered by ChatGPT. Not verified.").waitFor({ timeout: STEP_TIMEOUT });
+    const row = page.locator(".ask-connect-row");
+    await row.getByText("Connect your AI to ask questions.").waitFor({ timeout: STEP_TIMEOUT });
+    await row.locator("button.button").filter({ hasText: /^Connect$/ }).waitFor({ timeout: STEP_TIMEOUT });
+    if (!(await page.getByLabel("Your question").isDisabled())) throw new Error("the composer is disabled until an AI is connected");
+    await page.locator("form.ask-form.ask-form-disabled[aria-disabled='true']").waitFor({ timeout: STEP_TIMEOUT });
+  });
+  await visit({ name: "connect-from-ask" }, async () => {
+    // The row's Connect opens the guided Connect screen; Not now lands back on Ask.
+    await page.locator(".ask-connect-row").getByRole("button", { name: "Connect" }).click();
+    await guidedTitle(page, "Which AI do you use?");
+    await assertGuidedScreen(page);
+    await link(page, "Not now");
+    await heading(page, "Ask about your report");
+    await page.locator(".ask-connect-row").getByRole("button", { name: "Connect" }).click();
+    await guidedTitle(page, "Which AI do you use?");
+  });
+  await visit({ name: "ask-connected" }, async () => {
+    await goto(`${EXPERT}&ai=available&licensed=1`);
+    await runCheckUp(page);
+    await nav(page, "Ask");
+    await heading(page, "Ask about your report");
+    await page.getByLabel("Your question").fill("Which of these should I do first?");
+    await page.locator("form.ask-form").getByRole("button", { name: "Ask" }).click();
+    await page.locator(".chat-streaming").waitFor({ state: "detached", timeout: STEP_TIMEOUT });
+    await page.locator(".chat-assistant").first().waitFor({ timeout: STEP_TIMEOUT });
+    await page.getByText("Written by ChatGPT. Not verified.").first().waitFor({ timeout: STEP_TIMEOUT });
+  });
+  for (const row of OVERVIEW_AI_STATES) {
+    await visit({ name: `overview-ai-${row.ai.replace(/_/g, "-")}` }, async () => {
+      await goto(`${EXPERT}&ai=${row.ai}${row.ai === "limit_reached" ? `&ai_until=${AI_UNTIL}` : ""}`);
+      await runCheckUp(page);
+      const card = page.locator(`.ai-card[data-ai-state="${row.ai}"]`);
+      await card.waitFor({ timeout: STEP_TIMEOUT });
+      await card.locator(".ai-card-head p").filter({ hasText: row.text }).waitFor({ timeout: STEP_TIMEOUT });
+      const buttons = card.locator(".ai-card-head button");
+      if (row.action === null) {
+        if ((await buttons.count()) !== 0) throw new Error(`the ${row.ai} card has no action`);
+      } else {
+        if ((await buttons.count()) !== 1) throw new Error(`the ${row.ai} card has one action`);
+        await buttons.filter({ hasText: row.action }).waitFor({ timeout: STEP_TIMEOUT });
+      }
+      if (row.ai === "limit_reached") await card.locator(".ai-card-until").waitFor({ timeout: STEP_TIMEOUT });
+      if (row.ai === "not_connected") {
+        // Connect my AI opens the Connect screen and returns to the Overview.
+        await buttons.first().click();
+        await guidedTitle(page, "Which AI do you use?");
+        await link(page, "Not now");
+        await heading(page, "Overview");
+        await card.waitFor({ timeout: STEP_TIMEOUT });
+        await settleScore(page);
+      }
+    });
+  }
+  await visit({ name: "overview-ai-connected" }, async () => {
+    await goto(`${EXPERT}&ai=available&licensed=1`);
+    await runCheckUp(page);
+    await page.getByRole("button", { name: "Suggest an order" }).click();
+    await page.locator(".ai-card[data-ai-state='ready']").waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".ai-card-foot").filter({ hasText: "Written by ChatGPT. Not verified." }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertNoUrlRecorded(page);
   });
 }

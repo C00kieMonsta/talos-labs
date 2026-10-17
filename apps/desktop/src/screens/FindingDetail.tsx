@@ -339,7 +339,7 @@ function FindingAiCard({ ruleId }: { ruleId: RuleId }) {
   }, [streaming, ready]);
   return (
     <div ref={heading} tabIndex={-1} className="ai-card-host">
-      <AiCard kind="finding" state={flow.state} {...flow.handlers}>
+      <AiCard kind="finding" state={flow.state} provider={flow.provider} {...flow.handlers}>
         {explanation !== null && <ExplanationFields explanation={explanation} streaming={streaming} />}
       </AiCard>
     </div>

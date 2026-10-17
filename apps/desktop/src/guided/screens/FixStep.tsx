@@ -55,13 +55,13 @@ export function FixStep({ step, state, controller, notice }: { step: FixStepT; s
     default:
       if (step.passphrase) {
         return (
-          <StepFrame progress={progress} devId={step.ruleId} title={strings.headline} body={body} link={{ label: FIX.later, onClick: controller.later }} explainRuleId={step.ruleId} notice={notice}>
+          <StepFrame progress={progress} devId={step.ruleId} title={strings.headline} body={body} link={{ label: FIX.later, onClick: controller.later }} explainRuleId={step.ruleId} onUnlock={controller.goToPaywall} notice={notice}>
             <PassphraseForm keyPath={keyPath} submitLabel={FIX.passphrase} onSubmit={(passphrase) => controller.primary(passphrase)} />
           </StepFrame>
         );
       }
       return (
-        <StepFrame progress={progress} devId={step.ruleId} title={strings.headline} body={body} primary={{ label: strings.verb, onClick: () => controller.primary() }} link={{ label: FIX.later, onClick: controller.later }} explainRuleId={step.ruleId} notice={notice} />
+        <StepFrame progress={progress} devId={step.ruleId} title={strings.headline} body={body} primary={{ label: strings.verb, onClick: () => controller.primary() }} link={{ label: FIX.later, onClick: controller.later }} explainRuleId={step.ruleId} onUnlock={controller.goToPaywall} notice={notice} />
       );
   }
 }

@@ -1,7 +1,12 @@
 import type { AiAvailability, ExplainerProfile } from "@talos/core";
+import { CHATGPT_MODEL_PATTERN, DEFAULT_CHATGPT_MODEL } from "@talos/core";
 
-/** Where AI help comes from. "apple" runs on this Mac; the other two need Developer mode. */
-export type ExplainerProvider = "apple" | "claude" | "ollama";
+/**
+ * Where AI help comes from. "apple" runs on this Mac; "chatgpt" and "claude_plan" are the
+ * person's own subscriptions, connected in the browser; "claude" (API key) and "ollama" need
+ * Developer mode.
+ */
+export type ExplainerProvider = "apple" | "chatgpt" | "claude_plan" | "claude" | "ollama";
 
 export interface ExplainerSettings {
   provider: ExplainerProvider;
@@ -9,6 +14,8 @@ export interface ExplainerSettings {
   aiEnabled: boolean;
   claudeModel: string;
   ollamaModel: string;
+  /** Developer-mode override; "" uses the account's first model. */
+  chatgptModel: string;
 }
 
 export interface DeveloperSettings {
@@ -45,6 +52,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     aiEnabled: true,
     claudeModel: "claude-opus-5",
     ollamaModel: "llama3.1",
+    chatgptModel: DEFAULT_CHATGPT_MODEL,
   },
   profile: {
     role: "individual",
@@ -57,14 +65,23 @@ export const DEFAULT_SETTINGS: AppSettings = {
   guided: { home: true, autoScan: true },
 };
 
-export const PROVIDERS: readonly ExplainerProvider[] = ["apple", "claude", "ollama"];
+export const PROVIDERS = ["apple", "chatgpt", "claude_plan", "claude", "ollama"] as const satisfies readonly ExplainerProvider[];
+/** Offered on the Connect screen. */
+export const CONSUMER_PROVIDERS: readonly ExplainerProvider[] = ["apple", "chatgpt", "claude_plan"];
+/** Only reachable in Developer mode. */
+export const DEVELOPER_PROVIDERS: readonly ExplainerProvider[] = ["claude", "ollama"];
+
+export function isDeveloperProvider(provider: ExplainerProvider): boolean {
+  return DEVELOPER_PROVIDERS.includes(provider);
+}
+
 const ROLES: readonly ExplainerProfile["role"][] = ["individual", "freelancer", "small_business"];
 const TECHNICAL: readonly ExplainerProfile["technical"][] = ["low", "medium", "high"];
 
 /** True when the AI switch is on and the provider can answer. */
 export function aiUsable(settings: AppSettings, availability: AiAvailability | null): boolean {
   if (!settings.explainer.aiEnabled) return false;
-  if (settings.explainer.provider !== "apple" && settings.developer.enabled) return true;
+  if (isDeveloperProvider(settings.explainer.provider) && settings.developer.enabled) return true;
   return availability === "available";
 }
 
@@ -76,13 +93,13 @@ function pickEnum<T extends string>(value: unknown, allowed: readonly T[], fallb
   return typeof value === "string" && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
 }
 
-function pickString(value: unknown, fallback: string): string {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : fallback;
-}
-
-function pickModelId(value: unknown, fallback: string): string {
-  const id = pickString(value, fallback);
-  return id.length <= MAX_MODEL_ID_LENGTH ? id : fallback;
+/** Trims, caps the length and, when a pattern is given, checks a non-empty value against it. */
+export function pickModelId(value: unknown, fallback: string, pattern?: RegExp): string {
+  const id = typeof value === "string" ? value.trim() : fallback;
+  if (id.length > MAX_MODEL_ID_LENGTH) return fallback;
+  if (id.length === 0) return fallback;
+  if (pattern !== undefined && !pattern.test(id)) return fallback;
+  return id;
 }
 
 function pickBoolean(value: unknown, fallback: boolean): boolean {
@@ -104,14 +121,15 @@ export function parseSettings(raw: unknown): AppSettings {
   let aiEnabled = pickBoolean(explainer["aiEnabled"], d.explainer.aiEnabled);
   // v0.1 stored "none" for no AI; the switch carries that now.
   if (storedProvider === "none") aiEnabled = false;
-  let provider = pickEnum(storedProvider, PROVIDERS, d.explainer.provider);
-  if (!developerEnabled && provider !== "apple") provider = "apple";
+  let provider: ExplainerProvider = pickEnum(storedProvider, PROVIDERS, d.explainer.provider);
+  if (!developerEnabled && isDeveloperProvider(provider)) provider = "apple";
   return {
     explainer: {
       provider,
       aiEnabled,
       claudeModel: pickModelId(explainer["claudeModel"], d.explainer.claudeModel),
       ollamaModel: pickModelId(explainer["ollamaModel"], d.explainer.ollamaModel),
+      chatgptModel: pickModelId(explainer["chatgptModel"], d.explainer.chatgptModel, CHATGPT_MODEL_PATTERN),
     },
     profile: {
       role: pickEnum(profile["role"], ROLES, d.profile.role),

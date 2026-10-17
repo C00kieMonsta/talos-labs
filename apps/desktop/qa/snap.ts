@@ -1,15 +1,14 @@
 import { mkdir } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { SCHEMES, SIZES, captureWholeScreen, ensureServer, launchChrome, parseArgs, walk, walkGuided } from "./harness";
+import { SCHEMES, SIZES, captureWholeScreen, ensureServer, launchChrome, parseArgs, parseOnly, walk, walkAi, walkGuided } from "./harness";
 
 /**
  * Screenshots every screen of the demo build in light and dark at two window sizes.
- *   cd apps/desktop && pnpm exec tsx qa/snap.ts --port 1430 --out qa/screenshots/<name> [--only expert|guided]
+ *   cd apps/desktop && pnpm exec tsx qa/snap.ts --port 1430 --out qa/screenshots/<name> [--only expert|guided|ai]
  */
 async function main(): Promise<number> {
   const args = parseArgs(process.argv.slice(2), { port: 1430, out: "qa/screenshots/latest" });
-  const onlyIndex = process.argv.indexOf("--only");
-  const only = onlyIndex >= 0 ? process.argv[onlyIndex + 1] : undefined;
+  const only = parseOnly(process.argv.slice(2));
   await mkdir(args.out, { recursive: true });
   const server = await ensureServer(args.port);
   const browser = await launchChrome();
@@ -33,8 +32,9 @@ async function main(): Promise<number> {
         }
       }
     };
-    if (only !== "guided") await walk(page, server.baseUrl, visit);
-    if (only !== "expert") await walkGuided(page, server.baseUrl, visit);
+    if (only === null || only === "expert") await walk(page, server.baseUrl, visit);
+    if (only === null || only === "guided") await walkGuided(page, server.baseUrl, visit);
+    if (only === null || only === "ai") await walkAi(page, server.baseUrl, visit);
     await context.close();
   } finally {
     await browser.close();

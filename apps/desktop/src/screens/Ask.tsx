@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, RefObject } from "react";
 import type { Answer, RuleId } from "@talos/core";
 import { EXPLAINER_LIMITS } from "@talos/core";
-import { AI_BADGE, AiCard, useAiCardFlow } from "../components/AiCard";
+import { AiCard, useAiCardFlow } from "../components/AiCard";
 import { Icon } from "../components/Icon";
 import { ModelText } from "../components/ModelText";
 import { useApp } from "../app/context";
 import { ICONS } from "../app/icons";
-import { EXPLAINER_FAILURE_LABELS } from "../app/labels";
+import { ASK_CONNECT, EXPLAINER_FAILURE_LABELS, aiBadge } from "../app/labels";
+import { useConnect } from "../scan/ai-connect";
 import { lastReport } from "../scan/machine";
 import type { AskMessage } from "../scan/useScan";
 
@@ -28,8 +29,62 @@ export function exchanges(messages: readonly AskMessage[]): { question: AskMessa
   return out;
 }
 
+/** The composer: one line with the Ask button. Disabled while no AI is connected; read-only while an answer is written. */
+function AskForm({
+  question,
+  max,
+  busy,
+  disabled,
+  inputRef,
+  onChange,
+  onSubmit,
+}: {
+  question: string;
+  max: number;
+  busy: boolean;
+  disabled: boolean;
+  inputRef: RefObject<HTMLInputElement | null>;
+  onChange(next: string): void;
+  onSubmit(event: FormEvent): void;
+}) {
+  const nearLimit = max - question.length < NEAR_LIMIT;
+  return (
+    <form className={disabled ? "ask-form ask-form-disabled" : "ask-form"} onSubmit={onSubmit} aria-busy={busy} aria-disabled={disabled || undefined}>
+      <label htmlFor="question" className="visually-hidden">
+        Your question
+      </label>
+      <div className="ask-form-row">
+        <input
+          id="question"
+          type="text"
+          ref={inputRef}
+          value={question}
+          maxLength={max}
+          autoComplete="off"
+          placeholder="Ask about anything in your report"
+          aria-describedby="question-count"
+          onChange={(event) => onChange(event.target.value.slice(0, max))}
+          readOnly={busy}
+          disabled={disabled}
+        />
+        <button type="submit" className="button" disabled={disabled || busy || question.trim().length === 0}>
+          Ask
+        </button>
+      </div>
+      {/* The count is read with the box; it only shows once the limit is near. */}
+      <span id="question-count" className={nearLimit ? "muted small ask-count" : "visually-hidden"}>
+        {question.length} / {max}
+      </span>
+      <span role="status" className="visually-hidden">
+        {nearLimit ? NEAR_LIMIT_NOTICE : ""}
+      </span>
+    </form>
+  );
+}
+
 export function Ask() {
   const { scan, router, settings } = useApp();
+  const connect = useConnect();
   // The conversation lives with the scan so it survives leaving this screen; the draft is saved on the way out.
   const messages = scan.conversation;
   const [question, setQuestion] = useState(scan.draft);
@@ -41,6 +96,7 @@ export function Ask() {
   const report = lastReport(scan.scan);
   const max = EXPLAINER_LIMITS.maxQuestionChars;
   const flow = useAiCardFlow("ask");
+  const badge = aiBadge(flow.provider);
   const streaming = flow.explain.kind === "running" && flow.explain.target === "ask";
   const partial = streaming ? (flow.explain.answerPartial ?? "") : null;
   const busy = flow.explain.kind === "running" || waiting;
@@ -58,10 +114,24 @@ export function Ask() {
     );
   }
 
+  if (flow.state.kind === "not_connected") {
+    return (
+      <div className="screen ask">
+        <div className="ask-connect-row">
+          <p>{ASK_CONNECT.line}</p>
+          <button type="button" className="button" onClick={() => connect.open({ name: "ask" })}>
+            {ASK_CONNECT.button}
+          </button>
+        </div>
+        <AskForm question={question} max={max} busy={false} disabled inputRef={textarea} onChange={setQuestion} onSubmit={(event) => event.preventDefault()} />
+      </div>
+    );
+  }
+
   if (!usable) {
     return (
       <div className="screen ask">
-        <AiCard kind="ask" title="Ask" state={flow.state} {...flow.handlers} />
+        <AiCard kind="ask" title="Ask" state={flow.state} provider={flow.provider} {...flow.handlers} />
       </div>
     );
   }
@@ -116,7 +186,6 @@ export function Ask() {
         ))}
       </ul>
     );
-  const nearLimit = max - question.length < NEAR_LIMIT;
 
   return (
     <div className="screen ask">
@@ -134,7 +203,7 @@ export function Ask() {
               <div className="chat-assistant">
                 <p className="label visually-hidden">AI, not verified</p>
                 <ModelText text={exchange.answer.turn.text} />
-                <p className="muted small chat-badge">{AI_BADGE}</p>
+                <p className="muted small chat-badge">{badge}</p>
                 {exchange.answer.outsideScope === true && <p className="muted small">This question is outside what the check-up covers.</p>}
                 {related(exchange.answer)}
               </div>
@@ -162,35 +231,7 @@ export function Ask() {
         </p>
       )}
 
-      <form className="ask-form" onSubmit={submit} aria-busy={busy}>
-        <label htmlFor="question" className="visually-hidden">
-          Your question
-        </label>
-        <div className="ask-form-row">
-          <input
-            id="question"
-            type="text"
-            ref={textarea}
-            value={question}
-            maxLength={max}
-            autoComplete="off"
-            placeholder="Ask about anything in your report"
-            aria-describedby="question-count"
-            onChange={(event) => setQuestion(event.target.value.slice(0, max))}
-            readOnly={busy}
-          />
-          <button type="submit" className="button" disabled={busy || question.trim().length === 0}>
-            Ask
-          </button>
-        </div>
-        {/* The count is read with the box; it only shows once the limit is near. */}
-        <span id="question-count" className={nearLimit ? "muted small ask-count" : "visually-hidden"}>
-          {question.length} / {max}
-        </span>
-        <span role="status" className="visually-hidden">
-          {nearLimit ? NEAR_LIMIT_NOTICE : ""}
-        </span>
-      </form>
+      <AskForm question={question} max={max} busy={busy} disabled={false} inputRef={textarea} onChange={setQuestion} onSubmit={(event) => void submit(event)} />
     </div>
   );
 }

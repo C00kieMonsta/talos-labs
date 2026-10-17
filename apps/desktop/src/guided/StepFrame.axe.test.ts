@@ -6,6 +6,7 @@ import { AppContext } from "../app/context";
 import { fakeAdapters, fakeContextValue } from "../app/testing";
 import { StepFrame, markInteracted } from "./StepFrame";
 import { GuidedList } from "./GuidedList";
+import { EXPLAIN } from "./copy";
 
 const require = createRequire(import.meta.url);
 const axe = require("axe-core") as { run(ctx: Element, opts: object): Promise<{ violations: { id: string }[] }> };
@@ -13,7 +14,7 @@ const axe = require("axe-core") as { run(ctx: Element, opts: object): Promise<{ 
 afterEach(cleanup);
 
 function renderStep(props: Parameters<typeof StepFrame>[0], children?: React.ReactNode) {
-  const value = fakeContextValue({ adapters: fakeAdapters(), license: { status: "none" }, gate: { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true }, scanState: { kind: "idle", last: null } });
+  const value = fakeContextValue({ adapters: fakeAdapters(), license: { status: "none" }, gate: { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => true }, scanState: { kind: "idle", last: null } });
   return render(createElement(AppContext.Provider, { value }, createElement(StepFrame, props, children)));
 }
 
@@ -51,5 +52,22 @@ describe("StepFrame accessibility", () => {
     expect(container.querySelector("[data-guided-done='true']")).not.toBeNull();
     const status = Array.from(container.querySelectorAll("[role='status']")).map((n) => n.textContent);
     expect(status).toContain("Done. 3 things fixed.");
+  });
+
+  it("shows the Explain disclosure for a provider that is not connected, and hides it only when AI is off", () => {
+    const base = fakeContextValue({ adapters: fakeAdapters(), license: { status: "none" }, gate: { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => true }, scanState: { kind: "idle", last: null } });
+    const probe = vi.fn(async () => "not_connected" as const);
+    const value = { ...base, settings: { ...base.settings, explainer: { ...base.settings.explainer, provider: "chatgpt" as const } }, ai: { ...base.ai, availability: "not_connected" as const, probe } };
+    const { container } = render(createElement(AppContext.Provider, { value }, createElement(StepFrame, { progress: { done: 1, of: 5 }, title: "The firewall is off", explainRuleId: "TL-MAC-001" })));
+    expect(container.querySelector(".guided-explain summary")?.textContent).toBe(EXPLAIN.open);
+    expect(probe).not.toHaveBeenCalled();
+    cleanup();
+    const off = { ...value, settings: { ...value.settings, explainer: { ...value.settings.explainer, aiEnabled: false } } };
+    const second = render(createElement(AppContext.Provider, { value: off }, createElement(StepFrame, { progress: { done: 1, of: 5 }, title: "The firewall is off", explainRuleId: "TL-MAC-001" })));
+    expect(second.container.querySelector(".guided-explain")).toBeNull();
+    cleanup();
+    const unknown = { ...value, ai: { ...value.ai, availability: null } };
+    render(createElement(AppContext.Provider, { value: unknown }, createElement(StepFrame, { progress: { done: 1, of: 5 }, title: "The firewall is off", explainRuleId: "TL-MAC-001" })));
+    expect(probe).toHaveBeenCalledTimes(1);
   });
 });

@@ -65,31 +65,43 @@ pub struct StreamPayload {
     pub json: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
+    /// ISO time when a `limit_reached` error knows when the allowance returns.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub until: Option<String>,
 }
 
 impl StreamPayload {
-    fn partial(id: &str, json: serde_json::Value) -> Self {
+    pub(crate) fn partial(id: &str, json: serde_json::Value) -> Self {
         StreamPayload {
             id: id.to_owned(),
             kind: super::StreamKind::Partial,
             json: Some(json),
             code: None,
+            until: None,
         }
     }
-    fn done(id: &str, json: serde_json::Value) -> Self {
+    pub(crate) fn done(id: &str, json: serde_json::Value) -> Self {
         StreamPayload {
             id: id.to_owned(),
             kind: super::StreamKind::Done,
             json: Some(json),
             code: None,
+            until: None,
         }
     }
-    fn error(id: &str, code: &str) -> Self {
+    pub(crate) fn error(id: &str, code: &str) -> Self {
         StreamPayload {
             id: id.to_owned(),
             kind: super::StreamKind::Error,
             json: None,
             code: Some(code.to_owned()),
+            until: None,
+        }
+    }
+    pub(crate) fn error_until(id: &str, code: &str, until: Option<String>) -> Self {
+        StreamPayload {
+            until,
+            ..Self::error(id, code)
         }
     }
 }

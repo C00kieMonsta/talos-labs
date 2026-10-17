@@ -8,10 +8,12 @@ import { buildGate } from "./app/gate";
 import { ICONS } from "./app/icons";
 import { useRouter } from "./app/router";
 import type { Route, RouteMove } from "./app/router";
-import { CHECKUP_LABEL, SCAN_ERROR_LABELS, formatDateTime } from "./app/labels";
+import { CHECKUP_LABEL, SCAN_ERROR_LABELS, askSubtitle, formatDateTime } from "./app/labels";
 import { useScan } from "./scan/useScan";
 import { useScanPacer } from "./scan/useScanPacer";
-import { useAiAvailability, REPROBE_SETTINGS_MS } from "./scan/useAiAvailability";
+import { useAiAvailability, REPROBE_SETTINGS_MS, limitReprobeMs } from "./scan/useAiAvailability";
+import { AiConnectContext, CONNECT_POLL_MS, useConnect } from "./scan/ai-connect";
+import { useAiConnect } from "./scan/useAiConnect";
 import type { PermissionKind } from "./scan/useCapabilityPoll";
 import { readContinue } from "./guided/continue";
 import type { ContinuePayload } from "./guided/continue";
@@ -21,6 +23,7 @@ import { useGuided } from "./guided/useGuided";
 import type { GuidedController } from "./guided/useGuided";
 import { GuidedShell } from "./guided/GuidedShell";
 import { Guided } from "./guided/screens/Guided";
+import { ConnectScreen } from "./guided/ConnectScreen";
 import { SCANNING_TITLE } from "./guided/copy";
 import { lastReport } from "./scan/machine";
 import { aiUsable as computeAiUsable } from "./settings";
@@ -40,6 +43,7 @@ import { Findings } from "./screens/Findings";
 import { FindingDetail } from "./screens/FindingDetail";
 import { Ask } from "./screens/Ask";
 import { Settings } from "./screens/Settings";
+import type { ProviderInfo } from "./screens/Settings";
 
 const NAV_ROUTES: Readonly<Record<SidebarKey, Route>> = {
   checkup: { name: "guided" },
@@ -108,6 +112,31 @@ function useMenuNavigate(onNavigate: (target: "settings" | "about") => void) {
       unlisten?.();
     };
   }, []);
+}
+
+/**
+ * The read-only Developer lines in Settings: asked once per Settings visit in the real build, and only
+ * in Developer mode, since `claude_code_info` runs codesign on the install; always null in demo and jsdom.
+ */
+function useProviderInfo(enabled: boolean): ProviderInfo {
+  const [info, setInfo] = useState<ProviderInfo>({ claudeCode: null, chatgptClientId: null });
+  useEffect(() => {
+    if (!enabled || !inTauri()) return;
+    let gone = false;
+    void import("@tauri-apps/api/core")
+      .then(async ({ invoke }) => {
+        const [claudeCode, chatgpt] = await Promise.all([
+          invoke<ProviderInfo["claudeCode"]>("claude_code_info", {}).catch(() => null),
+          invoke<{ offered: boolean; clientId: string | null }>("chatgpt_info", {}).catch(() => null),
+        ]);
+        if (!gone) setInfo({ claudeCode, chatgptClientId: chatgpt?.clientId ?? null });
+      })
+      .catch(() => undefined);
+    return () => {
+      gone = true;
+    };
+  }, [enabled]);
+  return info;
 }
 
 /** The continue note is read once per launch, before the first render, so the guided controller can resume. */
@@ -193,6 +222,8 @@ export default function App() {
     saveGuidedMemory(next);
     setMemory(next);
   }, []);
+  // Lives here, not in the Connect screen, so a running sign-in keeps being polled while the person visits other screens.
+  const connect = useAiConnect({ port: adapters.aiConnect, router, settings, updateSettings, memory, saveMemory, ai, windowFocused: !inactive, reducedMotion });
   const guided = useGuided(scan, {
     gate,
     settings,
@@ -225,7 +256,8 @@ export default function App() {
   });
   useEffect(() => {
     if (pendingAnchor === null || router.route.name !== "settings") return;
-    document.getElementById(pendingAnchor)?.scrollIntoView({ block: "start" });
+    // Settings sections carry their id on the heading.
+    document.getElementById(`${pendingAnchor}-heading`)?.scrollIntoView({ block: "start" });
     setPendingAnchor(null);
   }, [pendingAnchor, router.route.name]);
 
@@ -242,16 +274,19 @@ export default function App() {
 
   if (!showShell && guidedHome) {
     return (
+      <AiConnectContext.Provider value={connect}>
       <AppContext.Provider value={value}>
         <GradientDefs />
         <GuidedShell inactive={inactive}>
           <Guided controller={guided} onWelcomeStart={onWelcomeStart} />
         </GuidedShell>
       </AppContext.Provider>
+      </AiConnectContext.Provider>
     );
   }
   if (!showShell) {
     return (
+      <AiConnectContext.Provider value={connect}>
       <AppContext.Provider value={value}>
         <GradientDefs />
         <Welcome
@@ -263,11 +298,13 @@ export default function App() {
           onSkip={() => updateSettings({ onboarded: true })}
         />
       </AppContext.Provider>
+      </AiConnectContext.Provider>
     );
   }
 
   if (router.route.name === "guided") {
     return (
+      <AiConnectContext.Provider value={connect}>
       <AppContext.Provider value={value}>
         <GradientDefs />
         {scanning ? (
@@ -280,20 +317,40 @@ export default function App() {
           </GuidedShell>
         )}
       </AppContext.Provider>
+      </AiConnectContext.Provider>
     );
   }
 
+  if (router.route.name === "connect") {
+    return (
+      <AiConnectContext.Provider value={connect}>
+      <AppContext.Provider value={value}>
+        <GradientDefs />
+        <GuidedShell inactive={inactive}>
+          <ScreenErrorBoundary resetKey="connect" onRescan={() => guided.start()} onSettings={() => router.navigate({ name: "settings" })}>
+            <ConnectScreen />
+          </ScreenErrorBoundary>
+        </GuidedShell>
+      </AppContext.Provider>
+      </AiConnectContext.Provider>
+    );
+  }
+
+  // Ask is listed while a remote provider is chosen but not yet connected, so its Connect row is reachable.
+  const { provider, aiEnabled } = settings.explainer;
+  const showAsk = aiUsable || (aiEnabled && (provider === "chatgpt" || provider === "claude_plan"));
   const items: NavItem[] = [
     { name: "checkup", label: CHECKUP_LABEL },
     { name: "overview", label: "Overview" },
     { name: "findings", label: "Findings" },
-    ...(aiUsable ? [{ name: "ask" as const, label: "Ask" }] : []),
+    ...(showAsk ? [{ name: "ask" as const, label: "Ask" }] : []),
   ];
   const current: SidebarKey = router.route.name === "finding" ? "findings" : router.route.name;
 
   return (
+    <AiConnectContext.Provider value={connect}>
     <AppContext.Provider value={value}>
-        <GradientDefs />
+      <GradientDefs />
       <div className={inactive ? "shell shell-expert window-inactive" : "shell shell-expert"}>
         <ExpertTitlebar scanning={scanning} />
         <div className="expert-shell">
@@ -320,6 +377,7 @@ export default function App() {
         </div>
       </div>
     </AppContext.Provider>
+    </AiConnectContext.Provider>
   );
 }
 
@@ -420,7 +478,7 @@ function Banners() {
 
 /** Toolbar contents per route. Screens that own their h1 (a finding) get no title here. */
 function RouteToolbar({ route }: { route: Route }) {
-  const { scan, router } = useApp();
+  const { scan, router, settings } = useApp();
   const report = lastReport(scan.scan);
   const rescan: ToolbarAction = { label: "Rescan", icon: ICONS.rescan, onClick: () => void scan.start() };
   switch (route.name) {
@@ -443,9 +501,11 @@ function RouteToolbar({ route }: { route: Route }) {
     case "finding":
       return <Toolbar back={{ label: "Findings", onClick: () => router.back() }} />;
     case "ask":
-      return <Toolbar title="Ask about your report" subtitle="Only available with on-device Apple Intelligence." />;
+      return <Toolbar title="Ask about your report" subtitle={askSubtitle(settings.explainer.provider)} />;
     case "settings":
       return <Toolbar title="Settings" />;
+    case "connect":
+      return null;
   }
 }
 
@@ -490,11 +550,30 @@ function Screen({ launchKey, guided, onResetMemory }: { launchKey: { current: st
 
 /** Settings with the live AI and permission state. */
 function SettingsRoute({ guided, onResetMemory }: { guided: GuidedController; onResetMemory(): void }) {
-  const { adapters: ports, ai, capabilities, refreshCapabilities, scan } = useApp();
-  const { probe, availability } = ai;
+  const { adapters: ports, ai, capabilities, refreshCapabilities, scan, settings } = useApp();
+  const connect = useConnect();
+  const providerInfo = useProviderInfo(settings.developer.enabled);
+  const { probe, reprobe, availability, until } = ai;
+  const { ensureOffered } = connect;
+  // Settings is an AI surface: it asks which rows can be offered, so "Change" knows whether a Connect screen has a row.
+  // With AI off nothing is asked, so the helper is never started from here.
+  const aiEnabled = settings.explainer.aiEnabled;
+  useEffect(() => {
+    if (aiEnabled) ensureOffered();
+  }, [aiEnabled, ensureOffered]);
   useEffect(() => {
     if (availability === null) void probe();
   }, [probe, availability]);
+  // The "Connecting" and "Limit reached" pills refresh on the same schedules as the cards.
+  useEffect(() => {
+    if (availability !== "connecting") return;
+    return reprobe(CONNECT_POLL_MS);
+  }, [availability, reprobe]);
+  useEffect(() => {
+    if (availability !== "limit_reached") return;
+    const timer = setTimeout(() => void probe(true), limitReprobeMs(until));
+    return () => clearTimeout(timer);
+  }, [availability, until, probe]);
   const onAiAction = (state: AiAvailability) => {
     if (state === "apple_intelligence_not_enabled") {
       void ports.openSettingsPane("apple_intelligence");
@@ -517,6 +596,11 @@ function SettingsRoute({ guided, onResetMemory }: { guided: GuidedController; on
       onPermission={onPermission}
       onBuy={() => void ports.fixes.openBuyPage()}
       guided={{ controller: guided, onResetMemory, onSkipCooldown: resetLaunchGuard }}
+      onChangeAi={() => connect.open({ name: "settings" })}
+      // With nothing to connect and On this Mac hidden the Connect screen has no row, so Change is not offered.
+      canChangeAi={connect.offered === null || connect.connectable || connect.offered.apple}
+      onDisconnect={() => connect.disconnect()}
+      providerInfo={providerInfo}
     />
   );
 }
@@ -535,5 +619,7 @@ function screenFor(route: Route, guided: GuidedController, onResetMemory: () => 
       return <Ask />;
     case "settings":
       return <SettingsRoute guided={guided} onResetMemory={onResetMemory} />;
+    case "connect":
+      return null;
   }
 }

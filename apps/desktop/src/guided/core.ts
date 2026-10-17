@@ -32,6 +32,8 @@ export interface Core {
   batchFailures: number;
   /** True after a watcher was seen running for the current step, so a null watcher means it expired. */
   watchSeen: boolean;
+  /** Unlock moved the paywall before a step: "Not now" then carries on to that step instead of ending. */
+  paywallMoved: boolean;
   /** Set when the launch continue note was "guided": the next plan opens at its first step. */
   resume: boolean;
   /** A free recheck is in flight for the current step ("Check again"). */

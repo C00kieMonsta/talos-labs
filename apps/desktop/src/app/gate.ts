@@ -7,6 +7,8 @@ export interface Gate {
   has(feature: Feature): boolean;
   /** true when the fix card must be hidden behind the lock. */
   fixLocked(finding: Pick<Finding, "ruleId" | "status">): boolean;
+  /** true when explaining this rule is paid: the free explanations follow the free fixes. */
+  explainLocked(ruleId: RuleId): boolean;
 }
 
 export function buildGate(report: ScanReport | null, license: LicenseState): Gate {
@@ -20,6 +22,9 @@ export function buildGate(report: ScanReport | null, license: LicenseState): Gat
       if (has("all_fixes")) return false;
       if (finding.status === "review") return false;
       return !freeFixes.includes(finding.ruleId);
+    },
+    explainLocked(ruleId) {
+      return !has("explainer") && !freeFixes.includes(ruleId);
     },
   };
 }

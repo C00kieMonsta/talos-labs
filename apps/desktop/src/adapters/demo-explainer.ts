@@ -168,6 +168,36 @@ export class DemoExplainer implements ExplainerPort {
   }
 }
 
+/** Streams each string field of `value` in word chunks; every partial is the whole snapshot so far. */
+export async function streamFields<T extends object>(
+  value: T,
+  fields: readonly (keyof T)[],
+  chunkMs: number,
+  options?: ExplainOptions<T>,
+): Promise<ExplainerResult<T>> {
+  const snapshot: Partial<T> = {};
+  try {
+    for (const field of fields) {
+      const text = value[field];
+      if (typeof text !== "string") {
+        snapshot[field] = text;
+        options?.onPartial?.({ ...snapshot });
+        continue;
+      }
+      const words = text.split(" ");
+      for (let i = 1; i <= words.length; i += 1) {
+        await wait(chunkMs, options?.signal);
+        snapshot[field] = words.slice(0, i).join(" ") as T[keyof T];
+        options?.onPartial?.({ ...snapshot });
+      }
+    }
+  } catch {
+    recordDemoCall({ kind: "aiCancel" });
+    return { ok: false, reason: "cancelled" };
+  }
+  return { ok: true, value };
+}
+
 export interface DemoAppleOptions {
   readonly catalog: RuleCatalog;
   readonly availability: AiAvailability;
@@ -203,28 +233,7 @@ export class DemoAppleExplainer implements ExplainerPort {
   ): Promise<ExplainerResult<T>> {
     if (this.options.failure !== undefined && this.options.failure !== null) return { ok: false, reason: this.options.failure };
     if ((await this.availability()) !== "available") return { ok: false, reason: "unavailable" };
-    const chunkMs = this.options.chunkMs ?? DEMO_WORD_CHUNK_MS;
-    const snapshot: Partial<T> = {};
-    try {
-      for (const field of fields) {
-        const text = value[field];
-        if (typeof text !== "string") {
-          snapshot[field] = text;
-          options?.onPartial?.({ ...snapshot });
-          continue;
-        }
-        const words = text.split(" ");
-        for (let i = 1; i <= words.length; i += 1) {
-          await wait(chunkMs, options?.signal);
-          snapshot[field] = words.slice(0, i).join(" ") as T[keyof T];
-          options?.onPartial?.({ ...snapshot });
-        }
-      }
-    } catch {
-      recordDemoCall({ kind: "aiCancel" });
-      return { ok: false, reason: "cancelled" };
-    }
-    return { ok: true, value };
+    return streamFields(value, fields, this.options.chunkMs ?? DEMO_WORD_CHUNK_MS, options);
   }
 
   explain(input: ExplainInput, options?: ExplainOptions<Explanation>): Promise<ExplainerResult<Explanation>> {

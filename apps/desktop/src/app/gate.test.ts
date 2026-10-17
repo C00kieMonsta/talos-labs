@@ -64,6 +64,22 @@ describe("license gate on DEV_MACHINE", () => {
     expect(gate.has("all_fixes")).toBe(true);
     expect(gate.has("recheck")).toBe(true);
   });
+
+  it("unlicensed: explanations are free for exactly the free fixes", () => {
+    const gate = buildGate(devReport(), NONE);
+    for (const id of EXPECTED_FREE) expect(gate.explainLocked(id), id).toBe(false);
+    for (const id of REVIEW) expect(gate.explainLocked(id), id).toBe(false);
+    for (const id of EXPECTED_LOCKED) expect(gate.explainLocked(id), id).toBe(true);
+    expect(gate.explainLocked("TL-MAC-028")).toBe(true);
+  });
+
+  it("licensed: no explanation is locked; without a report every explanation is locked when unlicensed", () => {
+    const licensed = buildGate(devReport(), VALID);
+    for (const id of [...EXPECTED_FREE, ...EXPECTED_LOCKED]) expect(licensed.explainLocked(id)).toBe(false);
+    const noReport = buildGate(null, NONE);
+    expect(noReport.explainLocked("TL-MAC-001")).toBe(true);
+    expect(buildGate(null, VALID).explainLocked("TL-MAC-001")).toBe(false);
+  });
 });
 
 function renderDetail(ruleId: RuleId, license: LicenseState, developerMode = false) {

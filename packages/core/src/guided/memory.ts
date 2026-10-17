@@ -13,6 +13,8 @@ export interface GuidedMemory {
   readonly pendingRestart: readonly RuleId[];
   readonly paywallSnoozedUntil: string | null;
   readonly permissionAskedAt: Readonly<Partial<Record<PermissionKind, string>>>;
+  /** ISO when the person last said "Not now" to connecting an AI; null when never. */
+  readonly aiAskedAt: string | null;
 }
 
 export const EMPTY_GUIDED_MEMORY: GuidedMemory = {
@@ -23,7 +25,20 @@ export const EMPTY_GUIDED_MEMORY: GuidedMemory = {
   pendingRestart: [],
   paywallSnoozedUntil: null,
   permissionAskedAt: {},
+  aiAskedAt: null,
 };
+
+/** How long "Not now" on the AI connect screen is honoured. */
+export const AI_ASK_AGAIN_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** True when aiAskedAt is set and less than AI_ASK_AGAIN_MS before now. */
+export function aiAskedRecently(memory: Pick<GuidedMemory, "aiAskedAt">, now: string): boolean {
+  if (memory.aiAskedAt === null) return false;
+  const asked = Date.parse(memory.aiAskedAt);
+  const at = Date.parse(now);
+  if (Number.isNaN(asked) || Number.isNaN(at)) return false;
+  return at - asked < AI_ASK_AGAIN_MS;
+}
 
 const PERMISSION_KINDS: readonly PermissionKind[] = ["full_disk_access", "automation"];
 const RULE_ID = /^TL-(MAC|WIN|LNX|ANY)-[A-Za-z0-9]+$/;
@@ -100,5 +115,6 @@ export function parseGuidedMemory(raw: unknown): GuidedMemory {
     pendingRestart: ruleIdList(raw.pendingRestart),
     paywallSnoozedUntil: isIsoDate(raw.paywallSnoozedUntil) ? raw.paywallSnoozedUntil : null,
     permissionAskedAt: permissionMap(raw.permissionAskedAt),
+    aiAskedAt: isIsoDate(raw.aiAskedAt) ? raw.aiAskedAt : null,
   };
 }

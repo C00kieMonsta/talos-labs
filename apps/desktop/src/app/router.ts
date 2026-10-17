@@ -12,7 +12,9 @@ export type Route =
   | { name: "findings"; severity?: SeverityFilter; category?: CategoryFilter }
   | { name: "finding"; ruleId: RuleId }
   | { name: "ask" }
-  | { name: "settings" };
+  | { name: "settings" }
+  /** The AI connect screen in the guided shell. returnTo records where it was opened from; leaving is router.back(). */
+  | { name: "connect"; returnTo: Route };
 
 export type RouteName = Route["name"];
 

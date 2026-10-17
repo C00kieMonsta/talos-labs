@@ -60,7 +60,7 @@ export function BatchStep({ step, state, controller, notice }: { step: BatchStep
           body={<p>{BATCH.password}</p>}
           primary={{ label: BATCH.button, onClick: () => controller.primary() }}
           link={{ label: BATCH.later, onClick: controller.later }}
-          explainRuleId={explain}
+          explainRuleId={explain} onUnlock={controller.goToPaywall}
           notice={notice}
         >
           <GuidedList rows={headlines} />

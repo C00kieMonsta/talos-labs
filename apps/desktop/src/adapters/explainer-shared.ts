@@ -1,15 +1,10 @@
-import type {
-  AbortSignalLike,
-  AskInput,
-  ExplainInput,
-  ExplainerContext,
-  ExplainerFailure,
-  ExplainerResult,
-  PrioritiseInput,
-  ScanReport,
-  Turn,
-} from "@talos/core";
-import { clampHistory, clampQuestion } from "@talos/core";
+import type { AbortSignalLike, ExplainerFailure, ExplainerResult, RemoteTask, RemoteTurn, ScanReport } from "@talos/core";
+
+/**
+ * Helpers shared by the HTTP explainer adapters. The turn builders live in core
+ * (packages/core/src/explainer/remote.ts) so the canary test covers their bytes.
+ */
+export { askTurns, explainTurns, prioritiseTurns } from "@talos/core";
 
 /** Supplies the report the validators check model output against. */
 export type ReportSource = () => Promise<ScanReport | null>;
@@ -31,44 +26,9 @@ export function toAbortSignal(signal: AbortSignalLike | undefined): AbortSignal 
   return controller.signal;
 }
 
-export type ExplainerTask = "explain" | "prioritise" | "ask";
+export type ExplainerTask = RemoteTask;
 
-export interface ChatTurn {
-  readonly role: "user" | "assistant";
-  readonly content: string;
-}
-
-interface TaskEnvelope {
-  readonly task: ExplainerTask;
-  readonly context: ExplainerContext;
-  readonly ruleId?: string;
-  readonly question?: string;
-}
-
-function envelope(e: TaskEnvelope): string {
-  return JSON.stringify(e);
-}
-
-export function explainTurns(input: ExplainInput): readonly ChatTurn[] {
-  return [{ role: "user", content: envelope({ task: "explain", ruleId: input.ruleId, context: input.context }) }];
-}
-
-export function prioritiseTurns(input: PrioritiseInput): readonly ChatTurn[] {
-  return [{ role: "user", content: envelope({ task: "prioritise", context: input.context }) }];
-}
-
-/** Validated history first, the clamped question last, never an assistant turn at the end. */
-export function askTurns(input: AskInput): readonly ChatTurn[] {
-  const history: readonly Turn[] = clampHistory(input.history);
-  const firstUser = history.findIndex((t) => t.role === "user");
-  const usable = firstUser === -1 ? [] : history.slice(firstUser);
-  const turns: ChatTurn[] = usable.map((t) => ({ role: t.role, content: t.text }));
-  turns.push({
-    role: "user",
-    content: envelope({ task: "ask", context: input.context, question: clampQuestion(input.question) }),
-  });
-  return turns;
-}
+export type ChatTurn = RemoteTurn;
 
 export type ParsedJson = { readonly ok: true; readonly value: unknown } | { readonly ok: false };
 

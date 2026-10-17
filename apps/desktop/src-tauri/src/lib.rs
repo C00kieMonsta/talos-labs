@@ -29,6 +29,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(commands::AppState::default())
         .manage(ai::AiState::default())
+        .manage(ai::provider::Providers::default())
         .manage(fix::plan::PlanStore::default())
         .menu(menu::build)
         .on_menu_event(menu::on_event)
@@ -58,6 +59,17 @@ pub fn run() {
             ai::ai_availability,
             ai::ai_generate,
             ai::ai_cancel,
+            ai::claude_generate,
+            ai::claude_cancel,
+            ai::claude_code_info,
+            ai::provider::ai_provider_status,
+            ai::provider::ai_connect_offered,
+            ai::provider::ai_connect_start,
+            ai::provider::ai_connect_poll,
+            ai::provider::ai_connect_cancel,
+            ai::provider::ai_disconnect,
+            ai::chatgpt_oauth::chatgpt_token,
+            ai::chatgpt_oauth::chatgpt_info,
         ])
         .run(tauri::generate_context!());
     if let Err(err) = result {

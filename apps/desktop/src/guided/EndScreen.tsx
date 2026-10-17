@@ -1,9 +1,11 @@
+import { useEffect } from "react";
 import type { GuidedPlan, NextAction, RuleId } from "@talos/core";
 import { MACOS_CATALOG, nextAction } from "@talos/core";
 import { useApp } from "../app/context";
 import { ICONS } from "../app/icons";
 import type { IconComponent } from "../app/icons";
 import { Icon } from "../components/Icon";
+import { CONNECT_POLL_MS, notConnectedFor, useConnect } from "../scan/ai-connect";
 import { lastReport } from "../scan/machine";
 import { useGuidedHero } from "./GuidedShell";
 import { StepFrame } from "./StepFrame";
@@ -77,18 +79,56 @@ function NextCard({ next, onClick }: { next: NextAction; onClick(): void }) {
   );
 }
 
+/** "Get things explained": one row under the groups, never the "Do this next" card. */
+function ConnectRow({ onOpen }: { onOpen(): void }) {
+  return (
+    <ul className="guided-end-list" role="list">
+      <li>
+        <button type="button" className="guided-end-row guided-end-row-connect" aria-label={`${END.explained}. ${END.explainedSub}`} onClick={onOpen}>
+          <Icon icon={ICONS.extensions} size={20} className="guided-end-row-icon" />
+          <span className="guided-end-row-text">
+            {END.explained}{" "}
+            <span className="guided-end-row-sub">{END.explainedSub}</span>
+          </span>
+          <Icon icon={ICONS.chevronRight} size={16} className="guided-end-row-chevron" />
+        </button>
+      </li>
+    </ul>
+  );
+}
+
 export interface EndScreenProps {
   readonly plan: GuidedPlan;
   readonly fixed: readonly RuleId[];
   onCheckAgain(): void;
   /** "Do this next" with a step to run; a "details" action opens the finding instead. */
   onNext(action: NextAction): void;
+  /** Opens the Connect screen; defaults to the controller's open() returning here. */
+  onConnect?(): void;
 }
 
 /** All done, partial with the grouped rows, nothing to do, or nothing read. The "Do this next" button is the one primary; "Check again" stays the link. */
-export function EndScreen({ plan, fixed, onCheckAgain, onNext }: EndScreenProps) {
-  const { router, scan } = useApp();
+export function EndScreen({ plan, fixed, onCheckAgain, onNext, onConnect }: EndScreenProps) {
+  const { router, scan, ai, settings } = useApp();
+  const connect = useConnect();
+  const { ensureOffered } = connect;
   useGuidedHero(true, true);
+  // The end screen is an AI surface: it asks once which providers are offered and whether one is connected.
+  const aiEnabled = settings.explainer.aiEnabled;
+  useEffect(() => {
+    if (aiEnabled) ensureOffered();
+  }, [aiEnabled, ensureOffered]);
+  useEffect(() => {
+    if (aiEnabled && ai.availability === null) void ai.probe();
+  }, [aiEnabled, ai]);
+  // A sign-in in progress, or one cancelled before the worker reported its end: re-read it until it settles.
+  useEffect(() => {
+    if (!aiEnabled || ai.availability !== "connecting") return;
+    return ai.reprobe(CONNECT_POLL_MS);
+  }, [aiEnabled, ai.availability, ai.reprobe]);
+  // The same predicate as the Explain disclosure, so both surfaces agree on "nothing is connected".
+  const showConnect = aiEnabled && notConnectedFor(settings.explainer.provider, ai.availability) && !connect.askedRecently && connect.connectable;
+  const openConnect = onConnect ?? (() => connect.open({ name: "guided" }));
   const waiting = stillWaiting(plan);
   // Rules left alone or kept for a technical person are listed, but they never stop the Mac being "in good shape".
   const nothingOpen = waiting.length === 0 && plan.locked.length === 0;
@@ -120,7 +160,7 @@ export function EndScreen({ plan, fixed, onCheckAgain, onNext }: EndScreenProps)
     { id: "technical", label: END.technical, icon: ICONS.developer, rows: ruleRows(plan.technical) },
     { id: "unreadable", label: END.unreadable, icon: ICONS.question, rows: unreadable === null ? [] : [{ key: "unreadable", text: unreadable, onOpen: findings }] },
   ].filter((group) => group.rows.length > 0);
-  const summary = next !== null || groups.length > 0;
+  const summary = next !== null || groups.length > 0 || showConnect;
   return (
     <StepFrame progress={null} title={title} body={body} mark={!nothing} className="guided-end" link={{ label: END.checkAgain, onClick: onCheckAgain }}>
       {summary && (
@@ -129,6 +169,7 @@ export function EndScreen({ plan, fixed, onCheckAgain, onNext }: EndScreenProps)
           {groups.map((group) => (
             <EndGroup key={group.id} id={group.id} label={group.label} icon={group.icon} rows={group.rows} />
           ))}
+          {showConnect && <ConnectRow onOpen={openConnect} />}
         </div>
       )}
     </StepFrame>

@@ -26,6 +26,7 @@ pub enum Bin {
     Tmutil,
     Osascript,
     Pwpolicy,
+    Codesign,
     #[cfg(test)]
     Sleep,
     #[cfg(test)]
@@ -54,6 +55,7 @@ impl Bin {
             Bin::Tmutil => "/usr/bin/tmutil",
             Bin::Osascript => "/usr/bin/osascript",
             Bin::Pwpolicy => "/usr/bin/pwpolicy",
+            Bin::Codesign => "/usr/bin/codesign",
             #[cfg(test)]
             Bin::Sleep => "/bin/sleep",
             #[cfg(test)]
@@ -194,9 +196,11 @@ pub fn run(
     Ok(output)
 }
 
-type Captured = (Vec<u8>, bool);
+pub(crate) type Captured = (Vec<u8>, bool);
 
-fn spawn_reader<R: Read + Send + 'static>(mut reader: R) -> Option<JoinHandle<Captured>> {
+pub(crate) fn spawn_reader<R: Read + Send + 'static>(
+    mut reader: R,
+) -> Option<JoinHandle<Captured>> {
     std::thread::Builder::new()
         .name("talos-exec-reader".into())
         .spawn(move || read_capped(&mut reader))
@@ -226,7 +230,7 @@ fn read_capped(reader: &mut impl Read) -> Captured {
     (kept, truncated)
 }
 
-fn join(handle: Option<JoinHandle<Captured>>) -> Captured {
+pub(crate) fn join(handle: Option<JoinHandle<Captured>>) -> Captured {
     handle.and_then(|h| h.join().ok()).unwrap_or_default()
 }
 
@@ -310,6 +314,7 @@ mod tests {
     fn bin_names_are_file_names() {
         assert_eq!(Bin::Socketfilterfw.name(), "socketfilterfw");
         assert_eq!(Bin::SwVers.name(), "sw_vers");
+        assert_eq!(Bin::Codesign.path(), "/usr/bin/codesign");
     }
 }
 

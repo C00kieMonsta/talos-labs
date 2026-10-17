@@ -188,7 +188,7 @@ function SuggestedOrder({ report, onOpen }: { report: ScanReport; onOpen(ruleId:
       <h2 id="suggested" ref={heading} tabIndex={-1}>
         Suggested order
       </h2>
-      <AiCard kind="overview" title="Suggested order" state={flow.state} {...flow.handlers}>
+      <AiCard kind="overview" title="Suggested order" state={flow.state} provider={flow.provider} {...flow.handlers}>
         {priority !== null && <SuggestedOrderBody report={report} priority={priority} onOpen={onOpen} />}
       </AiCard>
     </aside>

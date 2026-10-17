@@ -152,6 +152,47 @@ describe("guided steps", () => {
     expect(h.hook.result.current.guided.phase.kind).toBe("end");
   });
 
+  it("'Not now' on a paywall with a converted show step behind it still ends", async () => {
+    vi.useFakeTimers();
+    // Unlicensed, with the firewall rules as two of the three free fixes: batch(002, 003), permission, paywall (011 locked).
+    const hardenedUpdates = HARDENED.sections.updates;
+    const sections = {
+      ...DEV_MACHINE.sections,
+      diskEncryption: HARDENED.sections.diskEncryption,
+      ssh: HARDENED.sections.ssh,
+      backup: HARDENED.sections.backup,
+      fileSharing: HARDENED.sections.fileSharing,
+      updates: hardenedUpdates.status === "ok" ? { ...hardenedUpdates, data: { ...hardenedUpdates.data, appStoreAutoUpdate: false } } : hardenedUpdates,
+    };
+    const state = { ...DEV_MACHINE, sections };
+    // On recheck the firewall is on but stealth mode is not: 002 passes, 003 fails and has a pane.
+    const partial = { ...state, sections: { ...sections, firewall: { status: "ok" as const, data: { enabled: true, stealthMode: false, blockAllIncoming: false } } } };
+    const outcome: BatchOutcome = { ok: false, error: "cancelled", items: [{ ruleId: "TL-MAC-002", status: "not_run", error: null, step: null }, { ruleId: "TL-MAC-003", status: "not_run", error: null, step: null }] };
+    const adapters = fakeAdapters({
+      systemState: fakeSystemState(state, {}, partial),
+      fixes: fakeFixPort(fakePlan(), { previewBatch: vi.fn(async () => fakeBatchPlan()), applyBatch: vi.fn(async () => outcome) }),
+    });
+    const h = renderGuided({ adapters, licensed: false });
+    await toFirstStep(h);
+    expect(stepId(h)).toBe("batch");
+    await act(async () => {
+      h.hook.result.current.guided.primary();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(stepState(h)?.kind).toBe("done");
+    const planned = h.hook.result.current.guided.phase;
+    expect(planned.kind === "step" && planned.plan.steps.map((s) => s.id)).toEqual(["batch", "permission:full_disk_access", "paywall", "show:TL-MAC-003"]);
+    act(() => h.hook.result.current.guided.carryOn());
+    expect(stepId(h)).toBe("permission:full_disk_access");
+    act(() => h.hook.result.current.guided.later());
+    expect(stepId(h)).toBe("paywall");
+    act(() => h.hook.result.current.guided.later());
+    expect(Date.parse(h.saved[h.saved.length - 1]?.paywallSnoozedUntil ?? "") - Date.now()).toBeGreaterThan(13.9 * 86_400_000);
+    expect(h.hook.result.current.guided.phase.kind).toBe("end");
+  });
+
   it("a valid key on the paywall appends the unlocked steps and the total grows", async () => {
     vi.useFakeTimers();
     const h = renderGuided();
@@ -172,6 +213,59 @@ describe("guided steps", () => {
       await vi.advanceTimersByTimeAsync(LATER_FLASH_MS);
     });
     expect(stepId(h)).toBe("batch");
+  });
+
+  it("Unlock in the disclosure opens the paywall before the current step, and leaving it returns there without growing the total", async () => {
+    vi.useFakeTimers();
+    const h = renderGuided();
+    await toFirstStep(h);
+    expect(stepId(h)).toBe("fix:TL-MAC-002");
+    const total = h.hook.result.current.guided.progress.of;
+    const before = h.hook.result.current.guided.phase;
+    const hadPaywall = before.kind === "step" && before.plan.steps.some((s) => s.kind === "paywall");
+    expect(hadPaywall).toBe(true);
+    act(() => h.hook.result.current.guided.goToPaywall());
+    expect(stepId(h)).toBe("paywall");
+    expect(h.hook.result.current.guided.progress.of).toBe(total);
+    expect(h.hook.result.current.guided.progress.done).toBe(0);
+    act(() => h.hook.result.current.guided.later());
+    expect(stepId(h)).toBe("fix:TL-MAC-002");
+    expect(Date.parse(h.saved[h.saved.length - 1]?.paywallSnoozedUntil ?? "") - Date.now()).toBeGreaterThan(13.9 * 86_400_000);
+    const after = h.hook.result.current.guided.phase;
+    expect(after.kind === "step" && after.plan.steps.filter((s) => s.kind === "paywall").length).toBe(1);
+    // Unlock again opens the same paywall, still one in the plan; on the paywall itself the button does nothing.
+    act(() => h.hook.result.current.guided.goToPaywall());
+    expect(stepId(h)).toBe("paywall");
+    expect(h.hook.result.current.guided.progress.of).toBe(total);
+    act(() => h.hook.result.current.guided.goToPaywall());
+    expect(stepId(h)).toBe("paywall");
+    const again = h.hook.result.current.guided.phase;
+    expect(again.kind === "step" && again.plan.steps.filter((s) => s.kind === "paywall").length).toBe(1);
+  });
+
+  it("a report rebuilt while the moved paywall is the current step keeps one paywall in place and skips nothing", async () => {
+    vi.useFakeTimers();
+    // The next recheck reads a hardened Mac, so the current rule passes and the plan is rebuilt around the paywall.
+    const h = renderGuided({ adapters: fakeAdapters({ systemState: fakeSystemState(DEV_MACHINE, {}, HARDENED) }) });
+    await toFirstStep(h);
+    expect(stepId(h)).toBe("fix:TL-MAC-002");
+    act(() => h.hook.result.current.guided.goToPaywall());
+    expect(stepId(h)).toBe("paywall");
+    const before = h.hook.result.current.guided.phase;
+    const index = before.kind === "step" ? before.index : -1;
+    expect(index).toBe(0);
+    await act(async () => {
+      await h.hook.result.current.scan.recheck(["firewall"]);
+    });
+    const after = h.hook.result.current.guided.phase;
+    expect(after.kind).toBe("step");
+    if (after.kind !== "step") return;
+    expect(after.index).toBe(index);
+    expect(after.plan.steps.filter((s) => s.kind === "paywall")).toHaveLength(1);
+    expect(stepId(h)).toBe("paywall");
+    // The steps the person had not done yet are still ahead of the paywall, none of them passed.
+    expect(after.plan.steps.slice(index + 1).map((s) => s.kind)).toEqual(expect.arrayContaining(["show", "permission"]));
+    expect(h.hook.result.current.guided.progress.done).toBe(0);
   });
 
   it("'Do this next' on the end screen reopens the rule's step as the last step, runs it, and 'Do this later' returns to the end", async () => {

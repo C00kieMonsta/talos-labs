@@ -9,7 +9,7 @@ import { CHECKUP_SETTINGS } from "../app/labels";
 
 afterEach(cleanup);
 
-const gate = { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true };
+const gate = { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => true };
 
 describe("the expert shell's guided entry points", () => {
   it("renders the Check-up row first in the sidebar and reports it on select", () => {

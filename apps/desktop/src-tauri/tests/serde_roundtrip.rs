@@ -32,7 +32,12 @@ fn json_files(dir: &Path) -> Vec<PathBuf> {
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|e| e == "json"))
         // fix-catalog.json is the fix contract, not a SystemState; tests/fix_catalog_contract.rs reads it.
-        .filter(|p| p.file_stem().is_none_or(|s| s != "fix-catalog"))
+        // explainer-schemas.json and partial-json-cases.json are AI contracts with their own tests.
+        .filter(|p| {
+            p.file_stem().is_none_or(|s| {
+                s != "fix-catalog" && s != "explainer-schemas" && s != "partial-json-cases"
+            })
+        })
         .collect();
     files.sort();
     files

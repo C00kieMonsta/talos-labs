@@ -21,14 +21,18 @@ import type {
   SystemStateSections,
 } from "@talos/core";
 import { ALL_UNAVAILABLE, DEV_MACHINE, FRESH_INSTALL, HARDENED, MACOS_CATALOG, SECTION_KEYS, WINDOWS_MINIMAL } from "@talos/core";
-import type { ExplainerSettings } from "../settings";
+import type { ExplainerProvider, ExplainerSettings } from "../settings";
 import type { Adapters } from "./index";
+import { DemoAiConnect, type DemoConnectOutcome } from "./demo-ai-connect";
 import { DemoAppleExplainer, DemoExplainer } from "./demo-explainer";
 import { DemoFixPort, type DemoBatchOutcome, type DemoFixOutcome } from "./demo-fix";
+import { DemoProviderExplainer } from "./demo-provider-explainer";
 import { cancelled, recordDemoCall, wait } from "./demo-shared";
 import { NoExplainer } from "./no-explainer";
 
+export { DemoAiConnect, DEFAULT_CONNECT_DELAY_MS, DEMO_CONNECT_OUTCOMES, type DemoConnectOutcome } from "./demo-ai-connect";
 export { DemoAppleExplainer, DemoExplainer, DEMO_WORD_CHUNK_MS } from "./demo-explainer";
+export { DemoProviderExplainer } from "./demo-provider-explainer";
 export { DemoFixPort, DEMO_BATCH_OUTCOMES, DEMO_FIX_OUTCOMES, type DemoBatchOutcome, type DemoFixOutcome } from "./demo-fix";
 export { recordDemoCall } from "./demo-shared";
 
@@ -74,6 +78,16 @@ export interface DemoOptions {
   readonly pollAfter?: number | null;
   /** Rules forced to fail on the fixture; only TL-MAC-013 is supported (a 60 minute screen saver). */
   readonly fail?: readonly RuleId[];
+  /** The provider the URL seeded; the fake ChatGPT or Claude explainer starts in `ai`. */
+  readonly provider?: ExplainerProvider;
+  /** ISO shown with limit_reached. */
+  readonly aiUntil?: string;
+  /** How a demo sign-in ends. */
+  readonly connect?: DemoConnectOutcome;
+  /** Wait per connect stage. */
+  readonly connectDelayMs?: number;
+  /** The Claude sign-in shows the fetching stage first. */
+  readonly claudeFetch?: boolean;
 }
 
 export type DemoScanError = "collector_crashed" | "timeout" | "schema_mismatch";
@@ -254,12 +268,19 @@ export function createDemoAdapters(options: DemoOptions): Adapters {
   const delay = options.collectDelayMs ?? DEFAULT_COLLECT_DELAY_MS;
   const failure = options.explainerFailure ?? null;
   const systemState = new DemoSystemState(state, delay, options);
+  // `ai` seeds whichever provider the URL named; the Apple fake reads it only when that is apple (or nothing).
+  const seedsApple = options.provider === undefined || options.provider === "apple";
   const apple = new DemoAppleExplainer({
     catalog: MACOS_CATALOG,
-    availability: options.ai ?? "available",
+    availability: seedsApple ? (options.ai ?? "available") : "available",
     readyAfterMs: options.aiReadyMs ?? null,
     failure,
   });
+  const aiConnect = new DemoAiConnect(options);
+  const providers: Record<"chatgpt" | "claude_plan", DemoProviderExplainer> = {
+    chatgpt: new DemoProviderExplainer("chatgpt", { catalog: MACOS_CATALOG, connect: aiConnect, failure }),
+    claude_plan: new DemoProviderExplainer("claude_plan", { catalog: MACOS_CATALOG, connect: aiConnect, failure }),
+  };
   return {
     systemState,
     license: new DemoLicense(),
@@ -279,10 +300,14 @@ export function createDemoAdapters(options: DemoOptions): Adapters {
       switch (settings.provider) {
         case "apple":
           return apple;
+        case "chatgpt":
+        case "claude_plan":
+          return providers[settings.provider];
         case "claude":
         case "ollama":
           return new DemoExplainer(settings.provider, MACOS_CATALOG, failure, DEMO_EXPLAIN_DELAY_MS);
       }
     },
+    aiConnect,
   };
 }

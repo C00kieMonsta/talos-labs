@@ -2,6 +2,33 @@
 
 pub const SERVICE: &str = "si.taloslabs.desktop";
 
+/// The only names the webview may read, write or delete. Everything else is Rust-only.
+pub const WEBVIEW_SECRET_NAMES: &[&str] = &["anthropic_api_key"];
+
+fn webview_allowed(name: &str) -> Result<(), String> {
+    if WEBVIEW_SECRET_NAMES.contains(&name) {
+        Ok(())
+    } else {
+        Err("invalid secret name".to_owned())
+    }
+}
+
+/// The `secret_get` command body: refuses any name outside the webview allow-list.
+pub fn webview_get(name: &str) -> Result<Option<String>, String> {
+    webview_allowed(name)?;
+    get(name)
+}
+
+pub fn webview_set(name: &str, value: &str) -> Result<(), String> {
+    webview_allowed(name)?;
+    set(name, value)
+}
+
+pub fn webview_delete(name: &str) -> Result<(), String> {
+    webview_allowed(name)?;
+    delete(name)
+}
+
 fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 64
@@ -47,5 +74,33 @@ mod tests {
         assert!(!valid_name("Anthropic Key"));
         assert!(!valid_name("../x"));
         assert!(get("bad name").is_err());
+    }
+
+    #[test]
+    fn the_webview_only_reaches_the_api_key() {
+        assert_eq!(WEBVIEW_SECRET_NAMES, &["anthropic_api_key"]);
+        for name in [
+            "chatgpt_refresh_token",
+            "chatgpt_access_token",
+            "chatgpt_client_id",
+            "chatgpt_scope",
+            "chatgpt_token_expires_at",
+            "",
+        ] {
+            assert_eq!(
+                webview_get(name),
+                Err("invalid secret name".to_owned()),
+                "{name:?}"
+            );
+            assert_eq!(
+                webview_set(name, "x"),
+                Err("invalid secret name".to_owned())
+            );
+            assert_eq!(webview_delete(name), Err("invalid secret name".to_owned()));
+        }
+        assert!(
+            valid_name("chatgpt_refresh_token"),
+            "Rust itself may use it"
+        );
     }
 }

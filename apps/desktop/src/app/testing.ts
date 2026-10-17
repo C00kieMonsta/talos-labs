@@ -27,6 +27,9 @@ import type { Gate } from "./gate";
 import type { ScanState } from "../scan/machine";
 import type { AskMessage, ScanController } from "../scan/useScan";
 import { AppContext } from "./context";
+import type { AiConnectController } from "../scan/ai-connect";
+import { AiConnectContext, INERT_CONNECT } from "../scan/ai-connect";
+import { NotOfferedConnect } from "../adapters/ai-connect";
 
 /** Test doubles for everything the screens touch. Nothing here reaches Tauri. */
 
@@ -75,6 +78,26 @@ export function fakeAdapters(overrides: Partial<Adapters> = {}, state: SystemSta
     openSettingsPane: vi.fn(async () => undefined),
     restart: vi.fn(async () => undefined),
     createExplainer: vi.fn(async () => noExplainer),
+    aiConnect: new NotOfferedConnect(),
+    ...overrides,
+  };
+}
+
+/** INERT_CONNECT with every method a vi.fn, so a test can assert what a screen called. */
+export function fakeConnectController(overrides: Partial<AiConnectController> = {}): AiConnectController {
+  return {
+    ...INERT_CONNECT,
+    ensureOffered: vi.fn(),
+    open: vi.fn(),
+    start: vi.fn(),
+    useThisMac: vi.fn(),
+    cancel: vi.fn(),
+    tryAgain: vi.fn(),
+    chooseAnother: vi.fn(),
+    notNow: vi.fn(),
+    signInAgain: vi.fn(),
+    disconnect: vi.fn(async () => true),
+    consumeResume: vi.fn(() => false),
     ...overrides,
   };
 }
@@ -133,14 +156,17 @@ export function fakeContextValue(input: {
     scan: fakeScanController(scanState),
     router: { route: { name: "overview" }, lastMove: "navigate", navigate: vi.fn(), back: vi.fn(), replace: vi.fn() },
     aiUsable: false,
-    ai: { availability: null, probe: vi.fn(async () => "off" as const), reprobe: vi.fn(() => () => undefined) },
+    ai: { availability: null, until: null, probe: vi.fn(async () => "off" as const), reprobe: vi.fn(() => () => undefined), report: vi.fn() },
     capabilities: null,
     refreshCapabilities: vi.fn(async () => null),
   };
 }
 
-/** A provider whose licence, settings and Ask conversation are real React state, so a screen re-renders after writing through the context. */
-export function StatefulProvider({ value, children }: { value: AppContextValue; children?: ReactNode }) {
+/**
+ * A provider whose licence, settings and Ask conversation are real React state, so a screen re-renders after writing through the context.
+ * connect wraps the tree in AiConnectContext.Provider; without it the inert default applies.
+ */
+export function StatefulProvider({ value, connect, children }: { value: AppContextValue; connect?: AiConnectController; children?: ReactNode }) {
   const [license, setLicense] = useState<LicenseState>(value.license);
   const [settings, setSettings] = useState<AppSettings>(value.settings);
   const [conversation, setConversation] = useState<readonly AskMessage[]>(value.scan.conversation);
@@ -153,7 +179,8 @@ export function StatefulProvider({ value, children }: { value: AppContextValue; 
     updateSettings: (patch) => setSettings((prev) => ({ ...prev, ...patch })),
     scan: { ...value.scan, conversation, setConversation, draft, setDraft },
   };
-  return createElement(AppContext.Provider, { value: live }, children);
+  const tree = createElement(AppContext.Provider, { value: live }, children);
+  return connect === undefined ? tree : createElement(AiConnectContext.Provider, { value: connect }, tree);
 }
 
 /** A small hand-built report so screen tests do not depend on the engine. */

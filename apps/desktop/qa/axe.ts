@@ -1,11 +1,12 @@
 import { createRequire } from "node:module";
 import type { Page } from "playwright-core";
-import { SCHEMES, SIZES, ensureServer, launchChrome, parseArgs, settle, unrollPage, walk } from "./harness";
+import type { Visit } from "./harness";
+import { SCHEMES, SIZES, ensureServer, launchChrome, parseArgs, parseOnly, settle, unrollPage, walk, walkAi, walkGuided } from "./harness";
 
 /**
  * Runs axe-core on every screen of the demo build and prints the violations as JSON.
  * Exits 1 when any violation is serious or critical.
- *   cd apps/desktop && pnpm exec tsx qa/axe.ts --port 1430
+ *   cd apps/desktop && pnpm exec tsx qa/axe.ts --port 1430 [--only expert|guided|ai]
  */
 
 const require = createRequire(import.meta.url);
@@ -49,6 +50,7 @@ async function runAxe(page: Page, screen: string): Promise<Violation[]> {
 
 async function main(): Promise<number> {
   const args = parseArgs(process.argv.slice(2), { port: 1430, out: "qa/scratch" });
+  const only = parseOnly(process.argv.slice(2));
   const server = await ensureServer(args.port);
   const browser = await launchChrome();
   const violations: Violation[] = [];
@@ -56,7 +58,7 @@ async function main(): Promise<number> {
     const context = await browser.newContext({ viewport: SIZES[0] ?? null, colorScheme: "light" });
     const page = await context.newPage();
     page.setDefaultTimeout(20_000);
-    await walk(page, server.baseUrl, async (shot, reach) => {
+    const visit: Visit = async (shot, reach) => {
       let reached = false;
       for (const scheme of SCHEMES) {
         if (!reached || shot.volatile === true) {
@@ -68,7 +70,10 @@ async function main(): Promise<number> {
         await settle(page);
         violations.push(...(await runAxe(page, `${shot.name} (${scheme})`)));
       }
-    });
+    };
+    if (only === null || only === "expert") await walk(page, server.baseUrl, visit);
+    if (only === null || only === "guided") await walkGuided(page, server.baseUrl, visit);
+    if (only === null || only === "ai") await walkAi(page, server.baseUrl, visit);
     await context.close();
   } finally {
     await browser.close();

@@ -21,6 +21,7 @@ function controller(state: StepState): GuidedController {
     carryOn: vi.fn(),
     primary: vi.fn(),
     doNext: vi.fn(),
+    goToPaywall: vi.fn(),
     later: vi.fn(),
     next: vi.fn(),
     answer: vi.fn(),

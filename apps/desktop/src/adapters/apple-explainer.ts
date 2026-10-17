@@ -35,6 +35,8 @@ export interface StreamEvent {
   readonly kind: "partial" | "done" | "error";
   readonly json?: unknown;
   readonly code?: string;
+  /** ISO with a limit_reached error, when the provider said when the allowance comes back. */
+  readonly until?: string;
 }
 
 export type InvokeFn = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
@@ -74,7 +76,8 @@ export function mapAiError(code: string | undefined): ExplainerFailure {
 }
 
 let counter = 0;
-function nextId(): string {
+/** A request id matching the engine's ^[a-z0-9]{1,16}$; shared with the Claude plan adapter. */
+export function nextId(): string {
   counter = (counter + 1) % 1_000_000;
   return `g${Date.now().toString(36).slice(-6)}${counter.toString(36)}`.slice(0, 16);
 }
@@ -93,16 +96,18 @@ export function snapshotHasCommandText(json: unknown): boolean {
 
 function toStreamEvent(payload: unknown): StreamEvent | null {
   if (!isRecord(payload)) return null;
-  const { id, kind, json, code } = payload;
+  const { id, kind, json, code, until } = payload;
   if (typeof id !== "string") return null;
   if (kind !== "partial" && kind !== "done" && kind !== "error") return null;
-  const event: { id: string; kind: StreamEvent["kind"]; json?: unknown; code?: string } = { id, kind };
+  const event: { id: string; kind: StreamEvent["kind"]; json?: unknown; code?: string; until?: string } = { id, kind };
   if (json !== undefined) event.json = json;
   if (typeof code === "string") event.code = code;
+  if (typeof until === "string") event.until = until;
   return event;
 }
 
-function defaultListen(): ListenFn {
+/** The ai:stream listener both Tauri-backed adapters share; drops payloads that are not stream events. */
+export function defaultListen(): ListenFn {
   return async (event, handler) =>
     tauriListen<unknown>(event, (e) => {
       const parsed = toStreamEvent(e.payload);

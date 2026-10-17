@@ -1,19 +1,19 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { CircleAlert, CircleCheck, Cpu, Download, LoaderCircle, Sparkles } from "lucide-react";
-import { CORE_VERSION } from "@talos/core";
+import { CHATGPT_MODEL_PATTERN, CORE_VERSION } from "@talos/core";
 import type { AiAvailability, Capabilities, ExplainerProfile, LicenseState } from "@talos/core";
 import { LicenceField } from "../components/LicenceField";
 import { ProfileForm } from "../components/ProfileForm";
 import { useApp } from "../app/context";
-import { AI_AVAILABILITY_LABELS, CHECKUP_SETTINGS, LICENSE_INVALID_LABELS, PERMISSION_STATUS_LABELS, PRIVACY_SENTENCE, summariseProfile } from "../app/labels";
+import { CHECKUP_SETTINGS, LICENSE_INVALID_LABELS, PERMISSION_STATUS_LABELS, PROVIDER_NAMES, YOUR_AI, privacySentence, summariseProfile } from "../app/labels";
 import { CopyButton } from "../components/CopyButton";
 import { GUIDED_STORAGE_KEY, loadGuidedMemory } from "../guided/memory";
 import type { GuidedController } from "../guided/state";
 import type { PermissionStatus } from "../app/labels";
 import { APP_VERSION } from "../app/version";
-import { MAX_MODEL_ID_LENGTH } from "../settings";
+import { MAX_MODEL_ID_LENGTH, PROVIDERS, isDeveloperProvider } from "../settings";
 import type { DeveloperSettings, ExplainerProvider } from "../settings";
+import { Section, Switch, YourAiSection } from "./YourAiSection";
 
 export type PermissionKind = "full_disk_access" | "automation";
 
@@ -29,9 +29,46 @@ export interface SettingsProps {
   onBuy(): void;
   /** The guided controller and its memory, for the Developer "Guided" block. */
   guided?: { controller: GuidedController; onResetMemory(): void; onSkipCooldown(): void };
+  /** Change on the Your AI row: opens the Connect screen. */
+  onChangeAi?(): void;
+  /** False when the Connect screen would offer no row at all; Change is then hidden. */
+  canChangeAi?: boolean;
+  /** Disconnect on the Your AI row: clears the stored sign-in on this Mac. False when it could not be cleared. */
+  onDisconnect?(): Promise<boolean>;
+  /** The read-only Developer lines; null until fetched, and always null in demo mode. */
+  providerInfo?: ProviderInfo;
 }
 
-export const AI_SENTENCE = "Runs on this Mac. Only the check-up results are used, never file names, paths or passwords.";
+/** What claude_code_info answers; the identity is a constant on the Rust side, never parsed output. */
+export interface ClaudeCodeInfo {
+  offered: boolean;
+  version: string | null;
+  path: string | null;
+  signed: boolean;
+  identity: string | null;
+  source: "existing" | "fetched" | "none";
+}
+
+export interface ProviderInfo {
+  claudeCode: ClaudeCodeInfo | null;
+  chatgptClientId: string | null;
+}
+
+const NO_PROVIDER_INFO: ProviderInfo = { claudeCode: null, chatgptClientId: null };
+const noop = (): void => undefined;
+const resolved = async (): Promise<boolean> => true;
+
+/** "Claude Code: 2.1.287, Developer ID Application: Anthropic PBC (Q6L2SF6YDW), /path" or "Claude Code: not fetched". */
+export function claudeCodeLine(info: ClaudeCodeInfo | null): string {
+  if (info === null || info.version === null) return `${YOUR_AI.claudeCodeLine}: ${YOUR_AI.notFetched}`;
+  const parts = [info.version, info.signed && info.identity !== null ? info.identity : "unsigned", info.path].filter((p): p is string => p !== null);
+  return `${YOUR_AI.claudeCodeLine}: ${parts.join(", ")}`;
+}
+
+export function chatgptClientLine(clientId: string | null): string {
+  return `${YOUR_AI.chatgptClientLine}: ${clientId ?? YOUR_AI.none}`;
+}
+
 export const FREE_LINE = "Free: the three most valuable fixes";
 export const PERMISSION_TITLES: Readonly<Record<PermissionKind, string>> = {
   full_disk_access: "Full Disk Access",
@@ -42,13 +79,8 @@ export const DEV_BUILD_FDA_COPY = "This is a development build, so it is not in 
 
 const CLAUDE_MODEL = /^claude-[a-z0-9-]+$/;
 const OLLAMA_MODEL = /^[a-z0-9._:-]+$/;
-const PROVIDER_LABELS: Readonly<Record<ExplainerProvider, string>> = {
-  apple: "On this Mac",
-  claude: "Claude API key",
-  ollama: "Local Ollama",
-};
-
-function modelIdOk(id: string, pattern: RegExp): boolean {
+function modelIdOk(id: string, pattern: RegExp, allowEmpty: boolean): boolean {
+  if (id.length === 0) return allowEmpty;
   return pattern.test(id) && id.length <= MAX_MODEL_ID_LENGTH;
 }
 
@@ -75,56 +107,6 @@ export function permissionAction(kind: PermissionKind, status: PermissionStatus)
   if (status === "granted") return null;
   if (status === "not_determined") return "Allow";
   return kind === "full_disk_access" ? "Open Full Disk Access" : "Open Automation settings";
-}
-
-function AiIcon({ state }: { state: AiAvailability }) {
-  const props = { size: 16, "aria-hidden": true } as const;
-  switch (state) {
-    case "available":
-      return <CircleCheck {...props} />;
-    case "model_not_ready":
-      return <Download {...props} />;
-    case "apple_intelligence_not_enabled":
-      return <Sparkles {...props} />;
-    case "device_not_eligible":
-      return <Cpu {...props} />;
-    default:
-      return <CircleAlert {...props} />;
-  }
-}
-
-/** A section title over a bordered group; each direct child of the group is one 64 px row. */
-function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
-  return (
-    <section className="settings-section" aria-labelledby={`${id}-heading`}>
-      <h2 id={`${id}-heading`} className="section-title">
-        {title}
-      </h2>
-      <div className="settings-group">{children}</div>
-    </section>
-  );
-}
-
-/** The kit's two-line row: the title in bold, one small line under it, the switch at the right. */
-function Switch({ label, description, checked, onChange }: { label: string; description?: string; checked: boolean; onChange(next: boolean): void }) {
-  const id = useId();
-  return (
-    <label className="toggle setting-row">
-      <span className="setting-text">
-        <strong id={`${id}-label`}>{label}</strong>
-        {description !== undefined && <small id={`${id}-description`}>{description}</small>}
-      </span>
-      <input
-        type="checkbox"
-        role="switch"
-        aria-checked={checked}
-        aria-labelledby={`${id}-label`}
-        aria-describedby={description === undefined ? undefined : `${id}-description`}
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-      />
-    </label>
-  );
 }
 
 function CheckUpSection() {
@@ -180,34 +162,6 @@ function GuidedDevBlock({ controller, onResetMemory, onSkipCooldown }: NonNullab
         Stored under {GUIDED_STORAGE_KEY}. Profile: {summariseProfile(settings.profile)}
       </p>
     </div>
-  );
-}
-
-function AiSection({ aiAvailability, onAiAction }: Pick<SettingsProps, "aiAvailability" | "onAiAction">) {
-  const { settings, updateSettings } = useApp();
-  const enabled = settings.explainer.aiEnabled;
-  const state = aiAvailability;
-  const label = state === null ? null : AI_AVAILABILITY_LABELS[state];
-  return (
-    <Section id="ai" title="AI explanations">
-      <Switch
-        label="Explain findings with Apple Intelligence"
-        description={AI_SENTENCE}
-        checked={enabled}
-        onChange={(aiEnabled) => updateSettings({ explainer: { ...settings.explainer, aiEnabled } })}
-      />
-      {enabled && (
-        <p className="status" data-state={state ?? "checking"}>
-          {state === null ? <LoaderCircle size={16} className="spin" aria-hidden="true" /> : <AiIcon state={state} />}{" "}
-          <span>{label === null ? "Checking" : label.word}</span>
-          {state !== null && label !== null && label.action !== null && (
-            <button type="button" className="toolbar-button" onClick={() => onAiAction(state)}>
-              {label.action}
-            </button>
-          )}
-        </p>
-      )}
-    </Section>
   );
 }
 
@@ -394,18 +348,42 @@ function KeychainKeyField() {
   );
 }
 
-function ModelIdField({ id, label, value, pattern, hint, onChange }: { id: string; label: string; value: string; pattern: RegExp; hint: string; onChange(next: string): void }) {
-  const ok = modelIdOk(value, pattern);
+function ModelIdField({
+  id,
+  label,
+  value,
+  pattern,
+  hint,
+  description,
+  allowEmpty = false,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  pattern: RegExp;
+  hint: string;
+  /** Always shown under the label, e.g. what an empty value means. */
+  description?: string;
+  allowEmpty?: boolean;
+  onChange(next: string): void;
+}) {
+  const ok = modelIdOk(value, pattern, allowEmpty);
   return (
     <div>
       <label htmlFor={id}>{label}</label>
+      {description !== undefined && (
+        <p className="muted small" id={`${id}-description`}>
+          {description}
+        </p>
+      )}
       <input
         id={id}
         type="text"
         value={value}
         maxLength={MAX_MODEL_ID_LENGTH}
         aria-invalid={!ok}
-        aria-describedby={ok ? undefined : `${id}-error`}
+        aria-describedby={[description === undefined ? null : `${id}-description`, ok ? null : `${id}-error`].filter((d) => d !== null).join(" ") || undefined}
         onChange={(event) => onChange(event.target.value.trim())}
       />
       {!ok && (
@@ -417,17 +395,17 @@ function ModelIdField({ id, label, value, pattern, hint, onChange }: { id: strin
   );
 }
 
-function DeveloperSection({ guided }: Pick<SettingsProps, "guided">) {
+function DeveloperSection({ guided, providerInfo }: Pick<SettingsProps, "guided"> & { providerInfo: ProviderInfo }) {
   const { settings, updateSettings } = useApp();
   const { developer, explainer } = settings;
   const setDeveloper = (patch: Partial<DeveloperSettings>) => updateSettings({ developer: { ...developer, ...patch } });
   const setEnabled = (enabled: boolean) => {
-    // Leaving Developer mode hides the other providers, so go back to the on-device one.
-    const next = !enabled && explainer.provider !== "apple" ? { ...explainer, provider: "apple" as const } : explainer;
+    // Leaving Developer mode hides the API-key and Ollama providers, so go back to the on-device one.
+    const next = !enabled && isDeveloperProvider(explainer.provider) ? { ...explainer, provider: "apple" as const } : explainer;
     updateSettings({ developer: { ...developer, enabled }, explainer: next });
   };
   const setProvider = (provider: ExplainerProvider) => updateSettings({ explainer: { ...explainer, provider } });
-  const providers: readonly ExplainerProvider[] = ["apple", "claude", "ollama"];
+  const providers: readonly ExplainerProvider[] = PROVIDERS;
   return (
     <Section id="developer" title="Developer mode">
       <Switch label="Developer mode" checked={developer.enabled} onChange={setEnabled} />
@@ -440,10 +418,22 @@ function DeveloperSection({ guided }: Pick<SettingsProps, "guided">) {
             {providers.map((provider) => (
               <label key={provider}>
                 <input type="radio" name="provider" checked={explainer.provider === provider} onChange={() => setProvider(provider)} />
-                {PROVIDER_LABELS[provider]}
+                {PROVIDER_NAMES[provider]}
               </label>
             ))}
           </fieldset>
+          {explainer.provider === "chatgpt" && (
+            <ModelIdField
+              id="chatgpt-model"
+              label="Model id"
+              value={explainer.chatgptModel}
+              pattern={CHATGPT_MODEL_PATTERN}
+              allowEmpty
+              description="Empty uses your account's default"
+              hint={`Model ids use lowercase letters, digits, dots and dashes, at most ${MAX_MODEL_ID_LENGTH} characters.`}
+              onChange={(chatgptModel) => updateSettings({ explainer: { ...explainer, chatgptModel } })}
+            />
+          )}
           {explainer.provider === "claude" && (
             <>
               <KeychainKeyField />
@@ -470,6 +460,8 @@ function DeveloperSection({ guided }: Pick<SettingsProps, "guided">) {
               <p className="muted small">Ollama must be running on this Mac at 127.0.0.1:11434.</p>
             </>
           )}
+          <p className="muted small dev-ai-info">{claudeCodeLine(providerInfo.claudeCode)}</p>
+          <p className="muted small dev-ai-info">{chatgptClientLine(providerInfo.chatgptClientId)}</p>
           <AboutYouSection />
           {guided !== undefined && <GuidedDevBlock {...guided} />}
         </div>
@@ -479,7 +471,7 @@ function DeveloperSection({ guided }: Pick<SettingsProps, "guided">) {
 }
 
 function AboutSection() {
-  const { catalog, license } = useApp();
+  const { catalog, license, settings } = useApp();
   const rows: readonly [string, ReactNode][] = [
     ["Version", APP_VERSION],
     ["Core", CORE_VERSION],
@@ -499,7 +491,7 @@ function AboutSection() {
           </div>
         ))}
       </dl>
-      <p className="muted small">{PRIVACY_SENTENCE}</p>
+      <p className="muted small">{privacySentence(settings.explainer.provider)}</p>
     </Section>
   );
 }
@@ -515,14 +507,14 @@ function licenceLine(license: LicenseState): ReactNode {
   return license.status === "invalid" ? "Invalid" : "None";
 }
 
-export function Settings({ aiAvailability, onAiAction, capabilities, onPermission, onBuy, guided }: SettingsProps) {
+export function Settings({ aiAvailability, onAiAction, capabilities, onPermission, onBuy, guided, onChangeAi = noop, canChangeAi = true, onDisconnect = resolved, providerInfo = NO_PROVIDER_INFO }: SettingsProps) {
   return (
     <div className="screen settings">
       <CheckUpSection />
-      <AiSection aiAvailability={aiAvailability} onAiAction={onAiAction} />
+      <YourAiSection aiAvailability={aiAvailability} onAiAction={onAiAction} onChangeAi={onChangeAi} canChange={canChangeAi} onDisconnect={onDisconnect} />
       <PermissionsSection capabilities={capabilities} onPermission={onPermission} />
       <LicenceSection onBuy={onBuy} />
-      <DeveloperSection guided={guided} />
+      <DeveloperSection guided={guided} providerInfo={providerInfo} />
       <AboutSection />
     </div>
   );

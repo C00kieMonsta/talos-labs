@@ -135,7 +135,7 @@ function OverviewAiCard({ report, onOpen }: { report: ScanReport; onOpen(ruleId:
   const flow = useAiCardFlow("prioritise");
   const priority = flow.explain.kind === "ready" || flow.explain.kind === "failed" ? flow.explain.priority : null;
   return (
-    <AiCard kind="overview" state={flow.state} {...flow.handlers}>
+    <AiCard kind="overview" state={flow.state} provider={flow.provider} {...flow.handlers}>
       {priority !== null && <SuggestedOrderBody report={report} priority={priority} onOpen={onOpen} />}
     </AiCard>
   );

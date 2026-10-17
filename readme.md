@@ -1,6 +1,6 @@
 # Talos Labs
 
-Talos Labs is a desktop app you buy once. It reads the security settings of the Mac it runs on, judges them against the CIS Apple macOS Benchmark, explains to a non-expert what is wrong and why it matters for them, and fixes most of it in place. There is no account, no server and no background agent. The scan runs locally, the AI runs on this Mac, and the report stays on the machine. Talos Labs lives at taloslabs.si; the shop is https://taloslabs.si/shop.
+Talos Labs is a desktop app with a yearly licence, €24 a year. It reads the security settings of the Mac it runs on, judges them against the CIS Apple macOS Benchmark, explains to a non-expert what is wrong and why it matters for them, and fixes most of it in place. There is no account, no server and no background agent. The scan runs locally and the report stays on the machine. Explanations come from the AI you already use, ChatGPT or Claude, connected once in the browser, or from Apple Intelligence on this Mac; the AI receives a short summary of the results and nothing else. Talos Labs lives at taloslabs.si; the shop is https://taloslabs.si/shop.
 
 ## The check-up
 
@@ -28,7 +28,7 @@ The look follows the Mineral design kit at `Talos-Labs-Mineral-Design-Kit-v1/`: 
 ## Requirements
 
 - macOS 26 or later. The app is a universal build and runs on Apple silicon and Intel.
-- Apple silicon with Apple Intelligence turned on, for AI explanations. On other Macs the AI card says so and everything else works.
+- For AI explanations: a ChatGPT Plus or Pro account, a Claude Pro or Max account, or Apple silicon with Apple Intelligence turned on. Without any of them the AI card says so and everything else works.
 - Optional: Full Disk Access, to read browser extension folders. Optional: Automation permission for System Events, to read login items. Both are asked for in place when a check needs them, never during onboarding.
 
 ## What it reads
@@ -59,9 +59,9 @@ The look follows the Mineral design kit at `Talos-Labs-Mineral-Design-Kit-v1/`: 
 - Read documents, mail, messages, photos, browser history, saved passwords or the Keychain.
 - Send the hostname, the names of shared folders, the arguments of background programs or any file path anywhere. Your account name is part of file paths shown in the report (an SSH key under your home folder, for example). Those paths stay on this Mac and never reach a model.
 - Run as root. Collectors never need an administrator password. A fix that does (the firewall, remote access, sharing, updates, the guest account) shows the exact commands first, then asks macOS to show its own administrator dialog once for the whole fix, or once for the whole batch in the check-up. The app never sees the password, never stores it and never runs a shell.
-- Run anything the catalog does not list. There is no free-form command path, in the app or in the AI.
-- Talk to the network. By default there is no outbound connection at all. The only one you can add is a Claude API key or a local Ollama server in Developer mode.
-- Open a web page to explain a finding. Explanations are produced on this Mac.
+- Run anything the catalog does not list, apart from the fixed programs it starts itself: the read-only collectors, the `talos-ai` helper and Anthropic's signature-checked Claude Code, each with literal arguments and no shell. There is no free-form command path, in the app or in the AI.
+- Talk to the network, except to the AI you connected. The check-up and the fixes open no connection. With ChatGPT or Claude connected, the only outbound traffic is the sign-in (the provider's own page in your browser and, for Claude, a fetch of Claude Code from Anthropic unless a signed copy is already installed), the short summary sent for each explanation and, for ChatGPT, a token refresh to OpenAI when the sign-in is about to expire or once after OpenAI rejects the current token on an explanation request. Developer mode adds a Claude API key or a local Ollama server. With AI switched off, or with On this Mac, there is no outbound connection at all.
+- Open a web page to explain a finding. The only pages it opens are the provider's own sign-in page when you connect ChatGPT or Claude, and the shop when you click Buy. Explanations come back into the app from the AI you connected, or are written on this Mac by Apple Intelligence.
 
 ## In-app fixes
 
@@ -97,17 +97,19 @@ The full table with pass conditions and fixes is [docs/RULES.md](docs/RULES.md).
 
 ## Free and paid
 
-Free, before any purchase: the full scan, the score and grade, every finding with its title, status, evidence and explanation, and the complete fix (including Apply) for the three highest-point failing findings. Fixes for "worth a look" findings are always free, and so is the recheck bundled into every Apply. FileVault is the only critical rule, so an unencrypted disk is always in the free three.
+Free, before any purchase: the full scan, the score and grade, every finding with its title, status, evidence and explanation, the complete fix (including Apply) for the three highest-point failing findings, connecting your AI, and AI explanations for those same three. Fixes for "worth a look" findings are always free, and so is the recheck bundled into every Apply. FileVault is the only critical rule, so an unencrypted disk is always in the free three.
 
-Paid, one licence key: fixes for every finding, "Check again" per finding, AI explanations and Ask.
+Paid, one licence key at €24 a year: fixes for every finding, "Check again" per finding, AI explanations for everything, the suggested order and Ask. What happens after the licence year ends is not decided yet (docs/LICENSING.md).
 
 In the check-up the free three are fixed first, and the paywall is one step after them with the key field inline. The free set is frozen when the check-up lands, so fixing one free finding does not unlock the next (DESIGN-V03.md section 1 and section 8).
 
 Licence keys are verified offline with Ed25519 and pasted into the app wherever a lock appears. No account, no phone-home. See [docs/LICENSING.md](docs/LICENSING.md).
 
-## AI on this Mac
+## Your AI
 
-AI explanations use Apple Intelligence through the FoundationModels framework, in a small signed helper (`talos-ai`) bundled with the app. Nothing leaves the Mac. The model receives a derived document: rule ids, statuses, severities, points, counts and your profile. No path, process name, file name or other machine text is in it. Model output is schema-checked and rendered as plain text in a card marked "AI explanation, not verified". One switch in Settings turns it off.
+Talos Labs explains things with the AI you already pay for. You connect ChatGPT (Plus or Pro) or Claude (Pro or Max) once, on the provider's own sign-in page in your browser; no API key and no second subscription. On Apple silicon with Apple Intelligence turned on, "On this Mac" is the no-account option: it uses the FoundationModels framework through a small signed helper (`talos-ai`) bundled with the app, and nothing leaves the Mac. The Claude route runs Anthropic's own Claude Code program, fetched from Anthropic and signature-checked before every launch, under a Talos-owned config folder, so your own Claude Code setup is never touched. A Claude Code already installed under `~/.local/share/claude/versions` or at `~/.local/bin/claude` is used read-only when it is signed by Anthropic and at least 2.1.259; otherwise the stable build is fetched. Release builds offer ChatGPT and Claude only when built with `TALOS_CHATGPT_APPROVED=1` or `TALOS_CLAUDE_PLAN_APPROVED=1`; until the approvals exist those rows read "Not available yet" and On this Mac is the only option. See [docs/DESIGN-AI.md](docs/DESIGN-AI.md) and [docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md).
+
+Your check-up and your fixes never leave this Mac. With ChatGPT or Claude connected, Talos Labs sends them a short summary of the results and nothing else: rule ids, statuses, severities, points, counts and your profile. No path, process name, file name or other machine text is in it. Model output is schema-checked and rendered as plain text in a card marked with the provider's name and "Not verified". One switch in Settings turns it off.
 
 Developer mode adds two more providers for people who want them: Claude with your own Anthropic API key (stored in the macOS Keychain), and Ollama on `127.0.0.1:11434`. They receive the same derived document.
 

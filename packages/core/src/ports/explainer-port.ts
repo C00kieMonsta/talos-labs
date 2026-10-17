@@ -2,12 +2,13 @@ import type { Category, RuleId, RuleStatus, Severity } from "../domain/finding";
 import type { Os } from "../domain/system-state";
 import type { AbortSignalLike } from "./system-state-port";
 
-export type ExplainerId = "apple" | "claude" | "ollama" | "none";
+/** chatgpt and claude_plan are the person's own subscriptions; claude is the Developer-mode API key. */
+export type ExplainerId = "apple" | "chatgpt" | "claude_plan" | "claude" | "ollama" | "none";
 
 /**
- * What the provider reports before a request. The four unavailable states come from
- * the on-device helper; off means the user switched AI off; a Developer-mode provider
- * that is configured reports available.
+ * What the provider reports before a request. The four Apple states come from the
+ * on-device helper; the seven provider states from ChatGPT and Claude; off means the
+ * user switched AI off; a Developer-mode provider that is configured reports available.
  */
 export type AiAvailability =
   | "available"
@@ -15,7 +16,36 @@ export type AiAvailability =
   | "apple_intelligence_not_enabled"
   | "model_not_ready"
   | "helper_unavailable"
+  | "not_connected"
+  | "connecting"
+  | "needs_sign_in"
+  | "limit_reached"
+  | "plan_not_eligible"
+  | "provider_unavailable"
+  | "not_offered"
   | "off";
+
+/** The states a ChatGPT or Claude provider can report; mirrored by the Rust ProviderState enum. */
+export const PROVIDER_STATES: readonly AiAvailability[] = [
+  "available",
+  "not_connected",
+  "connecting",
+  "needs_sign_in",
+  "limit_reached",
+  "plan_not_eligible",
+  "provider_unavailable",
+  "not_offered",
+];
+
+/** States a re-probe schedule stops on: nothing will change by waiting. */
+export const AI_TERMINAL_STATES: readonly AiAvailability[] = ["available", "device_not_eligible", "not_offered", "plan_not_eligible", "off"];
+
+/** The state plus, for limit_reached, when the provider says the allowance comes back. */
+export interface AiAvailabilityDetail {
+  readonly state: AiAvailability;
+  /** ISO, or null when the provider gave no time. */
+  readonly until: string | null;
+}
 
 /** Onboarding radio buttons. Never free text. */
 export interface ExplainerProfile {
@@ -117,6 +147,8 @@ export interface Answer {
  * too_long: the request did not fit the on-device window even without explanations.
  * cancelled: the request was stopped before it finished.
  * busy: another request is still running.
+ * needs_sign_in, limit_reached, provider_unavailable: the provider's state changed mid-stream;
+ * the adapter caches the matching availability so the UI can re-probe without a network call.
  */
 export type ExplainerFailure =
   | "not_configured"
@@ -130,7 +162,10 @@ export type ExplainerFailure =
   | "unavailable"
   | "too_long"
   | "cancelled"
-  | "busy";
+  | "busy"
+  | "needs_sign_in"
+  | "limit_reached"
+  | "provider_unavailable";
 
 export type ExplainerResult<T> =
   | { readonly ok: true; readonly value: T }
@@ -146,6 +181,8 @@ export interface ExplainerPort {
   readonly id: ExplainerId;
   /** fresh bypasses the provider's cache. */
   availability(fresh?: boolean): Promise<AiAvailability>;
+  /** Like availability, with the limit_reached time when the provider reports one. */
+  availabilityDetail?(fresh?: boolean): Promise<AiAvailabilityDetail>;
   explain(input: ExplainInput, options?: ExplainOptions<Explanation>): Promise<ExplainerResult<Explanation>>;
   prioritise(input: PrioritiseInput, options?: ExplainOptions<Prioritisation>): Promise<ExplainerResult<Prioritisation>>;
   ask(input: AskInput, options?: ExplainOptions<Answer>): Promise<ExplainerResult<Answer>>;

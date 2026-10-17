@@ -1,5 +1,5 @@
 import type { FixError, SectionKey } from "@talos/core";
-import { SECTION_LABELS } from "../app/labels";
+import { AI_BADGES, AI_OPEN_APPLE_SETTINGS, AI_UNAVAILABLE_COPY, SECTION_LABELS } from "../app/labels";
 
 /** Fixed strings of the guided flow. Every value is under the banned-word test. */
 
@@ -108,14 +108,80 @@ export const PERMISSION = {
 } as const;
 
 export const PAYWALL = {
-  body: "The full version does them all. One payment, yours to keep.",
-  buy: "Buy the full version, £PRICE",
+  body: "The full version does them all, explains everything with your own AI, and lets you ask questions.",
+  buy: "Buy the full version, €24 a year",
   notNow: "Not now",
   thanks: "Thank you.",
   carrying: "Carrying on.",
 } as const;
 
-export const EXPLAIN = { open: "Explain this", stop: "Stop" } as const;
+/** The Connect screen (DESIGN-AI section 4). */
+export const CONNECT = {
+  title: "Which AI do you use?",
+  body: "I'll use it to explain what I find, in plain words. I send it a short summary of the check-up, never your files, passwords or your computer's name.",
+  /** The status line while the offered providers are not known yet. */
+  loading: "One moment.",
+  rows: { chatgpt: "ChatGPT", claude_plan: "Claude", apple: "On this Mac" },
+  plans: { chatgpt: "Plus or Pro", claude_plan: "Pro or Max", apple: "Apple Intelligence, no account" },
+  notAvailable: "Not available yet",
+  primary: { chatgpt: "Connect ChatGPT", claude_plan: "Connect Claude", apple: "Use this Mac" },
+  notNow: "Not now",
+  cancel: "Cancel",
+  tryAgain: "Try again",
+  chooseAnother: "Choose another",
+  done: { chatgpt: "Done. ChatGPT is connected.", claude_plan: "Done. Claude is connected.", apple: "Done. I'll explain things on this Mac." },
+} as const;
+
+export const CONNECTING = {
+  opened: { chatgpt: "I've opened ChatGPT in your browser.", claude_plan: "I've opened Claude in your browser." },
+  body: "Sign in there and say yes when it asks. Then come back here.",
+  status: "I'll notice when you're done.",
+  fetchTitle: "Getting Claude ready.",
+  fetchBody: "I'm fetching Claude's own helper from Anthropic. This happens once.",
+  fetchStatus: "About a minute.",
+  fetchFailedTitle: "I couldn't fetch Claude's helper.",
+  fetchFailedBody: "Check your internet connection and try again.",
+} as const;
+
+export const CONNECT_FAILED = {
+  closed: { title: "You stopped before signing in.", body: "Nothing was connected." },
+  plan_not_eligible: {
+    title: "That account's plan doesn't include this.",
+    body: { chatgpt: "ChatGPT Plus or Pro is needed.", claude_plan: "Claude Pro or Max is needed." },
+  },
+  provider_unavailable: {
+    title: { chatgpt: "ChatGPT didn't answer.", claude_plan: "Claude didn't answer." },
+    body: "Nothing was connected. Try again in a little while.",
+  },
+  timeout: { title: "I stopped waiting.", body: "Nothing was connected." },
+} as const;
+
+/** The "Explain this" disclosure in every AI state. */
+export const EXPLAIN = {
+  open: "Explain this",
+  stop: "Stop",
+  checking: "Checking your AI.",
+  notConnected: "Talos Labs can explain each of these using the AI you already pay for, ChatGPT or Claude. Nothing to install and no extra cost.",
+  notConnectedApple: "Talos Labs can explain each of these using the AI you already pay for, ChatGPT, Claude, or Apple Intelligence on this Mac. Nothing to install and no extra cost.",
+  connect: "Connect my AI",
+  notNow: "Not now",
+  waiting: "I'll notice when you're done.",
+  signedOut: { chatgpt: "ChatGPT signed me out.", claude_plan: "Claude signed me out." },
+  signInAgain: "Sign in again",
+  limit: { chatgpt: "Your ChatGPT allowance is used up for now.", claude_plan: "Your Claude allowance is used up for now." },
+  limitBack: "It comes back on its own.",
+  limitBackAtPrefix: "It comes back at ",
+  didNotAnswer: { chatgpt: "ChatGPT didn't answer.", claude_plan: "Claude didn't answer." },
+  tryAgain: "Try again",
+  locked: "Explaining everything is in the full version.",
+  unlock: "Unlock",
+  badge: AI_BADGES,
+  /** The v0.2 Apple Intelligence lines, as on the expert card, when On this Mac cannot explain. */
+  apple: AI_UNAVAILABLE_COPY,
+  openAppleSettings: AI_OPEN_APPLE_SETTINGS,
+  /** The chosen provider cannot be offered by this build and nothing else can be connected. */
+  notOffered: { chatgpt: "ChatGPT isn't available in this version yet.", claude_plan: "Claude isn't available in this version yet." },
+} as const;
 
 export const END = {
   allDone: "Your Mac is in good shape.",
@@ -135,6 +201,8 @@ export const END = {
   next: "Do this next",
   unreadable: "Couldn't check",
   biggestRisk: "That is the biggest risk left.",
+  explained: "Get things explained",
+  explainedSub: "Connect the AI you already use",
 } as const;
 
 /** The "Do this next" button, by what the step does. */
