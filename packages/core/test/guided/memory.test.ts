@@ -24,6 +24,7 @@ describe("parseGuidedMemory", () => {
       paywallSnoozedUntil: "2026-10-29T10:00:00.000Z",
       permissionAskedAt: { full_disk_access: "2026-10-15T10:00:00.000Z" },
       aiAskedAt: "2026-10-14T10:00:00.000Z",
+      accepted: { "TL-MAC-001": "2026-10-10T09:00:00.000Z" },
       extra: "ignored",
       lastStep: 3,
     };
@@ -43,6 +44,7 @@ describe("parseGuidedMemory", () => {
       paywallSnoozedUntil: 42,
       permissionAskedAt: { full_disk_access: "2026-10-15T10:00:00.000Z", camera: "2026-10-15T10:00:00.000Z", automation: 3 },
       aiAskedAt: "yesterday",
+      accepted: { "TL-MAC-001": "2026-10-10T09:00:00.000Z", "TL-MAC-002": "last week", "/Users/alice": "2026-10-10T09:00:00.000Z" },
     });
     expect(parsed).toEqual({
       version: 1,
@@ -53,7 +55,18 @@ describe("parseGuidedMemory", () => {
       paywallSnoozedUntil: null,
       permissionAskedAt: { full_disk_access: "2026-10-15T10:00:00.000Z" },
       aiAskedAt: null,
+      accepted: { "TL-MAC-001": "2026-10-10T09:00:00.000Z" },
     });
+  });
+
+  it("accepted holds rule ids and dates only, and an older memory loads with an empty map", () => {
+    expect(EMPTY_GUIDED_MEMORY.accepted).toEqual({});
+    expect(parseGuidedMemory({ version: 1 }).accepted).toEqual({});
+    expect(parseGuidedMemory({ version: 1, accepted: { "TL-MAC-001": "2026-10-10T09:00:00.000Z" } }).accepted).toEqual({ "TL-MAC-001": "2026-10-10T09:00:00.000Z" });
+    expect(parseGuidedMemory({ version: 1, accepted: { "/etc/passwd": "2026-10-10T09:00:00.000Z" } }).accepted).toEqual({});
+    expect(parseGuidedMemory({ version: 1, accepted: { "TL-MAC-001": "not a date" } }).accepted).toEqual({});
+    expect(parseGuidedMemory({ version: 1, accepted: ["TL-MAC-001"] }).accepted).toEqual({});
+    expect(parseGuidedMemory({ version: 1, accepted: "TL-MAC-001" }).accepted).toEqual({});
   });
 
   it("reads aiAskedAt as a date or null and never from a v0.3 value", () => {

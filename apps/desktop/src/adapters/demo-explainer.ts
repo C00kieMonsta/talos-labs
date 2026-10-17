@@ -88,10 +88,10 @@ export class CannedAnswers {
     };
   }
 
-  /** The order is a permutation of `eligible` (the context's ids unless the caller narrows them). */
+  /** The order is a permutation of `eligible` (the context's ids unless the caller narrows them); a row the person chose to leave is never in it. */
   prioritisation(input: PrioritiseInput, eligible?: readonly RuleId[]): Prioritisation {
     const allowed = eligible === undefined ? null : new Set<string>(eligible);
-    const ordered = [...input.context.findings].filter((f) => allowed === null || allowed.has(f.ruleId)).sort(byPriority);
+    const ordered = [...input.context.findings].filter((f) => !f.accepted && (allowed === null || allowed.has(f.ruleId))).sort(byPriority);
     const order = ordered.map((f) => f.ruleId);
     const failing = ordered.filter((f) => f.status === "fail");
     const reasons = failing.slice(0, 3).map((f) => {

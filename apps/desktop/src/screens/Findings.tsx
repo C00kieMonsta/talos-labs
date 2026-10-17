@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { Category, Finding, Rule, RuleId, ScanReport, Severity } from "@talos/core";
+import { acceptedFailing } from "@talos/core";
 import { AiCard, useAiCardFlow } from "../components/AiCard";
 import { FindingCard } from "../components/FindingCard";
 import { SeverityBadge } from "../components/SeverityBadge";
@@ -13,6 +14,7 @@ import type { CategoryFilter, SeverityFilter } from "../app/router";
 import { hiddenBySocketTable } from "../app/network-checks";
 import { lastReport } from "../scan/machine";
 import type { ExplainState } from "../scan/machine";
+import { ACCEPT } from "../guided/copy";
 import { SuggestedOrderBody } from "./Overview";
 
 /** The filter selects live in the toolbar when it offers a slot, else inline. */
@@ -29,7 +31,7 @@ function bySeverity(a: Finding, b: Finding): number {
 }
 
 export function Findings() {
-  const { scan, router, catalog, settings } = useApp();
+  const { scan, router, catalog, settings, guidedMemory } = useApp();
   const report = lastReport(scan.scan);
   // The filters live on the route, so Back from a finding restores them; local state keeps the selects responsive.
   const routed = router.route.name === "findings" ? router.route : null;
@@ -58,8 +60,17 @@ export function Findings() {
   const live = scan.scan.kind === "ready";
   const explain: ExplainState = scan.scan.kind === "ready" || scan.scan.kind === "rechecking" ? scan.scan.explain : { kind: "off" };
   const order = explain.kind === "ready" || explain.kind === "failed" ? explain.order : null;
+  // The rules the person chose to leave: last in "Needs fixing", with the pill, and never an AI rank even from a stale order.
+  const accepted = new Set<RuleId>(acceptedFailing(guidedMemory, report));
   const rankOf = new Map<RuleId, number>();
-  if (order !== null) order.forEach((id, index) => rankOf.set(id, index + 1));
+  if (order !== null) {
+    let rank = 0;
+    for (const id of order) {
+      if (accepted.has(id)) continue;
+      rank += 1;
+      rankOf.set(id, rank);
+    }
+  }
 
   const keep = (f: { severity: Severity; category: Category }) =>
     (severity === "all" || f.severity === severity) && (category === "all" || f.category === category);
@@ -71,7 +82,8 @@ export function Findings() {
   };
 
   const findings = report.findings.filter(keep);
-  const needsFixing = findings.filter((f) => f.status === "fail").sort(bySeverity);
+  const needsFixing = findings.filter((f) => f.status === "fail").sort((a, b) => Number(accepted.has(a.ruleId)) - Number(accepted.has(b.ruleId)) || bySeverity(a, b));
+  const pillFor = (finding: Finding) => (accepted.has(finding.ruleId) ? ACCEPT.pill : undefined);
   const worthALook = findings.filter((f) => f.status === "review");
   const couldntCheck = findings.filter((f) => f.status === "unknown").sort(bySeverity);
 
@@ -128,7 +140,7 @@ export function Findings() {
             </p>
           ) : (
             <>
-              <Group title="Needs fixing" empty="Nothing needs fixing." findings={needsFixing} rankOf={rankOf} reasonFor={reasonFor} onOpen={open} />
+              <Group title="Needs fixing" empty="Nothing needs fixing." findings={needsFixing} rankOf={rankOf} reasonFor={reasonFor} pillFor={pillFor} onOpen={open} />
               <Group title="Worth a look" empty="Nothing to look at." findings={worthALook} rankOf={rankOf} reasonFor={reasonFor} onOpen={open} />
               <Group title="Couldn't check" empty="Everything could be checked." findings={couldntCheck} rankOf={rankOf} reasonFor={reasonFor} onOpen={open} />
 
@@ -166,13 +178,13 @@ export function Findings() {
           )}
         </div>
 
-        {showAside && <SuggestedOrder report={report} onOpen={open} />}
+        {showAside && <SuggestedOrder report={report} accepted={[...accepted]} onOpen={open} />}
       </div>
     </div>
   );
 }
 
-function SuggestedOrder({ report, onOpen }: { report: ScanReport; onOpen(ruleId: RuleId): void }) {
+function SuggestedOrder({ report, accepted, onOpen }: { report: ScanReport; accepted: readonly RuleId[]; onOpen(ruleId: RuleId): void }) {
   const flow = useAiCardFlow("prioritise");
   const priority = flow.explain.kind === "ready" || flow.explain.kind === "failed" ? flow.explain.priority : null;
   const heading = useRef<HTMLHeadingElement>(null);
@@ -189,7 +201,7 @@ function SuggestedOrder({ report, onOpen }: { report: ScanReport; onOpen(ruleId:
         Suggested order
       </h2>
       <AiCard kind="overview" title="Suggested order" state={flow.state} provider={flow.provider} {...flow.handlers}>
-        {priority !== null && <SuggestedOrderBody report={report} priority={priority} onOpen={onOpen} />}
+        {priority !== null && <SuggestedOrderBody report={report} priority={priority} accepted={accepted} onOpen={onOpen} />}
       </AiCard>
     </aside>
   );
@@ -201,6 +213,7 @@ function Group({
   findings,
   rankOf,
   reasonFor,
+  pillFor,
   onOpen,
 }: {
   title: string;
@@ -208,6 +221,8 @@ function Group({
   findings: readonly Finding[];
   rankOf: ReadonlyMap<RuleId, number>;
   reasonFor(finding: Finding): string | undefined;
+  /** The "Left alone" pill for an accepted row. */
+  pillFor?(finding: Finding): string | undefined;
   onOpen(ruleId: RuleId): void;
 }) {
   const id = `group-${title.toLowerCase().replace(/[^a-z]+/g, "-")}`;
@@ -230,12 +245,14 @@ function Group({
           {findings.map((finding) => {
             const rank = rankOf.get(finding.ruleId);
             const reasonLabel = reasonFor(finding);
+            const pill = pillFor?.(finding);
             return (
               <FindingCard
                 key={finding.ruleId}
                 finding={finding}
                 {...(rank === undefined ? {} : { rank })}
                 {...(reasonLabel === undefined ? {} : { reasonLabel })}
+                {...(pill === undefined ? {} : { pill })}
                 onOpen={onOpen}
               />
             );

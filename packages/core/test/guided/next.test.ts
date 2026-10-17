@@ -69,6 +69,20 @@ describe("nextAction", () => {
     expect(nextAction(plan({ later: [], locked: [], leftAlone: ["TL-MAC-014", "TL-MAC-010"] }), DEV)?.ruleId).toBe("TL-MAC-010");
   });
 
+  it("never picks an accepted rule, even the one with the most points", () => {
+    const AT = "2026-10-10T09:00:00.000Z";
+    const licensed = { freeFixes: freeFixRuleIds(DEV), licensed: true };
+    // 001 is accepted and still failing; 010 is snoozed. The card is 010.
+    const withLater = buildGuidedPlan(DEV, licensed, PROFILE, { ...EMPTY_GUIDED_MEMORY, accepted: { "TL-MAC-001": AT }, snoozed: { "TL-MAC-010": "2026-10-22T10:00:00.000Z" } }, NOW);
+    expect(withLater.accepted).toEqual(["TL-MAC-001"]);
+    expect(withLater.later).toEqual(["TL-MAC-010"]);
+    expect(nextAction(withLater, DEV)?.ruleId).toBe("TL-MAC-010");
+    // Only 001 accepted, nothing waiting or locked, 014 left alone is low: nothing to push.
+    const onlyAccepted = buildGuidedPlan(DEV, licensed, PROFILE, { ...EMPTY_GUIDED_MEMORY, accepted: { "TL-MAC-001": AT } }, NOW);
+    expect(onlyAccepted.leftAlone).toEqual(["TL-MAC-014"]);
+    expect(nextAction(onlyAccepted, DEV)).toBeNull();
+  });
+
   it("falls back to details for a rule with neither a fix nor a pane", () => {
     // 005 is manual and fails on the dev machine only when forced; the list is what matters here.
     const result = DEV.results.find((r) => r.ruleId === "TL-MAC-005");

@@ -181,9 +181,38 @@ pnpm exec tsx qa/axe.ts --port 1430 [--only expert|guided|ai|watch]
 
 Runs axe-core on the same four walks in light and dark and prints a JSON array of violations (`screen`, `id`, `impact`, `help`, `target`) to stdout. Exits 1 when any violation is serious or critical. Progress goes to stderr, so `> report.json` keeps the JSON clean.
 
+## Motion smoke
+
+```sh
+cd apps/desktop
+pnpm exec tsx qa/motion.ts --port 1430
+```
+
+Measures the moments of docs/DESIGN-PLAYFUL.md on the demo at `pace=1`, light scheme, 1100x760, without the harness's unroll CSS. Each moment is read inside the page on the first frame its element exists (`waitForFunction` with `polling: "raf"`) and again after its duration plus a margin, then repeated under `page.emulateMedia({ reducedMotion: "reduce" })`, where the animation must be `none` (or cut to 0.001 ms by `base.css`) and the resting value must be there on the first frame. Exits 1 on any failure; progress goes to stderr.
+
+| Moment | Where | Reads |
+|---|---|---|
+| `motion-welcome-drift` | `reset=1&delay=0` | `[data-testid="hero-spiral"]` opacity under 0.3 of `--hero-spiral-opacity` on the first frame, the token after 950 ms |
+| `motion-hello` | same page | `.guided-welcome-first .guided-actions` opacity under 1, then 1 by 600 ms; "Start" present |
+| `motion-scan-dot` | `onboarded=1&delay=0` | the first `.scan-dot-passed` runs `dot-settle` |
+| `motion-ring-fill` | `guided=0`, "Start check-up" | `.score-meter-figure` below the score, equal by 950 ms, `aria-valuenow` the score throughout |
+| `motion-ring-replay` | same, click `[role="meter"]` | the figure drops below the score two frames after the click, equal by 950 ms |
+| `motion-done-disc` | `fix=ok&fix_delay=0`, "Turn it on" | `.guided-status-disc` runs `disc-in`; `.guided-status-mark > .guided-tick` runs `guided-tick` after 0.15 s |
+| `motion-cue-bar` | the partial end screen | `.guided-next-card::before` transform `matrix(1, 0, 0, 0, 0, 0)` on the first frame, `none` after 600 ms |
+| `motion-cue-bar-act` | `fixture=hardened&licensed=1&watch=act` | the same on the act-now card; `h1.guided-title` animation `none` |
+| `motion-press` | the plan screen's primary | `matrix(0.98, …)` while the mouse is down, `none` after release |
+| `motion-horizon` | `fixture=hardened` end screen | `[data-testid="hero-horizon"]` opacity under 1, then 1 by 300 ms |
+| `motion-caret` | `licensed=1`, the first fix step's Explain summary | `.caret` runs `caret-blink` over 1 s |
+
+After the moments it idles 5 s on the plan screen and asserts that every animation still in `document.getAnimations()` with `playState === "running"` is `caret-blink`, `spin` or `shimmer`. Finished animations with `animation-fill-mode: both` (the hero bands, the welcome stagger, the disc, the cue bar, the grade word) stay listed in a `finished` state and are ignored.
+
+Skipped with a logged reason until their surfaces exist: `motion-breathe` (the chat home), `motion-reading` (DESIGN-DAILY), `motion-watch-status` (the `span.watch-status-inner` in `WatchWindow.tsx`), `motion-fixed-count` (the `CountUp` in `EndScreen.tsx`).
+
+`pace=0` also freezes the JavaScript count-ups (the ring, `CountUp`) through `motionOff()` in `src/app/motion.ts`, so every screenshot walk stays byte-stable.
+
 ## Files
 
 - `harness.ts`: CLI args, the demo server, Chrome, and the four screen walks (`walk`, `walkGuided`, `walkAi`, `walkWatch`) shared by both scripts.
-- `snap.ts`, `axe.ts`: the two entry points.
+- `snap.ts`, `axe.ts`: the two entry points; `motion.ts` is the motion smoke test.
 - `tsconfig.json`: the scripts are typechecked by `pnpm --filter @talos/desktop typecheck`.
 - `scratch/`: git-ignored space for ad-hoc output.

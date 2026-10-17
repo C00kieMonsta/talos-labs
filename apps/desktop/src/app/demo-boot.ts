@@ -2,7 +2,7 @@ import type { AiAvailability, AutomationStatus, ExplainerFailure, ExplainerProfi
 import { evaluate, FISHY_KINDS, MACOS_CATALOG } from "@talos/core";
 import type { Adapters } from "../adapters";
 import { createDemoAdapters, DEMO_BATCH_OUTCOMES, DEMO_CONNECT_OUTCOMES, DEMO_FIX_OUTCOMES, DEMO_FIXTURE_NAMES, DEMO_FIXTURES, DEMO_LICENSE_KEY, DEMO_SCAN_ERRORS, withForcedFailures } from "../adapters/demo";
-import type { DemoFixture, DemoOptions } from "../adapters/demo";
+import type { DemoFixture, DemoOptions, ForcedFailure } from "../adapters/demo";
 import { isDeveloperProvider, loadSettings, PROVIDERS, saveSettings } from "../settings";
 import type { AppSettings, ExplainerProvider } from "../settings";
 
@@ -54,6 +54,14 @@ function isoDate(value: string | null): string | null {
 }
 
 const AUTOMATION: readonly AutomationStatus[] = ["granted", "denied", "not_determined"];
+
+/** `fail=` values and the rule each forces (`withForcedFailures`). */
+const FORCED_FAILURES: Readonly<Record<string, ForcedFailure>> = {
+  "013": "TL-MAC-013",
+  "TL-MAC-013": "TL-MAC-013",
+  "001": "TL-MAC-001",
+  "TL-MAC-001": "TL-MAC-001",
+};
 
 export type WatchDemoState = "calm" | "look" | "act" | "unreadable" | "first-run";
 export type WatchDemoAi = "off" | "apple" | "chatgpt" | "claude" | "limit";
@@ -158,8 +166,8 @@ export function parseDemoQuery(search: string): DemoFlags {
   const technical = pickOne(params.get("technical"), TECHNICAL);
   const fail = (params.get("fail") ?? "")
     .split(",")
-    .filter((id) => id === "013" || id === "TL-MAC-013")
-    .map(() => "TL-MAC-013" as const);
+    .map((id) => FORCED_FAILURES[id])
+    .filter((id): id is ForcedFailure => id !== undefined);
   return {
     options: {
       fixture,

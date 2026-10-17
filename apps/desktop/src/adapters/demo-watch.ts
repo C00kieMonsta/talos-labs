@@ -7,6 +7,7 @@ import type {
   FixOutcome,
   FixPlanLine,
   Rating,
+  RuleId,
   SignalId,
   WatchActionId,
   WatchAi,
@@ -297,8 +298,8 @@ export class DemoWatch implements WatchPort {
     recordDemoCall({ kind: "watch_request_notify_permission" });
   }
 
-  /** A false push settles the state as Rust does (calm, no items); a true push flips the flag and leaves the rest alone. */
-  async setProfile(profile: ExplainerProfile, _ai: WatchAi | undefined, licensed: boolean): Promise<void> {
+  /** A false push settles the state as Rust does (calm, no items); a true push flips the flag and leaves the rest alone. The accepted ids are taken and never recorded, like Rust. */
+  async setProfile(profile: ExplainerProfile, _ai: WatchAi | undefined, licensed: boolean, _accepted?: readonly RuleId[]): Promise<void> {
     recordDemoCall({ kind: "watch_set_profile", arg: licensed });
     this.profile = { role: profile.role, technical: profile.technical, handlesClientData: profile.handlesClientData, laptopLeavesHome: profile.laptopLeavesHome };
     if (licensed) {

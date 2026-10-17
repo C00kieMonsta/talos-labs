@@ -21,12 +21,15 @@ export function FindingCard({
   finding,
   rank,
   reasonLabel,
+  pill,
   onOpen,
 }: {
   finding: Finding;
   rank?: number;
   /** Replaces the generic reason label for an unknown finding. */
   reasonLabel?: string;
+  /** "Left alone": the person chose to leave this check (DESIGN-ACCEPT.md section 3, item 7). */
+  pill?: string;
   onOpen(ruleId: RuleId): void;
 }) {
   const kind = finding.fix.apply.kind;
@@ -57,6 +60,7 @@ export function FindingCard({
         </div>
       </div>
       <div className="finding-row-trail">
+        {pill !== undefined && <span className="badge badge-left-alone">{pill}</span>}
         {rank !== undefined && (
           <span className="badge badge-rank">
             AI #{rank}

@@ -1,9 +1,9 @@
 export { toExplainerContext, explainerEligibleRuleIds, UNKNOWN_OS_VERSION } from "./context";
-export { buildSystemPrompt } from "./system-prompt";
+export { buildSystemPrompt, buildExplainerSystemPrompt, ACCEPTED_SENTENCE } from "./system-prompt";
 export { EXPLANATION_JSON_SCHEMA, PRIORITISATION_JSON_SCHEMA, ANSWER_JSON_SCHEMA, WATCH_JSON_SCHEMA } from "./schemas";
 export { validateExplanation, validatePrioritisation, validateAnswer, containsCommandText } from "./validate";
 export { clampQuestion, clampHistory, clampString } from "./limits";
-export { ON_DEVICE_LIMITS, buildOnDeviceInstructions, buildOnDevicePrompt } from "./on-device-prompt";
+export { ON_DEVICE_LIMITS, ON_DEVICE_BASE_INSTRUCTIONS, buildOnDeviceInstructions, buildOnDevicePrompt } from "./on-device-prompt";
 export type { OnDevicePrompt, OnDeviceTask, OnDeviceExtra } from "./on-device-prompt";
 export {
   explainTurns,

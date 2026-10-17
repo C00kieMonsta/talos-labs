@@ -14,7 +14,7 @@ afterEach(cleanup);
 
 const gate = { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => false, watchLocked: true };
 const DIFF: ReportDiff = { fixed: ["TL-MAC-002"], appeared: [], unreadable: [] };
-const PLAN: GuidedPlan = { reportId: "r1", freeFixes: [], steps: [], leftAlone: [], worthALook: [], technical: [], later: [], locked: [], unreadable: 0 };
+const PLAN: GuidedPlan = { reportId: "r1", freeFixes: [], steps: [], leftAlone: [], worthALook: [], technical: [], later: [], locked: [], accepted: [], unreadable: 0 };
 
 function renderSince(watch: WatchController, onCarryOn = vi.fn()) {
   const settings = { ...DEFAULT_SETTINGS, onboarded: true };

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { Evidence, Explanation, Finding, Rule, RuleId, RuleStatus, SettingsPane } from "@talos/core";
+import { isAccepted } from "@talos/core";
 import { AiCard, useAiCardFlow } from "../components/AiCard";
 import { EvidenceTable } from "../components/EvidenceTable";
 import { FixCard } from "../components/FixCard";
@@ -18,10 +19,12 @@ import {
   SOCKET_TABLE_LABEL,
   UNKNOWN_REASON_LABELS,
   URGENCY_LABELS,
+  formatDate,
   formatTime,
   paneForReason,
 } from "../app/labels";
 import { hiddenBySocketTable } from "../app/network-checks";
+import { ACCEPT } from "../guided/copy";
 import { lastReport } from "../scan/machine";
 
 const STATUS_LABELS: Readonly<Record<RuleStatus, string>> = {
@@ -89,7 +92,7 @@ function fromRule(rule: Rule, status: RuleStatus, evidence: readonly Evidence[])
 }
 
 export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
-  const { scan, catalog, gate, settings, adapters, capabilities } = useApp();
+  const { scan, catalog, gate, settings, adapters, capabilities, guidedMemory, acceptRule, unacceptRule } = useApp();
   const report = lastReport(scan.scan);
   const finding = report?.findings.find((f) => f.ruleId === ruleId);
   const result = report?.results.find((r) => r.ruleId === ruleId);
@@ -115,6 +118,10 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
   const fixable = !unsignedBuild && (view.status === "fail" || view.status === "review");
   const actionable = fixable || (!unsignedBuild && view.status === "unknown");
   const locked = fixable && gate.fixLocked({ ruleId: view.ruleId, status: view.status });
+  // "Left alone" only while the check fails: a rule in the map that passed since the last landing shows nothing.
+  const accepted = view.status === "fail" && isAccepted(guidedMemory, view.ruleId);
+  const acceptedAt = accepted ? (guidedMemory.accepted[view.ruleId] ?? null) : null;
+  const offer = fixable && view.status === "fail" && !accepted;
   const permissionPane = paneForReason(view.unknownReason);
   const openPane = (pane: SettingsPane) => void adapters.openSettingsPane(pane);
   const lastRecheck = scan.scan.kind === "ready" ? scan.scan.lastRecheck : null;
@@ -139,6 +146,7 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
         <div className="detail-meta">
           <SeverityBadge severity={view.severity} />
           {view.status !== "fail" && <span className={`status status-${view.status}`}>{STATUS_LABELS[view.status]}</span>}
+          {accepted && <span className="status status-left-alone">{ACCEPT.pill}</span>}
           <span className="muted small">
             {CATEGORY_LABELS[view.category]}
             {view.cis !== null ? ` · CIS ${view.cis}` : ""}
@@ -162,7 +170,10 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
 
       {!fixable && passedAt !== null && <PassedStrip at={passedAt} />}
 
+      {accepted && acceptedAt !== null && <AcceptStrip at={acceptedAt} onUndo={() => unacceptRule(view.ruleId)} />}
+
       {fixable &&
+        !accepted &&
         (locked ? (
           <Lock
             title="This fix is part of the full version"
@@ -185,6 +196,8 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
             onWatch={() => scan.startWatch(view.ruleId)}
           />
         ))}
+
+      {offer && <AcceptOffer onAccept={() => acceptRule(view.ruleId)} />}
 
       <section className="card" aria-labelledby="evidence-heading">
         <h2 id="evidence-heading">What was found</h2>
@@ -211,6 +224,31 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
         />
       )}
       <FixFlow />
+    </div>
+  );
+}
+
+/** Under the fix card or the lock: the one place that offers "Leave it alone" in the expert shell (DESIGN-ACCEPT.md section 2). */
+function AcceptOffer({ onAccept }: { onAccept(): void }) {
+  return (
+    <div className="accept-offer">
+      <p>{ACCEPT.offer}</p>
+      <button type="button" className="button" onClick={onAccept}>
+        {ACCEPT.link}
+      </button>
+    </div>
+  );
+}
+
+/** In place of the fix card while the check is left alone: the date and the one undo. */
+function AcceptStrip({ at, onUndo }: { at: string; onUndo(): void }) {
+  return (
+    <div role="status" className="status-strip accept-strip">
+      <Icon icon={ICONS.eyeOff} />
+      <span>{ACCEPT.strip.replace("{date}", formatDate(at))}</span>
+      <button type="button" className="toolbar-button" onClick={onUndo}>
+        {ACCEPT.undo}
+      </button>
     </div>
   );
 }

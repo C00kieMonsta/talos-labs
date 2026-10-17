@@ -1,0 +1,66 @@
+/* "Leave it alone, I know the risk" (DESIGN-ACCEPT.md). Existing tokens only; the pill and the status word are neutral. */
+
+/* The ask screen on a batch lists the asked headlines under the body. */
+.guided-ask-accept .guided-list {
+  margin: var(--space-2) 0 0;
+}
+
+/* The Finding detail offer, under the fix card or the lock. */
+.accept-offer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+}
+
+.accept-offer p {
+  margin: 0;
+  color: var(--fg-secondary);
+  font: var(--text-body);
+}
+
+/* The strip that replaces the fix card while the check is left alone: the date and the one undo. */
+.accept-strip {
+  flex-wrap: wrap;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--fg-primary);
+}
+
+.accept-strip > span {
+  flex: 1 1 240px;
+}
+
+.accept-strip svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--fg-secondary);
+}
+
+/* "Left alone" on a finding card and in the detail head: secondary text on the elevated surface, 4.5:1 in both schemes. */
+.badge-left-alone,
+.status-left-alone {
+  color: var(--fg-secondary);
+  background: var(--bg-elevated);
+}
+
+.status-left-alone {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  font-weight: 500;
+}
+
+/* The score card's one extra line. */
+.score-chosen {
+  margin-top: var(--space-1);
+}
+
+/* The read-only Settings list of checks left alone. */
+.settings-accepted-list .setting-row {
+  min-height: 48px;
+}

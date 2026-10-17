@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEV_MACHINE, MACOS_CATALOG, evaluate, toExplainerContext } from "@talos/core";
+import { DEV_MACHINE, MACOS_CATALOG, buildOnDevicePrompt, evaluate, toExplainerContext } from "@talos/core";
 import type { Explanation } from "@talos/core";
 import { DEFAULT_SETTINGS } from "../settings";
 import { AppleExplainerAdapter, mapAiError, snapshotHasCommandText } from "./apple-explainer";
@@ -154,5 +154,18 @@ describe("AppleExplainerAdapter", () => {
   it("snapshotHasCommandText looks into nested strings", () => {
     expect(snapshotHasCommandText({ a: ["fine", { b: "sudo rm -rf /" }] })).toBe(true);
     expect(snapshotHasCommandText({ a: ["fine", 3, true] })).toBe(false);
+  });
+});
+
+describe("AppleExplainerAdapter and the rules the person chose to leave", () => {
+  it("the on-device prioritise prompt keeps every eligible rule but the accepted one, so the validator never allows it", () => {
+    const left = toExplainerContext(report, MACOS_CATALOG, DEFAULT_SETTINGS.profile, ["TL-MAC-001"]);
+    const built = buildOnDevicePrompt("prioritise", left, MACOS_CATALOG, {});
+    expect(built.kept).not.toContain("TL-MAC-001");
+    expect(built.text).not.toContain("TL-MAC-001");
+    const all = buildOnDevicePrompt("prioritise", context, MACOS_CATALOG, {});
+    expect(all.kept).toContain("TL-MAC-001");
+    // The budget cap may let one more rule in once 001 is gone; every other kept rule is still there.
+    for (const id of all.kept.filter((x) => x !== "TL-MAC-001")) expect(built.kept).toContain(id);
   });
 });

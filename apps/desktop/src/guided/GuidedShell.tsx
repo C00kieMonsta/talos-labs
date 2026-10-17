@@ -10,23 +10,26 @@ import type { ToolbarAction } from "../components/Toolbar";
 export interface GuidedHero {
   readonly spiral: boolean;
   readonly horizon: boolean;
+  /** The spiral breathes while the screen's own request runs; the explain slot adds to it. */
+  readonly writing: boolean;
 }
 
 const HeroContext = createContext<(hero: GuidedHero | null) => void>(() => undefined);
 
 /** A screen asks the shell for its hero bands; they go when the screen does. */
-export function useGuidedHero(spiral: boolean, horizon: boolean): void {
+export function useGuidedHero(spiral: boolean, horizon: boolean, writing = false): void {
   const set = useContext(HeroContext);
   useEffect(() => {
-    set({ spiral, horizon });
+    set({ spiral, horizon, writing });
     return () => set(null);
-  }, [set, spiral, horizon]);
+  }, [set, spiral, horizon, writing]);
 }
 
 /** The guided shell: no sidebar, a 52 px strip with the brand, "Details" and "Settings", one centred column that is the main landmark. */
 export function GuidedShell({ title, actions = [], inactive, hero, children }: { title?: string; actions?: readonly ToolbarAction[]; inactive: boolean; hero?: ReactNode; children: ReactNode }) {
-  const { router } = useApp();
+  const { router, scan } = useApp();
   const [wanted, setWanted] = useState<GuidedHero | null>(null);
+  const explainRunning = (scan.scan.kind === "ready" || scan.scan.kind === "rechecking") && scan.scan.explain.kind === "running";
   return (
     <div className={inactive ? "shell guided-shell window-inactive" : "shell guided-shell"}>
       <header className="title-strip guided-strip" data-tauri-drag-region="true">
@@ -53,7 +56,7 @@ export function GuidedShell({ title, actions = [], inactive, hero, children }: {
       </header>
       <div className="content guided-content">
         {hero}
-        {wanted?.spiral === true && <Hero kind="spiral" />}
+        {wanted?.spiral === true && <Hero kind="spiral" writing={wanted.writing || explainRunning} />}
         <HeroContext.Provider value={setWanted}>
           <main className="guided">{children}</main>
         </HeroContext.Provider>

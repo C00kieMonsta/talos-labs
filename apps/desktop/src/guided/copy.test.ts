@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { PROBE_IDS } from "@talos/core";
 import * as copy from "./copy";
-import { CONNECT, CONNECTING, CONNECT_FAILED, END, EXPLAIN, FISHY, GUIDED_SECTION_LABELS, NOT_ANTIVIRUS, PAYWALL, WATCH, WATCH_ON, WATCH_SETTINGS, WELCOME, failureCopy } from "./copy";
+import { ACCEPT, CONNECT, CONNECTING, CONNECT_FAILED, END, EXPLAIN, FISHY, GUIDED_SECTION_LABELS, NOT_ANTIVIRUS, PAYWALL, WATCH, WATCH_ON, WATCH_SETTINGS, WELCOME, chosenLine, failureCopy } from "./copy";
 import { AI_BADGES, AI_OPEN_APPLE_SETTINGS, AI_UNAVAILABLE_COPY, DECIDED_BY_APP, WATCH_PROBE_LABELS } from "../app/labels";
 
 const BANNED = ["finding", "findings", "severity", "CIS", "rule", "rules", "policy", "configuration", "SSH", "launchd", "plist", "daemon", "sudo", "Terminal", "TCC", "stealth", "sysadminctl", "command", "points"];
@@ -180,8 +180,9 @@ describe("watch copy", () => {
         else walk(v);
       }
     };
-    walk(FISHY);
-    expect(primaries.length).toBe(10);
+    walk({ FISHY, ACCEPT });
+    // The ten fishy primaries plus ACCEPT.primary.
+    expect(primaries.length).toBe(11);
     for (const text of primaries) expect(text.length, text).toBeLessThanOrEqual(28);
     expect(FISHY.disconnect.primaryWired).toBe("Block incoming connections");
     expect(FISHY.stop.primaryNoEntry).toBe("Block incoming connections");
@@ -194,5 +195,38 @@ describe("watch copy", () => {
     expect(FISHY.noticed.ransom).toBe("I saw a message asking for money");
     expect(FISHY.experts.more).toBe("More experts suggest");
     expect(FISHY.experts.primary).toBe("Done");
+  });
+});
+
+describe("accept copy", () => {
+  it("the ask screen, the offer, the strip and the two END strings carry no banned word and never the word accept", () => {
+    const all = [...strings({ ACCEPT }), END.chosen, END.nothingLeft, chosenLine(1), chosenLine(2)];
+    expect(all.length).toBeGreaterThan(16);
+    for (const text of all) {
+      expect(text, text).not.toMatch(BANNED_PATTERN);
+      expect(text, text).not.toMatch(/\baccept/i);
+    }
+    for (const text of strings({ END })) expect(text, text).not.toMatch(/\baccept/i);
+  });
+
+  it("the strings a person reads whole stay under 1.6 syllables per word", () => {
+    const perString = [ACCEPT.title, ACCEPT.titleMany, ACCEPT.body, ACCEPT.bodyMany, ACCEPT.offer, ACCEPT.strip, END.chosen, END.nothingLeft, chosenLine(1), chosenLine(2)];
+    for (const text of perString) expect(syllablesPerWord(text), text).toBeLessThanOrEqual(1.6);
+  });
+
+  it("the primary and the undo fit a button, and the fixed strings are the spec's", () => {
+    expect(ACCEPT.primary.length).toBeLessThanOrEqual(28);
+    expect(ACCEPT.undo.length).toBeLessThanOrEqual(28);
+    expect(ACCEPT.primary).toBe("No, keep asking");
+    expect(ACCEPT.link).toBe("Leave it alone, I know the risk");
+    expect(ACCEPT.linkMany).toBe("Leave them alone, I know the risks");
+    expect(ACCEPT.flash).toBe("OK, I'll leave it alone.");
+    expect(ACCEPT.pill).toBe("Left alone");
+    expect(ACCEPT.undo).toBe("Ask me again");
+    expect(END.chosen).toBe("Things you chose to leave");
+    expect(END.nothingLeft).toBe("Nothing left for me to do.");
+    expect(chosenLine(1)).toBe("1 thing you chose to leave still counts.");
+    expect(chosenLine(2)).toBe("2 things you chose to leave still count.");
+    expect(ACCEPT.strip).toContain("{date}");
   });
 });

@@ -131,11 +131,19 @@ export const DEMO_LICENSE_PAYLOAD: LicensePayload = {
   tag: "deadbeef",
 };
 
-/** A fixture variant where the named rules fail; only the screen saver rule has a cheap failing shape. */
+/** The rules `fail=` can force: 013 (the screen saver idle time) and 001 (the dev machine's unencrypted disk). */
+export type ForcedFailure = "TL-MAC-013" | "TL-MAC-001";
+
+/** A fixture variant where the named rules fail; 013 gets a cheap failing shape, 001 takes the dev machine's disk section. */
 export function withForcedFailures(state: SystemState, fail: readonly RuleId[]): SystemState {
-  if (!fail.includes("TL-MAC-013") || state.sections.screenLock.status !== "ok") return state;
-  const screenLock = { ...state.sections.screenLock, data: { ...state.sections.screenLock.data, screensaverIdleSeconds: 3600 } };
-  return { ...state, sections: { ...state.sections, screenLock } };
+  let sections = state.sections;
+  if (fail.includes("TL-MAC-013") && sections.screenLock.status === "ok") {
+    sections = { ...sections, screenLock: { ...sections.screenLock, data: { ...sections.screenLock.data, screensaverIdleSeconds: 3600 } } };
+  }
+  if (fail.includes("TL-MAC-001") && sections.diskEncryption.status === "ok") {
+    sections = { ...sections, diskEncryption: DEV_MACHINE.sections.diskEncryption };
+  }
+  return sections === state.sections ? state : { ...state, sections };
 }
 
 /** The fixture with every section swapped in from HARDENED as fixes land or watched sections pass. */

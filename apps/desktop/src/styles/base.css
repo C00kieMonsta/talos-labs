@@ -309,3 +309,45 @@ svg {
   width: 100%;
   height: 100%;
 }
+
+/* Motion on the bands (docs/DESIGN-PLAYFUL.md 3.1, 3.7, 3.8): the spiral drifts in once per screen, the horizon rises, the mark breathes while a request runs. */
+.guided-content > .hero-spiral {
+  animation: hero-drift var(--motion-fill) var(--ease-out) both;
+}
+
+@keyframes hero-drift {
+  from {
+    opacity: 0;
+    transform: translate(12px, -12px);
+  }
+  to {
+    opacity: var(--hero-spiral-opacity);
+    transform: none;
+  }
+}
+
+/* The breath is on the inner mark, so it never contends with the band's drift; it fades down, never up, so the measured contrast holds. */
+.hero-spiral[data-writing="true"] svg {
+  animation: spiral-breathe var(--motion-breathe) ease-in-out infinite;
+}
+
+@keyframes spiral-breathe {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.guided-content > .hero-horizon {
+  animation: horizon-rise var(--motion-slow) var(--ease-out) both;
+}
+
+@keyframes horizon-rise {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

@@ -1,4 +1,4 @@
-import { ANSWER_JSON_SCHEMA, EXPLANATION_JSON_SCHEMA, PRIORITISATION_JSON_SCHEMA } from "@talos/core";
+import { ANSWER_JSON_SCHEMA, EXPLANATION_JSON_SCHEMA, MACOS_CATALOG, PRIORITISATION_JSON_SCHEMA, buildExplainerSystemPrompt } from "@talos/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_OLLAMA_MODEL, OLLAMA_CHAT_URL, OllamaExplainerAdapter } from "./ollama-explainer";
 import { TEST_CONTEXT, TEST_REPORT, VALID_ANSWER, VALID_EXPLANATION, VALID_PRIORITISATION } from "./test-fixtures";
@@ -47,6 +47,9 @@ function sentBody(): ChatBody {
 }
 
 const explainInput = { context: TEST_CONTEXT, ruleId: "TL-MAC-001" as const };
+/** TEST_CONTEXT with 001 marked as left alone by the person. */
+const ACCEPTED_CONTEXT = { ...TEST_CONTEXT, findings: TEST_CONTEXT.findings.map((f) => (f.ruleId === "TL-MAC-001" ? { ...f, accepted: true } : f)) };
+const PRIORITISATION_WITHOUT_001 = { order: ["TL-MAC-002", "TL-MAC-023"], reasons: [{ ruleId: "TL-MAC-002", reason: "The firewall is quick." }], startWith: ["TL-MAC-002"] } as const;
 
 beforeEach(() => {
   fetchMock.mockReset();
@@ -161,5 +164,23 @@ describe("OllamaExplainerAdapter failure mapping", () => {
   it("applies the core validator: a foreign rule id in the order is rejected", async () => {
     fetchMock.mockResolvedValueOnce(reply({ ...VALID_PRIORITISATION, order: ["TL-MAC-001", "TL-MAC-999"] }));
     expect(await adapter().prioritise({ context: TEST_CONTEXT })).toEqual({ ok: false, reason: "rejected_output" });
+  });
+});
+
+describe("OllamaExplainerAdapter and the rules the person chose to leave", () => {
+  it("defaults to the explainer instructions with the accepted sentence", async () => {
+    fetchMock.mockResolvedValueOnce(reply(VALID_EXPLANATION));
+    const plain = new OllamaExplainerAdapter({ reportSource: async () => TEST_REPORT, fetchImpl: fetchMock });
+    expect(await plain.explain(explainInput)).toEqual({ ok: true, value: VALID_EXPLANATION });
+    expect(sentBody().messages[0]).toEqual({ role: "system", content: buildExplainerSystemPrompt(MACOS_CATALOG) });
+  });
+
+  it("rejects an order that names an accepted rule, accepts one without it, and never shows the accepted row", async () => {
+    fetchMock.mockResolvedValueOnce(reply(VALID_PRIORITISATION));
+    expect(await adapter().prioritise({ context: ACCEPTED_CONTEXT })).toEqual({ ok: false, reason: "rejected_output" });
+    expect(sentBody().messages[1]?.content).not.toContain("TL-MAC-001");
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(reply(PRIORITISATION_WITHOUT_001));
+    expect(await adapter().prioritise({ context: ACCEPTED_CONTEXT })).toEqual({ ok: true, value: PRIORITISATION_WITHOUT_001 });
   });
 });

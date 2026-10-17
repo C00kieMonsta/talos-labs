@@ -1,4 +1,4 @@
-import type { Evidence, Finding } from "../domain/finding";
+import type { Evidence, Finding, RuleId } from "../domain/finding";
 import type { ScanReport } from "../domain/report";
 import type { Rule, RuleCatalog } from "../domain/rule";
 import {
@@ -55,10 +55,11 @@ function safeEvidence(finding: Finding, rule: Rule | undefined): readonly SafeEv
   return out;
 }
 
-/** Finding ids the explainer may see, in report order, after the cap. */
-export function explainerEligibleRuleIds(report: ScanReport): readonly Finding["ruleId"][] {
+/** Finding ids the explainer may see, in report order, after the cap; accepted ids are dropped before the cap. */
+export function explainerEligibleRuleIds(report: ScanReport, accepted: readonly RuleId[] = []): readonly Finding["ruleId"][] {
+  const left = new Set<string>(accepted);
   return report.findings
-    .filter((finding) => SAFE_STRING_PATTERN.test(finding.ruleId))
+    .filter((finding) => SAFE_STRING_PATTERN.test(finding.ruleId) && !left.has(finding.ruleId))
     .slice(0, EXPLAINER_LIMITS.maxFindings)
     .map((finding) => finding.ruleId);
 }
@@ -68,7 +69,9 @@ export function toExplainerContext(
   report: ScanReport,
   catalog: RuleCatalog,
   profile: ExplainerProfile,
+  accepted: readonly RuleId[] = [],
 ): ExplainerContext {
+  const left = new Set<string>(accepted);
   const rulesById = new Map(catalog.rules.map((rule) => [rule.id, rule] as const));
   const findings: ExplainerFinding[] = [];
   for (const finding of report.findings) {
@@ -85,6 +88,7 @@ export function toExplainerContext(
       category: finding.category,
       points: finding.points,
       evidence: safeEvidence(finding, rulesById.get(finding.ruleId)),
+      accepted: left.has(finding.ruleId),
     });
   }
   const osVersion = SAFE_STRING_PATTERN.test(report.platform.osVersion)

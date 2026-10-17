@@ -244,6 +244,25 @@ describe("TauriWatchAdapter", () => {
     expect(JSON.stringify(invoke.mock.calls)).not.toMatch(/https?:/);
   });
 
+  it("setProfile sends the accepted ids cleaned when given, and no accepted key when not", async () => {
+    const invoke = fakeInvoke();
+    const port = new TauriWatchAdapter({ invoke, listen: vi.fn(async () => () => undefined) });
+    const profile = { role: "freelancer", technical: "high", handlesClientData: true, laptopLeavesHome: false } as const;
+    await port.setProfile(profile, undefined, true, ["TL-MAC-001", "/Users/x" as never, "TL-MAC-001"]);
+    await port.setProfile(profile, { enabled: true, provider: "chatgpt" }, true, []);
+    await port.setProfile(profile, undefined, true);
+    const many = Array.from({ length: 70 }, (_, n) => `TL-MAC-${String(n).padStart(3, "0")}` as const);
+    await port.setProfile(profile, undefined, false, many);
+    expect(invoke.mock.calls).toEqual([
+      ["watch_set_profile", { profile, licensed: true, accepted: ["TL-MAC-001"] }],
+      ["watch_set_profile", { profile, ai: { enabled: true, provider: "chatgpt" }, licensed: true, accepted: [] }],
+      ["watch_set_profile", { profile, licensed: true }],
+      ["watch_set_profile", { profile, licensed: false, accepted: many.slice(0, 64) }],
+    ]);
+    expect("accepted" in (invoke.mock.calls[2]?.[1] as object)).toBe(false);
+    expect(JSON.stringify(invoke.mock.calls)).not.toMatch(/\/Users/);
+  });
+
   it("refuses bad ids and choices before invoking, and a malformed reply reads as command_failed", async () => {
     const invoke = fakeInvoke({ watch_status: { enabled: true }, watch_context: {}, watch_details: { items: [] }, watch_action_preview: { ...PLAN, ruleId: "TL-MAC-002" } });
     const port = new TauriWatchAdapter({ invoke, listen: vi.fn(async () => () => undefined) });

@@ -48,6 +48,10 @@ pub struct WatchSettingsFile {
     pub profile: ExplainerProfile,
     #[serde(default)]
     pub ai: WatchAi,
+    /// The rule ids the person chose to leave alone, pushed by the webview with the profile.
+    /// Persisted only: no cycle reads them, and Rust never writes them on its own.
+    #[serde(default)]
+    pub accepted: Vec<String>,
 }
 
 impl Default for WatchSettingsFile {
@@ -60,6 +64,7 @@ impl Default for WatchSettingsFile {
             licensed: false,
             profile: ExplainerProfile::default(),
             ai: WatchAi::default(),
+            accepted: Vec::new(),
         }
     }
 }
@@ -192,6 +197,46 @@ mod tests {
         std::fs::write(path(&dir), b"nope").unwrap();
         assert_eq!(load(&dir), WatchSettingsFile::default());
         assert!(valid_interval(240) && !valid_interval(30));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_accepted_ids_round_trip_default_to_empty_in_a_pre_change_file_and_survive_a_disable() {
+        let dir = scratch("accepted");
+        let settings = WatchSettingsFile {
+            accepted: vec!["TL-MAC-001".to_owned(), "TL-MAC-010".to_owned()],
+            ..WatchSettingsFile::default()
+        };
+        save(&dir, &settings).unwrap();
+        assert_eq!(load(&dir), settings);
+        let json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path(&dir)).unwrap()).unwrap();
+        assert_eq!(
+            json["accepted"],
+            serde_json::json!(["TL-MAC-001", "TL-MAC-010"]),
+            "the key is `accepted` and carries ids only"
+        );
+        assert!(WatchSettingsFile::default().accepted.is_empty());
+        std::fs::write(
+            path(&dir),
+            br#"{"version":1,"enabled":true,"everyMinutes":60,"notify":true,"licensed":true}"#,
+        )
+        .unwrap();
+        assert!(
+            load(&dir).accepted.is_empty(),
+            "a pre-change file loads with no accepted ids"
+        );
+        let disabled = WatchSettingsFile {
+            enabled: false,
+            ..settings
+        };
+        save(&dir, &disabled).unwrap();
+        super::super::baseline::delete(&dir).unwrap();
+        assert_eq!(
+            load(&dir).accepted,
+            vec!["TL-MAC-001".to_owned(), "TL-MAC-010".to_owned()],
+            "a disable deletes watch.json, not the accepted ids"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

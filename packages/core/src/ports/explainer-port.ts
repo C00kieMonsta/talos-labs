@@ -74,6 +74,8 @@ export interface ExplainerFinding {
   readonly category: Category;
   readonly points: number;
   readonly evidence: readonly SafeEvidence[];
+  /** True when the person chose to leave this check alone; the model never proposes it. */
+  readonly accepted: boolean;
 }
 
 /**

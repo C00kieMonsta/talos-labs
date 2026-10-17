@@ -1,12 +1,19 @@
 import type { ScanReport } from "@talos/core";
-import { buildGuidedPlan, diffReports } from "@talos/core";
+import { buildGuidedPlan, clearAcceptedThatPass, diffReports } from "@talos/core";
 import { rulePasses } from "../scan/machine";
 import type { Core } from "./core";
 import { finalPlan, openStep, writeMemory } from "./core";
 import { mergePlan } from "./plan";
 
+/** A check that passed takes its acceptance with it (DESIGN-ACCEPT.md section 3, item 10); 027 and 010 keep theirs. */
+function clearPassedAcceptances(core: Core, report: ScanReport): void {
+  const cleared = clearAcceptedThatPass(core.memory, report);
+  if (cleared !== core.memory) writeMemory(core, { accepted: cleared.accepted });
+}
+
 /** The paced scan landed: freeze the free set, diff against the previous report, open since, plan or end. */
 export function landed(core: Core, report: ScanReport): void {
+  clearPassedAcceptances(core, report);
   const { gate, settings } = core.deps;
   const now = core.now();
   const plan = buildGuidedPlan(report, { freeFixes: gate.freeFixes, licensed: gate.licensed }, settings.profile, core.memory, now);
@@ -40,6 +47,7 @@ export function landed(core: Core, report: ScanReport): void {
 export function rebuilt(core: Core, report: ScanReport): void {
   const { phase } = core;
   if (phase.kind !== "since" && phase.kind !== "plan" && phase.kind !== "step" && phase.kind !== "end") return;
+  clearPassedAcceptances(core, report);
   const { gate, settings } = core.deps;
   const old = phase.plan;
   const fresh = buildGuidedPlan(report, { freeFixes: old.freeFixes, licensed: gate.licensed }, settings.profile, core.memory, core.now());

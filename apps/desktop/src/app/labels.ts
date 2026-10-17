@@ -243,6 +243,13 @@ export function formatTime(iso: string): string {
   return new Intl.DateTimeFormat("en-GB", { timeStyle: "short" }).format(date);
 }
 
+/** "17 October": the day a check was left alone. No year, no time. */
+export function formatDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long" }).format(date);
+}
+
 export function formatDateTime(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;

@@ -2,7 +2,7 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import {
   MACOS_CATALOG,
   PROVIDER_STATES,
-  buildSystemPrompt,
+  buildExplainerSystemPrompt,
   claudePromptFor,
   explainerEligibleRuleIds,
   validateAnswer,
@@ -29,7 +29,7 @@ import type {
 } from "@talos/core";
 import type { InvokeFn, ListenFn, StreamEvent } from "./apple-explainer";
 import { defaultListen, nextId, snapshotHasCommandText } from "./apple-explainer";
-import { askTurns, explainTurns, failure, prioritiseTurns, type ReportSource } from "./explainer-shared";
+import { acceptedIds, askTurns, explainTurns, failure, prioritiseTurns, type ReportSource } from "./explainer-shared";
 
 export interface ClaudePlanExplainerOptions {
   readonly reportSource: ReportSource;
@@ -109,7 +109,7 @@ export class ClaudePlanExplainerAdapter implements ExplainerPort {
 
   constructor(options: ClaudePlanExplainerOptions) {
     this.reportSource = options.reportSource;
-    this.instructions = buildSystemPrompt(options.catalog ?? MACOS_CATALOG);
+    this.instructions = buildExplainerSystemPrompt(options.catalog ?? MACOS_CATALOG);
     this.invoke = options.invoke ?? ((cmd, args) => tauriInvoke<unknown>(cmd, args));
     this.listen = options.listen ?? defaultListen();
     this.now = options.now ?? (() => new Date().toISOString());
@@ -160,7 +160,7 @@ export class ClaudePlanExplainerAdapter implements ExplainerPort {
   }
 
   prioritise(input: PrioritiseInput, options?: ExplainOptions<Prioritisation>): Promise<ExplainerResult<Prioritisation>> {
-    return this.generate("prioritise", prioritiseTurns(input), validatePrioritisationFor, options);
+    return this.generate("prioritise", prioritiseTurns(input), validatePrioritisationFor(input), options);
   }
 
   ask(input: AskInput, options?: ExplainOptions<Answer>): Promise<ExplainerResult<Answer>> {
@@ -237,7 +237,7 @@ export class ClaudePlanExplainerAdapter implements ExplainerPort {
   }
 }
 
-/** The order may only name rules the prompt showed, which for a full context is every eligible rule. */
-function validatePrioritisationFor(raw: unknown, report: ScanReport): ExplainerResult<Prioritisation> {
-  return validatePrioritisation(raw, report, explainerEligibleRuleIds(report));
+/** The order may only name rules the prompt showed: every eligible rule less the ones the person chose to leave. */
+function validatePrioritisationFor(input: PrioritiseInput): Validator<Prioritisation> {
+  return (raw, report) => validatePrioritisation(raw, report, explainerEligibleRuleIds(report, acceptedIds(input.context)));
 }

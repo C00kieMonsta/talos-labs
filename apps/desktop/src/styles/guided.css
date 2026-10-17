@@ -833,3 +833,173 @@
     animation: none;
   }
 }
+
+/* ---- DESIGN-PLAYFUL: motion (section 3) ---- */
+
+/* 3.1 The first-run hello: the headline, the body and "Start" follow the spiral's drift, 100 ms apart. */
+.guided-welcome-first .guided-title,
+.guided-welcome-first .guided-body,
+.guided-welcome-first .guided-actions {
+  animation: fade-in var(--motion-base) var(--ease-standard) both;
+}
+
+.guided-welcome-first .guided-title {
+  animation-delay: 200ms;
+}
+
+.guided-welcome-first .guided-body {
+  animation-delay: 300ms;
+}
+
+.guided-welcome-first .guided-actions {
+  animation-delay: 400ms;
+}
+
+/* 3.2 The paced scan: a dot pops once when its area is read; the counter fades in on each change. */
+.scanning-guided .scan-dot-passed,
+.scanning-guided .scan-dot-found,
+.scanning-guided .scan-dot-review,
+.scanning-guided .scan-dot-unavailable {
+  animation: dot-settle var(--motion-fast) var(--ease-out);
+}
+
+@keyframes dot-settle {
+  from {
+    transform: scale(1.08);
+  }
+  to {
+    transform: none;
+  }
+}
+
+.scanning-guided .counter-number {
+  animation: fade-in var(--motion-base) var(--ease-standard);
+}
+
+/* 3.4 The done disc arrives from 92 % over 150 ms, then the tick draws; scoped to the mark so other ticks draw at once. */
+.guided-status-disc {
+  transform-origin: center;
+  animation: disc-in var(--motion-fast) var(--ease-out) both;
+}
+
+@keyframes disc-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.guided-status-mark > .guided-tick {
+  animation: guided-tick 240ms var(--ease-out) both;
+  animation-delay: var(--motion-fast);
+}
+
+/* 3.5 The "Do this next" cue bar draws from the top down, a beat after the end screen lands. */
+.guided-next-card::before {
+  transform-origin: top;
+  animation: cue-draw var(--motion-slow) var(--ease-out) both;
+  animation-delay: var(--motion-base);
+}
+
+@keyframes cue-draw {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* 3.6 Press scale on the end screen's rows. */
+.guided-end-row {
+  transition:
+    background var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
+}
+
+.guided-end-row:active {
+  transform: scale(var(--press-scale));
+}
+
+/* Reduced motion: each keyframe ends on its resting values, and these start on a wrong frame, so they do not run at all. */
+@media (prefers-reduced-motion: reduce) {
+  .guided-content > .hero-spiral,
+  .guided-content > .hero-horizon,
+  .hero-spiral[data-writing] svg,
+  .guided-status-disc,
+  .guided-status-mark > .guided-tick,
+  .guided-welcome-first .guided-title,
+  .guided-welcome-first .guided-body,
+  .guided-welcome-first .guided-actions,
+  .daily-bars rect {
+    animation: none;
+  }
+}
+
+/* ---- DESIGN-AGENT 2a: activity rows on the step frame ---- */
+.guided-activity {
+  list-style: none;
+  max-width: 525px;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.guided-activity + .guided-actions {
+  margin-top: 24px;
+}
+
+.chat-activity-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 28px;
+  font: var(--text-guided-list);
+  color: var(--fg);
+}
+
+.chat-activity-row .activity-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  color: var(--fg-secondary);
+}
+
+.chat-activity-row .activity-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.chat-activity-row[data-state="failed"] .activity-icon {
+  color: var(--sev-critical-fg);
+}
+
+.chat-activity-row .activity-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.chat-activity-row .activity-word {
+  flex: 0 0 auto;
+  font: var(--text-guided-meta);
+  font-weight: 400;
+  color: var(--fg-secondary);
+}
+
+.chat-activity-row .guided-tick {
+  stroke-dasharray: 80;
+  stroke-dashoffset: 0;
+  animation: guided-tick 240ms var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-activity-row .guided-tick,
+  .chat-activity-row .spin {
+    animation: none;
+  }
+}

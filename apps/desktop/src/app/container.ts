@@ -1,4 +1,4 @@
-import type { ExplainerContext, ExplainerProfile, ScanReport, SystemState } from "@talos/core";
+import type { ExplainerContext, ExplainerProfile, RuleId, ScanReport, SystemState } from "@talos/core";
 import { evaluate, MACOS_CATALOG, toExplainerContext } from "@talos/core";
 import { createAdapters } from "../adapters";
 import type { Adapters } from "../adapters";
@@ -25,8 +25,9 @@ export function runEngine(state: SystemState): ScanReport {
   return evaluate(state, MACOS_CATALOG, { now: new Date().toISOString(), os: state.host.os });
 }
 
-export function buildContext(report: ScanReport, profile: ExplainerProfile): ExplainerContext {
-  return toExplainerContext(report, MACOS_CATALOG, profile);
+/** `accepted` marks the rows the person chose to leave; ids only, never a reason. */
+export function buildContext(report: ScanReport, profile: ExplainerProfile, accepted: readonly RuleId[] = []): ExplainerContext {
+  return toExplainerContext(report, MACOS_CATALOG, profile, accepted);
 }
 
 export { DEFAULT_SETTINGS, loadSettings, saveSettings };

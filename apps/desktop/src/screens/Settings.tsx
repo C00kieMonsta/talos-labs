@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { CHATGPT_MODEL_PATTERN, CORE_VERSION } from "@talos/core";
+import { CHATGPT_MODEL_PATTERN, CORE_VERSION, acceptedFailing } from "@talos/core";
 import type { AiAvailability, Capabilities, ExplainerProfile, LicenseState } from "@talos/core";
 import { LicenceField } from "../components/LicenceField";
 import { ProfileForm } from "../components/ProfileForm";
 import { useApp } from "../app/context";
 import { CHECKUP_SETTINGS, LICENSE_INVALID_LABELS, PERMISSION_STATUS_LABELS, PROVIDER_NAMES, YOUR_AI, privacySentence, summariseProfile } from "../app/labels";
 import { CopyButton } from "../components/CopyButton";
+import { ACCEPT, END } from "../guided/copy";
 import { GUIDED_STORAGE_KEY, loadGuidedMemory } from "../guided/memory";
+import { lastReport } from "../scan/machine";
 import type { GuidedController } from "../guided/state";
 import type { PermissionStatus } from "../app/labels";
 import { APP_VERSION } from "../app/version";
@@ -123,6 +125,35 @@ function CheckUpSection() {
   );
 }
 
+/**
+ * The checks the person chose to leave, read-only: each row opens the finding, where "Ask me again" lives.
+ * A task-directed addition (2026-10-17), not DESIGN-ACCEPT item 13; no switch and no undo here.
+ */
+function AcceptedSection() {
+  const { scan, router, guidedMemory } = useApp();
+  const report = lastReport(scan.scan);
+  const accepted = report === null ? [] : acceptedFailing(guidedMemory, report);
+  if (report === null || accepted.length === 0) return null;
+  const headline = (id: string) => report.findings.find((f) => f.ruleId === id)?.headline ?? id;
+  return (
+    <Section id="chosen" title={END.chosen}>
+      <p className="muted">{ACCEPT.settingsSentence}</p>
+      <ul className="setting-rows settings-accepted-list">
+        {accepted.map((id) => (
+          <li key={id} className="setting-row">
+            <span className="setting-text">
+              <strong>{headline(id)}</strong>
+            </span>
+            <button type="button" className="toolbar-button" onClick={() => router.navigate({ name: "finding", ruleId: id })}>
+              {END.details}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </Section>
+  );
+}
+
 function GuidedDevBlock({ controller, onResetMemory, onSkipCooldown }: NonNullable<SettingsProps["guided"]>) {
   const { settings } = useApp();
   const { phase } = controller;
@@ -139,13 +170,20 @@ function GuidedDevBlock({ controller, onResetMemory, onSkipCooldown }: NonNullab
         <ol className="plain-list mono small">
           {plan.steps.map((step, index) => {
             const snooze = "ruleId" in step ? memory.snoozed[step.ruleId] : undefined;
+            const acceptedAt = "ruleId" in step ? memory.accepted[step.ruleId] : undefined;
             return (
               <li key={step.id}>
                 {step.id} · {step.kind} · {index < current ? "passed" : index === current ? (phase.kind === "step" ? phase.state.kind : "current") : "pending"}
                 {snooze !== undefined && ` · snoozed until ${snooze}`}
+                {acceptedAt !== undefined && ` · accepted ${acceptedAt}`}
               </li>
             );
           })}
+          {plan.accepted.map((id) => (
+            <li key={`accepted:${id}`}>
+              {id} · accepted {memory.accepted[id]}
+            </li>
+          ))}
         </ol>
       )}
       <pre className="mono small">{JSON.stringify(memory, null, 2)}</pre>
@@ -517,6 +555,7 @@ export function Settings({ aiAvailability, onAiAction, capabilities, onPermissio
     <div className="screen settings">
       {!gate.watchLocked && <WatchSection />}
       <CheckUpSection />
+      <AcceptedSection />
       <YourAiSection aiAvailability={aiAvailability} onAiAction={onAiAction} onChangeAi={onChangeAi} canChange={canChangeAi} onDisconnect={onDisconnect} />
       <PermissionsSection capabilities={capabilities} onPermission={onPermission} />
       <LicenceSection onBuy={onBuy} />

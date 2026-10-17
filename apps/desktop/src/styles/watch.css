@@ -81,6 +81,11 @@
   padding: 10px 18px;
   font: var(--text-guided-button);
   line-height: 1.2;
+  transition: transform var(--motion-fast) var(--ease-standard);
+}
+
+.watch-primary:active:not(:disabled) {
+  transform: scale(var(--press-scale));
 }
 
 .watch-primary:focus-visible {
@@ -134,4 +139,12 @@
 
 .watch-footer .watch-link:last-child {
   text-align: right;
+}
+
+/* The icon and word crossfade on a rating change (docs/DESIGN-PLAYFUL.md 3.9); WatchWindow.tsx keys this span by the rating. The gap stays on .watch-status until the span exists. */
+.watch-status-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  animation: fade-in var(--motion-base) var(--ease-standard);
 }

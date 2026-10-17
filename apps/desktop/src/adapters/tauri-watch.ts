@@ -357,6 +357,19 @@ function requireSignal(signalId: SignalId): void {
 }
 
 /** The four fields the Rust mirror accepts, and nothing else from the settings object. */
+/** The most accepted ids one push carries; Rust's `MAX_ACCEPTED`. */
+const MAX_ACCEPTED = 64;
+
+/** Well-formed rule ids only, first occurrence kept, at most MAX_ACCEPTED. */
+function acceptedOnTheWire(accepted: readonly RuleId[]): string[] {
+  const clean: string[] = [];
+  for (const id of accepted) {
+    if (typeof id !== "string" || !WATCH_RULE_ID.test(id) || clean.includes(id)) continue;
+    clean.push(id);
+  }
+  return clean.slice(0, MAX_ACCEPTED);
+}
+
 function profileOnTheWire(profile: ExplainerProfile): ExplainerProfile {
   return { role: profile.role, technical: profile.technical, handlesClientData: profile.handlesClientData, laptopLeavesHome: profile.laptopLeavesHome };
 }
@@ -426,16 +439,18 @@ export class TauriWatchAdapter implements WatchPort {
   }
 
   /** `licensed` is the webview's product gate; Rust persists it and never verifies a key. */
-  async setProfile(profile: ExplainerProfile, ai: WatchAi | undefined, licensed: boolean): Promise<void> {
+  async setProfile(profile: ExplainerProfile, ai: WatchAi | undefined, licensed: boolean, accepted?: readonly RuleId[]): Promise<void> {
     this.full();
     const clean = toProfile(profileOnTheWire(profile));
     if (clean === null) throw "invalid_input";
+    // `accepted` crosses only when the caller gave it: Rust keeps its stored list otherwise.
+    const extra = accepted === undefined ? {} : { accepted: acceptedOnTheWire(accepted) };
     if (ai === undefined) {
-      await this.invoke("watch_set_profile", { profile: clean, licensed: licensed === true });
+      await this.invoke("watch_set_profile", { profile: clean, licensed: licensed === true, ...extra });
       return;
     }
     const provider = ai.provider !== null && oneOf(ai.provider, PROVIDERS) ? ai.provider : null;
-    await this.invoke("watch_set_profile", { profile: clean, ai: { enabled: ai.enabled === true, provider }, licensed: licensed === true });
+    await this.invoke("watch_set_profile", { profile: clean, ai: { enabled: ai.enabled === true, provider }, licensed: licensed === true, ...extra });
   }
 
   async acknowledge(signalId: SignalId): Promise<void> {

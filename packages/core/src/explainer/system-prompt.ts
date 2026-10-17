@@ -37,7 +37,7 @@ function catalogBlock(catalog: RuleCatalog): string {
   return lines.join("\n");
 }
 
-/** One frozen string for a catalog; placed first in every request so the prompt cache holds. */
+/** One frozen string for a catalog; placed first in every request so the prompt cache holds. The watch fixture pins it. */
 export function buildSystemPrompt(catalog: RuleCatalog): string {
   return [
     `1. Role\n${ROLE}`,
@@ -46,4 +46,12 @@ export function buildSystemPrompt(catalog: RuleCatalog): string {
     `4. Audience\n${AUDIENCE}`,
     `5. Output\n${OUTPUT}`,
   ].join("\n\n");
+}
+
+/** The one sentence the explain, prioritise and ask prompts add for a finding the person chose to leave. */
+export const ACCEPTED_SENTENCE = "A finding marked accepted is one the reader knows about and chose to leave. Never tell them to fix it; mention it only when asked.";
+
+/** The frozen prompt plus the accepted block; the explainer adapters send this one, the watch keeps buildSystemPrompt. */
+export function buildExplainerSystemPrompt(catalog: RuleCatalog): string {
+  return `${buildSystemPrompt(catalog)}\n\n6. Accepted\n${ACCEPTED_SENTENCE}`;
 }

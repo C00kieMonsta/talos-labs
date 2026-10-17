@@ -34,8 +34,10 @@ export function explainTurns(input: ExplainInput): readonly RemoteTurn[] {
   return [{ role: "user", content: envelope({ task: "explain", ruleId: input.ruleId, context: input.context }) }];
 }
 
+/** Accepted findings leave the document before the model sees it; a proposal about them is never asked for. */
 export function prioritiseTurns(input: PrioritiseInput): readonly RemoteTurn[] {
-  return [{ role: "user", content: envelope({ task: "prioritise", context: input.context }) }];
+  const context: ExplainerContext = { ...input.context, findings: input.context.findings.filter((f) => !f.accepted) };
+  return [{ role: "user", content: envelope({ task: "prioritise", context }) }];
 }
 
 /** Validated history first, the clamped question last, never an assistant turn at the end. */

@@ -414,8 +414,9 @@ export interface WatchPort {
    * The Rust copy of the profile for WatchContext, plus the AI switch and provider choice when known;
    * Rust auto-picks a connected provider without `ai`. `licensed` is the product gate the webview
    * reports; Rust runs the watch only when enabled and licensed and never verifies a key.
+   * `accepted`: the rule ids the person chose to leave alone; ids only; Rust stores them and does not read them.
    */
-  setProfile(profile: ExplainerProfile, ai: WatchAi | undefined, licensed: boolean): Promise<void>;
+  setProfile(profile: ExplainerProfile, ai: WatchAi | undefined, licensed: boolean, accepted?: readonly RuleId[]): Promise<void>;
   acknowledge(signalId: SignalId): Promise<void>;
   answerGate(signalId: SignalId, mine: boolean): Promise<void>;
   snooze(signalId: SignalId): Promise<void>;

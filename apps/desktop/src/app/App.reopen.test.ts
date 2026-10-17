@@ -6,7 +6,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { DEV_MACHINE, MACOS_CATALOG, evaluate } from "@talos/core";
 import type { FixOutcome, WatchOpenScreen } from "@talos/core";
 import { fakeAdapters, fakeFixPort, fakePlan, fakeWatchPort } from "./testing";
-import { PLAN, STATUS } from "../guided/copy";
+import { ACTIVITY } from "../activity/copy";
+import { PLAN } from "../guided/copy";
 import { resetLaunchGuard } from "../guided/timing";
 
 const report = evaluate(DEV_MACHINE, MACOS_CATALOG, { now: "2026-10-15T10:00:00.000Z", os: "macos" });
@@ -51,7 +52,9 @@ describe("reopen launch check-up", () => {
     fireEvent.click(document.querySelector("button.guided-primary") as HTMLButtonElement);
     await waitFor(() => expect(adapters.fixes.apply).toHaveBeenCalledTimes(1));
     await act(async () => undefined);
-    expect(screen.getByText(STATUS.password)).toBeTruthy();
+    // The step frame draws the fix rows now; the running row's word says macOS is asking.
+    const passwordRow = () => document.querySelector(".chat-activity-row[data-state='running'] .activity-word")?.textContent;
+    expect(passwordRow()).toBe(ACTIVITY.words.password);
     await waitFor(() => expect(shownListener).not.toBeNull());
 
     resetLaunchGuard();
@@ -59,6 +62,6 @@ describe("reopen launch check-up", () => {
     await act(async () => undefined);
     // DESIGN-V03 section 4: never while a fix is in flight.
     expect(adapters.systemState.collect).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText(STATUS.password)).toBeTruthy();
+    expect(passwordRow()).toBe(ACTIVITY.words.password);
   });
 });

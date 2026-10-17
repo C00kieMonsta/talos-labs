@@ -3,7 +3,11 @@ import { createElement } from "react";
 import { createRequire } from "node:module";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { AiAvailability, Capabilities, Explanation, FixPlan, LicenseState, Rule, RuleCatalog, RuleId, SystemState } from "@talos/core";
-import { ALL_UNAVAILABLE, DEV_MACHINE, HARDENED, MACOS_CATALOG, evaluate } from "@talos/core";
+import { ALL_UNAVAILABLE, DEV_MACHINE, EMPTY_GUIDED_MEMORY, HARDENED, MACOS_CATALOG, evaluate } from "@talos/core";
+import type { GuidedMemory } from "@talos/core";
+import type { GuidedController } from "../guided/state";
+import { ACCEPT, END } from "../guided/copy";
+import { formatDate } from "../app/labels";
 import { DEFAULT_SETTINGS, MAX_MODEL_ID_LENGTH } from "../settings";
 import { AppContext } from "../app/context";
 import { buildGate } from "../app/gate";
@@ -1516,5 +1520,212 @@ describe("Settings", () => {
       expect(screen.queryByText(PRIVACY_SENTENCE), provider).toBeNull();
       cleanup();
     }
+  });
+});
+
+/** A guided memory with the given rules left alone on 10 October. */
+function leftAlone(...ruleIds: RuleId[]): GuidedMemory {
+  const accepted: Record<string, string> = {};
+  for (const id of ruleIds) accepted[id] = "2026-10-10T09:00:00.000Z";
+  return { ...EMPTY_GUIDED_MEMORY, accepted };
+}
+
+describe("formatDate", () => {
+  it("reads the day and the month in British English, and returns an invalid value as is", () => {
+    expect(formatDate("2026-10-17T09:00:00.000Z")).toBe("17 October");
+    expect(formatDate("2026-01-02T23:30:00.000Z")).toMatch(/^[23] January$/);
+    expect(formatDate("not a date")).toBe("not a date");
+  });
+});
+
+describe("FindingDetail and the checks the person chose to leave", () => {
+  function renderDetail(value: ReturnType<typeof readyContext>, ruleId: RuleId) {
+    return render(createElement(AppContext.Provider, { value }, createElement(FindingDetail, { ruleId })));
+  }
+  const detail = (license: LicenseState, memory: GuidedMemory = EMPTY_GUIDED_MEMORY) => ({ ...readyContext({ state: DEV_MACHINE, license }), guidedMemory: memory });
+
+  it("offers Leave it alone under the fix card and under the lock, and the press calls acceptRule once", () => {
+    const free = detail(NONE);
+    renderDetail(free, "TL-MAC-001");
+    expect(screen.getByRole("heading", { name: "How to fix it" })).toBeTruthy();
+    const offer = document.querySelector(".accept-offer") as HTMLElement;
+    expect(offer.querySelector("p")?.textContent).toBe(ACCEPT.offer);
+    expect(document.querySelector(".accept-strip")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: ACCEPT.link }));
+    expect(free.acceptRule).toHaveBeenCalledTimes(1);
+    expect(free.acceptRule).toHaveBeenCalledWith("TL-MAC-001");
+    expect(free.unacceptRule).not.toHaveBeenCalled();
+    cleanup();
+    const locked = detail(NONE);
+    renderDetail(locked, "TL-MAC-022");
+    expect(document.querySelector(".lock")).not.toBeNull();
+    expect(screen.getByRole("button", { name: ACCEPT.link })).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/accept/i);
+  });
+
+  it("offers nothing for a review, an unknown or a passing check", () => {
+    const value = detail(VALID);
+    const review = value.scan.scan.kind === "ready" ? value.scan.scan.report.findings.find((f) => f.status === "review")?.ruleId : undefined;
+    expect(review).toBeTruthy();
+    for (const id of [review as RuleId, "TL-MAC-028" as RuleId, "TL-MAC-004" as RuleId]) {
+      renderDetail(value, id);
+      expect(document.querySelector(".accept-offer"), id).toBeNull();
+      expect(document.querySelector(".accept-strip"), id).toBeNull();
+      cleanup();
+    }
+  });
+
+  it("shows the strip with the date, the pill and Ask me again in place of the fix card once left alone, keeping the AI and recheck cards", () => {
+    const value = detail(NONE, leftAlone("TL-MAC-001"));
+    renderDetail(value, "TL-MAC-001");
+    const strip = document.querySelector(".accept-strip") as HTMLElement;
+    expect(strip.getAttribute("role")).toBe("status");
+    expect(strip.textContent).toContain("You chose to leave this on 10 October. It still counts against the score.");
+    expect(screen.queryByRole("heading", { name: "How to fix it" })).toBeNull();
+    expect(document.querySelector(".lock")).toBeNull();
+    expect(document.querySelector(".accept-offer")).toBeNull();
+    expect(document.querySelector(".detail-meta .status-left-alone")?.textContent).toBe(ACCEPT.pill);
+    expect(document.querySelector(".ai-card")).not.toBeNull();
+    expect(document.querySelector(".recheck")).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "Why it matters" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: ACCEPT.undo }));
+    expect(value.unacceptRule).toHaveBeenCalledWith("TL-MAC-001");
+    expect(value.acceptRule).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toMatch(/accept/i);
+  });
+
+  it("shows neither the strip nor the pill for a rule in the map whose check passes", () => {
+    renderDetail(detail(NONE, leftAlone("TL-MAC-004")), "TL-MAC-004");
+    expect(document.querySelector(".accept-strip")).toBeNull();
+    expect(document.querySelector(".status-left-alone")).toBeNull();
+    expect(screen.getByText("Passed")).toBeTruthy();
+  });
+});
+
+describe("Findings and the checks the person chose to leave", () => {
+  it("keeps the accepted rule inside Needs fixing, last, with the pill, the count unchanged and no AI rank even from a cached order", () => {
+    const explain: ExplainState = { kind: "ready", byRule: {}, order: ["TL-MAC-001", "TL-MAC-002", "TL-MAC-003"], priority: { order: ["TL-MAC-001", "TL-MAC-002", "TL-MAC-003"], reasons: [], startWith: ["TL-MAC-001"] } };
+    const value = withAi(fakeContextValue({ adapters: fakeAdapters(), license: VALID, gate: stubGate(true), catalog, scanState: readyState(explain), guidedMemory: leftAlone("TL-MAC-001") }), "available");
+    render(createElement(AppContext.Provider, { value }, createElement(Findings)));
+    expect(screen.getByRole("heading", { name: "Needs fixing, 2 items" })).toBeTruthy();
+    const group = document.getElementById("group-needs-fixing")?.closest("section") as HTMLElement;
+    const cards = Array.from(group.querySelectorAll(".finding-card"));
+    expect(cards.map((c) => c.getAttribute("data-rule-id"))).toEqual(["TL-MAC-002", "TL-MAC-001"]);
+    const last = cards[1] as HTMLElement;
+    expect(last.querySelector(".badge-left-alone")?.textContent).toBe(ACCEPT.pill);
+    expect(last.querySelector(".badge-rank")).toBeNull();
+    expect(last.querySelector(".finding-card-points")?.textContent).toBe("+20 points when fixed");
+    expect((cards[0] as HTMLElement).querySelector(".badge-rank")?.textContent).toContain("AI #1");
+    expect((cards[0] as HTMLElement).querySelector(".badge-left-alone")).toBeNull();
+    // The suggested order beside the groups has no row for it either.
+    expect(document.querySelector('.suggested-order [data-rule-id="TL-MAC-001"]')).toBeNull();
+    expect(document.querySelector('.suggested-order [data-rule-id="TL-MAC-002"]')).not.toBeNull();
+    expect(document.body.textContent).not.toMatch(/accept/i);
+  });
+});
+
+describe("Overview and the checks the person chose to leave", () => {
+  const overview = (memory: GuidedMemory, explain?: ExplainState) => ({ ...readyContext({ state: DEV_MACHINE, license: NONE, ...(explain === undefined ? {} : { explain }) }), guidedMemory: memory });
+  const tile = () => (screen.getByText("Needs fixing").previousElementSibling as HTMLElement).textContent;
+
+  it("adds the one line at one and two, none at zero, and keeps the Needs fixing tile counting every failing rule", () => {
+    render(createElement(AppContext.Provider, { value: overview(EMPTY_GUIDED_MEMORY) }, createElement(Overview)));
+    expect(document.querySelector(".score-chosen")).toBeNull();
+    const count = tile();
+    cleanup();
+    render(createElement(AppContext.Provider, { value: overview(leftAlone("TL-MAC-001")) }, createElement(Overview)));
+    expect(document.querySelector(".score-chosen")?.textContent).toBe("1 thing you chose to leave still counts.");
+    expect(tile()).toBe(count);
+    cleanup();
+    render(createElement(AppContext.Provider, { value: overview(leftAlone("TL-MAC-001", "TL-MAC-002")) }, createElement(Overview)));
+    expect(document.querySelector(".score-chosen")?.textContent).toBe("2 things you chose to leave still count.");
+    expect(tile()).toBe(count);
+    cleanup();
+    // A rule in the map whose check passes does not count.
+    render(createElement(AppContext.Provider, { value: overview(leftAlone("TL-MAC-004")) }, createElement(Overview)));
+    expect(document.querySelector(".score-chosen")).toBeNull();
+  });
+
+  it("hides the accepted row from Next three fixes and keeps the heading", () => {
+    render(createElement(AppContext.Provider, { value: overview(leftAlone("TL-MAC-001")) }, createElement(Overview)));
+    const section = document.querySelector("section[aria-labelledby='next-fixes']") as HTMLElement;
+    expect(section).not.toBeNull();
+    expect(section.querySelector('[data-rule-id="TL-MAC-001"]')).toBeNull();
+    expect(section.querySelectorAll(".finding-card").length).toBe(2);
+  });
+
+  it("renders no row for the accepted rule under any heading of a suggested order that still names it", () => {
+    const priority = { order: ["TL-MAC-001", "TL-MAC-002", "TL-MAC-010"] as RuleId[], reasons: [{ ruleId: "TL-MAC-001" as RuleId, reason: "Encrypt first." }], startWith: ["TL-MAC-001"] as RuleId[] };
+    const explain: ExplainState = { kind: "ready", byRule: {}, order: priority.order, priority };
+    render(createElement(AppContext.Provider, { value: overview(leftAlone("TL-MAC-001"), explain) }, createElement(Overview)));
+    const body = document.querySelector(".suggested-order") as HTMLElement;
+    expect(body).not.toBeNull();
+    expect(body.querySelector('[data-rule-id="TL-MAC-001"]')).toBeNull();
+    expect(body.querySelector('[data-rule-id="TL-MAC-002"]')).not.toBeNull();
+    expect(screen.queryByText("Encrypt first.")).toBeNull();
+    // The only "start with" rule was the accepted one, so that heading goes and the numbering starts at 1 under Then.
+    expect(screen.queryByText("Start with")).toBeNull();
+    expect(screen.getByText("Then")).toBeTruthy();
+    expect(body.querySelector("ol li .finding-mark")?.textContent).toBe("1");
+  });
+});
+
+describe("Settings and the checks the person chose to leave", () => {
+  const caps: Capabilities = { fullDiskAccess: false, automation: "not_determined", bundled: true };
+  const props: SettingsProps = { aiAvailability: "available", onAiAction: vi.fn(), capabilities: caps, onPermission: vi.fn(), onBuy: vi.fn() };
+  const report = evaluate(DEV_MACHINE, MACOS_CATALOG, { now: NOW, os: "macos" });
+  function mountWith(memory: GuidedMemory, extra: Partial<SettingsProps> = {}, settings?: AppSettings) {
+    const value = fakeContextValue({ adapters: fakeAdapters(), license: NONE, gate: stubGate(false), scanState: { kind: "idle", report: null, last: report }, guidedMemory: memory, ...(settings === undefined ? {} : { settings }) });
+    render(createElement(AppContext.Provider, { value }, createElement(Settings, { ...props, ...extra })));
+    return value;
+  }
+
+  it("renders the read-only section only while a left-alone check still fails; its rows open the finding and carry no undo", () => {
+    mountWith(EMPTY_GUIDED_MEMORY);
+    expect(document.getElementById("chosen-heading")).toBeNull();
+    cleanup();
+    mountWith(leftAlone("TL-MAC-004"));
+    expect(document.getElementById("chosen-heading")).toBeNull();
+    cleanup();
+    const value = mountWith(leftAlone("TL-MAC-001"));
+    expect(document.getElementById("chosen-heading")?.textContent).toBe(END.chosen);
+    expect(screen.getByText(ACCEPT.settingsSentence)).toBeTruthy();
+    const list = document.querySelector(".settings-accepted-list") as HTMLElement;
+    expect(list.querySelectorAll("li").length).toBe(1);
+    expect(list.textContent).toContain("Your disk is not encrypted");
+    expect(screen.queryByRole("button", { name: ACCEPT.undo })).toBeNull();
+    expect(screen.queryByRole("switch", { name: /leave/i })).toBeNull();
+    fireEvent.click(list.querySelector("button") as HTMLButtonElement);
+    expect(value.router.navigate).toHaveBeenCalledWith({ name: "finding", ruleId: "TL-MAC-001" });
+    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(headings.indexOf(END.chosen)).toBe(headings.indexOf("Check-up") + 1);
+    expect(document.body.textContent).not.toMatch(/accept/i);
+  });
+
+  it("the Developer guided block prints the accepted date for an id in plan.accepted", () => {
+    localStorage.setItem("talos.guided", JSON.stringify(leftAlone("TL-MAC-001")));
+    const plan = { reportId: "r", freeFixes: [], steps: [{ id: "show:TL-MAC-010", kind: "show", ruleId: "TL-MAC-010", pane: "software_update", watch: ["updates"], watchEvery: 3000, restart: false, question: null }], leftAlone: [], worthALook: [], technical: [], later: [], locked: [], accepted: ["TL-MAC-001"], unreadable: 0 } as const;
+    const controller: GuidedController = {
+      phase: { kind: "end", plan, fixed: [] },
+      progress: { done: 1, of: 1 },
+      start: vi.fn(),
+      carryOn: vi.fn(),
+      primary: vi.fn(),
+      later: vi.fn(),
+      next: vi.fn(),
+      answer: vi.fn(),
+      toggleList: vi.fn(),
+      enterLicence: vi.fn(async () => undefined),
+      doNext: vi.fn(),
+      goToPaywall: vi.fn(),
+      keepAsking: vi.fn(),
+      accept: vi.fn(),
+    };
+    const settings: AppSettings = { ...DEFAULT_SETTINGS, onboarded: true, developer: { ...DEFAULT_SETTINGS.developer, enabled: true } };
+    mountWith(leftAlone("TL-MAC-001"), { guided: { controller, onResetMemory: vi.fn(), onSkipCooldown: vi.fn() } }, settings);
+    const block = screen.getByTestId("guided-dev");
+    expect(block.textContent).toContain("TL-MAC-001 · accepted 2026-10-10T09:00:00.000Z");
+    expect(block.textContent).toContain("show:TL-MAC-010 · show");
+    localStorage.removeItem("talos.guided");
   });
 });

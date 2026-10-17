@@ -22,6 +22,8 @@ interface HeroProps {
   readonly height?: number;
   readonly className?: string;
   readonly style?: CSSProperties;
+  /** Spiral only: a model request is running, so the mark breathes (docs/DESIGN-PLAYFUL.md 3.8). */
+  readonly writing?: boolean;
 }
 
 /**
@@ -30,11 +32,11 @@ interface HeroProps {
  * "rings": the site hero's concentric circles, in the same place with the same stroke and opacity tokens.
  * "horizon": the site's dunes, full width, in flow at the bottom of the end screen.
  */
-export function Hero({ kind, size = 560, height = 120, className, style }: HeroProps) {
+export function Hero({ kind, size = 560, height = 120, className, style, writing }: HeroProps) {
   const classes = ["hero", `hero-${kind}`, className].filter(Boolean).join(" ");
   if (kind === "spiral") {
     return (
-      <div className={classes} style={{ width: size, height: size, ...style }} aria-hidden="true" data-testid="hero-spiral">
+      <div className={classes} style={{ width: size, height: size, ...style }} aria-hidden="true" data-testid="hero-spiral" data-writing={writing === true ? "true" : undefined}>
         <SpiralMark size="100%" focusable="false" />
       </div>
     );

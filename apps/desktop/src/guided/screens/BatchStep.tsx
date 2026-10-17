@@ -1,5 +1,6 @@
 import type { GuidedStep } from "@talos/core";
 import { useApp } from "../../app/context";
+import { useFixActivity } from "../../activity/useActivity";
 import type { GuidedController, StepState } from "../state";
 import { stepProgress } from "../state";
 import { GuidedList } from "../GuidedList";
@@ -7,6 +8,7 @@ import { StepFrame } from "../StepFrame";
 import { BATCH, FIX, LATER_FLASH, STATUS, failureCopy } from "../copy";
 import { guidedFor } from "../plan";
 import { WhatWillRun } from "./WhatWillRun";
+import { AcceptScreen } from "./AcceptScreen";
 
 type BatchStepT = Extract<GuidedStep, { kind: "batch" }>;
 
@@ -15,7 +17,10 @@ function things(n: number): string {
 }
 
 export function BatchStep({ step, state, controller, notice }: { step: BatchStepT; state: StepState; controller: GuidedController; notice: string | null }) {
-  const { settings } = useApp();
+  const { settings, scan } = useApp();
+  const fixing = scan.scan.kind === "ready" ? scan.scan.fixing : null;
+  const preparing = state.kind === "working" && state.label === STATUS.preparing;
+  const rows = useFixActivity(step.id, state.kind === "working" ? fixing : null, preparing);
   const progress = stepProgress(controller);
   const devId = step.ruleIds.join(" ");
   const explain = step.ruleIds[0] ?? null;
@@ -26,8 +31,10 @@ export function BatchStep({ step, state, controller, notice }: { step: BatchStep
       const asking = state.label === STATUS.password;
       const cut = STATUS.password.indexOf(". ") + 1;
       const title = asking ? STATUS.password.slice(0, cut) : `I can fix ${things(step.ruleIds.length)} for you now.`;
+      // The password phase keeps the one status line; the harness waits for it.
+      const activity = asking ? null : fixing !== null || preparing ? rows : null;
       return (
-        <StepFrame progress={progress} devId={devId} title={title} body={asking ? <p>{STATUS.password.slice(cut + 1)}</p> : null} status={asking ? STATUS.waiting : state.label} notice={notice}>
+        <StepFrame progress={progress} devId={devId} title={title} body={asking ? <p>{STATUS.password.slice(cut + 1)}</p> : null} status={asking ? STATUS.waiting : state.label} activity={activity} notice={notice}>
           {settings.developer.enabled && <WhatWillRun />}
         </StepFrame>
       );
@@ -51,6 +58,8 @@ export function BatchStep({ step, state, controller, notice }: { step: BatchStep
     }
     case "later_flash":
       return <StepFrame progress={progress} devId={devId} title={state.text ?? LATER_FLASH} notice={notice} />;
+    case "ask_accept":
+      return <AcceptScreen ruleIds={state.ruleIds} progress={progress} devId={devId} explainRuleId={null} notice={notice} controller={controller} />;
     default:
       return (
         <StepFrame

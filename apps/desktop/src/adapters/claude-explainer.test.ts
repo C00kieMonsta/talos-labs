@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { ANSWER_JSON_SCHEMA, EXPLANATION_JSON_SCHEMA, PRIORITISATION_JSON_SCHEMA, type SecretStorePort } from "@talos/core";
+import { ANSWER_JSON_SCHEMA, EXPLANATION_JSON_SCHEMA, MACOS_CATALOG, PRIORITISATION_JSON_SCHEMA, buildExplainerSystemPrompt, type SecretStorePort } from "@talos/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ClaudeExplainerAdapter, DEFAULT_CLAUDE_MODEL } from "./claude-explainer";
 import { TEST_CONTEXT, TEST_REPORT, VALID_ANSWER, VALID_EXPLANATION, VALID_PRIORITISATION } from "./test-fixtures";
@@ -56,6 +56,9 @@ function adapter(key: string | null = "sk-ant-test", model?: string): ClaudeExpl
 }
 
 const explainInput = { context: TEST_CONTEXT, ruleId: "TL-MAC-001" as const };
+/** TEST_CONTEXT with 001 marked as left alone by the person. */
+const ACCEPTED_CONTEXT = { ...TEST_CONTEXT, findings: TEST_CONTEXT.findings.map((f) => (f.ruleId === "TL-MAC-001" ? { ...f, accepted: true } : f)) };
+const PRIORITISATION_WITHOUT_001 = { order: ["TL-MAC-002", "TL-MAC-023"], reasons: [{ ruleId: "TL-MAC-002", reason: "The firewall is quick." }], startWith: ["TL-MAC-002"] } as const;
 
 beforeEach(() => {
   createMock.mockReset();
@@ -188,5 +191,24 @@ describe("ClaudeExplainerAdapter failure mapping", () => {
     const response = textResponse(VALID_EXPLANATION);
     createMock.mockResolvedValueOnce({ ...response, content: [] });
     expect(await adapter().explain(explainInput)).toEqual({ ok: false, reason: "rejected_output" });
+  });
+});
+
+describe("ClaudeExplainerAdapter and the rules the person chose to leave", () => {
+  it("defaults to the explainer instructions with the accepted sentence", async () => {
+    createMock.mockResolvedValueOnce(textResponse(VALID_EXPLANATION));
+    const plain = new ClaudeExplainerAdapter({ secrets: secrets("sk-ant-test"), reportSource: async () => TEST_REPORT });
+    expect(await plain.explain(explainInput)).toEqual({ ok: true, value: VALID_EXPLANATION });
+    const [params] = createMock.mock.calls[0] as [Anthropic.MessageCreateParamsNonStreaming];
+    expect(params.system).toEqual([{ type: "text", text: buildExplainerSystemPrompt(MACOS_CATALOG), cache_control: { type: "ephemeral" } }]);
+  });
+
+  it("rejects an order that names an accepted rule, accepts one without it, and never shows the accepted row", async () => {
+    createMock.mockResolvedValueOnce(textResponse(VALID_PRIORITISATION));
+    expect(await adapter().prioritise({ context: ACCEPTED_CONTEXT })).toEqual({ ok: false, reason: "rejected_output" });
+    const [params] = createMock.mock.calls[0] as [Anthropic.MessageCreateParamsNonStreaming];
+    expect(params.messages[0]?.content as string).not.toContain("TL-MAC-001");
+    createMock.mockResolvedValueOnce(textResponse(PRIORITISATION_WITHOUT_001));
+    expect(await adapter().prioritise({ context: ACCEPTED_CONTEXT })).toEqual({ ok: true, value: PRIORITISATION_WITHOUT_001 });
   });
 });

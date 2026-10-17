@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEV_MACHINE, MACOS_CATALOG, buildSystemPrompt, evaluate, explainTurns, responsesRequestBody, toExplainerContext } from "@talos/core";
+import { DEV_MACHINE, MACOS_CATALOG, buildExplainerSystemPrompt, evaluate, explainTurns, responsesRequestBody, toExplainerContext } from "@talos/core";
 import type { Explanation, SystemState } from "@talos/core";
 import { DEFAULT_SETTINGS } from "../settings";
 import { CHATGPT_PARTIAL_EVERY_MS, CHATGPT_RESPONSES_URL, ChatGptExplainerAdapter, LIMIT_TTL_MS } from "./chatgpt-explainer";
@@ -103,7 +103,10 @@ function harness(options: { model?: string; tokenModel?: string; tokenError?: st
 }
 
 const explainInput = { context: TEST_CONTEXT, ruleId: "TL-MAC-001" as const };
-const instructions = buildSystemPrompt(MACOS_CATALOG);
+const instructions = buildExplainerSystemPrompt(MACOS_CATALOG);
+/** TEST_CONTEXT with 001 marked as left alone by the person. */
+const ACCEPTED_CONTEXT = { ...TEST_CONTEXT, findings: TEST_CONTEXT.findings.map((f) => (f.ruleId === "TL-MAC-001" ? { ...f, accepted: true } : f)) };
+const PRIORITISATION_WITHOUT_001 = { order: ["TL-MAC-002", "TL-MAC-023"], reasons: [{ ruleId: "TL-MAC-002", reason: "The firewall is quick." }], startWith: ["TL-MAC-002"] } as const;
 
 afterEach(() => vi.useRealTimers());
 
@@ -411,5 +414,21 @@ describe("ChatGptExplainerAdapter availability", () => {
     expect(a).toBe(b);
     expect(c).not.toBe(a);
     expect(c.id).toBe("chatgpt");
+  });
+});
+
+describe("ChatGptExplainerAdapter and the rules the person chose to leave", () => {
+  it("sends the explainer instructions with the accepted sentence, rejects an order that names an accepted rule and accepts one without it", async () => {
+    const h = harness();
+    h.fetchMock.mockResolvedValueOnce(sse(streamed(VALID_PRIORITISATION)));
+    expect(await h.adapter.prioritise({ context: ACCEPTED_CONTEXT })).toEqual({ ok: false, reason: "rejected_output" });
+    const [, init] = h.fetchMock.mock.calls[0] as [string, RequestInit];
+    const sent = JSON.parse(String(init.body)) as { instructions: string; input: unknown };
+    expect(sent.instructions).toBe(buildExplainerSystemPrompt(MACOS_CATALOG));
+    expect(sent.instructions).toContain("A finding marked accepted");
+    // The document the model saw carries no accepted row at all.
+    expect(JSON.stringify(sent.input)).not.toContain("TL-MAC-001");
+    h.fetchMock.mockResolvedValueOnce(sse(streamed(PRIORITISATION_WITHOUT_001)));
+    expect(await h.adapter.prioritise({ context: ACCEPTED_CONTEXT })).toEqual({ ok: true, value: PRIORITISATION_WITHOUT_001 });
   });
 });

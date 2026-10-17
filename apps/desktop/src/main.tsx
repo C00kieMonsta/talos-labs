@@ -9,6 +9,7 @@ import "./styles/guided.css";
 import "./styles/ai-guided.css";
 import "./styles/ai-expert.css";
 import "./styles/fishy.css";
+import "./styles/accept.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

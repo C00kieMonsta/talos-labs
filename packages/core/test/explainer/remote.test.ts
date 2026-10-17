@@ -20,7 +20,7 @@ import {
 } from "../../src/explainer/remote";
 import type { RemoteTask, RemoteTurn } from "../../src/explainer/remote";
 import { ANSWER_JSON_SCHEMA, EXPLANATION_JSON_SCHEMA, PRIORITISATION_JSON_SCHEMA, WATCH_JSON_SCHEMA } from "../../src/explainer/schemas";
-import { buildSystemPrompt } from "../../src/explainer/system-prompt";
+import { ACCEPTED_SENTENCE, buildExplainerSystemPrompt, buildSystemPrompt } from "../../src/explainer/system-prompt";
 import { MACOS_CATALOG } from "../../src/rules/macos/index";
 import { ctxFor } from "../helpers";
 import { EMPTY_WATCH_MEMORY } from "../../src/watch/memory";
@@ -28,7 +28,7 @@ import { CANARY, CANARY_NEXT, CANARY_PROFILE as PROFILE, INJECT } from "../helpe
 
 const report = evaluate(CANARY, MACOS_CATALOG, ctxFor(CANARY));
 const context = toExplainerContext(report, MACOS_CATALOG, PROFILE);
-const instructions = buildSystemPrompt(MACOS_CATALOG);
+const instructions = buildExplainerSystemPrompt(MACOS_CATALOG);
 const watchContext = toWatchContext({
   previousReport: report,
   report: evaluate(CANARY_NEXT, MACOS_CATALOG, ctxFor(CANARY_NEXT)),
@@ -144,7 +144,23 @@ describe("turn envelopes", () => {
   it("watchTurns is one user turn with the task and the context, and the instructions add one block", () => {
     expect(TURNS.watch).toEqual([{ role: "user", content: JSON.stringify({ task: "watch", context: watchContext }) }]);
     expect(WATCH_INSTRUCTIONS_BLOCK).toBe("You rate, and choose probes and actions by id. You cannot run anything. The ids are the only vocabulary.");
-    expect(watchInstructions).toBe(`${instructions}\n\n${WATCH_INSTRUCTIONS_BLOCK}`);
+    expect(watchInstructions).toBe(`${buildSystemPrompt(MACOS_CATALOG)}\n\n${WATCH_INSTRUCTIONS_BLOCK}`);
+    expect(watchInstructions).not.toContain(ACCEPTED_SENTENCE);
+    expect(instructions).toContain(ACCEPTED_SENTENCE);
+  });
+
+  it("prioritiseTurns drops an accepted row; explainTurns and askTurns keep it with the flag", () => {
+    const marked = toExplainerContext(report, MACOS_CATALOG, PROFILE, ["TL-MAC-001"]);
+    const sent = JSON.parse(prioritiseTurns({ context: marked })[0]?.content ?? "{}") as { context: { findings: { ruleId: string; accepted: boolean }[] } };
+    expect(sent.context.findings.some((f) => f.accepted)).toBe(false);
+    expect(sent.context.findings.map((f) => f.ruleId)).not.toContain("TL-MAC-001");
+    expect(sent.context.findings).toHaveLength(marked.findings.length - 1);
+    expect(prioritiseTurns({ context: marked })[0]?.content).not.toContain('"accepted":true');
+    const explained = JSON.parse(explainTurns({ context: marked, ruleId: "TL-MAC-001" })[0]?.content ?? "{}") as { context: { findings: { ruleId: string; accepted: boolean }[] } };
+    expect(explained.context.findings.find((f) => f.ruleId === "TL-MAC-001")?.accepted).toBe(true);
+    const asked = JSON.parse(askTurns({ ...ASK, context: marked }).at(-1)?.content ?? "{}") as { context: { findings: { ruleId: string; accepted: boolean }[] } };
+    expect(asked.context.findings.find((f) => f.ruleId === "TL-MAC-001")?.accepted).toBe(true);
+    expect(asked.context.findings).toHaveLength(marked.findings.length);
   });
 
   it("claudePromptFor wraps the turns in one JSON document", () => {

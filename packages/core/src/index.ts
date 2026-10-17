@@ -68,6 +68,11 @@ export { parseLicense, entitled, freeFixRuleIds, FREE_FIX_COUNT, LICENSE_PREFIX,
 export { buildGuidedPlan, planLocked, convertedShowStep, nextAction, LEFT_ALONE, WATCH_EVERY_MS, diffReports, EMPTY_GUIDED_MEMORY, parseGuidedMemory, AI_ASK_AGAIN_MS, aiAskedRecently } from "./guided/index";
 export type { GuidedStep, GuidedPlan, GuidedGate, NextAction, NextActionKind, ReportDiff, GuidedMemory, PermissionKind } from "./guided/index";
 
+export * from "./activity/index";
+
 export * from "./watch/index";
 
 export { DEV_MACHINE, HARDENED, ALL_UNAVAILABLE, FRESH_INSTALL, WINDOWS_MINIMAL, FIXTURES } from "./fixtures/index";
+
+export { LATER_ASK_COUNT, KEEP_ACCEPTED_THROUGH_PASS, isAccepted, acceptedFailing, acceptRules, unacceptRule, clearAcceptedThatPass } from "./guided/index";
+export { ACCEPTED_SENTENCE, buildExplainerSystemPrompt, ON_DEVICE_BASE_INSTRUCTIONS } from "./explainer/index";

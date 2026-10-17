@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
-import type { RuleId } from "@talos/core";
+import type { ActivityEvent, RuleId } from "@talos/core";
+import { ActivityList } from "../activity/ActivityList";
 import { useApp } from "../app/context";
 import { MARK_GRADIENT_FILL } from "../components/GradientDefs";
 import { CheckIcon } from "../components/icons";
@@ -32,6 +33,8 @@ export interface StepFrameProps {
   readonly notice?: string | null;
   /** A status line with the rust dot and role="status". */
   readonly status?: string | null;
+  /** Rows for a working step; when non-empty they replace the status line. */
+  readonly activity?: readonly ActivityEvent[] | null;
   /** A done step: the status mark, and the live region reads the headline as the result. */
   readonly done?: boolean;
   /** true draws the 56 px status mark without the done semantics; false keeps a done step without the mark (a batch). */
@@ -58,7 +61,7 @@ export function markInteracted(): void {
 
 /** Progress, headline, sentences, one primary button and one text link. Focus moves to the headline on every step. */
 export function StepFrame(props: StepFrameProps) {
-  const { progress, devId, title, titleId, body, children, primary, link, explainRuleId, notice, status, done, mark, className, afterPrimary } = props;
+  const { progress, devId, title, titleId, body, children, primary, link, explainRuleId, notice, status, activity, done, mark, className, afterPrimary } = props;
   const { settings, ai } = useApp();
   const heading = useRef<HTMLHeadingElement>(null);
   // The disclosure shows whenever AI is on; its body carries the not-connected states itself.
@@ -107,11 +110,16 @@ export function StepFrame(props: StepFrameProps) {
       </span>
       {body !== undefined && body !== null && <div className="guided-body">{body}</div>}
       {children}
-      {status !== null && status !== undefined && (
-        <p className="guided-status" role="status">
-          <span className="scan-dot scan-dot-active" aria-hidden="true" />
-          <span>{status}</span>
-        </p>
+      {activity !== undefined && activity !== null && activity.length > 0 ? (
+        <ActivityList rows={activity} listClass="guided-activity" announce />
+      ) : (
+        status !== null &&
+        status !== undefined && (
+          <p className="guided-status" role="status">
+            <span className="scan-dot scan-dot-active" aria-hidden="true" />
+            <span>{status}</span>
+          </p>
+        )
       )}
       {primary !== null && primary !== undefined && (
         <div className="guided-actions">

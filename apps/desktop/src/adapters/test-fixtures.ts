@@ -114,6 +114,7 @@ export const TEST_CONTEXT: ExplainerContext = {
     category: f.category,
     points: f.points,
     evidence: [{ key: "enabled", value: false }],
+    accepted: false,
   })),
 };
 

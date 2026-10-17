@@ -38,4 +38,18 @@ describe("Hero", () => {
     const paths = [...band.querySelectorAll("path")].map((p) => p.getAttribute("d"));
     expect(paths).toEqual([HORIZON_BACK, HORIZON_FRONT]);
   });
+
+  it("marks the spiral band as writing, and never the rings or the horizon", () => {
+    const { container } = render(createElement(Hero, { kind: "spiral", writing: true }));
+    expect(container.querySelector(".hero-spiral")?.getAttribute("data-writing")).toBe("true");
+    cleanup();
+    const still = render(createElement(Hero, { kind: "spiral", writing: false }));
+    expect(still.container.querySelector(".hero-spiral")?.hasAttribute("data-writing")).toBe(false);
+    cleanup();
+    const rings = render(createElement(Hero, { kind: "rings", writing: true }));
+    expect(rings.container.querySelector("[data-writing]")).toBeNull();
+    cleanup();
+    const horizon = render(createElement(Hero, { kind: "horizon", writing: true }));
+    expect(horizon.container.querySelector("[data-writing]")).toBeNull();
+  });
 });

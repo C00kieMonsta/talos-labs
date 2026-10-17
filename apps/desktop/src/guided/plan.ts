@@ -44,6 +44,19 @@ function singleFromBatch(ruleId: RuleId): GuidedStep {
   return { id: `fix:${ruleId}`, kind: "fix", ruleId, choice: { kind: "none" }, passphrase: false };
 }
 
+/** The step without its accepted rules: null when none is left, a single fix when a batch keeps one. */
+export function withoutAccepted(step: GuidedStep, accepted: readonly RuleId[]): GuidedStep | null {
+  const gone = (r: RuleId) => accepted.includes(r);
+  if (step.kind === "batch") {
+    const ruleIds = step.ruleIds.filter((r) => !gone(r));
+    if (ruleIds.length === 0) return null;
+    if (ruleIds.length === step.ruleIds.length) return step;
+    return ruleIds.length === 1 ? singleFromBatch(ruleIds[0] as RuleId) : { ...step, ruleIds };
+  }
+  if ((step.kind === "fix" || step.kind === "show") && gone(step.ruleId)) return null;
+  return step;
+}
+
 export interface MergeInput {
   readonly old: GuidedPlan;
   readonly index: number;
@@ -68,7 +81,13 @@ export function mergePlan(input: MergeInput): GuidedPlan {
   const pinned = pinCurrent && current !== undefined ? [current] : [];
   const taken = new Set<string>([...passed, ...pinned].map((s) => s.id));
   const takenRules = new Set<RuleId>([...passed, ...pinned].flatMap(ruleIdsOf));
-  const liveExtras = extras.filter((e) => !taken.has(e.id) && ruleIdsOf(e).every((r) => !rulePasses(report, r)));
+  // An accepted rule leaves the extras too: a converted show step or an unlocked fix is never proposed again.
+  const liveExtras = extras
+    .filter((e) => !taken.has(e.id) && ruleIdsOf(e).every((r) => !rulePasses(report, r)))
+    .flatMap((e) => {
+      const kept = withoutAccepted(e, fresh.accepted);
+      return kept === null ? [] : [kept];
+    });
   for (const e of liveExtras) for (const r of ruleIdsOf(e)) takenRules.add(r);
   const dropRule = (r: RuleId) => takenRules.has(r) || leftAlone.has(r);
   const rest: GuidedStep[] = [];
@@ -83,7 +102,7 @@ export function mergePlan(input: MergeInput): GuidedPlan {
     if ((step.kind === "fix" || step.kind === "show") && dropRule(step.ruleId)) continue;
     rest.push(step);
   }
-  const extraLeftAlone = [...leftAlone].filter((r) => !rulePasses(report, r) && !fresh.leftAlone.includes(r));
+  const extraLeftAlone = [...leftAlone].filter((r) => !rulePasses(report, r) && !fresh.leftAlone.includes(r) && !fresh.accepted.includes(r));
   return {
     ...fresh,
     freeFixes: old.freeFixes,

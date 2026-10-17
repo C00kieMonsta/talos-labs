@@ -16,7 +16,7 @@ Every request from the owner, in the order it was made, with its state. Updated 
 | 10 | 2026-10-17 | More AI magic once an AI is connected | designed, not built | docs/DESIGN-AI-PRESENCE.md |
 | 11 | 2026-10-17 | The top bar must run in the background with regular checks against defence strategies | done (hourly cycle, playbook-grounded fishy flow); the window's content is being redesigned under #15 | docs/DESIGN-WATCH.md |
 | 12 | 2026-10-17 | Chat-first home when an AI is connected; no chat without one | designed, not built | docs/DESIGN-CHAT.md |
-| 13 | 2026-10-17 | "I know, leave it alone" per finding, e.g. disk encryption | designed, not built | docs/DESIGN-ACCEPT.md |
+| 13 | 2026-10-17 | "I know, leave it alone" per finding, e.g. disk encryption | in progress: build started 2026-10-17 | docs/DESIGN-ACCEPT.md |
 | 14 | 2026-10-17 | Ask locked while Claude is connected | explained; owner decided AI is free once connected and the licence buys fixes, rechecks and the watch; real signing key shipped and a licence issued to the owner | done: AI free once connected, the licence buys fixes beyond the free three, Check again and the watch; key in 37c55c7 |
 | 15 | 2026-10-17 | The menu bar window is not nice or useful; it needs AI | designed, not built | docs/DESIGN-WATCH-WINDOW.md |
 | 16 | 2026-10-17 | In general the AI magic is missing | in progress: #10, #12, #13 and #15 are the pieces; build starts when the gate workflow has stopped editing the tree | this ledger |

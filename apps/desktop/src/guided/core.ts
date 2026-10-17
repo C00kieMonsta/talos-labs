@@ -80,7 +80,7 @@ export function finalPlan(core: Core, plan: GuidedPlan): GuidedPlan {
   if (report === null) return plan;
   const { gate, settings } = core.deps;
   const fresh = buildGuidedPlan(report, { freeFixes: plan.freeFixes, licensed: gate.licensed }, settings.profile, core.memory, core.now());
-  const extra = [...core.leftAlone].filter((r) => !fresh.leftAlone.includes(r) && report.findings.some((f) => f.ruleId === r));
+  const extra = [...core.leftAlone].filter((r) => !fresh.leftAlone.includes(r) && !fresh.accepted.includes(r) && report.findings.some((f) => f.ruleId === r));
   return { ...fresh, steps: plan.steps, leftAlone: [...fresh.leftAlone, ...extra], locked: plan.locked.length === 0 && gate.licensed ? [] : fresh.locked };
 }
 

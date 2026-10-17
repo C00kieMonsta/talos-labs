@@ -18,7 +18,8 @@
   white-space: nowrap;
   transition:
     background var(--motion-fast) var(--ease-standard),
-    border-color var(--motion-fast) var(--ease-standard);
+    border-color var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
 }
 
 .button:hover:not(:disabled):not([aria-disabled="true"]) {
@@ -51,6 +52,8 @@
 .button-primary:active:not(:disabled):not([aria-disabled="true"]) {
   background: var(--gradient-accent-hover);
   border-color: var(--gradient-accent-hover-start);
+  /* Press scale (docs/DESIGN-PLAYFUL.md 3.6): 2 % under the pointer, back on release. */
+  transform: scale(var(--press-scale));
 }
 
 .button-ghost {
@@ -845,7 +848,9 @@ h1[tabindex="-1"]:focus-visible {
   z-index: -1;
   border-radius: var(--radius-sm);
   background: transparent;
-  transition: background var(--motion-fast) var(--ease-standard);
+  transition:
+    background var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
 }
 
 .finding-row:hover::before,
@@ -855,6 +860,7 @@ h1[tabindex="-1"]:focus-visible {
 
 .finding-row:active::before {
   background: var(--bg-pressed);
+  transform: scale(var(--press-scale));
 }
 
 /* Severity cue: a 3 px bar on the left edge of the hover fill for failing critical and high rows (DESIGN-WARMTH.md section 7). */

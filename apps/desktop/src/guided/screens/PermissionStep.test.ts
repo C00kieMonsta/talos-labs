@@ -27,6 +27,8 @@ function controller(state: StepState): GuidedController {
     answer: vi.fn(),
     toggleList: vi.fn(),
     enterLicence: vi.fn(async () => undefined),
+    keepAsking: vi.fn(),
+    accept: vi.fn(),
   };
 }
 

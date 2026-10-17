@@ -33,7 +33,9 @@ export type StepState =
   | { readonly kind: "done"; readonly line: string; readonly rows: readonly DoneRow[] }
   | { readonly kind: "failed"; readonly error: FixError | "still_failing" | "unreadable"; readonly step: number | null; readonly batch: boolean }
   /** `text` overrides the usual "OK, I'll remind you another day." (the backup question, the paywall thank-you). */
-  | { readonly kind: "later_flash"; readonly text?: string };
+  | { readonly kind: "later_flash"; readonly text?: string }
+  /** The third "Do this later": "Shall I stop asking about this?" for the rules whose count reached LATER_ASK_COUNT. */
+  | { readonly kind: "ask_accept"; readonly ruleIds: readonly RuleId[] };
 
 export interface GuidedController {
   readonly phase: GuidedPhase;
@@ -53,6 +55,10 @@ export interface GuidedController {
   doNext(action: NextAction): void;
   /** Unlock in the Explain disclosure: open the paywall step before the current one, so leaving it returns here. */
   goToPaywall(): void;
+  /** "No, keep asking" on the ask screen: the count goes back to 0 and the snooze stands. */
+  keepAsking(): void;
+  /** "Leave it alone, I know the risk": the asked rules are accepted and never a step again. */
+  accept(): void;
 }
 
 export interface GuidedDeps {

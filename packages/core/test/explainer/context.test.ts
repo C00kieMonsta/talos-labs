@@ -3,6 +3,7 @@ import type { Finding } from "../../src/domain/finding";
 import type { ScanReport } from "../../src/domain/report";
 import { evaluate } from "../../src/engine/evaluate";
 import { toExplainerContext, explainerEligibleRuleIds } from "../../src/explainer/context";
+import { validatePrioritisation } from "../../src/explainer/validate";
 import { DEV_MACHINE } from "../../src/fixtures/dev-machine";
 import { EXPLAINER_LIMITS, SAFE_STRING_PATTERN } from "../../src/ports/explainer-port";
 import { MACOS_CATALOG } from "../../src/rules/macos/index";
@@ -39,6 +40,13 @@ describe("toExplainerContext canary", () => {
         }
         expect(["boolean", "number", "string"]).toContain(typeof entry.value);
       }
+    }
+  });
+
+  it("every finding carries exactly the known keys and accepted is a boolean, never a string", () => {
+    for (const finding of context.findings) {
+      expect(Object.keys(finding)).toEqual(["ruleId", "status", "severity", "category", "points", "evidence", "accepted"]);
+      expect(typeof finding.accepted).toBe("boolean");
     }
   });
 
@@ -81,6 +89,28 @@ describe("toExplainerContext on a clean report", () => {
       expect(finding.category).toBe(source?.category);
       expect(finding.points).toBe(source?.points);
     }
+  });
+
+  it("accepted is true for exactly the ids given and false otherwise", () => {
+    expect(context.findings.every((f) => f.accepted === false)).toBe(true);
+    const marked = toExplainerContext(report, MACOS_CATALOG, PROFILE, ["TL-MAC-001", "TL-MAC-999"]);
+    expect(marked.findings.filter((f) => f.accepted).map((f) => f.ruleId)).toEqual(["TL-MAC-001"]);
+    expect(marked.findings.map((f) => f.ruleId)).toEqual(context.findings.map((f) => f.ruleId));
+    const one = marked.findings.find((f) => f.ruleId === "TL-MAC-001");
+    const plain = context.findings.find((f) => f.ruleId === "TL-MAC-001");
+    expect(one).toEqual({ ...plain, accepted: true });
+  });
+
+  it("explainerEligibleRuleIds drops the accepted ids, keeps the order, and the rest validates", () => {
+    const all = explainerEligibleRuleIds(report);
+    expect(all).toContain("TL-MAC-001");
+    const eligible = explainerEligibleRuleIds(report, ["TL-MAC-001"]);
+    expect(eligible).not.toContain("TL-MAC-001");
+    expect(eligible).toEqual(all.filter((id) => id !== "TL-MAC-001"));
+    const raw = { order: [...eligible].reverse(), reasons: [], startWith: eligible.slice(0, 1) };
+    expect(validatePrioritisation(raw, report, eligible).ok).toBe(true);
+    // An order that still names the accepted rule is not a permutation of the eligible set.
+    expect(validatePrioritisation({ ...raw, order: [...all].reverse() }, report, eligible).ok).toBe(false);
   });
 
   it("keeps the version evidence of a passing enum", () => {

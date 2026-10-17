@@ -5,6 +5,7 @@ import { StepFrame } from "../StepFrame";
 import { WatchStrip } from "../WatchStrip";
 import { FIX, LATER_FLASH, QUESTION, SHOW } from "../copy";
 import { guidedFor } from "../plan";
+import { AcceptScreen } from "./AcceptScreen";
 
 type ShowStepT = Extract<GuidedStep, { kind: "show" }>;
 
@@ -56,6 +57,8 @@ export function ShowStep({ step, state, controller, notice }: { step: ShowStepT;
       return <StepFrame progress={progress} devId={step.ruleId} title={state.line} done link={{ label: FIX.next, onClick: controller.next }} notice={notice} />;
     case "later_flash":
       return <StepFrame progress={progress} devId={step.ruleId} title={state.text ?? LATER_FLASH} notice={notice} />;
+    case "ask_accept":
+      return <AcceptScreen ruleIds={state.ruleIds} progress={progress} devId={step.ruleId} explainRuleId={step.ruleId} notice={notice} controller={controller} />;
     default:
       return (
         <StepFrame

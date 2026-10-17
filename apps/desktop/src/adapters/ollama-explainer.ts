@@ -3,7 +3,7 @@ import {
   EXPLANATION_JSON_SCHEMA,
   MACOS_CATALOG,
   PRIORITISATION_JSON_SCHEMA,
-  buildSystemPrompt,
+  buildExplainerSystemPrompt,
   validateAnswer,
   validateExplanation,
   explainerEligibleRuleIds,
@@ -22,6 +22,7 @@ import {
   type ScanReport,
 } from "@talos/core";
 import {
+  acceptedIds,
   askTurns,
   explainTurns,
   failure,
@@ -58,7 +59,7 @@ export class OllamaExplainerAdapter implements ExplainerPort {
   constructor(options: OllamaExplainerOptions) {
     this.reportSource = options.reportSource;
     this.model = resolveModel(options.model, OLLAMA_MODEL_PATTERN, DEFAULT_OLLAMA_MODEL);
-    this.systemPrompt = options.systemPrompt ?? buildSystemPrompt(MACOS_CATALOG);
+    this.systemPrompt = options.systemPrompt ?? buildExplainerSystemPrompt(MACOS_CATALOG);
     this.fetchImpl = options.fetchImpl ?? ((input, init) => fetch(input, init));
   }
 
@@ -72,7 +73,7 @@ export class OllamaExplainerAdapter implements ExplainerPort {
   }
 
   prioritise(input: PrioritiseInput, options?: ExplainOptions<Prioritisation>): Promise<ExplainerResult<Prioritisation>> {
-    return this.request(prioritiseTurns(input), PRIORITISATION_JSON_SCHEMA, validatePrioritisationFor, options);
+    return this.request(prioritiseTurns(input), PRIORITISATION_JSON_SCHEMA, validatePrioritisationFor(input), options);
   }
 
   ask(input: AskInput, options?: ExplainOptions<Answer>): Promise<ExplainerResult<Answer>> {
@@ -135,7 +136,7 @@ export class OllamaExplainerAdapter implements ExplainerPort {
   }
 }
 
-/** The order may only name rules the prompt showed, which for a full context is every eligible rule. */
-function validatePrioritisationFor(raw: unknown, report: ScanReport): ExplainerResult<Prioritisation> {
-  return validatePrioritisation(raw, report, explainerEligibleRuleIds(report));
+/** The order may only name rules the prompt showed: every eligible rule less the ones the person chose to leave. */
+function validatePrioritisationFor(input: PrioritiseInput): Validator<Prioritisation> {
+  return (raw, report) => validatePrioritisation(raw, report, explainerEligibleRuleIds(report, acceptedIds(input.context)));
 }

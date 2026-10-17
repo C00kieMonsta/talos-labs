@@ -199,6 +199,10 @@ export const END = {
   waiting: "Still waiting",
   locked: "In the full version",
   leftAlone: "Things I left alone",
+  /** The accepted rules, DESIGN-ACCEPT.md section 3, item 3. */
+  chosen: "Things you chose to leave",
+  /** In place of `nothing` while a rule is accepted. */
+  nothingLeft: "Nothing left for me to do.",
   technical: "For a technical person",
   checkAgain: "Check again",
   details: "Details",
@@ -419,4 +423,30 @@ export function failureCopy(error: FixError | "still_failing" | "unreadable", ba
     case "unreadable":
       return { title: "I made the change but could not check it.", body: watchOn ? WATCH_ON.tryAgain : "I'll check next time you open me.", primary: "next", later: false };
   }
+}
+
+/** "Leave it alone, I know the risk" (DESIGN-ACCEPT.md section 4). The word "accept" never reaches the screen. */
+export const ACCEPT = {
+  title: "Shall I stop asking about this?",
+  titleMany: "Shall I stop asking about these?",
+  body: "I've asked about this a few times. I can stop asking, but your Mac stays at risk until it's done.",
+  bodyMany: "I've asked about these a few times. I can stop asking, but your Mac stays at risk until they're done.",
+  primary: "No, keep asking",
+  link: "Leave it alone, I know the risk",
+  linkMany: "Leave them alone, I know the risks",
+  flash: "OK, I'll leave it alone.",
+  flashMany: "OK, I'll leave them alone.",
+  /** The Finding detail offer and strip; the expert shell may use a real button. "{date}" is rendered through formatDate. */
+  offer: "Don't want to do this? I'll stop proposing it. It still counts against the score.",
+  strip: "You chose to leave this on {date}. It still counts against the score.",
+  undo: "Ask me again",
+  pill: "Left alone",
+  chosenOne: "1 thing you chose to leave still counts.",
+  chosenMany: "{n} things you chose to leave still count.",
+  settingsSentence: "Open one to see it again or to ask me about it later.",
+} as const;
+
+/** The score card's fine-print line for `n` accepted rules that still fail. */
+export function chosenLine(n: number): string {
+  return n === 1 ? ACCEPT.chosenOne : ACCEPT.chosenMany.replace("{n}", String(n));
 }

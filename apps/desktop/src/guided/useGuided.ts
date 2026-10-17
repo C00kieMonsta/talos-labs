@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { GuidedMemory } from "@talos/core";
+import { lastReport } from "../scan/machine";
 import type { ScanController } from "../scan/useScan";
 import { usePermissionFlow } from "../scan/useCapabilityPoll";
 import { initialPermissionState } from "../components/PermissionCard";
@@ -6,10 +8,17 @@ import type { Core } from "./core";
 import { currentStep } from "./core";
 import * as act from "./actions";
 import { useGuidedEffects } from "./effects";
+import { rebuilt } from "./landing";
 import { primaryFor } from "./primary";
 import type { GuidedController, GuidedDeps, GuidedPhase } from "./state";
 
 export type { GuidedController, GuidedDeps, GuidedPhase, StepState } from "./state";
+
+function sameKeys(a: Readonly<Record<string, unknown>>, b: Readonly<Record<string, unknown>>): boolean {
+  const left = Object.keys(a);
+  const right = Object.keys(b);
+  return left.length === right.length && left.every((key) => key in b);
+}
 
 /** The guided controller: phase transitions, memory writes and timers on top of the scan machine. */
 export function useGuided(scan: ScanController, deps: GuidedDeps): GuidedController {
@@ -46,8 +55,19 @@ export function useGuided(scan: ScanController, deps: GuidedDeps): GuidedControl
   const core = coreRef.current;
   core.deps = deps;
   core.scan = scan;
-  // A memory that is neither the one held nor the one last saved was changed elsewhere (the Settings reset).
-  if (deps.memory !== core.memory && deps.memory !== core.lastSaved) core.memory = deps.memory;
+  // A memory that is neither the one held nor the one last saved was changed elsewhere (the Settings reset, Details).
+  // When its accepted set differs from the one held, the plan is rebuilt below; an aiAskedAt write alone is not.
+  const rebuildFor = useRef<GuidedMemory | null>(null);
+  if (deps.memory !== core.memory && deps.memory !== core.lastSaved) {
+    if (!sameKeys(core.memory.accepted, deps.memory.accepted)) rebuildFor.current = deps.memory;
+    core.memory = deps.memory;
+  }
+  useEffect(() => {
+    if (rebuildFor.current !== deps.memory) return;
+    rebuildFor.current = null;
+    const report = lastReport(core.scan.scan);
+    if (report !== null) rebuilt(core, report);
+  }, [core, deps.memory]);
 
   const bump = useCallback(() => {
     if (core.phase.kind === "step") core.setPhase({ ...core.phase });
@@ -98,6 +118,8 @@ export function useGuided(scan: ScanController, deps: GuidedDeps): GuidedControl
       enterLicence: async () => act.licenceAccepted(core),
       doNext: (action) => act.doNext(core, action, () => primary()),
       goToPaywall: () => act.goToPaywall(core),
+      keepAsking: () => act.keepAsking(core),
+      accept: () => act.accept(core),
     }),
     [phase, progress, core, primary],
   );

@@ -9,6 +9,7 @@ import type {
   Finding,
   FixPlan,
   FixPort,
+  GuidedMemory,
   LicenseState,
   RuleCatalog,
   RuleId,
@@ -20,7 +21,7 @@ import type {
   WatchPort,
   WatchState,
 } from "@talos/core";
-import { DEV_MACHINE, EMPTY_WATCH_MEMORY, MACOS_CATALOG, SECTION_KEYS } from "@talos/core";
+import { DEV_MACHINE, EMPTY_GUIDED_MEMORY, EMPTY_WATCH_MEMORY, MACOS_CATALOG, SECTION_KEYS } from "@talos/core";
 import type { Adapters } from "../adapters";
 import { DEFAULT_SETTINGS } from "../settings";
 import type { AppSettings } from "../settings";
@@ -229,6 +230,7 @@ export function fakeContextValue(input: {
   scanState: ScanState | { kind: "idle"; report: null; last: ScanReport | null };
   settings?: AppSettings;
   catalog?: RuleCatalog;
+  guidedMemory?: GuidedMemory;
 }): AppContextValue {
   const scanState: ScanState =
     input.scanState.kind === "idle" ? { kind: "idle", last: input.scanState.last } : input.scanState;
@@ -246,6 +248,9 @@ export function fakeContextValue(input: {
     ai: { availability: null, until: null, probe: vi.fn(async () => "off" as const), reprobe: vi.fn(() => () => undefined), report: vi.fn() },
     capabilities: null,
     refreshCapabilities: vi.fn(async () => null),
+    guidedMemory: input.guidedMemory ?? EMPTY_GUIDED_MEMORY,
+    acceptRule: vi.fn(),
+    unacceptRule: vi.fn(),
   };
 }
 

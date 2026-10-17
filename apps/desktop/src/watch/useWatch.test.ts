@@ -137,6 +137,30 @@ describe("useWatch on mount", () => {
     expect(h.port.setProfile).toHaveBeenLastCalledWith(PROFILE, undefined, false);
   });
 
+  it("pushes the accepted ids as a fourth argument when given, again when they change, and not for the same ids in a new array", async () => {
+    const h = mount();
+    h.hook.rerender({ accepted: ["TL-MAC-001"] });
+    await flush();
+    expect(h.port.setProfile).toHaveBeenLastCalledWith(PROFILE, undefined, true, ["TL-MAC-001"]);
+    expect((h.port.setProfile as ReturnType<typeof vi.fn>).mock.calls.at(-1)).toHaveLength(4);
+    const pushes = (h.port.setProfile as ReturnType<typeof vi.fn>).mock.calls.length;
+    h.hook.rerender({ accepted: ["TL-MAC-001"] });
+    await flush();
+    expect(h.port.setProfile).toHaveBeenCalledTimes(pushes);
+    h.hook.rerender({ accepted: ["TL-MAC-001", "TL-MAC-010"] });
+    await flush();
+    expect(h.port.setProfile).toHaveBeenCalledTimes(pushes + 1);
+    expect(h.port.setProfile).toHaveBeenLastCalledWith(PROFILE, undefined, true, ["TL-MAC-001", "TL-MAC-010"]);
+    h.hook.rerender({ accepted: [] });
+    await flush();
+    expect(h.port.setProfile).toHaveBeenCalledTimes(pushes + 2);
+    expect(h.port.setProfile).toHaveBeenLastCalledWith(PROFILE, undefined, true, []);
+    h.hook.rerender({});
+    await flush();
+    expect(h.port.setProfile).toHaveBeenCalledTimes(pushes + 3);
+    expect((h.port.setProfile as ReturnType<typeof vi.fn>).mock.calls.at(-1)).toEqual([PROFILE, undefined, true]);
+  });
+
   it("a watch:state with licensed false clears the startAtLogin cache and patches settings", async () => {
     const h = mount({ autostart: true, settings: { startAtLogin: true } });
     await flush();

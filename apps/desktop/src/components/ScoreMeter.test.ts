@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { CIRCUMFERENCE, FIRST_MS, ScoreMeter } from "./ScoreMeter";
 
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  delete window.__talosDemoPace;
 });
 
 describe("ScoreMeter", () => {
@@ -37,6 +38,34 @@ describe("ScoreMeter", () => {
     });
     expect(Number(ring.getAttribute("stroke-dashoffset"))).toBeCloseTo(CIRCUMFERENCE * 0.2, 1);
     expect(screen.getByRole("meter").getAttribute("aria-valuenow")).toBe("80");
+  });
+
+  it("replays the fill from empty on a click and keeps the meter's value", () => {
+    vi.useFakeTimers();
+    render(createElement(ScoreMeter, { value: 80, grade: "fair" }));
+    act(() => {
+      vi.advanceTimersByTime(FIRST_MS + 100);
+    });
+    const meter = screen.getByRole("meter");
+    fireEvent.click(meter);
+    const ring = document.querySelector(".score-meter-value") as SVGCircleElement;
+    expect(Number(ring.getAttribute("stroke-dashoffset"))).toBeCloseTo(CIRCUMFERENCE, 1);
+    expect(meter.getAttribute("aria-valuenow")).toBe("80");
+    expect(meter.getAttribute("tabindex")).toBe("0");
+    act(() => {
+      vi.advanceTimersByTime(FIRST_MS + 100);
+    });
+    expect(Number(document.querySelector(".score-meter-value")?.getAttribute("stroke-dashoffset"))).toBeCloseTo(CIRCUMFERENCE * 0.2, 1);
+  });
+
+  it("does nothing on a click when motion is off", () => {
+    window.__talosDemoPace = 0;
+    render(createElement(ScoreMeter, { value: 80, grade: "fair" }));
+    const ring = document.querySelector(".score-meter-value") as SVGCircleElement;
+    expect(Number(ring.getAttribute("stroke-dashoffset"))).toBeCloseTo(CIRCUMFERENCE * 0.2, 1);
+    fireEvent.click(screen.getByRole("meter"));
+    expect(Number(document.querySelector(".score-meter-value")?.getAttribute("stroke-dashoffset"))).toBeCloseTo(CIRCUMFERENCE * 0.2, 1);
+    expect(screen.getByText("80")).toBeTruthy();
   });
 
   it("renders the null state without a ring", () => {

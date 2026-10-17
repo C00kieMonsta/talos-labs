@@ -1,4 +1,5 @@
 import type { Finding, Prioritisation, RuleId, ScanReport, UnknownReason } from "@talos/core";
+import { acceptedFailing } from "@talos/core";
 import { AiCard, useAiCardFlow } from "../components/AiCard";
 import { FindingCard } from "../components/FindingCard";
 import { FixFlow } from "../components/FixSheet";
@@ -9,6 +10,7 @@ import { ICONS } from "../app/icons";
 import { GRADE_SUMMARY, SOCKET_TABLE_COPY, UNKNOWN_REASON_LABELS, paneForReason } from "../app/labels";
 import { useApp } from "../app/context";
 import { hiddenBySocketTable } from "../app/network-checks";
+import { chosenLine } from "../guided/copy";
 import { lastReport } from "../scan/machine";
 import type { PermissionKind } from "../scan/useCapabilityPoll";
 
@@ -53,7 +55,7 @@ export function affectsLine(titles: readonly string[]): string {
 }
 
 export function Overview() {
-  const { scan, router, gate, settings, capabilities } = useApp();
+  const { scan, router, gate, settings, capabilities, guidedMemory } = useApp();
   const report = lastReport(scan.scan);
 
   if (report === null) {
@@ -74,6 +76,7 @@ export function Overview() {
         freeFixes={gate.freeFixes}
         aiEnabled={settings.explainer.aiEnabled}
         capabilities={capabilities}
+        accepted={acceptedFailing(guidedMemory, report)}
         onOpenFinding={(ruleId) => router.navigate({ name: "finding", ruleId })}
         onAll={() => router.navigate({ name: "findings" })}
       />
@@ -82,14 +85,15 @@ export function Overview() {
   );
 }
 
-/** "Start with" from the model, then the rest of its order, then what it did not see in points order. */
-export function SuggestedOrderBody({ report, priority, onOpen }: { report: ScanReport; priority: Prioritisation; onOpen(ruleId: RuleId): void }) {
+/** "Start with" from the model, then the rest of its order, then what it did not see in points order. An accepted rule is under no heading, even from an order cached before the choice. */
+export function SuggestedOrderBody({ report, priority, accepted, onOpen }: { report: ScanReport; priority: Prioritisation; accepted: readonly RuleId[]; onOpen(ruleId: RuleId): void }) {
   const headline = (id: RuleId) => report.findings.find((f) => f.ruleId === id)?.headline ?? id;
   const reason = (id: RuleId) => priority.reasons.find((r) => r.ruleId === id)?.reason ?? null;
-  const startWith = priority.startWith.slice(0, 3);
-  const then = priority.order.filter((id) => !startWith.includes(id));
+  const left = new Set<string>(accepted);
+  const startWith = priority.startWith.filter((id) => !left.has(id)).slice(0, 3);
+  const then = priority.order.filter((id) => !startWith.includes(id) && !left.has(id));
   const seen = new Set<string>([...startWith, ...then]);
-  const omitted = report.findings.filter((f) => f.status !== "unknown" && !seen.has(f.ruleId)).map((f) => f.ruleId);
+  const omitted = report.findings.filter((f) => f.status !== "unknown" && !seen.has(f.ruleId) && !left.has(f.ruleId)).map((f) => f.ruleId);
   // Each entry is one row: the rank in the mark, the headline, the model's reason under it, a chevron.
   const item = (id: RuleId, position: number, withReason: boolean) => (
     <li key={id}>
@@ -131,12 +135,12 @@ export function SuggestedOrderBody({ report, priority, onOpen }: { report: ScanR
   );
 }
 
-function OverviewAiCard({ report, onOpen }: { report: ScanReport; onOpen(ruleId: RuleId): void }) {
+function OverviewAiCard({ report, accepted, onOpen }: { report: ScanReport; accepted: readonly RuleId[]; onOpen(ruleId: RuleId): void }) {
   const flow = useAiCardFlow("prioritise");
   const priority = flow.explain.kind === "ready" || flow.explain.kind === "failed" ? flow.explain.priority : null;
   return (
     <AiCard kind="overview" state={flow.state} provider={flow.provider} {...flow.handlers}>
-      {priority !== null && <SuggestedOrderBody report={report} priority={priority} onOpen={onOpen} />}
+      {priority !== null && <SuggestedOrderBody report={report} priority={priority} accepted={accepted} onOpen={onOpen} />}
     </AiCard>
   );
 }
@@ -146,6 +150,7 @@ function OverviewBody({
   freeFixes,
   aiEnabled,
   capabilities,
+  accepted,
   onOpenFinding,
   onAll,
 }: {
@@ -153,6 +158,8 @@ function OverviewBody({
   freeFixes: readonly string[];
   aiEnabled: boolean;
   capabilities: Parameters<typeof PermissionCard>[0]["capabilities"];
+  /** The failing rules the person chose to leave: counted in the tiles, never proposed as a row. */
+  accepted: readonly RuleId[];
   onOpenFinding(ruleId: RuleId): void;
   onAll(): void;
 }) {
@@ -161,7 +168,10 @@ function OverviewBody({
   const permissions = groupByPermission(unknown);
   const networkHidden = unknown.filter((f) => hiddenBySocketTable(report, f));
   const otherUnknown = groupByReason(unknown.filter((f) => paneForReason(f.unknownReason) === null && !hiddenBySocketTable(report, f)));
-  const nextThree = freeFixes.map((id) => failing.find((f) => f.ruleId === id)).filter((f): f is Finding => f !== undefined);
+  const nextThree = freeFixes
+    .filter((id) => !accepted.includes(id as RuleId))
+    .map((id) => failing.find((f) => f.ruleId === id))
+    .filter((f): f is Finding => f !== undefined);
   const review = report.findings.filter((f) => f.status === "review");
   const tiles = [
     { label: "Needs fixing", count: failing.length },
@@ -191,6 +201,7 @@ function OverviewBody({
                 {score.cappedByCritical && <span>{score.complete ? "Capped by a critical issue" : "capped by a critical issue"}</span>}
               </p>
             )}
+            {accepted.length > 0 && <p className="fine-print score-fine-print score-chosen">{chosenLine(accepted.length)}</p>}
             <ul className="grid-stats" aria-label="Checks by status">
               {tiles.map(({ label, count }) => (
                 <li key={label}>
@@ -219,7 +230,7 @@ function OverviewBody({
             </section>
           )}
 
-          {aiEnabled && score.value !== null && failing.length > 0 && <OverviewAiCard report={report} onOpen={onOpenFinding} />}
+          {aiEnabled && score.value !== null && failing.length > 0 && <OverviewAiCard report={report} accepted={accepted} onOpen={onOpenFinding} />}
 
           {failing.length === 0 && score.value !== null && (
             <section className="card card-good" aria-labelledby="all-good">

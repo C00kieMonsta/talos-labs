@@ -1,4 +1,4 @@
-import type { AbortSignalLike, ExplainerFailure, ExplainerResult, RemoteTask, RemoteTurn, ScanReport } from "@talos/core";
+import type { AbortSignalLike, ExplainerContext, ExplainerFailure, ExplainerResult, RemoteTask, RemoteTurn, RuleId, ScanReport } from "@talos/core";
 
 /**
  * Helpers shared by the HTTP explainer adapters. The turn builders live in core
@@ -8,6 +8,11 @@ export { askTurns, explainTurns, prioritiseTurns } from "@talos/core";
 
 /** Supplies the report the validators check model output against. */
 export type ReportSource = () => Promise<ScanReport | null>;
+
+/** The ids the person chose to leave, read from the document's own rows; the prioritise validator drops them. */
+export function acceptedIds(context: ExplainerContext): readonly RuleId[] {
+  return context.findings.filter((f) => f.accepted).map((f) => f.ruleId);
+}
 
 export function failure<T>(reason: ExplainerFailure): ExplainerResult<T> {
   return { ok: false, reason };

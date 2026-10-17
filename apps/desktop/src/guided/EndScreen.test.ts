@@ -26,7 +26,7 @@ afterEach(cleanup);
 const REPORT: ScanReport = evaluate(DEV_MACHINE, MACOS_CATALOG, { now: "2026-10-16T10:00:00.000Z", os: "macos" });
 
 function plan(overrides: Partial<GuidedPlan> = {}): GuidedPlan {
-  return { reportId: "r1", freeFixes: [], steps: [], leftAlone: [], worthALook: [], technical: [], later: [], locked: [], unreadable: 0, ...overrides };
+  return { reportId: "r1", freeFixes: [], steps: [], leftAlone: [], worthALook: [], technical: [], later: [], locked: [], accepted: [], unreadable: 0, ...overrides };
 }
 
 /**
@@ -344,5 +344,53 @@ describe("EndScreen", () => {
       renderEndWithAi(plan(), { availability, provider: "apple" });
       expect(document.querySelector(".guided-end-row-connect"), availability).toBeNull();
     }
+  });
+});
+
+describe("EndScreen and the rules the person chose to leave", () => {
+  it("lists them under Things you chose to leave, after the locked group and before the left-alone one, each row opening Details", () => {
+    const { navigate } = renderEnd(plan({ later: ["TL-MAC-010"], locked: ["TL-MAC-022"], accepted: ["TL-MAC-001", "TL-MAC-003"], leftAlone: ["TL-MAC-014"] }), ["TL-MAC-002"]);
+    expect(screen.getByRole("heading", { level: 1, name: END.partial })).toBeTruthy();
+    const labels = Array.from(document.querySelectorAll(".guided-end-group:not(.guided-next) .guided-end-label")).map((n) => n.textContent);
+    expect(labels).toEqual([END.locked, END.chosen, END.leftAlone]);
+    const group = document.querySelector("section[aria-labelledby='guided-end-accepted']") as HTMLElement;
+    expect(group.querySelectorAll(".guided-end-row").length).toBe(2);
+    fireEvent.click(screen.getByRole("button", { name: `${guidedFor("TL-MAC-001").headline} ${END.details}` }));
+    expect(navigate).toHaveBeenCalledWith({ name: "finding", ruleId: "TL-MAC-001" });
+    expect(document.body.textContent).not.toMatch(/accept/i);
+  });
+
+  it("never makes the accepted rule the next card, even at the most points", () => {
+    renderEnd(plan({ later: ["TL-MAC-010"], accepted: ["TL-MAC-001"] }), []);
+    expect(document.querySelector(".guided-next-headline")?.textContent).toBe(guidedFor("TL-MAC-010").headline);
+    expect(screen.getByRole("button", { name: `${guidedFor("TL-MAC-001").headline} ${END.details}` })).toBeTruthy();
+  });
+
+  it("reads Nothing left for me to do. with an accepted low and nothing fixed, and the calm next-time line", () => {
+    renderEnd(plan({ accepted: ["TL-MAC-014"] }), []);
+    expect(screen.getByRole("heading", { level: 1, name: END.nothingLeft })).toBeTruthy();
+    expect(screen.queryByText(END.nothing)).toBeNull();
+    expect(screen.getByText(END.nextTime)).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: END.chosen })).toBeTruthy();
+    expect(document.querySelector(".guided-next-card")).toBeNull();
+    expect(document.querySelectorAll(".button-primary").length).toBe(0);
+  });
+
+  it("reads Your Mac is safer than it was. with an accepted high and one fixed, never in good shape", () => {
+    renderEnd(plan({ accepted: ["TL-MAC-022"] }), ["TL-MAC-002"]);
+    expect(screen.getByRole("heading", { level: 1, name: END.partial })).toBeTruthy();
+    expect(screen.queryByText(END.allDone)).toBeNull();
+    expect(document.body.textContent).not.toContain("in good shape");
+    expect(document.body.textContent).not.toContain("Nothing needs fixing");
+    expect(screen.getByRole("heading", { level: 2, name: END.chosen })).toBeTruthy();
+  });
+
+  it("keeps Nothing to fix in what I could check. with an accepted critical, nothing fixed and one unreadable area, the group under it", () => {
+    renderEnd(plan({ accepted: ["TL-MAC-001"], unreadable: 1 }), []);
+    expect(screen.getByRole("heading", { level: 1, name: END.unreadableSome })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: END.chosen })).toBeTruthy();
+    expect(screen.getByRole("button", { name: `${guidedFor("TL-MAC-001").headline} ${END.details}` })).toBeTruthy();
+    expect(screen.queryByText(END.nothing)).toBeNull();
+    expect(screen.queryByText(END.allDone)).toBeNull();
   });
 });

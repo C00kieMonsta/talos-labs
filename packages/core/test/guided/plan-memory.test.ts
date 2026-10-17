@@ -3,7 +3,7 @@ import type { ScanReport } from "../../src/domain/report";
 import { evaluate } from "../../src/engine/evaluate";
 import { DEV_MACHINE } from "../../src/fixtures/dev-machine";
 import { EMPTY_GUIDED_MEMORY, type GuidedMemory } from "../../src/guided/memory";
-import { buildGuidedPlan, convertedShowStep, planLocked, WATCH_EVERY_MS } from "../../src/guided/plan";
+import { buildGuidedPlan, convertedShowStep, planLocked, KEEP_ACCEPTED_THROUGH_PASS, LATER_ASK_COUNT, WATCH_EVERY_MS } from "../../src/guided/plan";
 import { freeFixRuleIds } from "../../src/license/entitled";
 import type { ExplainerProfile } from "../../src/ports/explainer-port";
 import { MACOS_CATALOG } from "../../src/rules/macos/index";
@@ -34,9 +34,12 @@ describe("buildGuidedPlan and memory", () => {
     expect(ids(memory)).toContain("show:TL-MAC-001");
   });
 
-  it("a thrice-Latered rule is absent; twice is still a step", () => {
-    expect(ids({ ...EMPTY_GUIDED_MEMORY, laterCount: { "TL-MAC-010": 3 } })).not.toContain("show:TL-MAC-010");
+  it("a thrice-Latered rule is still a step once its snooze passes", () => {
+    // The ask screen owns retirement now; the count alone never removes a step.
+    expect(ids({ ...EMPTY_GUIDED_MEMORY, laterCount: { "TL-MAC-010": 3 } })).toContain("show:TL-MAC-010");
     expect(ids({ ...EMPTY_GUIDED_MEMORY, laterCount: { "TL-MAC-010": 2 } })).toContain("show:TL-MAC-010");
+    expect(LATER_ASK_COUNT).toBe(3);
+    expect(KEEP_ACCEPTED_THROUGH_PASS).toEqual(["TL-MAC-027", "TL-MAC-010"]);
   });
 
   it("a waiting rule is absent", () => {
@@ -72,6 +75,56 @@ describe("buildGuidedPlan and memory", () => {
     expect(ids(recent)).not.toContain("permission:full_disk_access");
     const old = { ...EMPTY_GUIDED_MEMORY, permissionAskedAt: { full_disk_access: daysFrom(NOW, -31) } };
     expect(ids(old)).toContain("permission:full_disk_access");
+  });
+});
+
+describe("buildGuidedPlan and accepted", () => {
+  const AT = "2026-10-10T09:00:00.000Z";
+
+  function accepted(...ruleIds: string[]): GuidedMemory {
+    return { ...EMPTY_GUIDED_MEMORY, accepted: Object.fromEntries(ruleIds.map((id) => [id, AT])) };
+  }
+
+  it("an accepted rule is absent from steps and listed under accepted, not later", () => {
+    const plan = buildGuidedPlan(DEV, LICENSED, PROFILE, accepted("TL-MAC-001"), NOW);
+    expect(plan.steps.map((s) => s.id)).not.toContain("show:TL-MAC-001");
+    expect(plan.accepted).toEqual(["TL-MAC-001"]);
+    expect(plan.later).toEqual([]);
+    expect(buildGuidedPlan(DEV, LICENSED, PROFILE, EMPTY_GUIDED_MEMORY, NOW).accepted).toEqual([]);
+  });
+
+  it("accepted wins over the left-alone set and the technical check", () => {
+    const alone = buildGuidedPlan(DEV, LICENSED, PROFILE, accepted("TL-MAC-014"), NOW);
+    expect(alone.accepted).toEqual(["TL-MAC-014"]);
+    expect(alone.leftAlone).toEqual([]);
+    const technical = buildGuidedPlan(DEV, LICENSED, PROFILE, accepted("TL-MAC-029"), NOW);
+    expect(technical.accepted).toEqual(["TL-MAC-029"]);
+    expect(technical.technical).toEqual([]);
+  });
+
+  it("an accepted batch member shrinks the batch; two leave a single fix", () => {
+    const one = buildGuidedPlan(DEV, LICENSED, PROFILE, accepted("TL-MAC-003"), NOW);
+    expect(one.steps[0]).toEqual({ id: "batch", kind: "batch", ruleIds: ["TL-MAC-002", "TL-MAC-011"] });
+    const two = buildGuidedPlan(DEV, LICENSED, PROFILE, accepted("TL-MAC-003", "TL-MAC-011"), NOW);
+    expect(two.steps[0]).toEqual({ id: "fix:TL-MAC-002", kind: "fix", ruleId: "TL-MAC-002", choice: { kind: "none" }, passphrase: false });
+    expect(two.accepted).toEqual(["TL-MAC-003", "TL-MAC-011"]);
+  });
+
+  it("an accepted locked rule leaves lockedRuleIds; accepting all four removes the paywall", () => {
+    const one = buildGuidedPlan(DEV, FREE, PROFILE, accepted("TL-MAC-022"), NOW);
+    expect(one.locked).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-026"]);
+    const paywall = one.steps.find((s) => s.kind === "paywall");
+    expect(paywall?.kind === "paywall" && paywall.lockedRuleIds).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-026"]);
+    const all = buildGuidedPlan(DEV, FREE, PROFILE, accepted("TL-MAC-003", "TL-MAC-011", "TL-MAC-022", "TL-MAC-026"), NOW);
+    expect(all.locked).toEqual([]);
+    expect(all.steps.map((s) => s.id)).not.toContain("paywall");
+    expect(all.accepted).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-022", "TL-MAC-026"]);
+  });
+
+  it("accepted lists only failing rules, in catalogue order", () => {
+    // 004 passes and 017 is review on the dev machine; neither is listed.
+    const plan = buildGuidedPlan(DEV, LICENSED, PROFILE, accepted("TL-MAC-010", "TL-MAC-004", "TL-MAC-017", "TL-MAC-001"), NOW);
+    expect(plan.accepted).toEqual(["TL-MAC-001", "TL-MAC-010"]);
   });
 });
 

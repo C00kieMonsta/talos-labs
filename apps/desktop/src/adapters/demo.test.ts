@@ -3,6 +3,7 @@ import type { SectionProgress } from "@talos/core";
 import {
   ALL_UNAVAILABLE,
   DEV_MACHINE,
+  HARDENED,
   MACOS_CATALOG,
   SECTION_KEYS,
   evaluate,
@@ -13,7 +14,7 @@ import {
   validatePrioritisation,
 } from "@talos/core";
 import { DEFAULT_SETTINGS } from "../settings";
-import { createDemoAdapters, DEMO_EXPLAIN_DELAY_MS, DEMO_LICENSE_KEY, DEMO_LICENSE_KEY_PASTED, DEMO_LICENSE_PAYLOAD } from "./demo";
+import { createDemoAdapters, DEMO_EXPLAIN_DELAY_MS, DEMO_LICENSE_KEY, DEMO_LICENSE_KEY_PASTED, DEMO_LICENSE_PAYLOAD, withForcedFailures } from "./demo";
 
 const report = evaluate(DEV_MACHINE, MACOS_CATALOG, { now: "2026-10-15T10:00:00.000Z", os: "macos" });
 const context = toExplainerContext(report, MACOS_CATALOG, DEFAULT_SETTINGS.profile);
@@ -280,5 +281,33 @@ describe("createDemoAdapters: explainer", () => {
     expect(answered.ok && answered.value.relatedRuleIds).toEqual([]);
     const prioritised = await settled(explainer.prioritise({ context: clean }));
     expect(prioritised.ok && prioritised.value.order).toEqual([]);
+  });
+});
+
+describe("withForcedFailures and the rules the person chose to leave", () => {
+  it("fail=001 makes the disk rule fail on the hardened Mac and nothing else", () => {
+    const base = evaluate(HARDENED, MACOS_CATALOG, { now: "2026-10-15T10:00:00.000Z", os: "macos" });
+    const forced = evaluate(withForcedFailures(HARDENED, ["TL-MAC-001"]), MACOS_CATALOG, { now: "2026-10-15T10:00:00.000Z", os: "macos" });
+    const failing = (r: typeof base) => r.results.filter((x) => x.status === "fail").map((x) => x.ruleId);
+    expect(failing(base)).not.toContain("TL-MAC-001");
+    expect(failing(forced)).toEqual([...failing(base), "TL-MAC-001"].sort());
+    expect(withForcedFailures(HARDENED, [])).toBe(HARDENED);
+    // Both at once: the screen saver and the disk.
+    expect(failing(evaluate(withForcedFailures(HARDENED, ["TL-MAC-013", "TL-MAC-001"]), MACOS_CATALOG, { now: "2026-10-15T10:00:00.000Z", os: "macos" }))).toEqual(expect.arrayContaining(["TL-MAC-001", "TL-MAC-013"]));
+  });
+
+  it("the canned prioritisation carries no rule the person chose to leave", async () => {
+    vi.useFakeTimers();
+    const adapters = createDemoAdapters({ fixture: "dev-machine" });
+    const explainer = await adapters.createExplainer({ ...DEFAULT_SETTINGS.explainer, provider: "claude" });
+    const left = toExplainerContext(report, MACOS_CATALOG, DEFAULT_SETTINGS.profile, ["TL-MAC-001"]);
+    const pending = explainer.prioritise({ context: left });
+    await vi.advanceTimersByTimeAsync(DEMO_EXPLAIN_DELAY_MS);
+    const result = await pending;
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.order).not.toContain("TL-MAC-001");
+    expect(result.value.startWith).not.toContain("TL-MAC-001");
+    expect(validatePrioritisation(result.value, report, explainerEligibleRuleIds(report, ["TL-MAC-001"])).ok).toBe(true);
   });
 });

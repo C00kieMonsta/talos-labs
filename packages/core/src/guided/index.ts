@@ -2,7 +2,8 @@ export { EMPTY_GUIDED_MEMORY, parseGuidedMemory, AI_ASK_AGAIN_MS, aiAskedRecentl
 export type { GuidedMemory, PermissionKind } from "./memory";
 export { diffReports } from "./diff";
 export type { ReportDiff } from "./diff";
-export { buildGuidedPlan, planLocked, convertedShowStep, LEFT_ALONE, WATCH_EVERY_MS } from "./plan";
+export { buildGuidedPlan, planLocked, convertedShowStep, LEFT_ALONE, WATCH_EVERY_MS, LATER_ASK_COUNT, KEEP_ACCEPTED_THROUGH_PASS } from "./plan";
+export { isAccepted, acceptedFailing, acceptRules, unacceptRule, clearAcceptedThatPass } from "./accepted";
 export type { GuidedStep, GuidedPlan, GuidedGate } from "./plan";
 export { nextAction } from "./next";
 export type { NextAction, NextActionKind } from "./next";

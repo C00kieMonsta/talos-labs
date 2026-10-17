@@ -241,3 +241,14 @@ describe("bootDemo guided seeds", () => {
     expect(previous.results.map((r) => r.ruleId).sort()).toEqual(now.results.map((r) => r.ruleId).sort());
   });
 });
+
+describe("parseDemoQuery fail=", () => {
+  it("accepts 013 and 001 in both spellings, each mapped to its own rule, and drops anything else", () => {
+    expect(parseDemoQuery("?fail=001").options.fail).toEqual(["TL-MAC-001"]);
+    expect(parseDemoQuery("?fail=TL-MAC-001").options.fail).toEqual(["TL-MAC-001"]);
+    expect(parseDemoQuery("?fail=001,013").options.fail).toEqual(["TL-MAC-001", "TL-MAC-013"]);
+    expect(parseDemoQuery("?fail=013,TL-MAC-001").options.fail).toEqual(["TL-MAC-013", "TL-MAC-001"]);
+    expect(parseDemoQuery("?fail=099").options.fail).toBeUndefined();
+    expect(parseDemoQuery("?fail=001,099").options.fail).toEqual(["TL-MAC-001"]);
+  });
+});

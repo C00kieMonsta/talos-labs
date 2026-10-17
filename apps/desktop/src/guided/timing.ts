@@ -5,6 +5,8 @@ export const AUTO_ADVANCE_REDUCED_MS = 1800;
 export const LATER_FLASH_MS = 800;
 export const QUESTION_FLASH_MS = 1400;
 export const THANK_YOU_MS = 800;
+/** "OK, I'll leave it alone." stays long enough to read. */
+export const ACCEPT_FLASH_MS = 1400;
 /** Focus back this long with no change: the watching step reads as stale. */
 export const STALE_AFTER_MS = 10_000;
 /** The launch scan does not start twice within this window in one process. */

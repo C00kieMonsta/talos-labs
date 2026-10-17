@@ -23,7 +23,7 @@ Every guided screen has: a progress line ("2 of 7") above the headline, one head
 
 ### Ordering rule
 
-`buildGuidedPlan(report, gate, profile, memory, now)` (section 7) produces steps in this order. "Unlocked" means `gate.licensed` or the rule id is in the plan's frozen free set (below). "Eligible" means `status === "fail"`, not in the left-alone set, not developer-category for a `low` profile, not snoozed, not past three Laters, and not in the 24 h `waiting` window.
+`buildGuidedPlan(report, gate, profile, memory, now)` (section 7) produces steps in this order. "Unlocked" means `gate.licensed` or the rule id is in the plan's frozen free set (below). "Eligible" means `status === "fail"`, not in the left-alone set, not developer-category for a `low` profile, not snoozed, not accepted (`docs/DESIGN-ACCEPT.md`), and not in the 24 h `waiting` window.
 
 1. **Batch**, once, when two or more eligible unlocked rules are batchable (`fix.apply.kind === "in_app"`, `choice` is `none` or `all_ssh_keys`, `passphrase` is false). Exactly one batchable rule becomes a single **fix** step instead, through the v0.2 single path.
 2. **Fix** steps for eligible unlocked in-app rules that need a choice or a secret: 022, one step per `sharePath` evidence entry in evidence order; 029, one step per unprotected key. Points descending, then catalog order.
@@ -211,7 +211,7 @@ Before opening Time Machine on step 026, instead of the usual button:
 
 ### Step type: do it later
 
-"Do this later" (or "Do these later") writes `snoozed[ruleId] = now + 7 days` and `laterCount[ruleId] += 1`, shows "OK, I'll remind you another day." for 800 ms, and advances. No confirmation. After three Laters the rule stops being a step and only appears under "Still waiting" on the end screen until it is fixed elsewhere.
+"Do this later" (or "Do these later") writes `snoozed[ruleId] = now + 7 days` and `laterCount[ruleId] += 1`, shows "OK, I'll remind you another day." for 800 ms, and advances. No confirmation. The third Later asks whether to stop, and only the person's answer retires it (`docs/DESIGN-ACCEPT.md`); until then the rule appears under "Still waiting" on the end screen while its snooze runs.
 
 ### Step type: permission, just in time
 
@@ -469,7 +469,7 @@ Nothing new can run. The webview sends rule ids, as it does today, now in a list
 
 **What counts as a change.** `diffReports(previous, next)` compares `results[].status` per rule id. `fail` to `pass` or `not_applicable` is `fixed`; `pass`, `not_applicable` or `unknown` to `fail` is `appeared`; `fail` to `unknown` is `unreadable`. `review` changes and score deltas are not announced. A rule in `memory.pendingRestart` that now passes counts as `fixed` and is removed from the list; one that still fails is a step again. With no previous report the diff is empty.
 
-**No nagging.** A rule snoozed by "Do this later" is not a step for 7 days and after three Laters never again (until it is fixed elsewhere); the backup question snoozes 026 for 30 days; the paywall for 14 days per "Not now"; the permission step for 30 days per "Not now"; a watcher that hit the 10 min cap marks the rule `waiting` for 24 hours. The "since last time" screen only appears when the diff is non-empty. The menu bar watch (`docs/DESIGN-WATCH.md`) is the one exception, decided on purpose: while it is on, the app re-reads settings on a timer, shows one of three states in the menu bar, and may notify once when something needs doing now. The main window still speaks only when it is opened, and the watch never fixes anything on its own.
+**No nagging.** A rule snoozed by "Do this later" is not a step for 7 days; the third Later asks whether to stop, and only the person's answer retires it (`docs/DESIGN-ACCEPT.md`); the backup question snoozes 026 for 30 days; the paywall for 14 days per "Not now"; the permission step for 30 days per "Not now"; a watcher that hit the 10 min cap marks the rule `waiting` for 24 hours. The "since last time" screen only appears when the diff is non-empty. The menu bar watch (`docs/DESIGN-WATCH.md`) is the one exception, decided on purpose: while it is on, the app re-reads settings on a timer, shows one of three states in the menu bar, and may notify once when something needs doing now. The main window still speaks only when it is opened, and the watch never fixes anything on its own.
 
 **Memory.** `localStorage["talos.guided"]`, parsed field by field with fallbacks like `parseSettings`:
 
@@ -484,6 +484,8 @@ export interface GuidedMemory {
   readonly pendingRestart: readonly RuleId[];
   readonly paywallSnoozedUntil: string | null;
   readonly permissionAskedAt: Readonly<Partial<Record<PermissionKind, string>>>;
+  /** ruleId -> ISO when the person said "Leave it alone, I know the risk". */
+  readonly accepted: Readonly<Record<string, string>>;
 }
 ```
 

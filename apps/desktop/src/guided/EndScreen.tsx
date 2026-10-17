@@ -169,7 +169,9 @@ export function EndScreen({ plan, fixed, onCheckAgain, onNext, onConnect }: EndS
   const next = report === null || unread ? null : nextAction(plan, report);
   // While the watch says act now, the screen never reads calm: the title is the watch's own
   // status word and the sentence under it is the item's headline, the way a high rule's is.
-  const title = actNow !== null ? WATCH.act : allDone ? END.allDone : unread ? (allUnread ? END.unreadableAll : END.unreadableSome) : nothing ? END.nothing : END.partial;
+  // An accepted rule changes the two calm titles at every severity: the group under them says it was the person's choice.
+  const chosen = plan.accepted.length > 0;
+  const title = actNow !== null ? WATCH.act : allDone ? (chosen ? END.partial : END.allDone) : unread ? (allUnread ? END.unreadableAll : END.unreadableSome) : nothing ? (chosen ? END.nothingLeft : END.nothing) : END.partial;
   const body = unread && actNow === null ? (
     <p>{watchOn ? WATCH_ON.tryAgain : END.tryAgain}</p>
   ) : (
@@ -186,6 +188,7 @@ export function EndScreen({ plan, fixed, onCheckAgain, onNext, onConnect }: EndS
   const groups = [
     { id: "waiting", label: END.waiting, icon: ICONS.watch, rows: ruleRows(waiting) },
     { id: "locked", label: END.locked, icon: ICONS.licence, rows: ruleRows(plan.locked) },
+    { id: "accepted", label: END.chosen, icon: ICONS.eyeOff, rows: ruleRows(plan.accepted) },
     { id: "left-alone", label: END.leftAlone, icon: ICONS.eyeOff, rows: ruleRows(plan.leftAlone) },
     { id: "technical", label: END.technical, icon: ICONS.developer, rows: ruleRows(plan.technical) },
     { id: "unreadable", label: END.unreadable, icon: ICONS.question, rows: unreadable === null ? [] : [{ key: "unreadable", text: unreadable, onOpen: findings }] },

@@ -866,23 +866,54 @@ pub fn set_notify(app: &AppHandle, enabled: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// The profile, the AI choice when sent, and the webview's product gate. A push that flips
-/// the gate starts or stops the watch exactly as the switch does; Rust never verifies a key.
+/// The most accepted rule ids a push may store.
+pub const MAX_ACCEPTED: usize = 64;
+
+/// The accepted ids as stored: well-formed rule ids only, first occurrence kept, at most
+/// `MAX_ACCEPTED`.
+pub fn clean_accepted(ids: Vec<String>) -> Vec<String> {
+    let mut clean: Vec<String> = Vec::new();
+    for id in ids {
+        if context::rule_id_ok(&id) && !clean.contains(&id) {
+            clean.push(id);
+        }
+    }
+    clean.truncate(MAX_ACCEPTED);
+    clean
+}
+
+/// One profile push onto the settings file. `ai` and `accepted` keep the stored value when
+/// absent; `accepted` is persisted only, no cycle reads it.
+pub fn apply_profile(
+    settings: &mut WatchSettingsFile,
+    profile: ExplainerProfile,
+    ai: Option<WatchAi>,
+    licensed: bool,
+    accepted: Option<Vec<String>>,
+) {
+    settings.profile = profile;
+    if let Some(ai) = ai {
+        settings.ai = ai;
+    }
+    settings.licensed = licensed;
+    if let Some(ids) = accepted {
+        settings.accepted = clean_accepted(ids);
+    }
+}
+
+/// The profile, the AI choice when sent, the webview's product gate and the accepted ids when
+/// sent. A push that flips the gate starts or stops the watch exactly as the switch does; Rust
+/// never verifies a key.
 pub fn set_profile(
     app: &AppHandle,
     profile: ExplainerProfile,
     ai: Option<WatchAi>,
     licensed: bool,
+    accepted: Option<Vec<String>>,
 ) -> Result<(), String> {
     let store = app.state::<WatchStore>();
     let before = active(&store.settings(app));
-    store.set_settings(app, |s| {
-        s.profile = profile;
-        if let Some(ai) = ai {
-            s.ai = ai;
-        }
-        s.licensed = licensed;
-    })?;
+    store.set_settings(app, |s| apply_profile(s, profile, ai, licensed, accepted))?;
     let after = active(&store.settings(app));
     apply_transition(app, &store, before, after)
 }
@@ -1307,6 +1338,59 @@ mod tests {
         assert!(!case(false, true), "a licence alone does not turn it on");
         assert!(!case(true, false), "the switch alone does not run it");
         assert!(case(true, true));
+    }
+
+    #[test]
+    fn a_profile_push_keeps_the_accepted_ids_without_the_field_and_replaces_them_with_it() {
+        let stored = vec!["TL-MAC-001".to_owned()];
+        let mut settings = WatchSettingsFile {
+            accepted: stored.clone(),
+            ..WatchSettingsFile::default()
+        };
+        let profile = ExplainerProfile::default();
+        apply_profile(&mut settings, profile, None, true, None);
+        assert_eq!(settings.accepted, stored, "None keeps the stored list");
+        assert!(settings.licensed, "the gate still follows the push");
+        apply_profile(&mut settings, profile, None, true, Some(Vec::new()));
+        assert!(settings.accepted.is_empty(), "an empty list clears it");
+        apply_profile(
+            &mut settings,
+            profile,
+            None,
+            false,
+            Some(vec![
+                "TL-MAC-010".to_owned(),
+                "/Users/x".to_owned(),
+                "TL-MAC-010".to_owned(),
+                "TL-IOS-001".to_owned(),
+                "TL-ANY-2b".to_owned(),
+            ]),
+        );
+        assert_eq!(
+            settings.accepted,
+            vec!["TL-MAC-010".to_owned(), "TL-ANY-2b".to_owned()],
+            "a bad id is dropped and a duplicate collapses, order kept"
+        );
+        assert!(!settings.licensed);
+        let ai = WatchAi {
+            enabled: false,
+            provider: None,
+        };
+        apply_profile(&mut settings, profile, Some(ai), false, None);
+        assert_eq!(settings.ai, ai, "the AI choice still lands beside it");
+        assert_eq!(settings.accepted.len(), 2);
+    }
+
+    #[test]
+    fn the_accepted_ids_are_capped_at_the_limit() {
+        let many: Vec<String> = (0..MAX_ACCEPTED + 5)
+            .map(|n| format!("TL-MAC-{n:03}"))
+            .collect();
+        let clean = clean_accepted(many.clone());
+        assert_eq!(clean.len(), MAX_ACCEPTED);
+        assert_eq!(clean.first(), many.first());
+        assert_eq!(clean.get(MAX_ACCEPTED - 1), many.get(MAX_ACCEPTED - 1));
+        assert_eq!(MAX_ACCEPTED, 64);
     }
 
     #[test]

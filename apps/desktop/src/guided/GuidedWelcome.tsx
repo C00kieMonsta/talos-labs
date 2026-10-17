@@ -9,7 +9,7 @@ import { WELCOME } from "./copy";
 export function GuidedWelcome({ onStart }: { onStart(): void }) {
   const [open, setOpen] = useState(false);
   const watch = useWatchController();
-  const { gate } = useApp();
+  const { gate, settings } = useApp();
   useGuidedHero(true, false);
   // The one foreground button that asks macOS for notification permission; the flag is written after the answer.
   const allowNotifications = async () => {
@@ -23,7 +23,7 @@ export function GuidedWelcome({ onStart }: { onStart(): void }) {
       body={<p>{WELCOME.body}</p>}
       primary={{ label: WELCOME.start, onClick: onStart }}
       link={{ label: open ? WELCOME.back : WELCOME.what, onClick: () => setOpen((o) => !o) }}
-      className="guided-welcome"
+      className={settings.onboarded ? "guided-welcome" : "guided-welcome guided-welcome-first"}
     >
       {open && (
         <>

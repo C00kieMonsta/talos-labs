@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { Capabilities, LicenseState, RuleCatalog } from "@talos/core";
+import type { Capabilities, GuidedMemory, LicenseState, RuleCatalog, RuleId } from "@talos/core";
 import type { Adapters } from "../adapters";
 import type { AppSettings } from "../settings";
 import type { ScanController } from "../scan/useScan";
@@ -24,6 +24,12 @@ export interface AppContextValue {
   /** The last check_capabilities answer; null until asked. */
   readonly capabilities: Capabilities | null;
   refreshCapabilities(): Promise<Capabilities | null>;
+  /** The guided memory App holds; screens read it through acceptedFailing (DESIGN-ACCEPT.md section 3, item 10). */
+  readonly guidedMemory: GuidedMemory;
+  /** "Leave it alone, I know the risk" on the Finding detail. */
+  acceptRule(ruleId: RuleId): void;
+  /** "Ask me again" on the Finding detail: the one undo. */
+  unacceptRule(ruleId: RuleId): void;
 }
 
 export const AppContext = createContext<AppContextValue | null>(null);

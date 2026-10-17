@@ -13,7 +13,12 @@ export const WATCH_EVERY_MS = 3000;
 /** Never a step; listed under "Things I left alone" when failing. */
 export const LEFT_ALONE: readonly RuleId[] = ["TL-MAC-005", "TL-MAC-014", "TL-MAC-017", "TL-MAC-018", "TL-MAC-024", "TL-MAC-028", "TL-MAC-031"];
 
-const SNOOZE_LIMIT = 3;
+/** The "Do this later" count at which the step asks whether to stop; "No, keep asking" resets it. */
+export const LATER_ASK_COUNT = 3;
+
+/** Rules that pass and fail on their own cycle; a pass does not clear their acceptance. */
+export const KEEP_ACCEPTED_THROUGH_PASS: readonly RuleId[] = ["TL-MAC-027", "TL-MAC-010"];
+
 const PERMISSION_ASK_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type GuidedStep =
@@ -44,6 +49,8 @@ export interface GuidedPlan {
   readonly technical: readonly RuleId[];
   readonly later: readonly RuleId[];
   readonly locked: readonly RuleId[];
+  /** Failing rules the person chose to leave alone; never a step. */
+  readonly accepted: readonly RuleId[];
   readonly unreadable: number;
 }
 
@@ -59,7 +66,7 @@ interface Row {
   readonly index: number;
 }
 
-type Bucket = "eligible" | "left_alone" | "technical" | "later";
+type Bucket = "accepted" | "eligible" | "left_alone" | "technical" | "later";
 
 const RULES_BY_ID = new Map<RuleId, Rule>(MACOS_CATALOG.rules.map((rule) => [rule.id, rule]));
 
@@ -80,13 +87,16 @@ function isPast(until: string | undefined, now: string): boolean {
 
 function bucketFor(row: Row, profile: ExplainerProfile, memory: GuidedMemory, now: string): Bucket {
   const id = row.rule.id;
+  if (memory.accepted[id] !== undefined) {
+    return "accepted";
+  }
   if (LEFT_ALONE.includes(id)) {
     return "left_alone";
   }
   if (row.rule.category === "developer" && profile.technical === "low") {
     return "technical";
   }
-  if (!isPast(memory.snoozed[id], now) || (memory.laterCount[id] ?? 0) >= SNOOZE_LIMIT || !isPast(memory.waiting[id], now)) {
+  if (!isPast(memory.snoozed[id], now) || !isPast(memory.waiting[id], now)) {
     return "later";
   }
   return "eligible";
@@ -160,7 +170,7 @@ function planSteps(unlocked: readonly Row[]): GuidedStep[] {
 }
 
 function failing(report: ScanReport, profile: ExplainerProfile, memory: GuidedMemory, now: string): Record<Bucket, Row[]> {
-  const out: Record<Bucket, Row[]> = { eligible: [], left_alone: [], technical: [], later: [] };
+  const out: Record<Bucket, Row[]> = { accepted: [], eligible: [], left_alone: [], technical: [], later: [] };
   for (const row of rows(report)) {
     if (row.result.status === "fail") {
       out[bucketFor(row, profile, memory, now)].push(row);
@@ -198,6 +208,7 @@ export function buildGuidedPlan(report: ScanReport, gate: GuidedGate, profile: E
     technical: buckets.technical.map((row) => row.rule.id),
     later: buckets.later.map((row) => row.rule.id),
     locked,
+    accepted: buckets.accepted.map((row) => row.rule.id),
     unreadable: report.results.filter((result) => result.status === "unknown").length,
   };
 }

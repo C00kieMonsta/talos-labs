@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { MACOS_CATALOG, buildSystemPrompt, claudePromptFor, explainTurns } from "@talos/core";
+import { MACOS_CATALOG, buildExplainerSystemPrompt, claudePromptFor, explainTurns } from "@talos/core";
 import type { Explanation } from "@talos/core";
 import type { StreamEvent } from "./apple-explainer";
 import { ClaudePlanExplainerAdapter, LIMIT_TTL_MS, mapClaudePlanError } from "./claude-plan-explainer";
@@ -40,6 +40,9 @@ function bus(script: (id: string, emit: (e: Omit<StreamEvent, "id">) => void) =>
 }
 
 const explainInput = { context: TEST_CONTEXT, ruleId: "TL-MAC-001" as const };
+/** TEST_CONTEXT with 001 marked as left alone by the person. */
+const ACCEPTED_CONTEXT = { ...TEST_CONTEXT, findings: TEST_CONTEXT.findings.map((f) => (f.ruleId === "TL-MAC-001" ? { ...f, accepted: true } : f)) };
+const PRIORITISATION_WITHOUT_001 = { order: ["TL-MAC-002", "TL-MAC-023"], reasons: [{ ruleId: "TL-MAC-002", reason: "The firewall is quick." }], startWith: ["TL-MAC-002"] } as const;
 
 describe("ClaudePlanExplainerAdapter", () => {
   it("sends the frozen instructions and the core envelope on claude_generate, never a flag or a program", async () => {
@@ -49,7 +52,7 @@ describe("ClaudePlanExplainerAdapter", () => {
     const request = b.requests[0] as Generated;
     expect(request.id).toMatch(/^[a-z0-9]{1,16}$/);
     expect(request.task).toBe("explain");
-    expect(request.instructions).toBe(buildSystemPrompt(MACOS_CATALOG));
+    expect(request.instructions).toBe(buildExplainerSystemPrompt(MACOS_CATALOG));
     expect(request.prompt).toBe(claudePromptFor(explainTurns(explainInput)));
     expect(Object.keys(request).sort()).toEqual(["id", "instructions", "prompt", "task"]);
     expect(request.prompt).not.toContain("--");
@@ -188,5 +191,16 @@ describe("ClaudePlanExplainerAdapter", () => {
     expect(await dead.adapter.availability()).toBe("provider_unavailable");
     expect(ClaudePlanExplainerAdapter.shared(async () => null)).toBe(ClaudePlanExplainerAdapter.shared(async () => null));
     expect(ClaudePlanExplainerAdapter.shared(async () => null).id).toBe("claude_plan");
+  });
+});
+
+describe("ClaudePlanExplainerAdapter and the rules the person chose to leave", () => {
+  it("rejects an order that names an accepted rule, accepts one without it, and never shows the accepted row", async () => {
+    const named = bus((_id, emit) => emit({ kind: "done", json: VALID_PRIORITISATION }));
+    expect(await named.adapter.prioritise({ context: ACCEPTED_CONTEXT })).toEqual({ ok: false, reason: "rejected_output" });
+    expect(named.requests[0]?.instructions).toContain("A finding marked accepted");
+    expect(named.requests[0]?.prompt).not.toContain("TL-MAC-001");
+    const without = bus((_id, emit) => emit({ kind: "done", json: PRIORITISATION_WITHOUT_001 }));
+    expect(await without.adapter.prioritise({ context: ACCEPTED_CONTEXT })).toEqual({ ok: true, value: PRIORITISATION_WITHOUT_001 });
   });
 });

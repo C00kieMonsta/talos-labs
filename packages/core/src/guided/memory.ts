@@ -15,6 +15,8 @@ export interface GuidedMemory {
   readonly permissionAskedAt: Readonly<Partial<Record<PermissionKind, string>>>;
   /** ISO when the person last said "Not now" to connecting an AI; null when never. */
   readonly aiAskedAt: string | null;
+  /** ruleId -> ISO when the person said "Leave it alone, I know the risk". */
+  readonly accepted: Readonly<Record<string, string>>;
 }
 
 export const EMPTY_GUIDED_MEMORY: GuidedMemory = {
@@ -26,6 +28,7 @@ export const EMPTY_GUIDED_MEMORY: GuidedMemory = {
   paywallSnoozedUntil: null,
   permissionAskedAt: {},
   aiAskedAt: null,
+  accepted: {},
 };
 
 /** How long "Not now" on the AI connect screen is honoured. */
@@ -116,5 +119,6 @@ export function parseGuidedMemory(raw: unknown): GuidedMemory {
     paywallSnoozedUntil: isIsoDate(raw.paywallSnoozedUntil) ? raw.paywallSnoozedUntil : null,
     permissionAskedAt: permissionMap(raw.permissionAskedAt),
     aiAskedAt: isIsoDate(raw.aiAskedAt) ? raw.aiAskedAt : null,
+    accepted: dateMap(raw.accepted),
   };
 }

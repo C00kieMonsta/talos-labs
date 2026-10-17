@@ -1,14 +1,14 @@
 import type { WatchContext } from "../ports/watch-port";
-import { ON_DEVICE_LIMITS, buildOnDeviceInstructions, type OnDevicePrompt } from "./on-device-prompt";
+import { ON_DEVICE_BASE_INSTRUCTIONS, ON_DEVICE_LIMITS, type OnDevicePrompt } from "./on-device-prompt";
 import { WATCH_INSTRUCTIONS_BLOCK } from "./remote";
 
 export interface WatchOnDevicePrompt extends OnDevicePrompt {
   readonly instructions: string;
 }
 
-/** The frozen on-device instructions plus the watch block. Rust reads the same text from fixtures/watch-instructions-on-device.txt. */
+/** The frozen on-device base text plus the watch block. Rust reads the same text from fixtures/watch-instructions-on-device.txt. */
 export function buildOnDeviceWatchInstructions(): string {
-  return `${buildOnDeviceInstructions()}\n\n${WATCH_INSTRUCTIONS_BLOCK}`;
+  return `${ON_DEVICE_BASE_INSTRUCTIONS}\n\n${WATCH_INSTRUCTIONS_BLOCK}`;
 }
 
 function render(context: WatchContext): string {

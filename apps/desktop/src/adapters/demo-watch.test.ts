@@ -214,6 +214,16 @@ describe("DemoWatch recorded calls", () => {
     expect(state.rating, "a lone new item no longer justifies act now").toBe("keep_an_eye");
   });
 
+  it("setProfile with accepted ids records the licence flag only, never the ids", async () => {
+    const port = make({ watch: "act" });
+    delete window.__talosDemoCalls;
+    const profile = { role: "individual", technical: "low", handlesClientData: false, laptopLeavesHome: true } as const;
+    await port.setProfile(profile, undefined, true, ["TL-MAC-001", "TL-MAC-010"]);
+    expect(window.__talosDemoCalls).toEqual([{ kind: "watch_set_profile", arg: true }]);
+    expect(JSON.stringify(window.__talosDemoCalls)).not.toMatch(/TL-MAC/);
+    expect((await port.status()).licensed).toBe(true);
+  });
+
   it("snooze on the top item drops act now, sorts the item last and keeps it shown; acknowledging the last item lands on calm", async () => {
     const port = make({ watch: "act" });
     await port.snooze("sig.persistence_new");

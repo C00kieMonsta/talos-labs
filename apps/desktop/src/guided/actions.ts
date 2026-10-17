@@ -1,12 +1,12 @@
 import type { GuidedPlan, GuidedStep, NextAction, RuleId } from "@talos/core";
-import { planLocked } from "@talos/core";
+import { LATER_ASK_COUNT, acceptRules, planLocked } from "@talos/core";
 import { lastReport } from "../scan/machine";
 import type { Core } from "./core";
 import { advance, appendSteps, currentStep, finalPlan, initialStepState, openStep, setStep, writeMemory } from "./core";
 import { daysAfter } from "./memory";
-import { LATER_FLASH, PAYWALL, QUESTION } from "./copy";
-import { LATER_FLASH_MS, QUESTION_FLASH_MS, THANK_YOU_MS, paced } from "./timing";
-import { ruleIdsOf } from "./plan";
+import { ACCEPT, LATER_FLASH, PAYWALL, QUESTION } from "./copy";
+import { ACCEPT_FLASH_MS, LATER_FLASH_MS, QUESTION_FLASH_MS, THANK_YOU_MS, paced } from "./timing";
+import { ruleIdsOf, withoutAccepted } from "./plan";
 
 /** "Do this later": snooze the step's rules for 7 days, flash, advance. The paywall and permission links have their own meaning. */
 export function later(core: Core): void {
@@ -37,7 +37,43 @@ export function later(core: Core): void {
     laterCount[id] = (laterCount[id] ?? 0) + 1;
   }
   writeMemory(core, { snoozed, laterCount });
+  // The third Later asks instead of retiring: only the person's answer stops a step (DESIGN-ACCEPT.md section 2).
+  const asked = ruleIdsOf(step).filter((id) => (laterCount[id] ?? 0) >= LATER_ASK_COUNT);
+  if (asked.length > 0) {
+    setStep(core, { kind: "ask_accept", ruleIds: asked });
+    return;
+  }
   flashThenAdvance(core, LATER_FLASH, paced(LATER_FLASH_MS));
+}
+
+/** The rules the ask screen is about, or none when the current step is not asking. */
+function askedRules(core: Core): readonly RuleId[] {
+  const { phase } = core;
+  return phase.kind === "step" && phase.state.kind === "ask_accept" ? phase.state.ruleIds : [];
+}
+
+/** "No, keep asking": the count goes back to 0 so the question returns after three more Laters; the snooze stands. No flash. */
+export function keepAsking(core: Core): void {
+  const asked = askedRules(core);
+  if (asked.length === 0) return;
+  const laterCount = { ...core.memory.laterCount };
+  for (const id of asked) laterCount[id] = 0;
+  writeMemory(core, { laterCount });
+  advance(core);
+}
+
+/** "Leave it alone, I know the risk": accept the asked rules, forget them this run, flash, advance. */
+export function accept(core: Core): void {
+  const asked = askedRules(core);
+  if (asked.length === 0) return;
+  writeMemory(core, acceptRules(core.memory, asked, core.now()));
+  const accepted = Object.keys(core.memory.accepted) as RuleId[];
+  for (const id of asked) core.leftAlone.delete(id);
+  core.extras = core.extras.flatMap((e) => {
+    const kept = withoutAccepted(e, accepted);
+    return kept === null ? [] : [kept];
+  });
+  flashThenAdvance(core, asked.length === 1 ? ACCEPT.flash : ACCEPT.flashMany, paced(ACCEPT_FLASH_MS));
 }
 
 export function flashThenAdvance(core: Core, text: string, ms: number): void {
