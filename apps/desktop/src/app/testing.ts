@@ -30,7 +30,7 @@ import type { Gate } from "./gate";
 import type { ScanState } from "../scan/machine";
 import { lastReport } from "../scan/machine";
 import { buildGate } from "./gate";
-import type { AskMessage, ScanController } from "../scan/useScan";
+import type { ScanController } from "../scan/useScan";
 import { AppContext } from "./context";
 import type { AiConnectController } from "../scan/ai-connect";
 import { AiConnectContext, INERT_CONNECT } from "../scan/ai-connect";
@@ -211,7 +211,6 @@ export function fakeScanController(scan: ScanState): ScanController {
     recheck: vi.fn(async () => undefined),
     explain: vi.fn(async () => undefined),
     prioritise: vi.fn(async () => undefined),
-    ask: vi.fn(async () => ({ ok: false as const, reason: "not_configured" as const })),
     stopExplain: vi.fn(),
     revealRow: vi.fn(),
     markPreparing: vi.fn(),
@@ -225,10 +224,6 @@ export function fakeScanController(scan: ScanState): ScanController {
     startWatch: vi.fn(),
     stopWatch: vi.fn(),
     reveal: vi.fn(async () => undefined),
-    conversation: [],
-    setConversation: vi.fn(),
-    draft: "",
-    setDraft: vi.fn(),
   };
 }
 
@@ -264,14 +259,12 @@ export function fakeContextValue(input: {
 }
 
 /**
- * A provider whose licence, settings and Ask conversation are real React state, so a screen re-renders after writing through the context.
+ * A provider whose licence and settings are real React state, so a screen re-renders after writing through the context.
  * connect wraps the tree in AiConnectContext.Provider; without it the inert default applies.
  */
 export function StatefulProvider({ value, connect, children }: { value: AppContextValue; connect?: AiConnectController; children?: ReactNode }) {
   const [license, setLicense] = useState<LicenseState>(value.license);
   const [settings, setSettings] = useState<AppSettings>(value.settings);
-  const [conversation, setConversation] = useState<readonly AskMessage[]>(value.scan.conversation);
-  const [draft, setDraft] = useState(value.scan.draft);
   // A licence written through the context rebuilds the gate, as App does; until then the test's own gate stands.
   const gate = license === value.license ? value.gate : buildGate(lastReport(value.scan.scan), license);
   const live: AppContextValue = {
@@ -281,7 +274,6 @@ export function StatefulProvider({ value, connect, children }: { value: AppConte
     gate,
     settings,
     updateSettings: (patch) => setSettings((prev) => ({ ...prev, ...patch })),
-    scan: { ...value.scan, conversation, setConversation, draft, setDraft },
   };
   const tree = createElement(AppContext.Provider, { value: live }, children);
   return connect === undefined ? tree : createElement(AiConnectContext.Provider, { value: connect }, tree);

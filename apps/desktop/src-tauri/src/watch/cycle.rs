@@ -3051,32 +3051,37 @@ mod tests {
             &input(&sweep(vec![], true), &settings, T0, &all_valid),
         );
         assert!(
-            model_gate(&baseline, &context, &settings, at(T0)),
+            model_gate(&baseline, &context, &settings, at(T0), false),
             "no call yet: a day has passed"
         );
         baseline.last_model_call_at = Some("2026-10-17T11:30:00.000Z".into());
         assert!(
-            !model_gate(&baseline, &context, &settings, at(T0)),
+            !model_gate(&baseline, &context, &settings, at(T0), false),
             "nothing changed, calm, called recently"
         );
         baseline.last_change_at = Some("2026-10-17T11:45:00.000Z".into());
         assert!(
-            model_gate(&baseline, &context, &settings, at(T0)),
-            "a change since the last call"
+            model_gate(&baseline, &context, &settings, at(T0), false),
+            "a change since the last call opens at once"
         );
         for _ in 0..DAILY_CAP {
             baseline.count_call("2026-10-17");
         }
         assert!(
-            !model_gate(&baseline, &context, &settings, at(T0)),
+            !model_gate(&baseline, &context, &settings, at(T0), false),
             "the daily cap"
+        );
+        assert!(
+            !model_gate(&baseline, &context, &settings, at(T0), true),
+            "the cap holds against a follow-up too"
         );
         assert!(
             model_gate(
                 &baseline,
                 &context,
                 &settings,
-                at("2026-10-18T12:00:00.000Z")
+                at("2026-10-18T12:00:00.000Z"),
+                false
             ),
             "a new day"
         );
@@ -3085,8 +3090,263 @@ mod tests {
             &baseline,
             &context,
             &settings,
-            at("2026-10-18T12:00:00.000Z")
+            at("2026-10-18T12:00:00.000Z"),
+            true
         ));
+    }
+
+    #[test]
+    fn the_gate_asks_again_on_a_look_floor_every_six_hours_and_once_after_a_probe_round() {
+        let settings = WatchSettingsFile::default();
+        let mut baseline = Baseline::new();
+        cycle(
+            &mut baseline,
+            &sweep(vec![], true),
+            &settings,
+            T0,
+            &all_unsigned,
+        );
+        // A lone unsigned item in a temp folder: the floor holds at keep_an_eye.
+        let with_item = sweep(vec![launch("com.b", "/tmp/b", true)], true);
+        let (context, _) = prepare(
+            &mut baseline,
+            &input(&with_item, &settings, T1, &all_unsigned),
+        );
+        assert_eq!(context.floor, Rating::KeepAnEye);
+        // The call that the change opened, ten minutes before this tick.
+        baseline.last_model_call_at = Some("2026-10-17T12:50:00.000Z".into());
+        assert!(
+            !model_gate(&baseline, &context, &settings, at(T1), false),
+            "floor keep_an_eye and a call 10 minutes old: closed"
+        );
+        assert!(
+            model_gate(&baseline, &context, &settings, at(T1), true),
+            "a follow-up opens it once"
+        );
+        assert!(
+            !model_gate(&baseline, &context, &settings, at(T1), false),
+            "the next cycle, with nothing pending, is closed again"
+        );
+        baseline.last_model_call_at = Some("2026-10-17T07:00:00.000Z".into());
+        assert!(
+            model_gate(&baseline, &context, &settings, at(T1), false),
+            "at six hours it opens"
+        );
+        baseline.last_model_call_at = Some("2026-10-17T07:00:01.000Z".into());
+        assert!(
+            !model_gate(&baseline, &context, &settings, at(T1), false),
+            "a second short of six hours stays closed"
+        );
+        assert_eq!(LOOK_RECALL_MS, 6 * 60 * 60 * 1000);
+        // Calm: the day rule still opens, the look rule does not.
+        let mut calm = Baseline::new();
+        calm.cycle_index = 2;
+        let (context, _) = prepare(
+            &mut calm,
+            &input(&sweep(vec![], true), &settings, T0, &all_valid),
+        );
+        assert_eq!(context.floor, Rating::Calm);
+        calm.last_model_call_at = Some("2026-10-16T11:59:00.000Z".into());
+        assert!(
+            model_gate(&calm, &context, &settings, at(T0), false),
+            "day_passed still opens on calm"
+        );
+        calm.last_model_call_at = Some("2026-10-17T05:00:00.000Z".into());
+        assert!(
+            !model_gate(&calm, &context, &settings, at(T0), false),
+            "seven hours on calm is not the look rule"
+        );
+    }
+
+    fn line(rating: Rating) -> JudgeLine {
+        JudgeLine {
+            provider: ModelProvider::Chatgpt,
+            at: T0.to_owned(),
+            rating,
+            reason: "A guard went off on its own.".to_owned(),
+        }
+    }
+
+    #[test]
+    fn the_judge_line_follows_the_currency_rules() {
+        let kept = Some(line(Rating::ActNow));
+        let held = Some(line(Rating::KeepAnEye));
+        assert_eq!(
+            next_judge(held.clone(), kept.clone(), true, true, true),
+            kept,
+            "a kept reason replaces whatever was there"
+        );
+        assert_eq!(
+            next_judge(held.clone(), None, true, false, false),
+            None,
+            "the gate opened and no reason came back"
+        );
+        assert_eq!(
+            next_judge(held.clone(), None, false, true, false),
+            None,
+            "a change was recorded this cycle"
+        );
+        assert_eq!(
+            next_judge(held.clone(), None, false, false, true),
+            None,
+            "the shown rating moved"
+        );
+        assert_eq!(
+            next_judge(held.clone(), None, false, false, false),
+            held,
+            "gate closed, nothing moved: kept"
+        );
+        assert_eq!(next_judge(None, None, false, false, false), None);
+    }
+
+    #[test]
+    fn a_kept_reason_becomes_the_judge_line_only_when_its_rating_is_the_shown_one() {
+        let settings = WatchSettingsFile::default();
+        let mut baseline = Baseline::new();
+        let (c, d) = prepare(
+            &mut baseline,
+            &input(&sweep(vec![], true), &settings, T0, &all_valid),
+        );
+        conclude(&mut baseline, &c, &d, None, &settings, at(T0), false);
+        let (context, compared) = prepare(
+            &mut baseline,
+            &input(&sweep(vec![], false), &settings, T1, &all_valid),
+        );
+        let verdict = serde_json::json!({ "rating": "act_now", "ratingReason": "A guard went off on its own.", "basedOn": ["sig.sip"], "probes": [], "actions": [] });
+        let judge = Scripted(vec![Ok(verdict)], std::cell::RefCell::new(0));
+        let verdict = ask(&judge, &context).unwrap().unwrap();
+        assert_eq!(verdict.rating_reason, "A guard went off on its own.");
+        let conclusion = conclude(
+            &mut baseline,
+            &context,
+            &compared,
+            Some((&verdict, judge.provider())),
+            &settings,
+            at(T1),
+            false,
+        );
+        assert_eq!(conclusion.rating, Rating::ActNow);
+        let kept = judge_line(Some((&verdict, ModelProvider::Apple)), conclusion.rating, T1);
+        assert_eq!(
+            kept,
+            Some(JudgeLine {
+                provider: ModelProvider::Apple,
+                at: T1.to_owned(),
+                rating: Rating::ActNow,
+                reason: "A guard went off on its own.".to_owned(),
+            })
+        );
+        assert_eq!(
+            judge_line(Some((&verdict, ModelProvider::Apple)), Rating::KeepAnEye, T1),
+            None,
+            "a verdict whose rating is not the shown one draws nothing"
+        );
+        // A reason the window rule dropped: the verdict stands, the line is empty.
+        let dropped = serde_json::json!({ "rating": "act_now", "ratingReason": "I've turned the guard back on.", "basedOn": ["sig.sip"], "probes": [], "actions": [] });
+        let verdict = validate::validate(&dropped, &context).unwrap();
+        assert_eq!(verdict.rating, Rating::ActNow);
+        assert_eq!(verdict.rating_reason, "");
+        assert_eq!(
+            judge_line(Some((&verdict, ModelProvider::Apple)), Rating::ActNow, T1),
+            None
+        );
+        assert_eq!(judge_line(None, Rating::ActNow, T1), None);
+        // The store keeps the verdict with its provider for the next context whatever the line.
+        let store = WatchStore::default();
+        store.remember_verdict(verdict, at(T1), ModelProvider::Apple);
+        assert_eq!(
+            store.last_verdict_for(at(T2)).map(|v| (v.rating, v.minutes_ago)),
+            Some((Rating::ActNow, 60))
+        );
+        assert_eq!(store.last_verdict_provider(), Some(ModelProvider::Apple));
+        store.update(|s| s.judge = None);
+        assert!(store.last_verdict_for(at(T2)).is_some(), "survives a cleared line");
+    }
+
+    #[test]
+    fn rules_since_is_set_on_a_new_report_and_kept_on_the_same_one() {
+        let settings = WatchSettingsFile::default();
+        let mut baseline = Baseline::new();
+        let outcomes = sweep(vec![], true);
+        let r1 = serde_json::json!({ "schemaVersion": 1, "reportId": "r-1", "scannedAt": T0, "results": [{ "ruleId": "TL-MAC-002", "status": "fail" }], "findings": [], "score": { "value": 72, "grade": "fair" } });
+        let mut i = input(&outcomes, &settings, T0, &all_valid);
+        i.report = Some(&r1);
+        prepare(&mut baseline, &i);
+        assert_eq!(
+            baseline.rules_since,
+            Some(RulesSince {
+                report_id: "r-1".into(),
+                appeared: 0
+            }),
+            "no snapshot yet: nothing appeared"
+        );
+        let r2 = serde_json::json!({ "schemaVersion": 1, "reportId": "r-2", "scannedAt": T1, "results": [{ "ruleId": "TL-MAC-002", "status": "fail" }, { "ruleId": "TL-MAC-003", "status": "fail" }], "findings": [], "score": { "value": 60, "grade": "poor" } });
+        let mut i = input(&outcomes, &settings, T1, &all_valid);
+        i.report = Some(&r2);
+        let (context, _) = prepare(&mut baseline, &i);
+        assert_eq!(
+            context.rules.iter().filter(|r| r.change == RuleChange::Appeared).count(),
+            1
+        );
+        assert_eq!(
+            baseline.rules_since,
+            Some(RulesSince {
+                report_id: "r-2".into(),
+                appeared: 1
+            }),
+            "a new report id records the appeared count"
+        );
+        let mut i = input(&outcomes, &settings, T2, &all_valid);
+        i.report = Some(&r2);
+        let (context, _) = prepare(&mut baseline, &i);
+        assert!(
+            context.rules.iter().all(|r| r.change == RuleChange::None),
+            "the snapshot advanced, so the diff is empty"
+        );
+        assert_eq!(
+            baseline.rules_since.as_ref().map(|r| r.appeared),
+            Some(1),
+            "the same report id keeps the count"
+        );
+        let bad = serde_json::json!({ "schemaVersion": 1, "reportId": "bad id!", "scannedAt": T3, "results": [], "findings": [] });
+        let mut i = input(&outcomes, &settings, T3, &all_valid);
+        i.report = Some(&bad);
+        prepare(&mut baseline, &i);
+        assert_eq!(baseline.rules_since, None, "a bad id clears it");
+        let mut i = input(&outcomes, &settings, T3, &all_valid);
+        i.report = Some(&r2);
+        prepare(&mut baseline, &i);
+        assert!(baseline.rules_since.is_some());
+        prepare(&mut baseline, &input(&outcomes, &settings, T3, &all_valid));
+        assert_eq!(baseline.rules_since, None, "no report clears it");
+        assert_eq!(report_row(&bad), None, "report_row drops a bad id");
+        let mut odd = r2.clone();
+        odd["score"]["value"] = serde_json::json!(500);
+        assert_eq!(
+            report_row(&odd).map(|r| (r.score, r.grade)),
+            Some((None, Some(crate::watch::Grade::Poor))),
+            "and nulls a bad score"
+        );
+    }
+
+    #[test]
+    fn recent_count_counts_only_the_last_day() {
+        let mut baseline = Baseline::new();
+        for at in [
+            "2026-10-17T11:59:00.000Z",
+            "2026-10-16T12:00:01.000Z",
+            "2026-10-16T12:00:00.000Z",
+            "2026-10-15T12:00:00.000Z",
+            "nope",
+        ] {
+            baseline.record(RecentEntry {
+                signal_id: SignalId::Firewall,
+                change: Change::Changed,
+                at: at.to_owned(),
+            });
+        }
+        assert_eq!(recent_count(&baseline, at(T0)), 2);
+        assert_eq!(recent_count(&Baseline::new(), at(T0)), 0);
     }
 
     struct Scripted(Vec<Result<Value, String>>, std::cell::RefCell<usize>);

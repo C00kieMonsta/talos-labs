@@ -1,0 +1,424 @@
+/* The chat surface (docs/DESIGN-CHAT-UI.md section 2). Mineral tokens only; the press scale and the card fade are DESIGN-PLAYFUL's. */
+
+.guided-chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: calc(100vh - 52px - 72px);
+  margin: 0;
+  padding: 0;
+}
+
+.chat {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 0;
+  margin: 0;
+  padding: 0 0 16px;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+}
+
+.chat-exchange {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chat-exchange-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.chat-app,
+.chat-card,
+.guided-model,
+.chat-notice-block,
+.chat-row {
+  align-self: flex-start;
+  width: 100%;
+  max-width: 525px;
+}
+
+.chat-app-body,
+.chat-card-body,
+.chat-notice {
+  margin: 0;
+  font: var(--text-guided-body);
+  color: var(--fg);
+}
+
+.chat-app .guided-list,
+.chat-card .guided-list {
+  margin-top: 12px;
+}
+
+.chat-headline {
+  margin: 0 0 8px;
+  font: var(--text-guided-list);
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.chat-headline:focus {
+  outline: none;
+}
+
+.chat-app .guided-urgent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font: var(--text-guided-meta);
+  color: var(--sev-critical-fg);
+}
+
+.chat-meta {
+  margin: 8px 0 0;
+  font: var(--text-guided-meta);
+  font-weight: 400;
+  color: var(--fg-secondary);
+}
+
+.chat-app-group {
+  margin-top: 12px;
+}
+
+/* The person's turn: a right-hand bubble of text nodes. */
+.chat-person-turn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  align-self: flex-end;
+  width: 100%;
+}
+
+.chat-person {
+  max-width: 80%;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: var(--bg-inset);
+  font: var(--text-guided-body);
+  color: var(--fg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-person-meta {
+  margin: 6px 4px 0 0;
+}
+
+/* The model's voice: a 2 px rule on the left, the badge under it. Shared with AI-PRESENCE's plan brief when built. */
+.guided-model {
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--border);
+}
+
+.guided-model .model-text p {
+  margin: 0 0 8px;
+  font: var(--text-guided-body);
+  color: var(--fg);
+}
+
+.guided-model .model-text > :last-child {
+  margin-bottom: 0;
+}
+
+.chat-badge {
+  margin: 8px 0 0;
+  font: var(--text-guided-meta);
+  font-weight: 400;
+  color: var(--fg-secondary);
+}
+
+/* Cards: paper, hairline, radius 12, the 3 px severity cue, the chat-in fade on arrival. */
+.chat-card {
+  position: relative;
+  padding: 16px 20px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  animation: chat-in var(--motion-base) var(--ease-out) both;
+}
+
+.chat-card::before {
+  content: "";
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: -1px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: transparent;
+}
+
+.chat-card-critical::before {
+  background: var(--sev-cue-critical);
+}
+
+.chat-card-high::before {
+  background: var(--sev-cue-high);
+}
+
+.chat-card-headline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-card-urgent-icon {
+  flex: 0 0 auto;
+  color: var(--sev-critical-fg);
+}
+
+.chat-card-meta {
+  margin: 6px 0 0;
+}
+
+.chat-card-folder {
+  margin: 6px 0 0;
+  font: var(--text-guided-meta);
+  color: var(--fg-secondary);
+}
+
+.chat-card .chat-card-primary {
+  display: inline-flex;
+  min-width: 220px;
+  max-width: 320px;
+  min-height: 44px;
+  margin-top: 16px;
+  transition:
+    background var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
+}
+
+.chat-card .chat-card-primary:active:not(:disabled) {
+  transform: scale(var(--press-scale, 0.98));
+}
+
+.chat-card .guided-link {
+  display: block;
+  margin-top: 12px;
+}
+
+.chat-card .guided-explain {
+  margin-top: 12px;
+}
+
+.chat-card .guided-licence {
+  margin-top: 12px;
+}
+
+.chat-card .passphrase-form {
+  margin-top: 12px;
+}
+
+.chat-activity {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.chat-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  font: var(--text-guided-body);
+  color: var(--fg);
+}
+
+.chat-result-icon {
+  flex: 0 0 auto;
+  color: var(--fg-secondary);
+}
+
+.chat-card[data-state="stale"] .chat-result,
+.chat-card[data-state="stale"] .chat-headline {
+  color: var(--fg-secondary);
+}
+
+/* Rows: the end-screen row, inside the log. */
+.chat-row {
+  transition:
+    background var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
+}
+
+.chat-row:active {
+  transform: scale(var(--press-scale, 0.98));
+}
+
+/* Dividers and notices. */
+.chat-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font: var(--text-guided-meta);
+  color: var(--fg-secondary);
+}
+
+.chat-divider::before,
+.chat-divider::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--border);
+}
+
+.chat-notice-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-notice-block .guided-link {
+  align-self: flex-start;
+}
+
+@keyframes chat-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* The foot: sticky, sand, no grain; the pill above it, the chips, the composer. */
+.chat-foot {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0 12px;
+  background: var(--bg);
+}
+
+.chat-new-pill {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  margin-bottom: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  font: var(--text-guided-meta);
+  color: var(--fg);
+  transform: translateX(-50%);
+  cursor: pointer;
+}
+
+.chat-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chat-chips-inline {
+  margin-top: 4px;
+}
+
+.chat-chip {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  font: var(--text-guided-meta);
+  color: var(--fg);
+  cursor: pointer;
+  transition:
+    background var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
+}
+
+.chat-chip:hover {
+  background: var(--bg-inset);
+}
+
+.chat-chip:active {
+  background: var(--bg-pressed);
+  transform: scale(var(--press-scale, 0.98));
+}
+
+.chat-composer {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.chat-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  max-width: none;
+  margin: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  font: var(--text-guided-body);
+  color: var(--fg);
+  resize: none;
+}
+
+.chat-field::placeholder {
+  color: var(--fg-secondary);
+}
+
+.chat-field:read-only {
+  color: var(--fg-secondary);
+}
+
+.chat-send {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+}
+
+.chat-count {
+  flex: 1 0 100%;
+  font: var(--text-guided-meta);
+  color: var(--fg-secondary);
+}
+
+.chat-composer-state {
+  flex: 1 1 auto;
+  min-height: 44px;
+  margin: 0;
+  padding: 11px 0;
+  font: var(--text-guided-body);
+  color: var(--fg);
+}
+
+.chat-calls {
+  margin: 0;
+}
+
+.chat-status {
+  position: absolute;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-card,
+  .chat-chip,
+  .chat-row,
+  .chat-card .chat-card-primary {
+    animation: none;
+    transition: none;
+  }
+
+  .chat {
+    scroll-behavior: auto;
+  }
+}

@@ -119,6 +119,7 @@ export function YourAiSection({ aiAvailability, onAiAction, onChangeAi, canChang
             {YOUR_AI.disconnectFailed}
           </p>
         )}
+        {aiEnabled && provider === "claude_plan" && <p className="muted small your-ai-note">{YOUR_AI.claudeSlow}</p>}
       </div>
       <Switch label={YOUR_AI.switch} checked={aiEnabled} onChange={(next) => updateSettings({ explainer: { ...settings.explainer, aiEnabled: next } })} />
       <p className="muted">{YOUR_AI.sentence}</p>

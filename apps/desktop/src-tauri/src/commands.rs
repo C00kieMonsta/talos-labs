@@ -21,7 +21,7 @@ use crate::settings_pane::SettingsPane;
 use crate::state::{SectionKey, SystemState};
 use crate::watch::settings::WatchAi;
 use crate::watch::types::{ExplainerProfile, WatchContext, WatchDetails};
-use crate::watch::{self, ActionId, OpenScreen, SignalId, WatchActionId, WatchState};
+use crate::watch::{self, ActionId, NextWire, OpenScreen, SignalId, WatchActionId, WatchState};
 use crate::{license_store, report_store, secret};
 use guard::Callers;
 
@@ -472,12 +472,20 @@ pub fn watch_pause(window: Window, app: AppHandle, minutes: u32) -> Result<(), S
     Ok(())
 }
 
-/// Shows the main window on a screen. Callable from the watch window.
+/// Shows the main window on a screen. Callable from the watch window. `question` goes with
+/// `chat` only: the person's own words for the main window's composer, cleaned by
+/// `watch::clean_question`, held in memory and never logged.
 #[tauri::command]
-pub fn watch_open_main(window: Window, app: AppHandle, screen: String) -> Result<(), String> {
+pub fn watch_open_main(
+    window: Window,
+    app: AppHandle,
+    screen: String,
+    question: Option<String>,
+) -> Result<(), String> {
     guard::check(&window, Callers::WatchOrMain)?;
     let screen = OpenScreen::parse(&screen).ok_or_else(|| "invalid_input".to_owned())?;
-    crate::tray::open_main(&app, screen);
+    let question = watch::clean_question(screen, question)?;
+    crate::tray::open_main(&app, screen, question);
     Ok(())
 }
 
@@ -522,6 +530,8 @@ pub fn watch_request_notify_permission(window: Window, app: AppHandle) -> Result
 /// sends them. `licensed` is the webview's product gate; absent means false. Rust trusts the
 /// last pushed value and never verifies a key. `accepted` is the rule ids the person chose to
 /// leave alone: stored in watch-settings.json when sent, kept when absent, read by no cycle.
+/// `next` is the plan's "Do this next" step (`{ kind: "none" }` clears it; absent keeps it),
+/// checked by `watch::clean_next` and stored beside the profile for the window.
 /// Off a worker thread like `watch_set_enabled`: the inactive path deletes watch.json and must
 /// never hold the main thread.
 #[tauri::command]
@@ -532,10 +542,12 @@ pub async fn watch_set_profile(
     ai: Option<WatchAi>,
     licensed: Option<bool>,
     accepted: Option<Vec<String>>,
+    next: Option<NextWire>,
 ) -> Result<(), String> {
     main_only(&window)?;
+    let next = next.map(watch::clean_next).transpose()?;
     tauri::async_runtime::spawn_blocking(move || {
-        watch::set_profile(&app, profile, ai, licensed.unwrap_or(false), accepted)
+        watch::set_profile(&app, profile, ai, licensed.unwrap_or(false), accepted, next)
     })
     .await
     .map_err(|e| e.to_string())?

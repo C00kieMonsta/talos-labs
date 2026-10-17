@@ -10,6 +10,7 @@ import "./styles/ai-guided.css";
 import "./styles/ai-expert.css";
 import "./styles/fishy.css";
 import "./styles/accept.css";
+import "./styles/chat.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

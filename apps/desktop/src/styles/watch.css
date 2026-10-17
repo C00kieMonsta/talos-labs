@@ -1,6 +1,6 @@
-/* The 320 px watch window (docs/DESIGN-WATCH.md section 5). Owned by WATCH-WINDOW-UI; classes .watch and .watch-* only. */
+/* The 320 px watch window (docs/DESIGN-WATCH.md section 5, docs/DESIGN-WATCH-WINDOW.md section 2). Owned by WATCH-WINDOW-UI; classes .watch and .watch-* only, plus the two model-line classes scoped under .watch. */
 
-/* Paper with a 1 px border drawn inside, square corners, no grain, no gradient, no hero. 16 px padding, 8 px between rows so the act state fits the 360 px window. */
+/* Paper with a 1 px border drawn inside, square corners, no grain, no gradient, no hero. 16 px padding, 8 px between rows; the height is the sum rule of src/watch/height.ts, capped at 420. */
 .watch {
   display: flex;
   flex-direction: column;
@@ -31,7 +31,7 @@
   color: var(--sev-critical-fg);
 }
 
-/* Row 2: the time, the static spinner while checking, and the "I couldn't check" count. */
+/* Row 2: the time, the static spinner while checking, and the "I couldn't check" count (look and act); in calm the next-check line sits under the time. */
 .watch-meta {
   display: flex;
   flex-wrap: wrap;
@@ -46,8 +46,140 @@
   gap: var(--space-0);
 }
 
-.watch-meta-unavailable {
-  cursor: help;
+.watch-meta-next {
+  flex-basis: 100%;
+}
+
+/* Calm: the areas the sweep could not read, as text, up to three lines. */
+.watch-unreadable {
+  color: var(--fg-secondary);
+  font: var(--text-guided-meta);
+  overflow-wrap: anywhere;
+}
+
+/* The authored calm sentence, the look-with-no-item line and the paused line: one line in the sentence colour. */
+.watch-calm-line,
+.watch-look-empty,
+.watch-paused-line {
+  font: var(--text-guided-meta);
+  color: var(--fg);
+}
+
+/* The judge's line (docs/DESIGN-AI-PRESENCE.md section 5): a 2 px rule on the left, the sentence, then the short badge. */
+.watch .guided-model-line {
+  margin: 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+  color: var(--fg);
+  font: var(--text-guided-meta);
+  overflow-wrap: anywhere;
+}
+
+.watch .guided-model-badge {
+  color: var(--fg-secondary);
+  font: var(--text-guided-meta);
+  white-space: nowrap;
+}
+
+/* The check-up row: the score line and, under it, the "Up next" link. */
+.watch-checkup {
+  display: flex;
+  flex-direction: column;
+}
+
+.watch-checkup-score {
+  font: var(--text-guided-meta);
+  color: var(--fg);
+}
+
+.watch-up-next {
+  min-height: 28px;
+  padding: var(--space-0) 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The ask field: a 44 px single-line input and the 32 px icon Send, never a primary. */
+.watch-ask {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  box-sizing: border-box;
+  min-height: var(--control-guided);
+  margin: 0;
+  padding: 0 var(--space-0) 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+}
+
+.watch-ask:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.watch .watch-ask-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: var(--text-guided-meta);
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.watch .watch-ask-input::placeholder {
+  color: var(--fg-secondary);
+}
+
+.watch-ask-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--fg-secondary);
+  cursor: pointer;
+}
+
+.watch-ask-send:hover {
+  color: var(--fg);
+}
+
+.watch-ask-send:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* The one quiet Connect line: the sentence with its link inline, two lines at most. */
+.watch-connect {
+  color: var(--fg-secondary);
+  font: var(--text-guided-meta);
+}
+
+.watch-connect .watch-link {
+  display: inline;
+  min-height: 0;
+  padding: 0;
+  color: var(--fg);
+}
+
+/* The look state's one text link under the primary. */
+.watch-ask-why {
+  align-self: flex-start;
 }
 
 /* Row 3: the top item. */
@@ -62,8 +194,7 @@
 }
 
 .watch-item-why,
-.watch-item-more,
-.watch-item-evidence {
+.watch-item-more {
   font: var(--text-guided-meta);
   font-weight: 400;
 }

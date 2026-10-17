@@ -121,6 +121,7 @@ function CheckUpSection() {
     <Section id="checkup" title={CHECKUP_SETTINGS.title}>
       <Switch label={CHECKUP_SETTINGS.autoScan} checked={guided.autoScan} onChange={(autoScan) => updateSettings({ guided: { ...guided, autoScan } })} />
       <Switch label={CHECKUP_SETTINGS.home} description={CHECKUP_SETTINGS.sentence} checked={guided.home} onChange={(home) => updateSettings({ guided: { ...guided, home } })} />
+      <Switch label={CHECKUP_SETTINGS.chatHome} description={CHECKUP_SETTINGS.chatHomeSentence} checked={guided.chatHome} onChange={(chatHome) => updateSettings({ guided: { ...guided, chatHome } })} />
     </Section>
   );
 }

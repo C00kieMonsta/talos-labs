@@ -11,6 +11,7 @@ import type { AiConnectController } from "../scan/ai-connect";
 import type { ExplainState } from "../scan/machine";
 import { DEFAULT_SETTINGS } from "../settings";
 import type { ExplainerProvider } from "../settings";
+import { ChatStreamContext } from "../chat/ChatStreamContext";
 import { ExplainPanel } from "./ExplainPanel";
 import { EXPLAIN } from "./copy";
 
@@ -306,5 +307,23 @@ describe("ExplainPanel, explaining", () => {
     expect(other.getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(other);
     expect(value.scan.explain).toHaveBeenLastCalledWith("TL-MAC-002");
+  });
+});
+
+describe("ExplainPanel while the chat answers", () => {
+  it("opens to the busy line and asks the explainer nothing", () => {
+    const base = fakeContextValue({
+      adapters: fakeAdapters(),
+      license: { status: "none" },
+      gate: { licensed: true, freeFixes: [], has: () => true, fixLocked: () => false, explainLocked: () => false, watchLocked: false },
+      scanState: { kind: "ready", report: REPORT, state: DEV_MACHINE, explain: { kind: "off" }, lastRecheck: null, fixing: null, watching: null },
+      settings: { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: "chatgpt" } },
+    });
+    const value: AppContextValue = { ...base, ai: { ...base.ai, availability: "available", probe: vi.fn(async () => "available" as const), reprobe: vi.fn(() => () => undefined) } };
+    const connect = fakeConnectController({ offered: { chatgpt: true, claude_plan: true, apple: false }, connectable: true });
+    render(createElement(ChatStreamContext.Provider, { value: true }, createElement(StatefulProvider, { value, connect }, createElement(ExplainPanel, { ruleId: RULE }))));
+    open();
+    expect(body()).toBe(EXPLAIN.busy);
+    expect(value.scan.explain).not.toHaveBeenCalled();
   });
 });

@@ -1,7 +1,11 @@
+import { useMemo } from "react";
 import { useApp } from "../../app/context";
 import { useConnect } from "../../scan/ai-connect";
-import { SCAN_ERROR_LABELS } from "../../app/labels";
+import { CHAT_LABEL, SCAN_ERROR_LABELS } from "../../app/labels";
+import { ChatScreen } from "../../chat/ChatScreen";
 import type { GuidedController } from "../state";
+import { stepBusy } from "../state";
+import { useGuidedStrip } from "../GuidedShell";
 import { EndScreen } from "../EndScreen";
 import { GuidedWelcome } from "../GuidedWelcome";
 import { SinceScreen } from "../SinceScreen";
@@ -14,10 +18,25 @@ import { PermissionStep } from "./PermissionStep";
 import { PlanScreen } from "./PlanScreen";
 import { ShowStep } from "./ShowStep";
 
+/**
+ * The walk-through's strip shows "Chat" in place of "Step by step" when the chat is the home (DESIGN-CHAT section 2):
+ * a plan exists, the AI can answer, and no step is in flight (toChat refuses mid-fix, so the link waits too).
+ */
+function useChatStripLink(controller: GuidedController): void {
+  const { aiUsable } = useApp();
+  const { phase } = controller;
+  const hasPlan = phase.kind === "since" || phase.kind === "plan" || phase.kind === "step" || phase.kind === "end";
+  const show = hasPlan && aiUsable && !stepBusy(phase);
+  const { toChat } = controller.chat;
+  const strip = useMemo(() => (show ? { links: [{ label: CHAT_LABEL, onClick: toChat }] } : null), [show, toChat]);
+  useGuidedStrip(strip);
+}
+
 /** One screen per phase. The scanning phase is drawn by App.tsx, which owns the pacer. */
 export function Guided({ controller, onWelcomeStart }: { controller: GuidedController; onWelcomeStart(): void }) {
   const { settings, scan } = useApp();
   const connect = useConnect();
+  useChatStripLink(controller);
   const { phase } = controller;
   switch (phase.kind) {
     case "welcome":
@@ -41,6 +60,8 @@ export function Guided({ controller, onWelcomeStart }: { controller: GuidedContr
       return <PlanScreen plan={phase.plan} listOpen={phase.listOpen} same={phase.same} progress={controller.progress} onGo={controller.carryOn} onToggleList={controller.toggleList} />;
     case "end":
       return <EndScreen plan={phase.plan} fixed={phase.fixed} onCheckAgain={controller.start} onNext={controller.doNext} onConnect={() => connect.open({ name: "guided" })} />;
+    case "chat":
+      return <ChatScreen />;
     case "step": {
       const step = phase.plan.steps[phase.index];
       if (step === undefined) return null;

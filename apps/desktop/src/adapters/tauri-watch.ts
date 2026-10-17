@@ -9,6 +9,7 @@ import type {
   FixChoice,
   FixOutcome,
   FixPlanLine,
+  Grade,
   ModelProbeId,
   ProbeId,
   Rating,
@@ -18,7 +19,6 @@ import type {
   Severity,
   SignalId,
   UnavailableProbe,
-  UnavailableReason,
   WatchContext,
   WatchDetails,
   WatchDetailsItem,
@@ -26,9 +26,15 @@ import type {
   WatchInterval,
   WatchItem,
   WatchAi,
+  WatchJudge,
   WatchModelProvider,
+  WatchNext,
+  WatchOpenEvent,
   WatchOpenScreen,
   WatchPlan,
+  WatchReport,
+  WatchRulesSince,
+  WatchUnavailableReason,
   WatchPort,
   WatchRule,
   WatchSignal,
@@ -39,16 +45,21 @@ import type {
 import {
   ACTION_IDS,
   FISHY_KINDS,
+  MACOS_CATALOG,
   MODEL_PROBE_IDS,
+  NEXT_KINDS,
   PROBE_IDS,
   RATING_ORDER,
   SAFE_STRING_PATTERN,
   SIGNAL_IDS,
-  UNAVAILABLE_REASONS,
   WATCH_ACTION_IDS,
+  WATCH_GRADES,
   WATCH_INTERVALS,
   WATCH_LIMITS,
+  WATCH_OPEN_SCREENS,
+  WATCH_REPORT_ID,
   WATCH_RULE_ID,
+  WATCH_UNAVAILABLE_REASONS,
 } from "@talos/core";
 import type { InvokeFn } from "./apple-explainer";
 import { rejectionToOutcome, toFixOutcome, toFixProgress } from "./tauri-fix";
@@ -80,7 +91,6 @@ const ROLES = ["individual", "freelancer", "small_business"] as const;
 const TECHNICAL = ["low", "medium", "high"] as const;
 const SCOPES: readonly WatchDetailsScope[] = ["user_agent", "system_agent", "system_daemon"];
 const PROVIDERS: readonly WatchModelProvider[] = ["apple", "chatgpt", "claude_plan"];
-const SCREENS: readonly WatchOpenScreen[] = ["home", "noticed", "settings_watch"];
 /** Longest free-text detail accepted; a listing entry past this is a sign of something wrong, not a path. */
 const MAX_DETAIL_CHARS = 1024;
 
@@ -108,8 +118,27 @@ function isCountOrNull(value: unknown): value is number | null {
   return value === null || isCount(value);
 }
 
+/** An action-row sentence: at most 300 characters. */
 function isSentence(value: unknown): value is string {
-  return typeof value === "string" && value.length <= WATCH_LIMITS.maxReasonChars;
+  return typeof value === "string" && value.length <= WATCH_LIMITS.maxSentenceChars;
+}
+
+/** The judge's window line: 1 to 120 characters, already through safe_window_sentence in Rust. */
+function isReason(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= WATCH_LIMITS.maxReasonChars;
+}
+
+function isReportId(value: unknown): value is string {
+  return typeof value === "string" && WATCH_REPORT_ID.test(value);
+}
+
+function isRuleId(value: unknown): value is RuleId {
+  return typeof value === "string" && WATCH_RULE_ID.test(value);
+}
+
+/** Only an id the catalogue knows may reach guidedFor; Rust stores what rule_id_ok accepts. */
+function inCatalog(ruleId: RuleId): boolean {
+  return MACOS_CATALOG.rules.some((rule) => rule.id === ruleId);
 }
 
 function isSignalId(value: unknown): value is SignalId {
@@ -131,8 +160,8 @@ function allOf<T>(value: unknown, check: (item: unknown) => item is T): value is
 function toUnavailable(value: unknown): UnavailableProbe | null {
   if (!isRecord(value)) return null;
   const { probeId, reason } = value;
-  if (!oneOf(probeId, PROBE_IDS) || !oneOf(reason, UNAVAILABLE_REASONS)) return null;
-  return { probeId: probeId as ProbeId, reason: reason as UnavailableReason };
+  if (!oneOf(probeId, PROBE_IDS) || !oneOf(reason, WATCH_UNAVAILABLE_REASONS)) return null;
+  return { probeId: probeId as ProbeId, reason: reason as WatchUnavailableReason };
 }
 
 export function toWatchItem(value: unknown): WatchItem | null {
@@ -162,14 +191,58 @@ export function toWatchItem(value: unknown): WatchItem | null {
   };
 }
 
-/** Every field checked; a malformed state is dropped rather than shown. */
+function toAi(value: unknown): WatchAi | null {
+  if (!isRecord(value) || typeof value["enabled"] !== "boolean") return null;
+  const provider = value["provider"];
+  if (provider !== null && !oneOf(provider, PROVIDERS)) return null;
+  return { enabled: value["enabled"], provider: provider as WatchModelProvider | null };
+}
+
+/** The judge's line: null on absence or any malformation, never failing the state. */
+export function toJudge(value: unknown): WatchJudge | null {
+  if (!isRecord(value)) return null;
+  const { provider, at, rating, reason } = value;
+  if (!oneOf(provider, PROVIDERS) || !isIso(at) || !oneOf(rating, RATING_ORDER) || !isReason(reason)) return null;
+  return { provider: provider as WatchModelProvider, at, rating: rating as Rating, reason };
+}
+
+export function toRulesSince(value: unknown): WatchRulesSince | null {
+  if (!isRecord(value)) return null;
+  const { reportId, appeared } = value;
+  if (!isReportId(reportId) || !isCount(appeared)) return null;
+  return { reportId, appeared };
+}
+
+/** The check-up row; mirrors watchReportRow for a row that already crossed the wire flat. */
+export function toReport(value: unknown): WatchReport | null {
+  if (!isRecord(value)) return null;
+  const { reportId, scannedAt, score, grade } = value;
+  if (!isReportId(reportId) || !isIso(scannedAt)) return null;
+  if (score !== null && (!isCount(score) || score > 100)) return null;
+  if (grade !== null && !oneOf(grade, WATCH_GRADES)) return null;
+  return { reportId, scannedAt, score: score as number | null, grade: grade as Grade | null };
+}
+
+/** The plan's next step; an id outside the catalogue reads as null so the window never names it. */
+export function toNext(value: unknown): WatchNext | null {
+  if (!isRecord(value)) return null;
+  const { reportId, ruleId, kind } = value;
+  if (!isReportId(reportId) || !isRuleId(ruleId) || !oneOf(kind, NEXT_KINDS) || !inCatalog(ruleId)) return null;
+  return { reportId, ruleId, kind };
+}
+
+/** Every field checked; a malformed state is dropped rather than shown. The four optional rows read null on malformation instead. */
 export function toWatchState(value: unknown): WatchState | null {
   if (!isRecord(value)) return null;
   const { enabled, licensed, firstRun, hiddenLaunch, rating, since, lastCheckAt, checking, cycleIndex, everyMinutes, notify, pausedUntil, closeWatchUntil, unavailable, gated, items } = value;
+  const { nextCheckAt, lastChangeAt, recentCount } = value;
   if (typeof enabled !== "boolean" || typeof licensed !== "boolean" || typeof firstRun !== "boolean" || typeof hiddenLaunch !== "boolean" || typeof checking !== "boolean" || typeof notify !== "boolean") return null;
   if (!oneOf(rating, RATING_ORDER)) return null;
   if (!isIsoOrNull(since) || !isIsoOrNull(lastCheckAt) || !isIsoOrNull(pausedUntil) || !isIsoOrNull(closeWatchUntil)) return null;
   if (!isCount(cycleIndex)) return null;
+  if (!isIsoOrNull(nextCheckAt) || !isIsoOrNull(lastChangeAt) || !isCount(recentCount)) return null;
+  const ai = toAi(value["ai"]);
+  if (ai === null) return null;
   if (typeof everyMinutes !== "number" || !(WATCH_INTERVALS as readonly number[]).includes(everyMinutes)) return null;
   if (!Array.isArray(unavailable) || !Array.isArray(items) || !allOf(gated, isSignalId)) return null;
   const parsedUnavailable: UnavailableProbe[] = [];
@@ -201,6 +274,14 @@ export function toWatchState(value: unknown): WatchState | null {
     unavailable: parsedUnavailable,
     gated,
     items: parsedItems,
+    nextCheckAt,
+    lastChangeAt,
+    ai,
+    judge: toJudge(value["judge"]),
+    recentCount,
+    rulesSince: toRulesSince(value["rulesSince"]),
+    report: toReport(value["report"]),
+    next: toNext(value["next"]),
   };
 }
 
@@ -374,6 +455,22 @@ function profileOnTheWire(profile: ExplainerProfile): ExplainerProfile {
   return { role: profile.role, technical: profile.technical, handlesClientData: profile.handlesClientData, laptopLeavesHome: profile.laptopLeavesHome };
 }
 
+/** `{ kind: "none" }` for null, else the three ids checked; Rust's clean_next refuses the rest. */
+function nextOnTheWire(next: WatchNext | null): { readonly kind: string; readonly reportId?: string; readonly ruleId?: string } {
+  if (next === null) return { kind: "none" };
+  if (!isReportId(next.reportId) || !isRuleId(next.ruleId) || !oneOf(next.kind, NEXT_KINDS)) throw "invalid_input";
+  return { kind: next.kind, reportId: next.reportId, ruleId: next.ruleId };
+}
+
+/**
+ * The person's own words, as the main window's composer takes them: CR and LF become spaces,
+ * other control characters are stripped, the ends are trimmed. Never logged, never persisted.
+ */
+export function cleanQuestion(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/[\r\n]+/g, " ").replace(/[\u0000-\u001F\u007F]/g, "").trim();
+}
+
 export class TauriWatchAdapter implements WatchPort {
   private readonly invoke: InvokeFn;
   private readonly listen: WatchListenFn;
@@ -439,12 +536,12 @@ export class TauriWatchAdapter implements WatchPort {
   }
 
   /** `licensed` is the webview's product gate; Rust persists it and never verifies a key. */
-  async setProfile(profile: ExplainerProfile, ai: WatchAi | undefined, licensed: boolean, accepted?: readonly RuleId[]): Promise<void> {
+  async setProfile(profile: ExplainerProfile, ai: WatchAi | undefined, licensed: boolean, accepted?: readonly RuleId[], next?: WatchNext | null): Promise<void> {
     this.full();
     const clean = toProfile(profileOnTheWire(profile));
     if (clean === null) throw "invalid_input";
-    // `accepted` crosses only when the caller gave it: Rust keeps its stored list otherwise.
-    const extra = accepted === undefined ? {} : { accepted: acceptedOnTheWire(accepted) };
+    // `accepted` and `next` cross only when the caller gave them: Rust keeps its stored values otherwise.
+    const extra = { ...(accepted === undefined ? {} : { accepted: acceptedOnTheWire(accepted) }), ...(next === undefined ? {} : { next: nextOnTheWire(next) }) };
     if (ai === undefined) {
       await this.invoke("watch_set_profile", { profile: clean, licensed: licensed === true, ...extra });
       return;
@@ -485,9 +582,21 @@ export class TauriWatchAdapter implements WatchPort {
     return details;
   }
 
-  async openMain(screen: WatchOpenScreen): Promise<void> {
-    if (!oneOf(screen, SCREENS)) throw "invalid_input";
-    await this.invoke("watch_open_main", { screen });
+  /** The question is accepted with "chat" only, cleaned, at most 500 UTF-16 units; an empty one sends the screen alone. */
+  async openMain(screen: WatchOpenScreen, question?: string): Promise<void> {
+    if (!oneOf(screen, WATCH_OPEN_SCREENS)) throw "invalid_input";
+    if (question === undefined) {
+      await this.invoke("watch_open_main", { screen });
+      return;
+    }
+    if (typeof question !== "string" || screen !== "chat") throw "invalid_input";
+    const clean = cleanQuestion(question);
+    if (clean.length > WATCH_LIMITS.maxQuestionChars) throw "invalid_input";
+    if (clean.length === 0) {
+      await this.invoke("watch_open_main", { screen });
+      return;
+    }
+    await this.invoke("watch_open_main", { screen, question: clean });
   }
 
   async openSource(actionId: ActionId): Promise<void> {
@@ -557,17 +666,23 @@ export class TauriWatchAdapter implements WatchPort {
     );
   }
 
-  onOpen(listener: (event: { readonly screen: WatchOpenScreen }) => void): () => void {
+  onOpen(listener: (event: WatchOpenEvent) => void): () => void {
     if (this.limited) return () => undefined;
     return this.subscribe("watch:open", toOpenEvent, listener);
   }
 
-  onShown(listener: (event: { readonly screen: WatchOpenScreen }) => void): () => void {
+  onShown(listener: (event: WatchOpenEvent) => void): () => void {
     if (this.limited) return () => undefined;
     return this.subscribe("main:shown", toOpenEvent, listener);
   }
 }
 
-function toOpenEvent(payload: unknown): { readonly screen: WatchOpenScreen } | null {
-  return isRecord(payload) && oneOf(payload["screen"], SCREENS) ? { screen: payload["screen"] } : null;
+/** `{ screen }` or `{ screen, question }`; a question that is not a string or is over 500 units drops the payload. */
+export function toOpenEvent(payload: unknown): WatchOpenEvent | null {
+  if (!isRecord(payload) || !oneOf(payload["screen"], WATCH_OPEN_SCREENS)) return null;
+  const screen = payload["screen"];
+  if (!("question" in payload) || payload["question"] === undefined) return { screen };
+  const question = payload["question"];
+  if (typeof question !== "string" || question.length > WATCH_LIMITS.maxQuestionChars) return null;
+  return { screen, question };
 }

@@ -17,7 +17,7 @@ import type { ExplainerProvider } from "../settings";
 import type { ExplainState, FixingState, LastRecheck, ReadyState, SingleFixingState, WatchingState } from "../scan/machine";
 import type { PacerView, RowState } from "../scan/useScanPacer";
 import { Scanning, PROMPTING_ROW_COPY } from "./Scanning";
-import { EXPLAINER_FAILURE_LABELS, SECTION_PROGRESS_LABELS } from "../app/labels";
+import { SECTION_PROGRESS_LABELS } from "../app/labels";
 const AI_BADGE = AI_BADGES.apple;
 import { GUIDED_SECTION_LABELS, WATCH_SETTINGS } from "../guided/copy";
 import { Welcome } from "./Welcome";
@@ -28,12 +28,11 @@ import { WatchControllerContext } from "../watch/watch-controller";
 import { Findings } from "./Findings";
 import { FindingDetail } from "./FindingDetail";
 import { Overview } from "./Overview";
-import { AI_OFF_COPY, Ask, NEAR_LIMIT_NOTICE } from "./Ask";
 import { AI_UNAVAILABLE_COPY } from "../components/AiCard";
 import { PASSWORD_SENTENCE, NO_PASSWORD_SENTENCE } from "../components/fix-copy";
 import { DEV_BUILD_FDA_COPY, FREE_LINE, PAID_LINE, Settings, chatgptClientLine, claudeCodeLine } from "./Settings";
 import type { SettingsProps } from "./Settings";
-import { AI_ACTIONS, AI_BADGES, ASK_CONNECT, PRIVACY_SENTENCE, PRIVACY_SENTENCE_REMOTE, PROVIDER_NAMES, YOUR_AI, aiPillWord, providerLines } from "../app/labels";
+import { AI_ACTIONS, AI_BADGES, PRIVACY_SENTENCE, PRIVACY_SENTENCE_REMOTE, PROVIDER_NAMES, YOUR_AI, aiPillWord, providerLines } from "../app/labels";
 import type { Adapters } from "../adapters";
 import type { AppSettings } from "../settings";
 import { INERT_CHAT_BRIDGE } from "../guided/testing";
@@ -946,226 +945,6 @@ describe("Findings suggested order", () => {
     const value = readyContext({ state: DEV_MACHINE, license: VALID, aiEnabled: false });
     render(createElement(AppContext.Provider, { value }, createElement(Findings)));
     expect(screen.queryByRole("heading", { name: "Suggested order" })).toBeNull();
-  });
-});
-
-describe("Ask", () => {
-  it("says AI is off when the switch is off, shows the unavailable card otherwise, and unlicensed with the AI available shows the composer and no licence field", () => {
-    const off = fakeContextValue({
-      adapters: fakeAdapters(),
-      license: NONE,
-      gate: stubGate(false),
-      settings: { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, aiEnabled: false } },
-      scanState: { kind: "idle", report: null, last: report },
-    });
-    render(createElement(AppContext.Provider, { value: off }, createElement(Ask)));
-    expect(screen.getByText(AI_OFF_COPY)).toBeTruthy();
-    expect(screen.queryByLabelText("Your question")).toBeNull();
-    cleanup();
-    const notEligible = withAi(fakeContextValue({ adapters: fakeAdapters(), license: VALID, gate: stubGate(true), scanState: { kind: "idle", report: null, last: report } }), "device_not_eligible");
-    render(createElement(AppContext.Provider, { value: notEligible }, createElement(Ask)));
-    expect(screen.getByText(AI_UNAVAILABLE_COPY.device_not_eligible)).toBeTruthy();
-    expect(screen.queryByLabelText("Your question")).toBeNull();
-    cleanup();
-    const unlicensed = withAi(fakeContextValue({ adapters: fakeAdapters(), license: NONE, gate: stubGate(false), scanState: { kind: "idle", report: null, last: report } }), "available");
-    render(createElement(AppContext.Provider, { value: unlicensed }, createElement(Ask)));
-    expect(screen.getByLabelText("Your question")).toBeTruthy();
-    expect(screen.queryByPlaceholderText("Paste your licence key")).toBeNull();
-  });
-
-  it("shows the connect row above a disabled composer when no AI is connected, and keeps the card for the other states", () => {
-    const connect = fakeConnectController();
-    const settings: AppSettings = { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: "chatgpt" } };
-    const value = withAi(fakeContextValue({ adapters: fakeAdapters(), license: VALID, gate: stubGate(true), settings, scanState: { kind: "idle", report: null, last: report } }), "not_connected");
-    render(createElement(StatefulProvider, { value, connect }, createElement(Ask)));
-    const row = document.querySelector(".ask-connect-row") as HTMLElement;
-    expect(row.querySelector("p")?.textContent).toBe(ASK_CONNECT.line);
-    const button = screen.getByRole("button", { name: ASK_CONNECT.button }) as HTMLButtonElement;
-    expect(button.tagName).toBe("BUTTON");
-    expect(row.contains(button)).toBe(true);
-    fireEvent.click(button);
-    expect(connect.open).toHaveBeenCalledWith({ name: "ask" });
-    const form = document.querySelector("form.ask-form") as HTMLFormElement;
-    expect(form.classList.contains("ask-form-disabled")).toBe(true);
-    expect(form.getAttribute("aria-disabled")).toBe("true");
-    expect((screen.getByLabelText("Your question") as HTMLInputElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Ask" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(document.querySelector(".ai-card")).toBeNull();
-    cleanup();
-    const signedOut = withAi(fakeContextValue({ adapters: fakeAdapters(), license: VALID, gate: stubGate(true), settings, scanState: { kind: "idle", report: null, last: report } }), "needs_sign_in");
-    render(createElement(StatefulProvider, { value: signedOut, connect }, createElement(Ask)));
-    expect(document.querySelector(".ask-connect-row")).toBeNull();
-    expect(document.querySelector("[data-ai-state='needs_sign_in']")).not.toBeNull();
-    expect(screen.getByText(providerLines("chatgpt").needsSignIn)).toBeTruthy();
-    expect(screen.queryByLabelText("Your question")).toBeNull();
-  });
-
-  it("keeps the connect row and the disabled composer clean under axe", async () => {
-    const settings: AppSettings = { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: "chatgpt" } };
-    const value = withAi(fakeContextValue({ adapters: fakeAdapters(), license: VALID, gate: stubGate(true), settings, scanState: { kind: "idle", report: null, last: report } }), "not_connected");
-    const { container } = render(createElement(StatefulProvider, { value }, createElement(Ask)));
-    const result = await axe.run(container, AXE_RULES);
-    expect(result.violations.map((v) => v.id)).toEqual([]);
-  });
-
-  it("signs each answer with the provider's badge", async () => {
-    const value = askContext();
-    value.settings = { ...value.settings, explainer: { ...value.settings.explainer, provider: "claude_plan" } };
-    render(createElement(StatefulProvider, { value }, createElement(Ask)));
-    fireEvent.change(screen.getByLabelText("Your question"), { target: { value: "What first?" } });
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
-    await waitFor(() => expect(screen.getByText("<b>Start</b> with the disk.")).toBeTruthy());
-    expect(screen.getByText(AI_BADGES.claude_plan)).toBeTruthy();
-    expect(screen.queryByText(AI_BADGE)).toBeNull();
-  });
-
-  function askContext() {
-    const value = withAi(
-      fakeContextValue({ adapters: fakeAdapters(), license: VALID, gate: stubGate(true), scanState: { kind: "idle", report: null, last: report } }),
-      "available",
-    );
-    value.scan.ask = vi.fn(async () => ({ ok: true as const, value: { answer: "<b>Start</b> with the disk.", relatedRuleIds: ["TL-MAC-001" as const], outsideScope: false } }));
-    return value;
-  }
-
-  it("caps the question at 2000 characters and renders the answer as text", async () => {
-    const value = askContext();
-    render(createElement(StatefulProvider, { value }, createElement(Ask)));
-    const box = screen.getByLabelText("Your question") as HTMLInputElement;
-    expect(box.tagName).toBe("INPUT");
-    expect(box.maxLength).toBe(2000);
-    fireEvent.change(box, { target: { value: "x".repeat(2500) } });
-    expect(box.value.length).toBe(2000);
-    fireEvent.change(box, { target: { value: "What first?" } });
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
-    await waitFor(() => expect(screen.getByText("<b>Start</b> with the disk.")).toBeTruthy());
-    expect(document.querySelector(".chat b")).toBeNull();
-    const cards = document.querySelectorAll(".chat .chat-turn");
-    expect(cards.length).toBe(1);
-    expect(cards[0]?.textContent).toContain("What first?");
-    expect(cards[0]?.textContent).toContain(AI_BADGE);
-    expect(screen.getByRole("button", { name: "Your disk is not encrypted" })).toBeTruthy();
-  });
-
-  it("reads the character count with the box and only speaks up near the limit", () => {
-    const value = askContext();
-    render(createElement(StatefulProvider, { value }, createElement(Ask)));
-    const box = screen.getByLabelText("Your question") as HTMLTextAreaElement;
-    const count = document.getElementById("question-count") as HTMLElement;
-    expect(box.getAttribute("aria-describedby")).toBe("question-count");
-    expect(count.getAttribute("aria-live")).toBeNull();
-    expect(count.textContent).toBe("0 / 2000");
-    expect(count.classList.contains("visually-hidden")).toBe(true);
-    const status = screen.getByRole("status");
-    fireEvent.change(box, { target: { value: "Which first?" } });
-    expect(count.textContent).toBe("12 / 2000");
-    expect(status.textContent).toBe("");
-    fireEvent.change(box, { target: { value: "x".repeat(1950) } });
-    expect(status.textContent).toBe(NEAR_LIMIT_NOTICE);
-    expect(count.classList.contains("visually-hidden")).toBe(false);
-    fireEvent.change(box, { target: { value: "x".repeat(1960) } });
-    expect(status.textContent).toBe(NEAR_LIMIT_NOTICE);
-  });
-
-  it("keeps the conversation and the draft when the screen is left and reopened", async () => {
-    const value = askContext();
-    const { rerender } = render(createElement(StatefulProvider, { value }, createElement(Ask)));
-    fireEvent.change(screen.getByLabelText("Your question"), { target: { value: "What first?" } });
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
-    await waitFor(() => expect(screen.getByText("<b>Start</b> with the disk.")).toBeTruthy());
-    fireEvent.change(screen.getByLabelText("Your question"), { target: { value: "and after that" } });
-    rerender(createElement(StatefulProvider, { value }, null));
-    expect(screen.queryByLabelText("Your question")).toBeNull();
-    rerender(createElement(StatefulProvider, { value }, createElement(Ask)));
-    expect(screen.getByText("<b>Start</b> with the disk.")).toBeTruthy();
-    expect(screen.getByText("What first?")).toBeTruthy();
-    expect((screen.getByLabelText("Your question") as HTMLTextAreaElement).value).toBe("and after that");
-  });
-
-  it("keeps the question box focusable while the AI answers and returns focus to it afterwards", async () => {
-    const value = askContext();
-    let release: () => void = () => undefined;
-    value.scan.ask = vi.fn(
-      () =>
-        new Promise<{ ok: true; value: { answer: string; relatedRuleIds: RuleId[]; outsideScope: boolean } }>((resolve) => {
-          release = () => resolve({ ok: true, value: { answer: "Disk first.", relatedRuleIds: [], outsideScope: false } });
-        }),
-    );
-    render(createElement(StatefulProvider, { value }, createElement(Ask)));
-    const box = screen.getByLabelText("Your question") as HTMLTextAreaElement;
-    fireEvent.change(box, { target: { value: "What first?" } });
-    const ask = screen.getByRole("button", { name: "Ask" });
-    ask.focus();
-    fireEvent.click(ask);
-    await waitFor(() => expect(screen.getByText("Thinking about your question.")).toBeTruthy());
-    expect(box.disabled).toBe(false);
-    expect(box.readOnly).toBe(true);
-    expect((ask as HTMLButtonElement).disabled).toBe(true);
-    expect(document.querySelector("form.ask-form")?.getAttribute("aria-busy")).toBe("true");
-    release();
-    await waitFor(() => expect(screen.getByText("Disk first.")).toBeTruthy());
-    expect(document.activeElement).toBe(box);
-    expect(box.readOnly).toBe(false);
-  });
-
-  it("keeps the composer open while another finding's explanation streams and says why a question has to wait", async () => {
-    const from = { byRule: {}, order: null, priority: null };
-    const value = readyContext({ state: DEV_MACHINE, license: VALID, explain: { kind: "running", target: "TL-MAC-026", partial: null, answerPartial: null, from } });
-    value.scan.ask = vi.fn(async () => ({ ok: false as const, reason: "busy" as const }));
-    render(createElement(StatefulProvider, { value }, createElement(Ask)));
-    const box = screen.getByLabelText("Your question") as HTMLInputElement;
-    expect(box.readOnly).toBe(false);
-    expect(document.querySelector("form.ask-form")?.getAttribute("aria-busy")).toBe("false");
-    expect(screen.queryByText("Thinking about your question.")).toBeNull();
-    fireEvent.change(box, { target: { value: "What first?" } });
-    const ask = screen.getByRole("button", { name: "Ask" }) as HTMLButtonElement;
-    expect(ask.disabled).toBe(false);
-    fireEvent.click(ask);
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(EXPLAINER_FAILURE_LABELS.busy));
-    expect(box.readOnly).toBe(false);
-  });
-
-  it("streams the answer with a caret and a Stop button while the machine says ask is running", () => {
-    const from = { byRule: {}, order: null, priority: null };
-    const value = withAi(
-      fakeContextValue({ adapters: fakeAdapters(), license: VALID, gate: stubGate(true), scanState: readyState({ kind: "running", target: "ask", partial: null, answerPartial: "Start with the", from }) }),
-      "available",
-    );
-    render(createElement(StatefulProvider, { value }, createElement(Ask)));
-    expect(screen.getByText("Start with the")).toBeTruthy();
-    expect(document.querySelector(".chat-streaming .caret")).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
-    expect(value.scan.stopExplain).toHaveBeenCalled();
-  });
-
-  it("keeps the composer after a failed answer so the next question can be asked, and keeps the card for provider states", () => {
-    const failed = readyContext({ state: DEV_MACHINE, license: VALID, explain: { kind: "failed", reason: "network", target: "ask", byRule: {}, order: null, priority: null } });
-    render(createElement(StatefulProvider, { value: failed }, createElement(Ask)));
-    expect(screen.getByLabelText("Your question")).toBeTruthy();
-    expect((screen.getByLabelText("Your question") as HTMLInputElement).disabled).toBe(false);
-    expect(document.querySelector(".ai-card")).toBeNull();
-    cleanup();
-    const signedOut = readyContext({ state: DEV_MACHINE, license: VALID, provider: "chatgpt", explain: { kind: "failed", reason: "needs_sign_in", target: "ask", byRule: {}, order: null, priority: null } });
-    render(createElement(StatefulProvider, { value: signedOut }, createElement(Ask)));
-    expect(document.querySelector("[data-ai-state='needs_sign_in']")).not.toBeNull();
-    expect(screen.queryByLabelText("Your question")).toBeNull();
-  });
-
-  it("announces a failed answer as an alert, but not a cancel", async () => {
-    const value = askContext();
-    value.scan.ask = vi.fn(async () => ({ ok: false as const, reason: "network" as const }));
-    render(createElement(StatefulProvider, { value }, createElement(Ask)));
-    fireEvent.change(screen.getByLabelText("Your question"), { target: { value: "What first?" } });
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/Could not reach the AI provider/));
-    cleanup();
-    const cancelled = askContext();
-    cancelled.scan.ask = vi.fn(async () => ({ ok: false as const, reason: "cancelled" as const }));
-    render(createElement(StatefulProvider, { value: cancelled }, createElement(Ask)));
-    fireEvent.change(screen.getByLabelText("Your question"), { target: { value: "What first?" } });
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
-    await waitFor(() => expect(cancelled.scan.ask).toHaveBeenCalled());
-    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
 

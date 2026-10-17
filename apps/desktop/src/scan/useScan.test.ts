@@ -307,7 +307,7 @@ describe("useScan", () => {
     expect(result.current.notice).toBeNull();
   });
 
-  it("cancelling a rescan goes back to the report it interrupted, with a notice, and keeps the conversation", async () => {
+  it("cancelling a rescan goes back to the report it interrupted, with a notice", async () => {
     let calls = 0;
     const collect = (options?: CollectOptions) =>
       new Promise<SystemState>((resolve, reject) => {
@@ -324,9 +324,6 @@ describe("useScan", () => {
     const before = result.current.scan;
     expect(before.kind).toBe("ready");
     act(() => {
-      result.current.setConversation([{ turn: { role: "user", text: "Which first?" } }]);
-    });
-    act(() => {
       void result.current.start();
     });
     await waitFor(() => expect(result.current.scan.kind).toBe("collecting"));
@@ -336,7 +333,6 @@ describe("useScan", () => {
     await waitFor(() => expect(result.current.scan.kind).toBe("ready"));
     expect(result.current.scan).toEqual(before);
     expect(result.current.notice).toBe(SCAN_CANCELLED_NOTICE);
-    expect(result.current.conversation).toHaveLength(1);
   });
 
   it("a recheck keeps explanations for unrelated findings and asks the model again for the rechecked one", async () => {
@@ -400,27 +396,6 @@ describe("useScan", () => {
     });
     expect(result.current.scan.kind === "ready" && result.current.scan.explain).toEqual({ kind: "ready", byRule: { "TL-MAC-001": explanation }, order: null, priority: null });
     expect(result.current.notice).not.toBeNull();
-  });
-
-  it("keeps the Ask conversation and draft until a new scan starts", async () => {
-    const d = deps();
-    const { result } = renderHook(() => useScan(d));
-    act(() => {
-      result.current.setConversation([{ turn: { role: "user", text: "Which first?" } }]);
-      result.current.setDraft("and then");
-    });
-    expect(result.current.conversation).toHaveLength(1);
-    expect(result.current.draft).toBe("and then");
-    await act(async () => {
-      await result.current.loadLast();
-    });
-    expect(result.current.conversation).toHaveLength(1);
-    await act(async () => {
-      await result.current.start();
-      await result.current.present();
-    });
-    expect(result.current.conversation).toEqual([]);
-    expect(result.current.draft).toBe("");
   });
 
   it("maps collector errors", () => {

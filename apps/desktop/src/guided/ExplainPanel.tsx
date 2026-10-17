@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { AiAvailability, RuleId } from "@talos/core";
 import { useApp } from "../app/context";
 import { EXPLAINER_FAILURE_LABELS, formatTime } from "../app/labels";
 import type { AppleAiState } from "../app/labels";
+import { ChatStreamContext } from "../chat/ChatStreamContext";
 import { remoteOf } from "../chat/providers";
 import { ModelText } from "../components/ModelText";
 import { CONNECT_POLL_MS, notConnectedFor, useConnect } from "../scan/ai-connect";
@@ -26,6 +27,8 @@ export interface ExplainPanelProps {
 /** "Explain this": streams explain(ruleId) through the v0.2 chokepoint. Never on the path; collapses on advance. */
 export function ExplainPanel({ ruleId, others = [] }: ExplainPanelProps) {
   const { scan, ai, settings, adapters } = useApp();
+  // One request at a time per provider: while the chat answers, the disclosure says so and asks nothing.
+  const chatBusy = useContext(ChatStreamContext);
   const connect = useConnect();
   const { ensureOffered, consumeResume } = connect;
   const [open, setOpen] = useState(false);
@@ -63,8 +66,8 @@ export function ExplainPanel({ ruleId, others = [] }: ExplainPanelProps) {
   const explainRef = useRef(scan.explain);
   explainRef.current = scan.explain;
   useEffect(() => {
-    if (open && availability === "available") void explainRef.current(target);
-  }, [open, target, availability]);
+    if (open && availability === "available" && !chatBusy) void explainRef.current(target);
+  }, [open, target, availability, chatBusy]);
   const explain = scan.scan.kind === "ready" || scan.scan.kind === "rechecking" ? scan.scan.explain : { kind: "off" as const };
   const streaming = explain.kind === "running" && explain.target === target;
   const partial = streaming ? explain.partial : null;
@@ -177,6 +180,8 @@ export function ExplainPanel({ ruleId, others = [] }: ExplainPanelProps) {
         </button>
       </p>
     );
+  } else if (availability === "available" && chatBusy && ready === undefined) {
+    body = <p className="guided-meta guided-explain-line">{EXPLAIN.busy}</p>;
   } else if (availability === "available") {
     body = (
       <>

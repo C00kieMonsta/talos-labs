@@ -12,9 +12,7 @@ import type {
   ScanReport,
   SectionKey,
   SystemState,
-  Turn,
 } from "@talos/core";
-import { clampHistory, clampQuestion } from "@talos/core";
 import type { Adapters } from "../adapters";
 import { initialScanState, lastReport, reduce, replaceSection, survivingExplanations } from "./machine";
 import type { ExplainCache, ScanAction, ScanError, ScanState } from "./machine";
@@ -23,13 +21,6 @@ import type { WatchSpec } from "./useFix";
 
 /** The collector has its own 60 s budget; this guards against a hung invoke. */
 export const SCAN_BUDGET_MS = 60_000;
-
-/** One turn of the Ask conversation, with what the answer pointed at. */
-export interface AskMessage {
-  readonly turn: Turn;
-  readonly related?: readonly RuleId[];
-  readonly outsideScope?: boolean;
-}
 
 export const RECHECK_FAILED_NOTICE = "That section could not be read again. The earlier result still stands.";
 export const RECHECK_TIMEOUT_NOTICE = "That section took too long to read again. The earlier result still stands.";
@@ -75,20 +66,13 @@ export interface ScanController extends FixActions {
   /** Presentation steps the pacer drives. */
   revealRow(): void;
   markPreparing(): void;
-  /** presenting -> ready; the explain cache, the conversation and the draft reset here. */
+  /** presenting -> ready; the explain cache resets here. */
   present(): Promise<void>;
   recheck(keys: readonly SectionKey[]): Promise<void>;
   explain(ruleId: RuleId): Promise<void>;
   prioritise(): Promise<void>;
-  ask(question: string, history: readonly Turn[]): Promise<ExplainerResult<Answer>>;
-  /** Stops the in-flight explain, prioritise or ask. Never lands in failed. */
+  /** Stops the in-flight explain or prioritise. Never lands in failed. */
   stopExplain(): void;
-  /** The Ask conversation for the current report. Survives navigation; cleared when the report is replaced. */
-  readonly conversation: readonly AskMessage[];
-  setConversation(messages: readonly AskMessage[]): void;
-  /** A question typed but not yet sent. */
-  readonly draft: string;
-  setDraft(draft: string): void;
 }
 
 /** What the fix and watch actions share with the scan hook. */
@@ -161,8 +145,6 @@ export function useScan(deps: ScanDeps): ScanController {
   const cacheRef = useRef<ExplainCache>(EMPTY_CACHE);
   const generation = useRef(0);
   const [notice, setNotice] = useState<string | null>(null);
-  const [conversation, setConversation] = useState<readonly AskMessage[]>([]);
-  const [draft, setDraft] = useState("");
 
   const dismissNotice = useCallback(() => setNotice(null), []);
   const dismissFailure = useCallback(() => dispatch({ type: "failure_dismissed" }), [dispatch]);
@@ -239,8 +221,6 @@ export function useScan(deps: ScanDeps): ScanController {
     const current = scanRef.current;
     if (current.kind !== "presenting") return;
     cacheRef.current = EMPTY_CACHE;
-    setConversation([]);
-    setDraft("");
     dispatch({ type: "presented" });
     await saveLast(current.report);
   }, [saveLast, dispatch]);
@@ -379,20 +359,6 @@ export function useScan(deps: ScanDeps): ScanController {
     );
   }, [deps, runExplain]);
 
-  const ask = useCallback(
-    async (question: string, history: readonly Turn[]): Promise<ExplainerResult<Answer>> => {
-      const report = lastReport(scanRef.current);
-      if (report === null) return { ok: false, reason: "not_configured" };
-      return runExplain<Answer>(
-        "ask",
-        (explainer, signal, onPartial) =>
-          explainer.ask({ context: deps.toContext(report), history: clampHistory(history), question: clampQuestion(question) }, { signal, onPartial }),
-        () => undefined,
-      );
-    },
-    [deps, runExplain],
-  );
-
   const fixActions = useFixActions({ deps, dispatch, scanRef, cacheRef, generation, setNotice, saveLast });
 
   return {
@@ -409,12 +375,7 @@ export function useScan(deps: ScanDeps): ScanController {
     recheck,
     explain,
     prioritise,
-    ask,
     stopExplain,
-    conversation,
-    setConversation,
-    draft,
-    setDraft,
     ...fixActions,
   };
 }

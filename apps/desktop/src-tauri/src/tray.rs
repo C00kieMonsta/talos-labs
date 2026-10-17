@@ -8,7 +8,7 @@ use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use block2::RcBlock;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, Utc};
 use objc2_app_kit::{NSWorkspace, NSWorkspaceDidWakeNotification};
 use objc2_foundation::NSNotification;
 use serde::Serialize;
@@ -44,25 +44,111 @@ const TAP_ACTION: &str = "tap";
 /// A blur this soon after a tray click is the click itself, not the person leaving.
 const BLUR_IGNORE: Duration = Duration::from_millis(150);
 
-/// The configured size of the watch window, used when the runtime cannot report it.
+/// The configured size of the watch window (tauri.conf.json), used only when the runtime
+/// cannot report the outer size; the state's own height is `window_height`.
 const WINDOW_SIZE: LogicalSize<f64> = LogicalSize {
     width: 320.0,
     height: 360.0,
 };
 
-/// Height to content, by state (spec section 5: max 360). The window is sized from Rust before
-/// it is shown, so a calm window is not a 360 px box with an empty middle. The look height
-/// fits a two-line headline, the why line and an "and N more things" line; the QA harness
-/// checks each state's content against these numbers (qa/harness.ts WATCH_WINDOW_HEIGHTS).
-pub fn window_height(state: &WatchState) -> f64 {
+/// The most a state may ask for (DESIGN-WATCH-WINDOW section 2, "Heights"). The act state with
+/// the reason line and an unreadable area would be 424.
+pub const MAX_WINDOW_HEIGHT: f64 = 420.0;
+
+const PADDING: f64 = 32.0;
+const GAP: f64 = 8.0;
+
+/// The row budgets of the window, in px, in draw order; a row of 0 is not drawn. Mirrored by
+/// `apps/desktop/src/watch/height.ts` and pinned by `watch-cases.json`'s `heights`.
+pub fn rows_for(state: &WatchState) -> Vec<f64> {
+    const STATUS: f64 = 24.0;
+    const FOOTER: f64 = 32.0;
     if state.first_run {
-        return 170.0;
+        return vec![58.0, 32.0, 32.0];
     }
-    match state.rating {
-        Rating::Calm => 150.0,
-        Rating::KeepAnEye => 280.0,
-        Rating::ActNow => WINDOW_SIZE.height,
+    let checked = state.checking || state.last_check_at.is_some();
+    let unavailable = state.unavailable.len();
+    let judge_for = |rating: Rating| {
+        state
+            .judge
+            .as_ref()
+            .is_some_and(|judge| judge.rating == rating)
+    };
+    if state.paused_until.is_some() {
+        let meta = if checked { 20.0 } else { 0.0 };
+        return vec![STATUS, meta, 20.0, FOOTER]
+            .into_iter()
+            .filter(|row| *row > 0.0)
+            .collect();
     }
+    let rows: Vec<f64> = match state.rating {
+        Rating::Calm => {
+            let meta = if state.checking {
+                20.0
+            } else {
+                (if state.last_check_at.is_some() {
+                    20.0
+                } else {
+                    0.0
+                }) + 20.0
+            };
+            let unreadable = match unavailable {
+                0 => 0.0,
+                1 => 40.0,
+                _ => 60.0,
+            };
+            let sentence = if judge_for(Rating::Calm) { 72.0 } else { 20.0 };
+            let up_next = match (&state.report, &state.next) {
+                (Some(report), Some(next)) if next.report_id == report.report_id => 28.0,
+                _ => 0.0,
+            };
+            let checkup = 20.0 + up_next;
+            let row5 = if state.ai.enabled {
+                44.0
+            } else if state.ai.provider.is_none() {
+                52.0
+            } else {
+                0.0
+            };
+            vec![STATUS, meta, unreadable, sentence, checkup, row5, FOOTER]
+        }
+        Rating::KeepAnEye => {
+            let meta = if checked {
+                if unavailable > 0 { 40.0 } else { 20.0 }
+            } else {
+                0.0
+            };
+            let body = if state.items.is_empty() { 20.0 } else { 92.0 };
+            let reason = if judge_for(Rating::KeepAnEye) { 72.0 } else { 0.0 };
+            let ask_link = if state.ai.enabled { 32.0 } else { 0.0 };
+            vec![STATUS, meta, body, reason, 44.0, ask_link, FOOTER]
+        }
+        Rating::ActNow => {
+            let meta = if checked {
+                if unavailable > 0 { 40.0 } else { 20.0 }
+            } else {
+                0.0
+            };
+            let reason = if judge_for(Rating::ActNow) { 72.0 } else { 0.0 };
+            if state.items.is_empty() {
+                vec![STATUS, meta, 20.0, reason, FOOTER]
+            } else {
+                vec![STATUS, meta, 92.0, 40.0, 44.0, reason, FOOTER]
+            }
+        }
+    };
+    rows.into_iter().filter(|row| *row > 0.0).collect()
+}
+
+/// Height to content: 16 px above and below, the rows present and 8 px between every two,
+/// capped at `MAX_WINDOW_HEIGHT`. The window is sized from Rust before it is shown, so a calm
+/// window is not a 360 px box with an empty middle; the QA harness checks each state's content
+/// against the same sum in TypeScript.
+pub fn window_height(state: &WatchState) -> f64 {
+    let rows = rows_for(state);
+    let gaps = rows.len().saturating_sub(1) as f64;
+    let sum: f64 = rows.iter().sum();
+    f64::min(MAX_WINDOW_HEIGHT, PADDING + sum + GAP * gaps)
 }
 
 /// Managed by lib.rs: when the icon was last clicked, whether the window is shown, which raster
@@ -117,10 +203,13 @@ pub enum TrayAction {
     TurnOff,
 }
 
-/// The payload of `watch:open`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+/// The payload of `watch:open` and `main:shown`. The question travels with `chat` opens only,
+/// as the composer's draft; it is never logged and `main:shown` never carries it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct OpenPayload {
     pub screen: OpenScreen,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub question: Option<String>,
 }
 
 /// The tray entry a menu id maps to; Quit is left to `menu::on_event`, OS items to the OS.
@@ -180,8 +269,17 @@ pub fn close_action(watch_active: bool) -> CloseAction {
     }
 }
 
-/// The tooltip for a state, from the spec's three sentences.
+/// "15:30" in local time for an RFC 3339 instant; None when it does not parse.
+fn local_clock(text: &str) -> Option<String> {
+    let at = DateTime::parse_from_rfc3339(text).ok()?;
+    Some(at.with_timezone(&Local).format("%H:%M").to_string())
+}
+
+/// The tooltip for a state: the paused form first, then the spec's rating sentences.
 pub fn tooltip(state: &WatchState, now: DateTime<Utc>) -> String {
+    if let Some(until) = state.paused_until.as_deref().and_then(local_clock) {
+        return format!("Talos Labs: paused until {until}.");
+    }
     match state.rating {
         Rating::Calm => match checked_ago(state.last_check_at.as_deref(), now) {
             Some(ago) => format!("Talos Labs: nothing changed since the last check. {ago}."),
@@ -263,7 +361,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
 
 fn run_action(app: &AppHandle, id: &str) {
     match menu_action(id) {
-        Some(TrayAction::Open) => open_main(app, OpenScreen::Home),
+        Some(TrayAction::Open) => open_main(app, OpenScreen::Home, None),
         Some(TrayAction::CheckNow) => crate::watch::request_check_now(app),
         Some(TrayAction::Pause) => crate::watch::pause(app, 60),
         Some(TrayAction::TurnOff) => {
@@ -284,7 +382,7 @@ fn hook_notification_tap(app: &AppHandle) {
     let handle = app.clone();
     let _ = app.notification().on_action(move |action| {
         if action.action_id() == TAP_ACTION {
-            open_main(&handle, OpenScreen::Noticed);
+            open_main(&handle, OpenScreen::Noticed, None);
         }
     });
 }
@@ -370,21 +468,21 @@ pub fn send_notification(app: &AppHandle, body: &str) -> Result<(), String> {
         .map_err(|err| err.to_string())
 }
 
-/// Regular activation, show and focus main, then emit `watch:open { screen }`.
-pub fn open_main(app: &AppHandle, screen: OpenScreen) {
-    show_main(app, Some(screen));
+/// Regular activation, show and focus main, then emit `watch:open { screen, question? }`.
+pub fn open_main(app: &AppHandle, screen: OpenScreen, question: Option<String>) {
+    show_main(app, Some(screen), question);
 }
 
 /// The same with no `watch:open`: the Dock reopen and the second-instance callback.
 pub fn open_main_plain(app: &AppHandle) {
-    show_main(app, None);
+    show_main(app, None, None);
 }
 
 /// Every open asks the watch for a full check (spec section 2); the loop's own guards decide
 /// when it runs. A window that was hidden also gets `main:shown { screen }`, which is what
 /// runs the launch check-up: with the watch on, closing the window hides it, so the webview
 /// never remounts and "Check my Mac when I open Talos Labs" would otherwise never fire again.
-fn show_main(app: &AppHandle, screen: Option<OpenScreen>) {
+fn show_main(app: &AppHandle, screen: Option<OpenScreen>, question: Option<String>) {
     let _ = app.set_activation_policy(ActivationPolicy::Regular);
     let was_hidden = app
         .try_state::<TrayState>()
@@ -400,13 +498,14 @@ fn show_main(app: &AppHandle, screen: Option<OpenScreen>) {
         crate::watch::on_main_open(app);
     }
     if let Some(screen) = screen {
-        let _ = app.emit(OPEN_EVENT, OpenPayload { screen });
+        let _ = app.emit(OPEN_EVENT, OpenPayload { screen, question });
     }
     if was_hidden {
         let _ = app.emit(
             SHOWN_EVENT,
             OpenPayload {
                 screen: screen.unwrap_or(OpenScreen::Home),
+                question: None,
             },
         );
     }
