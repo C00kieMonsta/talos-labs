@@ -14,7 +14,8 @@ export const PROFILE_QUESTIONS = {
   laptop: "This laptop leaves home",
 } as const;
 
-function Segmented<T extends string>({
+/** The kit's segmented control: one fieldset, one radio per option. Shared with the Watch section's "How often". */
+export function Segmented<T extends string | number>({
   legend,
   name,
   options,
@@ -35,7 +36,7 @@ function Segmented<T extends string>({
       <div className="segmented-options">
         {options.map((option) => (
           <label key={option} className={option === value ? "segment segment-on" : "segment"}>
-            <input type="radio" name={name} checked={value === option} onChange={() => onChange(option)} />
+            <input type="radio" name={name} value={option} checked={value === option} onChange={() => onChange(option)} />
             {labels[option]}
           </label>
         ))}

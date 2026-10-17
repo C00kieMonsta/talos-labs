@@ -13,6 +13,7 @@ export * from "./ports/fix-port";
 export * from "./ports/license-port";
 export * from "./ports/secret-store-port";
 export * from "./ports/report-store-port";
+export * from "./ports/watch-port";
 
 export { evaluate, evaluateRule, sanitiseEvidence } from "./engine/evaluate";
 export { computeScore, gradeFor, pointsFor, CRITICAL_CAP } from "./engine/score";
@@ -28,6 +29,11 @@ export {
   EXPLANATION_JSON_SCHEMA,
   PRIORITISATION_JSON_SCHEMA,
   ANSWER_JSON_SCHEMA,
+  WATCH_JSON_SCHEMA,
+  toWatchContext,
+  WATCH_RULE_ID,
+  buildOnDeviceWatchPrompt,
+  buildOnDeviceWatchInstructions,
   validateExplanation,
   validatePrioritisation,
   validateAnswer,
@@ -40,6 +46,10 @@ export {
   explainTurns,
   prioritiseTurns,
   askTurns,
+  watchTurns,
+  WATCH_INSTRUCTIONS_BLOCK,
+  buildWatchInstructions,
+  watchRequestBody,
   claudePromptFor,
   strictSchema,
   responsesRequestBody,
@@ -51,11 +61,13 @@ export {
   parseResponsesEvent,
   parseResponsesError,
 } from "./explainer/index";
-export type { OnDevicePrompt, OnDeviceTask, OnDeviceExtra, RemoteTask, RemoteTurn, ResponsesRequest, ResponsesEvent, ResponsesError } from "./explainer/index";
+export type { OnDevicePrompt, OnDeviceTask, OnDeviceExtra, RemoteTask, RemoteTurn, ResponsesRequest, ResponsesOptions, ResponsesEvent, ResponsesError, WatchContextInput, WatchOnDevicePrompt } from "./explainer/index";
 
 export { parseLicense, entitled, freeFixRuleIds, FREE_FIX_COUNT, LICENSE_PREFIX, LICENSE_PRODUCT } from "./license/index";
 
 export { buildGuidedPlan, planLocked, convertedShowStep, nextAction, LEFT_ALONE, WATCH_EVERY_MS, diffReports, EMPTY_GUIDED_MEMORY, parseGuidedMemory, AI_ASK_AGAIN_MS, aiAskedRecently } from "./guided/index";
 export type { GuidedStep, GuidedPlan, GuidedGate, NextAction, NextActionKind, ReportDiff, GuidedMemory, PermissionKind } from "./guided/index";
+
+export * from "./watch/index";
 
 export { DEV_MACHINE, HARDENED, ALL_UNAVAILABLE, FRESH_INSTALL, WINDOWS_MINIMAL, FIXTURES } from "./fixtures/index";

@@ -1,7 +1,8 @@
 import type { GuidedPlan, ReportDiff } from "@talos/core";
+import { useWatchController } from "../watch/watch-controller";
 import { GuidedList } from "./GuidedList";
 import { StepFrame } from "./StepFrame";
-import { SINCE } from "./copy";
+import { FISHY, SINCE } from "./copy";
 import { guidedFor } from "./plan";
 
 function things(n: number): string {
@@ -19,12 +20,21 @@ export function sinceLines(diff: ReportDiff): string[] {
 
 export function SinceScreen({ diff, plan, onCarryOn }: { diff: ReportDiff; plan: GuidedPlan; onCarryOn(): void }) {
   void plan;
+  const { memory, saveMemory } = useWatchController();
+  // The lessons-learned line: this screen is that step when the fishy flow ran (DESIGN-WATCH.md section 6).
+  const lessons = memory.fishyRanAt !== null;
+  const lines = lessons ? [FISHY.lessons, ...sinceLines(diff)] : sinceLines(diff);
+  const carryOn = () => {
+    // The line is shown once: carrying on clears the mark.
+    if (lessons) saveMemory({ ...memory, fishyRanAt: null });
+    onCarryOn();
+  };
   const rows = [
     ...diff.fixed.map((id) => ({ key: `fixed:${id}`, text: guidedFor(id).done.replace("Done. ", ""), icon: "ok" as const })),
     ...diff.appeared.map((id) => ({ key: `new:${id}`, text: guidedFor(id).headline, icon: "bullet" as const })),
   ];
   return (
-    <StepFrame progress={null} title={SINCE.title} body={sinceLines(diff).map((line) => <p key={line}>{line}</p>)} primary={{ label: SINCE.carryOn, onClick: onCarryOn }} className="guided-since">
+    <StepFrame progress={null} title={SINCE.title} body={lines.map((line) => <p key={line}>{line}</p>)} primary={{ label: SINCE.carryOn, onClick: carryOn }} className="guided-since">
       {rows.length > 0 && <GuidedList rows={rows} />}
     </StepFrame>
   );

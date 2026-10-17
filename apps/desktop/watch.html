@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Talos Labs</title>
+    <!-- The Tauri window never asks for a favicon; this stops the browser demo logging a 404 on every load. -->
+    <link rel="icon" href="data:," />
+    <script>
+      // Outside the Tauri window there is no sidebar material, so the sidebar paints its fallback colour.
+      if (!("__TAURI_INTERNALS__" in window)) document.documentElement.classList.add("no-vibrancy");
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/watch/main.tsx"></script>
+  </body>
+</html>

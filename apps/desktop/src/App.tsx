@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AiAvailability, Capabilities, GuidedMemory, LicenseState, ScanReport } from "@talos/core";
+import type { AiAvailability, Capabilities, GuidedMemory, LicenseState, ScanReport, WatchAi, WatchMemory, WatchOpenScreen } from "@talos/core";
 import { EMPTY_GUIDED_MEMORY } from "@talos/core";
 import { AppContext, useApp } from "./app/context";
 import type { AppContextValue } from "./app/context";
 import { adapters, buildContext, catalog, loadSettings, runEngine, saveSettings } from "./app/container";
 import { buildGate } from "./app/gate";
 import { ICONS } from "./app/icons";
+import { parseWatchDemoQuery } from "./app/demo-boot";
 import { useRouter } from "./app/router";
 import type { Route, RouteMove } from "./app/router";
 import { CHECKUP_LABEL, SCAN_ERROR_LABELS, askSubtitle, formatDateTime } from "./app/labels";
@@ -24,10 +25,16 @@ import type { GuidedController } from "./guided/useGuided";
 import { GuidedShell } from "./guided/GuidedShell";
 import { Guided } from "./guided/screens/Guided";
 import { ConnectScreen } from "./guided/ConnectScreen";
+import { FishyFlow } from "./guided/FishyFlow";
+import { FishyContext } from "./guided/fishy/controller";
+import { useFishy } from "./guided/fishy/useFishy";
+import { loadWatchMemory, saveWatchMemory } from "./watch/memory";
+import { useWatch } from "./watch/useWatch";
+import { WatchControllerContext } from "./watch/watch-controller";
 import { SCANNING_TITLE } from "./guided/copy";
 import { lastReport } from "./scan/machine";
 import { aiUsable as computeAiUsable } from "./settings";
-import type { AppSettings } from "./settings";
+import type { AppSettings, WatchSettings } from "./settings";
 import { Brand } from "./components/Brand";
 import { GradientDefs } from "./components/GradientDefs";
 import { Sidebar } from "./components/Sidebar";
@@ -56,6 +63,19 @@ const NAV_ROUTES: Readonly<Record<SidebarKey, Route>> = {
 /** True inside the Tauri webview; the browser demo and jsdom have no window API. */
 function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+/** The demo's ?ransomNote=1 ticks the fishy flow's checkbox; a build-time choice, never read in the real app. */
+function demoRansomNote(): boolean {
+  if (import.meta.env.VITE_TALOS_DEMO !== "1" || typeof window === "undefined") return false;
+  return parseWatchDemoQuery(new URLSearchParams(window.location.search)).ransomNote;
+}
+
+/** What Rust's watch cycle may call: the AI switch and the consumer provider; Developer providers stay in the webview. */
+function watchAiFor(settings: AppSettings): WatchAi {
+  const { aiEnabled, provider } = settings.explainer;
+  const consumer = provider === "apple" || provider === "chatgpt" || provider === "claude_plan";
+  return { enabled: aiEnabled && consumer, provider: consumer ? provider : null };
 }
 
 /** Adds .window-inactive to the shell while the window is in the background, like Finder. */
@@ -146,6 +166,7 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   const [license, setLicense] = useState<LicenseState>({ status: "none" });
   const [memory, setMemory] = useState<GuidedMemory>(() => loadGuidedMemory());
+  const [watchMemory, setWatchMemory] = useState<WatchMemory>(() => loadWatchMemory());
   if (continueNote === undefined) continueNote = readContinue();
   const resume = continueNote?.kind === "guided";
   const router = useRouter(settings.guided.home ? { name: "guided" } : { name: "overview" });
@@ -176,7 +197,15 @@ export default function App() {
   // The report loadLast found, kept for the guide's "since last time" diff; the launch scan drops it from the machine.
   const loadedReport = useRef<ScanReport | null>(null);
 
-  // The launch scan: after loadLast so the previous report is held for the diff; never twice within 60 s.
+  // "Check my Mac when I open Talos Labs": once per launch and once per showing of a hidden window, never twice within 60 s.
+  const launchScan = useCallback(() => {
+    const current = settingsRef.current;
+    if (!current.onboarded || !current.guided.autoScan || !current.guided.home) return;
+    if (!claimLaunchScan()) return;
+    void start();
+  }, [start]);
+  // The launch scan: after loadLast so the previous report is held for the diff. A --watch login launch
+  // keeps the window hidden; its scan waits for main:shown instead.
   useEffect(() => {
     const held = adapters.reports.loadLast().then(
       (report) => {
@@ -184,17 +213,18 @@ export default function App() {
       },
       () => undefined,
     );
-    void Promise.all([loadLast(), held]).then(() => {
-      const current = settingsRef.current;
-      if (!current.onboarded || !current.guided.autoScan || !current.guided.home) return;
-      if (!claimLaunchScan()) return;
-      void start();
+    const hidden = adapters.watch.status().then(
+      (state) => state.hiddenLaunch,
+      () => false,
+    );
+    void Promise.all([loadLast(), held, hidden]).then(([, , hiddenLaunch]) => {
+      if (!hiddenLaunch) launchScan();
     });
     void adapters.license
       .current()
       .then(setLicense)
       .catch(() => setLicense({ status: "none" }));
-  }, [loadLast, start]);
+  }, [loadLast, launchScan]);
 
   const report = lastReport(scan.scan);
   const gate = useMemo(() => buildGate(report, license), [report, license]);
@@ -224,6 +254,20 @@ export default function App() {
   }, []);
   // Lives here, not in the Connect screen, so a running sign-in keeps being polled while the person visits other screens.
   const connect = useAiConnect({ port: adapters.aiConnect, router, settings, updateSettings, memory, saveMemory, ai, windowFocused: !inactive, reducedMotion });
+  const saveWatch = useCallback((next: WatchMemory) => {
+    saveWatchMemory(next);
+    setWatchMemory(next);
+  }, []);
+  const updateWatchSettings = useCallback((patch: Partial<WatchSettings>) => {
+    setSettings((prev) => {
+      const next = { ...prev, watch: { ...prev.watch, ...patch } };
+      saveSettings(next);
+      return next;
+    });
+  }, []);
+  // The menu bar watch: Rust holds the truth for enabled, interval and notify; this controller mirrors it into settings.
+  const watch = useWatch({ port: adapters.watch, settings: settings.watch, profile: settings.profile, ai: watchAiFor(settings), updateSettings: updateWatchSettings, memory: watchMemory, saveMemory: saveWatch });
+  const fishy = useFishy({ watch, adapters, router, settings, ransomNote: demoRansomNote() });
   const guided = useGuided(scan, {
     gate,
     settings,
@@ -254,6 +298,25 @@ export default function App() {
     router.navigate({ name: "settings" });
     setPendingAnchor(target === "about" ? "about" : null);
   });
+  // The tray, a notification tap and the small window's links: the fishy flow opens only when the watch has something to show.
+  const onWatchOpen = useRef<(screen: WatchOpenScreen) => void>(() => undefined);
+  onWatchOpen.current = (screen) => {
+    if (screen === "settings_watch") {
+      router.navigate({ name: "settings" });
+      setPendingAnchor("watch");
+    } else if (screen === "noticed" && router.route.name !== "fishy" && (watch.state?.items.length ?? 0) > 0) {
+      // A flow already on screen stays: a second entry would land back on the flow after Done.
+      fishy.open(router.route, "noticed");
+    }
+  };
+  useEffect(() => adapters.watch.onOpen(({ screen }) => onWatchOpen.current(screen)), []);
+  // With the watch on, closing the window hides it, so a reopen is a show, not a relaunch: the launch scan
+  // runs here. Not for noticed or settings_watch, which land the person on another screen.
+  const onMainShown = useRef<(screen: WatchOpenScreen) => void>(() => undefined);
+  onMainShown.current = (screen) => {
+    if (screen === "home") launchScan();
+  };
+  useEffect(() => adapters.watch.onShown(({ screen }) => onMainShown.current(screen)), []);
   useEffect(() => {
     if (pendingAnchor === null || router.route.name !== "settings") return;
     // Settings sections carry their id on the heading.
@@ -276,10 +339,14 @@ export default function App() {
     return (
       <AiConnectContext.Provider value={connect}>
       <AppContext.Provider value={value}>
+      <WatchControllerContext.Provider value={watch}>
+      <FishyContext.Provider value={fishy}>
         <GradientDefs />
         <GuidedShell inactive={inactive}>
           <Guided controller={guided} onWelcomeStart={onWelcomeStart} />
         </GuidedShell>
+      </FishyContext.Provider>
+      </WatchControllerContext.Provider>
       </AppContext.Provider>
       </AiConnectContext.Provider>
     );
@@ -288,6 +355,8 @@ export default function App() {
     return (
       <AiConnectContext.Provider value={connect}>
       <AppContext.Provider value={value}>
+      <WatchControllerContext.Provider value={watch}>
+      <FishyContext.Provider value={fishy}>
         <GradientDefs />
         <Welcome
           initial={settings.profile}
@@ -297,6 +366,8 @@ export default function App() {
           }}
           onSkip={() => updateSettings({ onboarded: true })}
         />
+      </FishyContext.Provider>
+      </WatchControllerContext.Provider>
       </AppContext.Provider>
       </AiConnectContext.Provider>
     );
@@ -306,6 +377,8 @@ export default function App() {
     return (
       <AiConnectContext.Provider value={connect}>
       <AppContext.Provider value={value}>
+      <WatchControllerContext.Provider value={watch}>
+      <FishyContext.Provider value={fishy}>
         <GradientDefs />
         {scanning ? (
           <ScanningShell guided inactive={inactive} />
@@ -316,6 +389,8 @@ export default function App() {
             </ScreenErrorBoundary>
           </GuidedShell>
         )}
+      </FishyContext.Provider>
+      </WatchControllerContext.Provider>
       </AppContext.Provider>
       </AiConnectContext.Provider>
     );
@@ -325,12 +400,35 @@ export default function App() {
     return (
       <AiConnectContext.Provider value={connect}>
       <AppContext.Provider value={value}>
+      <WatchControllerContext.Provider value={watch}>
+      <FishyContext.Provider value={fishy}>
         <GradientDefs />
         <GuidedShell inactive={inactive}>
           <ScreenErrorBoundary resetKey="connect" onRescan={() => guided.start()} onSettings={() => router.navigate({ name: "settings" })}>
             <ConnectScreen />
           </ScreenErrorBoundary>
         </GuidedShell>
+      </FishyContext.Provider>
+      </WatchControllerContext.Provider>
+      </AppContext.Provider>
+      </AiConnectContext.Provider>
+    );
+  }
+
+  if (router.route.name === "fishy") {
+    return (
+      <AiConnectContext.Provider value={connect}>
+      <AppContext.Provider value={value}>
+      <WatchControllerContext.Provider value={watch}>
+      <FishyContext.Provider value={fishy}>
+        <GradientDefs />
+        <GuidedShell inactive={inactive}>
+          <ScreenErrorBoundary resetKey="fishy" onRescan={() => guided.start()} onSettings={() => router.navigate({ name: "settings" })}>
+            <FishyFlow />
+          </ScreenErrorBoundary>
+        </GuidedShell>
+      </FishyContext.Provider>
+      </WatchControllerContext.Provider>
       </AppContext.Provider>
       </AiConnectContext.Provider>
     );
@@ -350,6 +448,8 @@ export default function App() {
   return (
     <AiConnectContext.Provider value={connect}>
     <AppContext.Provider value={value}>
+    <WatchControllerContext.Provider value={watch}>
+    <FishyContext.Provider value={fishy}>
       <GradientDefs />
       <div className={inactive ? "shell shell-expert window-inactive" : "shell shell-expert"}>
         <ExpertTitlebar scanning={scanning} />
@@ -376,6 +476,8 @@ export default function App() {
           </div>
         </div>
       </div>
+    </FishyContext.Provider>
+    </WatchControllerContext.Provider>
     </AppContext.Provider>
     </AiConnectContext.Provider>
   );
@@ -506,6 +608,8 @@ function RouteToolbar({ route }: { route: Route }) {
       return <Toolbar title="Settings" />;
     case "connect":
       return null;
+    case "fishy":
+      return null;
   }
 }
 
@@ -620,6 +724,8 @@ function screenFor(route: Route, guided: GuidedController, onResetMemory: () => 
     case "settings":
       return <SettingsRoute guided={guided} onResetMemory={onResetMemory} />;
     case "connect":
+      return null;
+    case "fishy":
       return null;
   }
 }

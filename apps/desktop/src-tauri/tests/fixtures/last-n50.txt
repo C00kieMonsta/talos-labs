@@ -1,0 +1,25 @@
+alice ttys006                         Thu Oct 15 12:16 - 12:16  (00:00)
+alice ttys005                         Wed Oct 14 19:13   still logged in
+alice ttys005                         Wed Oct 14 11:10 - 11:10  (00:00)
+alice ttys003                         Wed Oct 14 09:44   still logged in
+alice ttys004                         Mon Oct 12 12:46   still logged in
+alice ttys011                         Sun Oct 11 14:37 - 14:37  (00:00)
+alice ttys010                         Sun Oct 11 14:15   still logged in
+alice ttys002                         Sat Oct 10 22:54   still logged in
+alice ttys000                         Fri Oct  9 11:30   still logged in
+alice ttys004                         Thu Oct  8 18:39 - 18:39  (00:00)
+alice ttys001                         Thu Oct  8 16:32   still logged in
+alice ttys000                         Thu Oct  8 16:30 - 16:30  (00:00)
+alice console                         Thu Oct  8 16:22   still logged in
+reboot time                                Thu Oct  8 16:21
+shutdown time                              Thu Oct  8 16:21
+alice ttys007                         Thu Oct  8 14:06 - 14:06  (00:00)
+alice ttys007                         Thu Oct  8 13:23 - 13:23  (00:00)
+alice ttys007                         Thu Oct  8 13:22 - 13:22  (00:00)
+alice ttys002                         Thu Oct  8 13:18 - 13:18  (00:00)
+alice ttys001                         Thu Oct  8 12:09 - 12:09  (00:00)
+alice ttys000                         Thu Oct  8 12:09 - 12:09  (00:00)
+alice console                         Thu Oct  8 11:59 - 16:21  (04:21)
+reboot time                                Thu Oct  8 11:57
+
+wtmp begins Thu Oct  8 11:57:30 BST 2026

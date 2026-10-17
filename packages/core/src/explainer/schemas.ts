@@ -1,5 +1,5 @@
 /**
- * Plain JSON Schema documents for the three model outputs.
+ * Plain JSON Schema documents for the four model outputs.
  * Shared by the Claude and Ollama adapters; no zod here so core stays dependency-free.
  */
 
@@ -49,5 +49,39 @@ export const ANSWER_JSON_SCHEMA: Record<string, unknown> = {
     answer: { type: "string" },
     relatedRuleIds: RULE_ID_LIST,
     outsideScope: { type: "boolean" },
+  },
+};
+
+const WATCH_ID = { type: "string", minLength: 1, maxLength: 48 } as const;
+
+/** The watch verdict. Rust ai::schemas::WATCH is the one-line equivalent. */
+export const WATCH_JSON_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  required: ["rating", "ratingReason", "basedOn", "probes", "actions"],
+  properties: {
+    rating: { type: "string", enum: ["calm", "keep_an_eye", "act_now"] },
+    ratingReason: { type: "string", maxLength: 300 },
+    basedOn: { type: "array", maxItems: 6, items: WATCH_ID },
+    probes: {
+      type: "array",
+      maxItems: 3,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["probeId", "reason"],
+        properties: { probeId: WATCH_ID, reason: { type: "string", maxLength: 300 } },
+      },
+    },
+    actions: {
+      type: "array",
+      maxItems: 3,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["actionId", "sentence"],
+        properties: { actionId: WATCH_ID, sentence: { type: "string", maxLength: 300 } },
+      },
+    },
   },
 };

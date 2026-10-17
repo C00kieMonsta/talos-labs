@@ -6,6 +6,7 @@ import { StatefulProvider, fakeAdapters, fakeContextValue } from "../app/testing
 import { Sidebar } from "../components/Sidebar";
 import { Settings } from "../screens/Settings";
 import { CHECKUP_SETTINGS } from "../app/labels";
+import { WATCH_SETTINGS } from "./copy";
 
 afterEach(cleanup);
 
@@ -26,7 +27,7 @@ describe("the expert shell's guided entry points", () => {
     const updateSettings = vi.fn();
     render(createElement(StatefulProvider, { value: { ...value, updateSettings } }, createElement(Settings, { aiAvailability: null, onAiAction: vi.fn(), capabilities: null, onPermission: vi.fn(), onBuy: vi.fn() })));
     const headings = Array.from(document.querySelectorAll("h2")).map((h) => h.textContent);
-    expect(headings[0]).toBe("Check-up");
+    expect(headings.slice(0, 2)).toEqual([WATCH_SETTINGS.title, "Check-up"]);
     expect(screen.getByText(CHECKUP_SETTINGS.sentence)).toBeTruthy();
     fireEvent.click(screen.getByRole("switch", { name: CHECKUP_SETTINGS.autoScan }));
     fireEvent.click(screen.getByRole("switch", { name: CHECKUP_SETTINGS.home }));

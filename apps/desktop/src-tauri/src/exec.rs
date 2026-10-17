@@ -27,6 +27,21 @@ pub enum Bin {
     Osascript,
     Pwpolicy,
     Codesign,
+    // The watch's read-only probes (docs/DESIGN-WATCH.md section 2).
+    Nvram,
+    Xprotect,
+    Profiles,
+    Systemextensionsctl,
+    Kmutil,
+    /// Get commands only; the fix engine has its own `FixBin::Networksetup` for the two set lines.
+    Networksetup,
+    Scutil,
+    Pmset,
+    /// `crontab -l`, `atq` and `last -n 50` print user names and hostnames; each is reduced to a
+    /// count inside its probe and the text never leaves it.
+    Crontab,
+    Atq,
+    Last,
     #[cfg(test)]
     Sleep,
     #[cfg(test)]
@@ -56,6 +71,17 @@ impl Bin {
             Bin::Osascript => "/usr/bin/osascript",
             Bin::Pwpolicy => "/usr/bin/pwpolicy",
             Bin::Codesign => "/usr/bin/codesign",
+            Bin::Nvram => "/usr/sbin/nvram",
+            Bin::Xprotect => "/usr/bin/xprotect",
+            Bin::Profiles => "/usr/bin/profiles",
+            Bin::Systemextensionsctl => "/usr/bin/systemextensionsctl",
+            Bin::Kmutil => "/usr/bin/kmutil",
+            Bin::Networksetup => "/usr/sbin/networksetup",
+            Bin::Scutil => "/usr/sbin/scutil",
+            Bin::Pmset => "/usr/bin/pmset",
+            Bin::Crontab => "/usr/bin/crontab",
+            Bin::Atq => "/usr/bin/atq",
+            Bin::Last => "/usr/bin/last",
             #[cfg(test)]
             Bin::Sleep => "/bin/sleep",
             #[cfg(test)]
@@ -315,6 +341,26 @@ mod tests {
         assert_eq!(Bin::Socketfilterfw.name(), "socketfilterfw");
         assert_eq!(Bin::SwVers.name(), "sw_vers");
         assert_eq!(Bin::Codesign.path(), "/usr/bin/codesign");
+        let watch: [(Bin, &str); 11] = [
+            (Bin::Nvram, "/usr/sbin/nvram"),
+            (Bin::Xprotect, "/usr/bin/xprotect"),
+            (Bin::Profiles, "/usr/bin/profiles"),
+            (Bin::Systemextensionsctl, "/usr/bin/systemextensionsctl"),
+            (Bin::Kmutil, "/usr/bin/kmutil"),
+            (Bin::Networksetup, "/usr/sbin/networksetup"),
+            (Bin::Scutil, "/usr/sbin/scutil"),
+            (Bin::Pmset, "/usr/bin/pmset"),
+            (Bin::Crontab, "/usr/bin/crontab"),
+            (Bin::Atq, "/usr/bin/atq"),
+            (Bin::Last, "/usr/bin/last"),
+        ];
+        for (bin, path) in watch {
+            assert_eq!(bin.path(), path);
+            assert_eq!(bin.name(), path.rsplit('/').next().unwrap());
+            if cfg!(target_os = "macos") {
+                assert!(std::path::Path::new(path).exists(), "{path}");
+            }
+        }
     }
 }
 

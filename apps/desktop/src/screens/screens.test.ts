@@ -15,7 +15,7 @@ import type { PacerView, RowState } from "../scan/useScanPacer";
 import { Scanning, PROMPTING_ROW_COPY } from "./Scanning";
 import { SECTION_PROGRESS_LABELS } from "../app/labels";
 const AI_BADGE = AI_BADGES.apple;
-import { GUIDED_SECTION_LABELS } from "../guided/copy";
+import { GUIDED_SECTION_LABELS, WATCH_SETTINGS } from "../guided/copy";
 import { Welcome } from "./Welcome";
 import { Findings } from "./Findings";
 import { FindingDetail } from "./FindingDetail";
@@ -1089,10 +1089,10 @@ describe("Settings", () => {
     return { value, adapters, props: full };
   }
 
-  it("keeps the six sections in the design order", () => {
+  it("keeps the seven sections in the design order", () => {
     mount();
     const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-    expect(headings).toEqual(["Check-up", YOUR_AI.title, "Permissions", "Licence", "Developer mode", "About"]);
+    expect(headings).toEqual([WATCH_SETTINGS.title, "Check-up", YOUR_AI.title, "Permissions", "Licence", "Developer mode", "About"]);
   });
 
   it("drives the Your AI pill from the availability prop, the Apple button from onAiAction, and the switch from the settings", () => {
@@ -1277,7 +1277,8 @@ describe("Settings", () => {
     const on = mount({}, { settings: dev("ollama") });
     expect((screen.getByRole("switch", { name: "Show Terminal commands next to fixes" }) as HTMLInputElement).checked).toBe(true);
     expect((screen.getByRole("switch", { name: "Show the plan expanded in fix sheets" }) as HTMLInputElement).checked).toBe(true);
-    const radios = screen.getAllByRole("radio").map((r) => (r.closest("label") as HTMLElement).textContent?.trim());
+    // The Watch section's interval radios come first on the page; only the provider group is read here.
+    const radios = screen.getAllByRole("radio").filter((r) => (r as HTMLInputElement).name === "provider").map((r) => (r.closest("label") as HTMLElement).textContent?.trim());
     expect(radios).toEqual(["On this Mac", "ChatGPT", "Claude", "Claude API key", "Local Ollama"]);
     expect((screen.getByLabelText("Local Ollama") as HTMLInputElement).checked).toBe(true);
     expect(screen.getByLabelText("Model name")).toBeTruthy();

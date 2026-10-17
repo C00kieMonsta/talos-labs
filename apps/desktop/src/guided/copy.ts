@@ -1,4 +1,4 @@
-import type { FixError, SectionKey } from "@talos/core";
+import type { FishyKind, FixError, GatedKind, SectionKey } from "@talos/core";
 import { AI_BADGES, AI_OPEN_APPLE_SETTINGS, AI_UNAVAILABLE_COPY, SECTION_LABELS } from "../app/labels";
 
 /** Fixed strings of the guided flow. Every value is under the banned-word test. */
@@ -10,14 +10,20 @@ export const GUIDED_SECTION_LABELS: Readonly<Record<SectionKey, string>> = {
   dotfiles: "Checking files for saved passwords",
 };
 
+/** What the watch is not, in the app, the readme and the website (DESIGN-WATCH.md section 1). */
+export const NOT_ANTIVIRUS = "I'm not antivirus. I read your Mac's settings and the list of programs that start on their own, then tell you when something changed. I never read your files. macOS's own virus checks do that part.";
+
 export const WELCOME = {
   title: "Let's check your Mac.",
-  body: "I'll look at your Mac's safety settings and fix what I can. Nothing leaves your Mac.",
+  body: "I'll look at your Mac's safety settings and fix what I can. Nothing leaves your Mac. I'll also keep an eye on your settings from the menu bar. You can switch that off in Settings.",
   start: "Start",
   what: "What do you look at?",
   back: "Back",
   reads: "Disk encryption, firewall, updates, screen lock, network services and browser add-on permissions.",
   neverReads: "Your documents, photos, messages, passwords, browsing history or anything you type into macOS password dialogs.",
+  notAntivirus: NOT_ANTIVIRUS,
+  /** The foreground button that asks macOS for notification permission. */
+  allowNotifications: "Tell me when something needs doing now",
 } as const;
 
 export const SCANNING_TITLE = "Checking your Mac";
@@ -218,7 +224,177 @@ export interface FailureCopy {
   readonly later: boolean;
 }
 
-export function failureCopy(error: FixError | "still_failing" | "unreadable", batch: boolean, hasPane: boolean): FailureCopy {
+/** The three strings that change while the watch is on (DESIGN-WATCH.md section 6). */
+export const WATCH_ON = {
+  nextTime: "I'll keep checking from the menu bar.",
+  tryAgain: "I'll check again within the hour.",
+  couldNotCheck: "I made the change but could not check it. I'll check again within the hour.",
+} as const;
+
+/** The "something seems fishy" flow. "{time}" is substituted at render with formatTime. */
+export const FISHY = {
+  gate: {
+    title: "Did you just change this?",
+    body: {
+      guard: "A built-in safety guard was switched off at {time}.",
+      remote: "Remote access to your Mac was turned on at {time}.",
+      admin: "A new admin account was added at {time}.",
+      backup: "Your backups were switched off at {time}.",
+    } satisfies Readonly<Record<GatedKind, string>>,
+    primary: "No, I didn't",
+    link: "Yes, that was me",
+  },
+  noticed: {
+    headline: {
+      persistence: "A new program started running on its own",
+      listener: "A new program is waiting for calls from the network",
+      guard: "A built-in safety guard was switched off",
+      remote: "Remote access to your Mac was turned on",
+      admin: "A new admin account was added",
+      dns: "The way your Mac finds websites changed",
+      backup: "Your backups were switched off",
+    } satisfies Readonly<Record<FishyKind, string>>,
+    body: "I noticed this at {time}. It was not there at the last check. I have not deleted anything.",
+    source: "SANS calls this identification, the step after preparation.",
+    primary: "See what to do",
+    link: "This is fine, I know it",
+    details: "Details",
+    ransom: "I saw a message asking for money",
+  },
+  disconnect: {
+    title: "First, cut it off from the internet",
+    body: "I'll turn Wi-Fi off. Nothing else changes, and you can turn it back on from here. This may not stop everything, but experts say do it first and do not wait.",
+    bodyWired: "Unplug the network cable. Then I'll block all incoming connections. Some things you use may stop working until you allow them again.",
+    source: "CISA's ransomware checklist, step 1. NIST SP 800-61 (2012 edition), section 3.3.1.",
+    primary: "Turn Wi-Fi off",
+    primaryWired: "Block incoming connections",
+    link: "Not now",
+    keepOn: "Do not switch the Mac off. Experts keep it running so the trace is not lost.",
+    keepOnSource: "CISA's ransomware checklist, step 2.",
+  },
+  stop: {
+    title: "Stop the program",
+    body: "I'll stop it from running. I won't delete anything, so an expert can still look at it.",
+    bodyNoEntry: "Quit the program named in Details. I can't stop it for you, because it has no start-up entry I can switch off.",
+    source: "CISA's ransomware checklist, step 11. NIST SP 800-61 (2012 edition), section 3.3.2.",
+    primary: "Stop it",
+    primaryNoEntry: "Block incoming connections",
+    link: "Not now",
+  },
+  eradicate: {
+    title: "Keep it from starting again",
+    body: 'Under "Allow in the Background", switch off the item you do not recognise. I\'ll show you which one.',
+    source: "NIST SP 800-61 (2025), RS.MI-02. Apple's Personal Safety checklist, step 6.",
+    primary: "Show me where",
+    link: "I'll do it later",
+  },
+  experts: {
+    title: "What experts do next",
+    primary: "Done",
+    more: "More experts suggest",
+    rows: {
+      passwords: {
+        text: "Change your passwords from another device, like your phone. Start with your Apple Account and your email.",
+        details: "CISA's ransomware checklist, step 17, and Apple's Apple Account guidance. Doing it from another device is our advice, not a quote.",
+      },
+      devices: {
+        text: "In System Settings, click your name, then Sign-In & Security, and remove any device you don't know.",
+        details: "Apple, Keep your Apple Account secure.",
+      },
+      twoFactor: {
+        text: "Turn on two-factor sign-in for your Apple Account if it is off.",
+        details: "Apple, If you think your Apple Account has been compromised.",
+      },
+      restore: {
+        text: "Restore files only from a backup made before today, and check it first.",
+        details: "NIST SP 800-61 (2025), RC.RP-03, and CISA's ransomware checklist, step 19.",
+      },
+      doNotPay: {
+        text: "If a message asks for money, do not pay.",
+        details: "CISA and the NCSC both say paying gives no guarantee.",
+      },
+      reinstall: {
+        text: "If you are sure it was bad software, experts wipe the Mac and reinstall macOS. That is a job for Apple Support or a repair shop.",
+        details: "CISA's recovery guide, step 5, calls a wipe the only sure way; SANS says the same.",
+      },
+      report: {
+        text: "Tell someone: the police, your country's cyber security centre, or your IT person if you have one.",
+        details: "CISA's ransomware checklist, step 7.",
+      },
+      update: {
+        text: "Install the update if one is waiting.",
+        details: "NIST SP 800-61 (2012 edition), section 3.3.4, and CISA's ransomware checklist, step 17.",
+      },
+      lockdown: {
+        text: "Lockdown Mode, for the very few people who may be singled out.",
+        details: "Apple says it is for the very few.",
+      },
+    },
+  },
+  recover: {
+    title: "When you're done, turn Wi-Fi back on",
+    body: "I'll keep watching more closely for a day.",
+    source: "NIST SP 800-61 (2025), RC.RP-04. SANS says the same.",
+    primary: "Turn Wi-Fi on",
+    primaryWired: "Allow incoming again",
+    link: "Not now",
+  },
+  evidence: "I have not deleted anything. The file is still there for an expert to look at.",
+  lessons: "Last time you went through the steps for a program that started on its own. Here is what changed since.",
+  notifyTail: "Open me to see what experts suggest.",
+} as const;
+
+/** The 320 px watch window (DESIGN-WATCH.md section 5). "{n}" is the count. */
+export const WATCH = {
+  calm: "Nothing changed",
+  look: "Something to look at",
+  lookOne: "One thing to look at",
+  lookMany: "{n} things to look at",
+  act: "Act now",
+  checkedJustNow: "Checked just now",
+  checkedMinutes: "Checked {n} minutes ago",
+  checkedHours: "Checked {n} hours ago",
+  checking: "Checking now",
+  couldNotCheckOne: "I couldn't check 1 area",
+  couldNotCheck: "I couldn't check {n} areas",
+  moreOne: "and 1 more thing",
+  more: "and {n} more things",
+  seeWhatToDo: "See what to do",
+  showMe: "Show me",
+  openApp: "Open Talos Labs",
+  checkNow: "Check now",
+  firstRun: "I'll check your settings on a timer and tell you when something changed.",
+  startAtLogin: "Start me when you log in",
+  sourceAct: "Experts would cut it off first. CISA's ransomware checklist, step 1.",
+  /** One line of why under the top item's headline, by kind. */
+  why: {
+    persistence: "Bad software often starts this way.",
+    listener: "A program that waits for calls can let someone in.",
+    guard: "This guard keeps bad software from running.",
+    remote: "Someone could use your Mac from afar.",
+    admin: "An admin account can change anything on this Mac.",
+    dns: "Your Mac could be sent to the wrong websites.",
+    backup: "Without backups, lost files stay lost.",
+  } satisfies Readonly<Record<FishyKind, string>>,
+} as const;
+
+/** The Watch section in Settings, above Check-up. */
+export const WATCH_SETTINGS = {
+  title: "Watch",
+  enabled: "Keep an eye on my Mac from the menu bar",
+  sentence: "With this off, Talos Labs only checks when you open it.",
+  startAtLogin: "Start when I log in",
+  startAtLoginDescription: "Adds Talos Labs under Allow in the Background in System Settings. You can switch it off there too.",
+  howOften: "How often",
+  every15: "Every 15 minutes",
+  every60: "Every hour",
+  every240: "Every 4 hours",
+  notify: "Tell me when something needs doing now",
+  notifyDescription: "Only for things that need doing now. Never about the full version or AI.",
+} as const;
+
+/** watchOn swaps the "next time you open me" sentence for the watch's own. */
+export function failureCopy(error: FixError | "still_failing" | "unreadable", batch: boolean, hasPane: boolean, watchOn = false): FailureCopy {
   const nothing = "Nothing was changed.";
   const instead = hasPane ? "I'll show you where to do it instead." : "I've left it alone.";
   switch (error) {
@@ -243,6 +419,6 @@ export function failureCopy(error: FixError | "still_failing" | "unreadable", ba
     case "still_failing":
       return { title: "It ran, but the setting has not changed yet.", body: "macOS sometimes needs a moment.", primary: "check_again", later: true };
     case "unreadable":
-      return { title: "I made the change but could not check it.", body: "I'll check next time you open me.", primary: "next", later: false };
+      return { title: "I made the change but could not check it.", body: watchOn ? WATCH_ON.tryAgain : "I'll check next time you open me.", primary: "next", later: false };
   }
 }

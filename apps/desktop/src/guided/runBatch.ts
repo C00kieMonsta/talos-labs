@@ -3,7 +3,7 @@ import { convertedShowStep } from "@talos/core";
 import type { FixingState } from "../scan/machine";
 import type { Core } from "./core";
 import { advance, appendSteps, markFixed, setStep } from "./core";
-import { DONE_PREFIX, END, FIX, PLAN, STATUS } from "./copy";
+import { DONE_PREFIX, END, FIX, PLAN, STATUS, WATCH_ON } from "./copy";
 import { guidedFor, paneFor } from "./plan";
 import type { DoneRow } from "./state";
 
@@ -73,7 +73,7 @@ export function settleBatch(core: Core, step: BatchStep, fixing: BatchFixing): v
       rows.push({ ruleId, ok: true, text: strings.done.replace(DONE_PREFIX, "") });
     } else if (verdict === "unreadable" && item?.status === "done") {
       ok.push(ruleId);
-      rows.push({ ruleId, ok: true, text: FIX.couldNotCheck });
+      rows.push({ ruleId, ok: true, text: core.deps.settings.watch.enabled ? WATCH_ON.couldNotCheck : FIX.couldNotCheck });
     } else {
       failed.push(ruleId);
       rows.push({ ruleId, ok: false, text: strings.headline, tag: paneFor(ruleId) !== null ? PLAN.showWhere : END.didNotChange });

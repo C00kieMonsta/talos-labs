@@ -1,0 +1,134 @@
+/* The "something seems fishy" flow and the Watch settings section (docs/DESIGN-WATCH.md section 6). Owned by FISHY-UI; classes .guided-fishy, .fishy-* and .guided-source only. */
+
+/* The source line: the playbook name and step number under a body, in the secondary colour. */
+.guided-body .guided-source {
+  margin: 4px 0 0;
+  font: var(--text-guided-meta);
+  line-height: 1.5;
+  color: var(--fg-secondary);
+}
+
+.guided-body .guided-source + p {
+  margin-top: var(--space-3);
+}
+
+/* Details: local text in the mono face, the evidence line, the phase line, the source button. 4 px between blocks and around the body keeps screen 1's link above the 600 px fold with Details open. */
+.fishy-details .guided-explain-body {
+  padding: 4px 0;
+}
+
+.fishy-details .guided-explain-body > * + * {
+  margin-top: 4px;
+}
+
+.fishy-detail-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font: var(--text-mono);
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
+.fishy-detail-lines > li + li {
+  margin-top: 2px;
+}
+
+.fishy-model {
+  margin: 0;
+  font: var(--text-guided-list);
+  color: var(--fg);
+}
+
+/* Screen 1's evidence sentence: a caption to the file lines above it, so it hangs 2 px under them. */
+.fishy-details .guided-explain-body > .fishy-evidence {
+  margin: 2px 0 0;
+  font: var(--text-guided-meta);
+  color: var(--fg);
+}
+
+/* The playbook's one authored "What experts do" sentence, above the phase line. */
+.fishy-experts-do {
+  margin: 0;
+  font: var(--text-guided-meta);
+  color: var(--fg);
+}
+
+.fishy-phase {
+  margin: 0;
+}
+
+/* The phase line sits tight under the experts line: one block, not two rows. */
+.fishy-details .guided-explain-body > .fishy-experts-do + .fishy-phase {
+  margin-top: 2px;
+}
+
+/* The source URL opens from Rust by action id: a plain text button, never a link. */
+.fishy-source-button {
+  display: inline-block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: var(--text-guided-meta);
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.fishy-source-button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
+}
+
+.fishy-ransom {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  font: var(--text-guided-meta);
+  color: var(--fg);
+}
+
+/* Screen 5: the rows open their Details under themselves, not inline. */
+.guided-fishy-experts .guided-end-list {
+  margin-top: var(--space-3);
+}
+
+.guided-fishy-experts .guided-end-list .fishy-details {
+  margin: 0 0 var(--space-2);
+  padding: 0 var(--space-2);
+}
+
+.guided-fishy-experts .guided-end-list .fishy-details summary {
+  min-height: 0;
+}
+
+.fishy-more {
+  margin-top: var(--space-2);
+}
+
+.fishy-more .guided-end-list {
+  margin-top: var(--space-1);
+}
+
+.guided-fishy .guided-end-list + .guided-actions,
+.fishy-more + .guided-actions {
+  margin-top: var(--space-4);
+}
+
+/* The welcome's watch block: the not-antivirus sentence and the one permission button. */
+.fishy-welcome-watch {
+  margin-top: var(--space-3);
+  font: var(--text-guided-meta);
+  color: var(--fg-secondary);
+}
+
+.fishy-welcome-watch > p {
+  margin: 0 0 var(--space-2);
+}
+
+/* Settings: the "How often" radio group as one row of the group. */

@@ -13,6 +13,7 @@ enum AiTask: String, Codable {
   case explain
   case prioritise
   case ask
+  case watch
 }
 
 struct Request: Decodable {

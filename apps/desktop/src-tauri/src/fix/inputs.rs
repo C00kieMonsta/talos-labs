@@ -123,6 +123,61 @@ pub fn check_passphrase(value: &str) -> Result<(), FixError> {
     Ok(())
 }
 
+/// A launchd plist is accepted when it is in the fresh listing, canonicalises to itself (no
+/// symlink component), is a regular file directly under `dir`, and, for the user's own
+/// LaunchAgents, is owned by the current uid. The same five checks as `check_key_path`.
+pub fn check_plist_path(
+    chosen: &str,
+    listing: &[String],
+    dir: &Path,
+    require_owner: bool,
+) -> Result<PathBuf, FixError> {
+    check_slot(chosen).map_err(|_| FixError::InvalidChoice)?;
+    if !listing.iter().any(|p| p == chosen) {
+        return Err(FixError::InvalidChoice);
+    }
+    let path = PathBuf::from(chosen);
+    let canonical = path.canonicalize().map_err(|_| FixError::InvalidChoice)?;
+    let dir = dir.canonicalize().map_err(|_| FixError::InvalidChoice)?;
+    if canonical != path || canonical.parent() != Some(dir.as_path()) {
+        return Err(FixError::InvalidChoice);
+    }
+    let meta = std::fs::symlink_metadata(&path).map_err(|_| FixError::InvalidChoice)?;
+    if !meta.is_file() {
+        return Err(FixError::InvalidChoice);
+    }
+    if require_owner {
+        // SAFETY: getuid has no preconditions and cannot fail.
+        let uid = unsafe { libc::getuid() };
+        if meta.uid() != uid {
+            return Err(FixError::InvalidChoice);
+        }
+    }
+    Ok(canonical)
+}
+
+/// `^en[0-9]{1,2}$`: the only shape a Wi-Fi device name may take.
+pub fn valid_wifi_device(device: &str) -> bool {
+    device.strip_prefix("en").is_some_and(|digits| {
+        (1..=2).contains(&digits.len()) && digits.bytes().all(|b| b.is_ascii_digit())
+    })
+}
+
+/// The Wi-Fi device from Rust's own `networksetup -listallhardwareports` listing.
+pub fn bind_wifi_device(listing_text: &str) -> Result<String, FixError> {
+    let device =
+        crate::watch::probes::parse_wifi_device(listing_text).ok_or(FixError::InvalidChoice)?;
+    if !valid_wifi_device(&device) {
+        return Err(FixError::InvalidChoice);
+    }
+    Ok(device)
+}
+
+/// True when the listing has a Wi-Fi port the catalogue could switch.
+pub fn wifi_available(listing_text: &str) -> bool {
+    bind_wifi_device(listing_text).is_ok()
+}
+
 /// 013: the digits of `defaults read` output, or null when the key is unset or not an integer.
 pub fn parse_previous(stdout: &str, success: bool) -> Option<String> {
     if !success {
@@ -133,4 +188,103 @@ pub fn parse_previous(stdout: &str, success: bool) -> Option<String> {
         return None;
     }
     Some(text.to_owned())
+}
+
+#[cfg(test)]
+mod watch_tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+
+    fn tmp(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("talos-fix-watch-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.canonicalize().unwrap()
+    }
+
+    #[test]
+    fn a_plist_binds_only_from_the_fresh_listing_under_its_folder_and_never_through_a_symlink() {
+        let agents = tmp("agents");
+        let other = tmp("other");
+        let plist = agents.join("com.example.agent.plist");
+        std::fs::write(&plist, b"<plist/>").unwrap();
+        let link = agents.join("link.plist");
+        symlink(&plist, &link).unwrap();
+        let elsewhere = other.join("com.example.daemon.plist");
+        std::fs::write(&elsewhere, b"<plist/>").unwrap();
+        let listing: Vec<String> = [&plist, &link, &elsewhere]
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        let text = |p: &PathBuf| p.to_string_lossy().into_owned();
+        assert_eq!(
+            check_plist_path(&text(&plist), &listing, &agents, true),
+            Ok(plist.clone())
+        );
+        assert_eq!(
+            check_plist_path(&text(&plist), &listing, &agents, false),
+            Ok(plist.clone())
+        );
+        assert_eq!(
+            check_plist_path(&text(&link), &listing, &agents, false),
+            Err(FixError::InvalidChoice),
+            "symlink"
+        );
+        assert_eq!(
+            check_plist_path(&text(&elsewhere), &listing, &agents, false),
+            Err(FixError::InvalidChoice),
+            "outside the folder"
+        );
+        assert_eq!(
+            check_plist_path(&text(&plist), &[], &agents, false),
+            Err(FixError::InvalidChoice),
+            "not in the listing"
+        );
+        assert_eq!(
+            check_plist_path("", &listing, &agents, false),
+            Err(FixError::InvalidChoice)
+        );
+        assert_eq!(
+            check_plist_path(
+                &text(&agents),
+                &[text(&agents)],
+                agents.parent().unwrap(),
+                false
+            ),
+            Err(FixError::InvalidChoice),
+            "a directory"
+        );
+        let _ = std::fs::remove_dir_all(&agents);
+        let _ = std::fs::remove_dir_all(&other);
+    }
+
+    #[test]
+    fn the_wifi_device_must_read_en_and_one_or_two_digits() {
+        let listing = include_str!("../../tests/fixtures/networksetup-hardwareports.txt");
+        assert_eq!(bind_wifi_device(listing), Ok("en0".into()));
+        assert!(wifi_available(listing));
+        assert_eq!(
+            bind_wifi_device("Hardware Port: Wi-Fi\nDevice: en12\n"),
+            Ok("en12".into())
+        );
+        assert_eq!(
+            bind_wifi_device("Hardware Port: Wi-Fi\nDevice: en123\n"),
+            Err(FixError::InvalidChoice)
+        );
+        assert_eq!(
+            bind_wifi_device("Hardware Port: Wi-Fi\nDevice: bridge0\n"),
+            Err(FixError::InvalidChoice)
+        );
+        assert_eq!(
+            bind_wifi_device("Hardware Port: Wi-Fi\nDevice: en0; rm -rf /\n"),
+            Err(FixError::InvalidChoice)
+        );
+        assert_eq!(
+            bind_wifi_device("Hardware Port: Ethernet\nDevice: en4\n"),
+            Err(FixError::InvalidChoice)
+        );
+        assert!(!wifi_available(""));
+        assert!(valid_wifi_device("en0") && !valid_wifi_device("en") && !valid_wifi_device("eth0"));
+    }
 }

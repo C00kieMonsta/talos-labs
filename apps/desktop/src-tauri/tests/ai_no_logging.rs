@@ -1,13 +1,29 @@
-//! The provider modules parse sign-in output and token bodies; none of them may print anything.
+//! The provider modules parse sign-in output and token bodies, and the watch handles machine
+//! text; none of them may print anything.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::path::Path;
 
-const FILES: [&str; 4] = [
+const FILES: [&str; 19] = [
     "src/ai/provider.rs",
     "src/ai/claude_code.rs",
     "src/ai/claude_stream.rs",
     "src/ai/chatgpt_oauth.rs",
+    "src/ai/chatgpt_watch.rs",
+    "src/commands/guard.rs",
+    "src/tray.rs",
+    "src/watch/mod.rs",
+    "src/watch/types.rs",
+    "src/watch/probes.rs",
+    "src/watch/signals.rs",
+    "src/watch/baseline.rs",
+    "src/watch/context.rs",
+    "src/watch/rate.rs",
+    "src/watch/validate.rs",
+    "src/watch/cycle.rs",
+    "src/watch/playbook.rs",
+    "src/watch/notify.rs",
+    "src/watch/settings.rs",
 ];
 
 #[test]

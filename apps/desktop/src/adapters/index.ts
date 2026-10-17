@@ -6,6 +6,7 @@ import type {
   SecretStorePort,
   SettingsPane,
   SystemStatePort,
+  WatchPort,
 } from "@talos/core";
 import { MACOS_CATALOG } from "@talos/core";
 import type { ExplainerSettings } from "../settings";
@@ -27,6 +28,7 @@ import { openSettingsPane } from "./settings-pane";
 import { appRestart, TauriFixAdapter } from "./tauri-fix";
 import { TauriAiConnect } from "./tauri-ai-connect";
 import { TauriSystemStateAdapter } from "./tauri-system-state";
+import { TauriWatchAdapter } from "./tauri-watch";
 
 export { AppleExplainerAdapter } from "./apple-explainer";
 export { ChatGptExplainerAdapter, CHATGPT_RESPONSES_URL } from "./chatgpt-explainer";
@@ -42,6 +44,7 @@ export { LicenseAdapter } from "./license";
 export { openSettingsPane } from "./settings-pane";
 export { TauriFixAdapter, appRestart } from "./tauri-fix";
 export { ScanError, TauriSystemStateAdapter, type ScanErrorKind } from "./tauri-system-state";
+export { TauriWatchAdapter, FORBIDDEN_WINDOW, type TauriWatchOptions, type WatchListenFn } from "./tauri-watch";
 export type { ReportSource } from "./explainer-shared";
 
 export interface Adapters {
@@ -57,6 +60,8 @@ export interface Adapters {
   createExplainer(settings: ExplainerSettings): Promise<ExplainerPort>;
   /** The ChatGPT and Claude sign-in flows. */
   aiConnect: AiConnectPort;
+  /** The menu bar watch; Rust owns the cycle, this sends ids and booleans. */
+  watch: WatchPort;
 }
 
 export interface ExplainerDeps {
@@ -102,5 +107,6 @@ export function createAdapters(): Adapters {
     restart: appRestart,
     createExplainer: (settings) => createExplainer(settings, { secrets, reportSource }),
     aiConnect: new TauriAiConnect(),
+    watch: new TauriWatchAdapter(),
   };
 }

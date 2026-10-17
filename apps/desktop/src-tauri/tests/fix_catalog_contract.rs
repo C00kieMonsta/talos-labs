@@ -33,6 +33,8 @@ fn choice_name(choice: Choice) -> &'static str {
         Choice::Share => "share",
         Choice::SshKey => "ssh_key",
         Choice::AllSshKeys => "all_ssh_keys",
+        Choice::Plist => "plist",
+        Choice::WifiDevice => "wifi_device",
     }
 }
 

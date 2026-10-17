@@ -56,3 +56,29 @@ describe("useRouter", () => {
     }
   });
 });
+
+describe("the fishy route", () => {
+  it("carries where it was opened from and an optional start, and leaves with back", () => {
+    const { result } = renderHook(() => useRouter({ name: "guided" }));
+    act(() => result.current.navigate({ name: "fishy", returnTo: { name: "guided" }, start: "gate" }));
+    const route = result.current.route;
+    expect(route.name).toBe("fishy");
+    if (route.name === "fishy") {
+      expect(route.returnTo).toEqual({ name: "guided" });
+      expect(route.start).toBe("gate");
+    }
+    act(() => result.current.back());
+    expect(result.current.route).toEqual({ name: "guided" });
+  });
+
+  it("can open fishy from every shell route without a start", () => {
+    const origins: Route[] = [{ name: "guided" }, { name: "overview" }, { name: "settings" }];
+    for (const origin of origins) {
+      const { result } = renderHook(() => useRouter(origin));
+      act(() => result.current.navigate({ name: "fishy", returnTo: origin }));
+      expect(result.current.route).toEqual({ name: "fishy", returnTo: origin });
+      act(() => result.current.back());
+      expect(result.current.route).toEqual(origin);
+    }
+  });
+});

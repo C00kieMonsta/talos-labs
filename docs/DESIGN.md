@@ -458,7 +458,7 @@ CI: GitHub Actions on `macos-latest` (`.github/workflows/ci.yml`) runs `pnpm -r 
 - Code-signing inspection of launch items.
 - Scan history beyond the last report, PDF or CSV export, team reports, Cyber Essentials mapping.
 - App self-update (Tauri updater). Signing and notarisation pipeline; the `bundle` config stays open for it.
-- Scheduled or background scans, menu bar agent, notifications.
+- Scheduled or background scans, menu bar agent, notifications. Re-decided later: the menu bar watch in `docs/DESIGN-WATCH.md` re-reads settings on a timer and notifies once on "act now"; file scanning stays out.
 - Git repository secret scanning. Only the fixed dotfile list.
 - Installed-app inventory and CVE matching.
 - Wi-Fi, Bluetooth, AirDrop, iCloud, logging and audit rules (CIS section 3), sudo configuration, login banners.

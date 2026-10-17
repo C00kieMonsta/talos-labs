@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "watch",
+  "description": "Capability for the watch window: the two event permissions and the four watch commands (allow-watch-status, allow-watch-check-now, allow-watch-pause, allow-watch-open-main). Nothing else.",
+  "windows": [
+    "watch"
+  ],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-watch-status",
+    "allow-watch-check-now",
+    "allow-watch-pause",
+    "allow-watch-open-main"
+  ]
+}

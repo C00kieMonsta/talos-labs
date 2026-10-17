@@ -7,6 +7,7 @@ import type {
   FixSideEffect,
   Grade,
   LicenseInvalidReason,
+  ProbeId,
   SectionKey,
   SettingsPane,
   Severity,
@@ -427,3 +428,31 @@ export const CHECKUP_SETTINGS = {
   home: "Start on the guided check-up",
   sentence: "With these off, Talos Labs opens on the Overview and waits for you.",
 } as const;
+
+/** The badge under a watch suggestion that came from the fixed rules, not a model. */
+export const DECIDED_BY_APP = "Decided by the app itself";
+
+/** Plain area names for the watch window's "I couldn't check" hover title, one per probe. */
+export const WATCH_PROBE_LABELS: Readonly<Record<ProbeId, string>> = {
+  "probe.platform_integrity": "system protection",
+  "probe.firewall": "the firewall",
+  "probe.malware_protection": "built-in malware protection",
+  "probe.remote_access": "remote access",
+  "probe.file_sharing": "file sharing",
+  "probe.listeners": "network services",
+  "probe.accounts": "user accounts",
+  "probe.persistence": "background programs",
+  "probe.persistence_signatures": "background program signatures",
+  "probe.network_config": "network settings",
+  "probe.hosts": "website address overrides",
+  "probe.profiles": "profiles",
+  "probe.system_extensions": "system extensions",
+  "probe.backup": "backups",
+  "probe.lockdown_mode": "Lockdown Mode",
+  "probe.sudo_config": "administrator settings",
+  "probe.ssh_keys": "login keys",
+  "probe.host_metrics": "load and disk space",
+  "probe.updates": "software updates",
+  "probe.scheduled_jobs": "scheduled jobs",
+  "probe.logins": "remote logins",
+};

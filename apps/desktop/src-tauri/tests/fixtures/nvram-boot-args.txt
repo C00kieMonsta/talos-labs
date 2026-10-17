@@ -1,0 +1,1 @@
+nvram: Error getting variable - 'boot-args': (iokit/common) data was not found

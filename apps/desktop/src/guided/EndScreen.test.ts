@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createRequire } from "node:module";
-import type { AiAvailability, GuidedPlan, ScanReport } from "@talos/core";
+import type { AiAvailability, GuidedPlan, ScanReport, WatchItem, WatchState } from "@talos/core";
 import { DEV_MACHINE, MACOS_CATALOG, evaluate } from "@talos/core";
 import { AppContext } from "../app/context";
 import type { AiConnectController } from "../scan/ai-connect";
@@ -10,8 +10,12 @@ import { CONNECT_POLL_MS } from "../scan/ai-connect";
 import { StatefulProvider, fakeAdapters, fakeConnectController, fakeContextValue } from "../app/testing";
 import { DEFAULT_SETTINGS } from "../settings";
 import type { AppSettings } from "../settings";
-import { EndScreen } from "./EndScreen";
-import { END, NEXT } from "./copy";
+import type { WatchController } from "../watch/watch-controller";
+import { INERT_WATCH, WatchControllerContext } from "../watch/watch-controller";
+import { EndScreen, urgencyLine } from "./EndScreen";
+import { END, FISHY, NEXT, WATCH, WATCH_ON } from "./copy";
+import type { FishyController } from "./fishy/controller";
+import { FishyContext, INERT_FISHY } from "./fishy/controller";
 import { guidedFor } from "./plan";
 
 const require = createRequire(import.meta.url);
@@ -25,11 +29,36 @@ function plan(overrides: Partial<GuidedPlan> = {}): GuidedPlan {
   return { reportId: "r1", freeFixes: [], steps: [], leftAlone: [], worthALook: [], technical: [], later: [], locked: [], unreadable: 0, ...overrides };
 }
 
-function renderEnd(p: GuidedPlan, fixed: readonly GuidedPlan["later"][number][], report: ScanReport | null = REPORT) {
-  const value = fakeContextValue({ adapters: fakeAdapters(), license: { status: "none" }, gate: { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => true }, scanState: { kind: "idle", last: report } });
+/** The watch is off unless a test says otherwise, so the v0.3 strings hold; `watch` adds a watch controller and the fishy controller. */
+function renderEnd(p: GuidedPlan, fixed: readonly GuidedPlan["later"][number][], report: ScanReport | null = REPORT, options: { watchOn?: boolean; watch?: WatchController; fishy?: FishyController } = {}) {
+  const settings: AppSettings = { ...DEFAULT_SETTINGS, onboarded: true, watch: { ...DEFAULT_SETTINGS.watch, enabled: options.watchOn ?? false } };
+  const value = fakeContextValue({ adapters: fakeAdapters(), license: { status: "none" }, gate: { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => true }, scanState: { kind: "idle", last: report }, settings });
   const onNext = vi.fn();
-  render(createElement(AppContext.Provider, { value }, createElement(EndScreen, { plan: p, fixed, onCheckAgain: vi.fn(), onNext })));
-  return { navigate: value.router.navigate, onNext };
+  const fishy = options.fishy ?? { ...INERT_FISHY, open: vi.fn() };
+  const tree = createElement(WatchControllerContext.Provider, { value: options.watch ?? INERT_WATCH }, createElement(FishyContext.Provider, { value: fishy }, createElement(EndScreen, { plan: p, fixed, onCheckAgain: vi.fn(), onNext })));
+  render(createElement(AppContext.Provider, { value }, tree));
+  return { navigate: value.router.navigate, onNext, fishy };
+}
+
+const ACT_ITEM: WatchItem = {
+  signalId: "sig.persistence_new",
+  kind: "persistence",
+  severity: "high",
+  points: 6,
+  change: "appeared",
+  changedAt: "2026-10-16T09:50:00.000Z",
+  gated: false,
+  snoozedUntil: null,
+  hasStartupEntry: true,
+  isListener: false,
+  actionIds: [],
+  modelSentence: null,
+  modelProvider: null,
+};
+
+function watchWith(rating: WatchState["rating"], items: readonly WatchItem[]): WatchController {
+  const state: WatchState = { enabled: true, firstRun: false, hiddenLaunch: false, rating, since: null, lastCheckAt: null, checking: false, cycleIndex: 2, everyMinutes: 60, notify: true, pausedUntil: null, closeWatchUntil: null, unavailable: [], gated: [], items };
+  return { ...INERT_WATCH, state };
 }
 
 /** The end screen with a connect controller and an AI state, so the "Get things explained" row can be asserted. */
@@ -39,7 +68,7 @@ function renderEndWithAi(p: GuidedPlan, options: { availability?: AiAvailability
     license: { status: "none" },
     gate: { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => true },
     scanState: { kind: "idle", last: REPORT },
-    settings: { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, aiEnabled: options.aiEnabled ?? true, provider: options.provider ?? "chatgpt" } },
+    settings: { ...DEFAULT_SETTINGS, onboarded: true, watch: { ...DEFAULT_SETTINGS.watch, enabled: false }, explainer: { ...DEFAULT_SETTINGS.explainer, aiEnabled: options.aiEnabled ?? true, provider: options.provider ?? "chatgpt" } },
   });
   const value = { ...base, ai: { ...base.ai, availability: options.availability === undefined ? "not_connected" : options.availability, probe: vi.fn(async () => "not_connected" as const), reprobe: vi.fn(() => () => undefined) } };
   const connect = fakeConnectController({ offered: { chatgpt: true, claude_plan: true, apple: false }, connectable: true, askedRecently: false, ...options.connect });
@@ -185,6 +214,78 @@ describe("EndScreen", () => {
     cleanup();
     const settled = renderEndWithAi(plan(), { availability: "not_connected" });
     expect(settled.value.ai.reprobe).not.toHaveBeenCalled();
+  });
+
+  it("swaps the next-time and try-again sentences for the watch's own while the watch is on, in the helper and on screen", () => {
+    expect(urgencyLine(null)).toBe(END.nextTime);
+    expect(urgencyLine(null, false)).toBe(END.nextTime);
+    expect(urgencyLine(null, true)).toBe(WATCH_ON.nextTime);
+    renderEnd(plan(), ["TL-MAC-002"], REPORT, { watchOn: true });
+    expect(screen.getByText(WATCH_ON.nextTime)).toBeTruthy();
+    expect(screen.queryByText(END.nextTime)).toBeNull();
+    cleanup();
+    renderEnd(plan(), ["TL-MAC-002"], REPORT, { watchOn: false });
+    expect(screen.getByText(END.nextTime)).toBeTruthy();
+    cleanup();
+    renderEnd(plan({ unreadable: 31 }), [], REPORT, { watchOn: true });
+    expect(screen.getByText(WATCH_ON.tryAgain)).toBeTruthy();
+    expect(screen.queryByText(END.tryAgain)).toBeNull();
+    cleanup();
+    renderEnd(plan({ unreadable: 31 }), [], REPORT, { watchOn: false });
+    expect(screen.getByText(END.tryAgain)).toBeTruthy();
+    cleanup();
+    // A high rule's headline is not swapped: only the calm line belongs to the watch.
+    renderEnd(plan({ locked: ["TL-MAC-022"] }), ["TL-MAC-002"], REPORT, { watchOn: true });
+    expect(screen.getByText(`${guidedFor("TL-MAC-022").headline}.`)).toBeTruthy();
+  });
+
+  it("puts the watch's act-now item in the critical card with the evidence sentence and See what to do as the one primary, opening the fishy flow", () => {
+    const { fishy, onNext } = renderEnd(plan({ later: ["TL-MAC-010", "TL-MAC-001"], locked: ["TL-MAC-022"] }), ["TL-MAC-002"], REPORT, { watchOn: true, watch: watchWith("act_now", [ACT_ITEM]) });
+    // Nothing above the card reads calm: the title is the watch's status word, the sentence the item's headline.
+    expect(screen.getByRole("heading", { level: 1, name: WATCH.act })).toBeTruthy();
+    expect(screen.getByText(`${FISHY.noticed.headline.persistence}.`)).toBeTruthy();
+    expect(screen.queryByText(WATCH_ON.nextTime)).toBeNull();
+    expect(screen.queryByText(END.partial)).toBeNull();
+    expect(screen.getByRole("heading", { level: 2, name: END.next })).toBeTruthy();
+    const card = document.querySelector(".guided-next-card") as HTMLElement;
+    expect(card.className).toContain("guided-next-card guided-next-critical");
+    expect(card.querySelector(".guided-next-headline")?.textContent).toBe(FISHY.noticed.headline.persistence);
+    expect(card.querySelector(".guided-next-why")?.textContent).toBe(FISHY.evidence);
+    expect(document.querySelectorAll(".button-primary").length).toBe(1);
+    expect(document.querySelectorAll(".guided-next-card").length).toBe(1);
+    expect(screen.queryByRole("button", { name: NEXT.show })).toBeNull();
+    // The plan's next rule keeps its row, since its own card is not drawn.
+    expect(screen.getByRole("button", { name: `${guidedFor("TL-MAC-001").headline} ${END.details}` })).toBeTruthy();
+    expect(document.querySelectorAll(".guided-end-row").length).toBe(3);
+    fireEvent.click(screen.getByRole("button", { name: FISHY.noticed.primary }));
+    expect(fishy.open).toHaveBeenCalledWith({ name: "guided" }, "noticed");
+    expect(onNext).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: END.checkAgain }).className).toBe("guided-link");
+  });
+
+  it("draws the act-now card alone when nothing else is open, and never for keep-an-eye or an act-now state with no item", () => {
+    renderEnd(plan(), ["TL-MAC-002"], REPORT, { watchOn: true, watch: watchWith("act_now", [ACT_ITEM]) });
+    expect(document.querySelector(".guided-summary")).not.toBeNull();
+    expect(document.querySelector(".guided-next-card.guided-next-critical")).not.toBeNull();
+    expect(document.querySelectorAll(".button-primary").length).toBe(1);
+    expect(screen.getByRole("heading", { level: 1, name: WATCH.act })).toBeTruthy();
+    expect(screen.queryByText(END.allDone)).toBeNull();
+    expect(screen.queryByText(WATCH_ON.nextTime)).toBeNull();
+    expect(screen.getByText(`${FISHY.noticed.headline.persistence}.`)).toBeTruthy();
+    cleanup();
+    // With nothing fixed either, the calm "Nothing needs fixing." never sits above the card.
+    renderEnd(plan(), [], REPORT, { watchOn: true, watch: watchWith("act_now", [{ ...ACT_ITEM, kind: "listener", signalId: "sig.listener_new_ports" }]) });
+    expect(screen.queryByText(END.nothing)).toBeNull();
+    expect(screen.getByRole("heading", { level: 1, name: WATCH.act })).toBeTruthy();
+    expect(screen.getByText(`${FISHY.noticed.headline.listener}.`)).toBeTruthy();
+    cleanup();
+    renderEnd(plan({ later: ["TL-MAC-010", "TL-MAC-001"] }), ["TL-MAC-002"], REPORT, { watchOn: true, watch: watchWith("keep_an_eye", [ACT_ITEM]) });
+    expect(document.querySelector(".guided-next-headline")?.textContent).toBe(guidedFor("TL-MAC-001").headline);
+    expect(screen.queryByText(FISHY.evidence)).toBeNull();
+    cleanup();
+    renderEnd(plan(), ["TL-MAC-002"], REPORT, { watchOn: true, watch: watchWith("act_now", []) });
+    expect(document.querySelector(".guided-next-card")).toBeNull();
+    expect(document.querySelectorAll(".button-primary").length).toBe(0);
   });
 
   it("draws the row for the states where nothing is connected, including On this Mac on a Mac that cannot run it", () => {

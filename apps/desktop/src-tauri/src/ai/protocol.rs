@@ -12,6 +12,8 @@ pub enum Task {
     Explain,
     Prioritise,
     Ask,
+    /// The watch task: the model rates and picks ids; no partials.
+    Watch,
 }
 
 /// A request written to the helper's stdin.

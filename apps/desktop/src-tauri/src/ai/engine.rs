@@ -130,9 +130,13 @@ impl Default for Timeouts {
 /// The request being streamed, kept outside the sidecar lock so `cancel` can reach stdin.
 struct InFlight {
     id: String,
+    task: Task,
     writer: Writer,
     cancel_sent: Option<Instant>,
 }
+
+/// How long the person's request waits for a cancelled watch call to let go of the helper.
+const YIELD_WAIT: Duration = Duration::from_secs(5);
 
 pub struct Engine {
     timeouts: Timeouts,
@@ -259,6 +263,43 @@ impl Engine {
         guard.as_mut()
     }
 
+    /// True while a request streams.
+    pub fn is_busy(&self) -> bool {
+        self.busy.load(Ordering::SeqCst)
+    }
+
+    /// Takes the busy slot. The person's request wins over the watch's: an in-flight watch call
+    /// is cancelled and the slot waited for, briefly; anything else answers `busy`.
+    fn take_slot(&self, task: Task) -> Result<(), String> {
+        if !self.busy.swap(true, Ordering::SeqCst) {
+            return Ok(());
+        }
+        if task == Task::Watch || !self.yield_watch() {
+            return Err("busy".into());
+        }
+        Ok(())
+    }
+
+    /// Cancels an in-flight watch call and waits for the slot; false when nothing yielded.
+    fn yield_watch(&self) -> bool {
+        let watch_id = lock(&self.inflight)
+            .as_ref()
+            .filter(|f| f.task == Task::Watch)
+            .map(|f| f.id.clone());
+        let Some(id) = watch_id else {
+            return false;
+        };
+        self.cancel(&id);
+        let deadline = Instant::now() + YIELD_WAIT;
+        while Instant::now() < deadline {
+            if !self.busy.swap(true, Ordering::SeqCst) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        false
+    }
+
     /// Streams one request; events go to `emit`. Returns once the stream has ended.
     pub fn generate(
         &self,
@@ -266,9 +307,7 @@ impl Engine {
         emit: &dyn Fn(StreamPayload),
     ) -> Result<(), String> {
         validate(&request)?;
-        if self.busy.swap(true, Ordering::SeqCst) {
-            return Err("busy".into());
-        }
+        self.take_slot(request.task)?;
         let result = self.run(&request, emit);
         *lock(&self.inflight) = None;
         self.busy.store(false, Ordering::SeqCst);
@@ -285,6 +324,7 @@ impl Engine {
         };
         *lock(&self.inflight) = Some(InFlight {
             id: id.to_owned(),
+            task: request.task,
             writer: sidecar.writer(),
             cancel_sent: None,
         });
@@ -302,8 +342,8 @@ impl Engine {
             return Ok(());
         }
         let started = Instant::now();
-        let mut first_deadline =
-            (request.task != Task::Prioritise).then(|| started + self.timeouts.first_partial);
+        let mut first_deadline = (!matches!(request.task, Task::Prioritise | Task::Watch))
+            .then(|| started + self.timeouts.first_partial);
         let whole_deadline = started + self.timeouts.whole;
         loop {
             if self

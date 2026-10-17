@@ -13,6 +13,7 @@ import type { PermissionStatus } from "../app/labels";
 import { APP_VERSION } from "../app/version";
 import { MAX_MODEL_ID_LENGTH, PROVIDERS, isDeveloperProvider } from "../settings";
 import type { DeveloperSettings, ExplainerProvider } from "../settings";
+import { WatchSection } from "./WatchSection";
 import { Section, Switch, YourAiSection } from "./YourAiSection";
 
 export type PermissionKind = "full_disk_access" | "automation";
@@ -510,6 +511,7 @@ function licenceLine(license: LicenseState): ReactNode {
 export function Settings({ aiAvailability, onAiAction, capabilities, onPermission, onBuy, guided, onChangeAi = noop, canChangeAi = true, onDisconnect = resolved, providerInfo = NO_PROVIDER_INFO }: SettingsProps) {
   return (
     <div className="screen settings">
+      <WatchSection />
       <CheckUpSection />
       <YourAiSection aiAvailability={aiAvailability} onAiAction={onAiAction} onChangeAi={onChangeAi} canChange={canChangeAi} onDisconnect={onDisconnect} />
       <PermissionsSection capabilities={capabilities} onPermission={onPermission} />

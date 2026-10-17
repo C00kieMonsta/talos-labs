@@ -22,10 +22,12 @@ pub enum FixBin {
     Kickstart,
     Chmod,
     SshKeygen,
+    /// The watch's two `-setairportpower` lines only.
+    Networksetup,
 }
 
 impl FixBin {
-    pub const ALL: [FixBin; 8] = [
+    pub const ALL: [FixBin; 9] = [
         FixBin::Socketfilterfw,
         FixBin::Defaults,
         FixBin::Sysadminctl,
@@ -34,6 +36,7 @@ impl FixBin {
         FixBin::Kickstart,
         FixBin::Chmod,
         FixBin::SshKeygen,
+        FixBin::Networksetup,
     ];
 
     pub fn path(self) -> &'static str {
@@ -48,6 +51,7 @@ impl FixBin {
             }
             FixBin::Chmod => "/bin/chmod",
             FixBin::SshKeygen => "/usr/bin/ssh-keygen",
+            FixBin::Networksetup => "/usr/sbin/networksetup",
         }
     }
 }
@@ -63,6 +67,12 @@ pub enum Arg {
     SshDir,
     /// 029: zero or two tokens from the bound key's format.
     KeyFormatFlags,
+    /// watch.wifi_*: the Wi-Fi device from Rust's own `networksetup -listallhardwareports`.
+    WifiDevice,
+    /// watch.stop_user_agent: `gui/<uid>` from `getuid()`.
+    GuiDomain,
+    /// watch.stop_*: a plist from Rust's own fresh persistence listing.
+    PlistPath,
 }
 
 impl Arg {
@@ -74,6 +84,9 @@ impl Arg {
             Arg::KeyPath => "<key>",
             Arg::SshDir => "<~/.ssh>",
             Arg::KeyFormatFlags => "<format>",
+            Arg::WifiDevice => "<device>",
+            Arg::GuiDomain => "gui/<uid>",
+            Arg::PlistPath => "<plist>",
         }
     }
 }
@@ -117,6 +130,10 @@ pub enum Choice {
     Share,
     SshKey,
     AllSshKeys,
+    /// A launchd plist from the fresh persistence listing (watch.stop_*).
+    Plist,
+    /// No webview choice: Rust binds the Wi-Fi device itself (watch.wifi_*).
+    WifiDevice,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -484,10 +501,110 @@ pub fn spec_for(rule: &str) -> Option<&'static FixSpec> {
     FIX_CATALOG.iter().find(|spec| spec.rule == rule)
 }
 
-/// Which catalog rows may join a batch: no choice to make, no secret, no pty.
-/// 002, 003, 007, 008, 009, 011, 013, 015, 016, 019, 020, 021, 030. A test pins the set.
+const PERSISTENCE: &[SectionKey] = &[SectionKey::Persistence];
+
+/// The watch's six rows (docs/DESIGN-WATCH.md section 4), keyed by action-scoped ids that do
+/// not read as rules. Each is one fixed line, never batched; admin ones go through the dialog.
+pub static WATCH_CATALOG: &[FixSpec] = &[
+    FixSpec {
+        choice: Choice::WifiDevice,
+        ..plain(
+            "watch.wifi_off",
+            &[admin(
+                FixBin::Networksetup,
+                &[
+                    Arg::Lit("-setairportpower"),
+                    Arg::WifiDevice,
+                    Arg::Lit("off"),
+                ],
+            )],
+            Reversible::InApp("/usr/sbin/networksetup -setairportpower <device> on"),
+            &[SectionKey::Listeners],
+            "wifi.power == off",
+        )
+    },
+    FixSpec {
+        choice: Choice::WifiDevice,
+        ..plain(
+            "watch.wifi_on",
+            &[admin(
+                FixBin::Networksetup,
+                &[
+                    Arg::Lit("-setairportpower"),
+                    Arg::WifiDevice,
+                    Arg::Lit("on"),
+                ],
+            )],
+            Reversible::InApp("/usr/sbin/networksetup -setairportpower <device> off"),
+            &[SectionKey::Listeners],
+            "wifi.power == on",
+        )
+    },
+    plain(
+        "watch.block_incoming",
+        &[admin(
+            FixBin::Socketfilterfw,
+            &[Arg::Lit("--setblockall"), Arg::Lit("on")],
+        )],
+        Reversible::InApp("/usr/libexec/ApplicationFirewall/socketfilterfw --setblockall off"),
+        FIREWALL,
+        "firewall.blockAllIncoming == true",
+    ),
+    plain(
+        "watch.allow_incoming",
+        &[admin(
+            FixBin::Socketfilterfw,
+            &[Arg::Lit("--setblockall"), Arg::Lit("off")],
+        )],
+        Reversible::InApp("/usr/libexec/ApplicationFirewall/socketfilterfw --setblockall on"),
+        FIREWALL,
+        "firewall.blockAllIncoming == false",
+    ),
+    FixSpec {
+        choice: Choice::Plist,
+        ..plain(
+            "watch.stop_user_agent",
+            &[Step {
+                tolerate_exit: Some(3),
+                ..user(
+                    FixBin::Launchctl,
+                    &[Arg::Lit("bootout"), Arg::GuiDomain, Arg::PlistPath],
+                )
+            }],
+            Reversible::InApp("/bin/launchctl bootstrap gui/<uid> <plist>, or a restart"),
+            PERSISTENCE,
+            "the agent is unloaded; the plist stays in place",
+        )
+    },
+    FixSpec {
+        choice: Choice::Plist,
+        ..plain(
+            "watch.stop_daemon",
+            &[Step {
+                tolerate_exit: Some(3),
+                ..admin(
+                    FixBin::Launchctl,
+                    &[Arg::Lit("bootout"), Arg::Lit("system"), Arg::PlistPath],
+                )
+            }],
+            Reversible::InApp("/bin/launchctl bootstrap system <plist>, or a restart"),
+            PERSISTENCE,
+            "the daemon is unloaded; the plist stays in place",
+        )
+    },
+];
+
+pub fn watch_spec_for(id: &str) -> Option<&'static FixSpec> {
+    WATCH_CATALOG.iter().find(|spec| spec.rule == id)
+}
+
+/// Which catalog rows may join a batch: a FIX_CATALOG rule with no choice to make, no secret,
+/// no pty. 002, 003, 007, 008, 009, 011, 013, 015, 016, 019, 020, 021, 030. A test pins the set;
+/// no WATCH_CATALOG row ever qualifies.
 pub fn batchable(spec: &FixSpec) -> bool {
-    matches!(spec.choice, Choice::None | Choice::AllSshKeys) && spec.secret == Secret::None
+    FIX_CATALOG.iter().any(|s| s.rule == spec.rule)
+        && matches!(spec.choice, Choice::None | Choice::AllSshKeys)
+        && spec.secret == Secret::None
 }
 
 /// The tokens `KeyFormatFlags` can expand to, keyed by format.
@@ -499,7 +616,16 @@ pub const KEY_FORMAT_FLAGS: [(&str, &[&str]); 3] = [
 
 /// The table as JSON: rule, lines with placeholders, privilege, choice, needsPassword, needsPassphrase, recheck.
 pub fn dump_json() -> String {
-    let entries: Vec<serde_json::Value> = FIX_CATALOG
+    dump_specs(FIX_CATALOG)
+}
+
+/// The watch rows in the same JSON shape.
+pub fn dump_watch_json() -> String {
+    dump_specs(WATCH_CATALOG)
+}
+
+fn dump_specs(specs: &[FixSpec]) -> String {
+    let entries: Vec<serde_json::Value> = specs
         .iter()
         .map(|spec| {
             let lines: Vec<serde_json::Value> = spec
@@ -535,7 +661,7 @@ mod tests {
     #[test]
     fn every_literal_matches_the_pattern_and_every_binary_exists() {
         let lit = regex::Regex::new(LITERAL).unwrap();
-        for spec in FIX_CATALOG {
+        for spec in FIX_CATALOG.iter().chain(WATCH_CATALOG) {
             for step in spec.steps {
                 for arg in step.args {
                     if let Arg::Lit(text) = arg {
@@ -589,6 +715,9 @@ mod tests {
                 Choice::AllSshKeys => {
                     assert!(has(Arg::KeyPath) && has(Arg::SshDir), "{}", spec.rule)
                 }
+                Choice::Plist | Choice::WifiDevice => {
+                    panic!("{}: the watch choices live in WATCH_CATALOG", spec.rule)
+                }
             }
             for step in spec.steps {
                 assert!(
@@ -631,5 +760,65 @@ mod tests {
         assert!(!batchable(spec_for("TL-MAC-029").unwrap()));
         let dump: serde_json::Value = serde_json::from_str(&dump_json()).unwrap();
         assert_eq!(dump[0]["batchable"], true);
+    }
+
+    #[test]
+    fn the_six_watch_rows_bind_their_slots_and_never_batch() {
+        let ids: Vec<&str> = WATCH_CATALOG.iter().map(|s| s.rule).collect();
+        assert_eq!(
+            ids,
+            [
+                "watch.wifi_off",
+                "watch.wifi_on",
+                "watch.block_incoming",
+                "watch.allow_incoming",
+                "watch.stop_user_agent",
+                "watch.stop_daemon",
+            ]
+        );
+        for spec in WATCH_CATALOG {
+            assert!(!batchable(spec), "{}", spec.rule);
+            assert_eq!(spec.steps.len(), 1, "{}: one fixed line", spec.rule);
+            assert!(spec.secret == Secret::None && spec.precondition.is_none());
+            let args: Vec<Arg> = spec
+                .steps
+                .iter()
+                .flat_map(|s| s.args.iter().copied())
+                .collect();
+            match spec.choice {
+                Choice::WifiDevice => assert!(args.contains(&Arg::WifiDevice), "{}", spec.rule),
+                Choice::Plist => assert!(args.contains(&Arg::PlistPath), "{}", spec.rule),
+                Choice::None => {
+                    assert!(!args.contains(&Arg::WifiDevice) && !args.contains(&Arg::PlistPath))
+                }
+                other => panic!("{}: {other:?}", spec.rule),
+            }
+            assert!(spec.reversible_text().is_some(), "{}", spec.rule);
+        }
+        let user = watch_spec_for("watch.stop_user_agent").unwrap();
+        assert!(!user.needs_password());
+        assert_eq!(user.steps[0].tolerate_exit, Some(3));
+        assert!(user.steps[0].args.contains(&Arg::GuiDomain));
+        let daemon = watch_spec_for("watch.stop_daemon").unwrap();
+        assert!(daemon.needs_password());
+        assert_eq!(daemon.steps[0].tolerate_exit, Some(3));
+        assert!(watch_spec_for("watch.wifi_off").unwrap().needs_password());
+        assert!(watch_spec_for("TL-MAC-002").is_none());
+        assert!(
+            spec_for("watch.wifi_off").is_none(),
+            "the two tables do not mix"
+        );
+        let dump: serde_json::Value = serde_json::from_str(&dump_watch_json()).unwrap();
+        assert_eq!(dump.as_array().unwrap().len(), 6);
+        assert_eq!(
+            dump[0]["lines"][0]["text"],
+            "/usr/sbin/networksetup -setairportpower <device> off"
+        );
+        assert_eq!(
+            dump[4]["lines"][0]["text"],
+            "/bin/launchctl bootout gui/<uid> <plist>"
+        );
+        assert_eq!(dump[4]["batchable"], false);
+        assert_eq!(FixBin::ALL.len(), 9);
     }
 }

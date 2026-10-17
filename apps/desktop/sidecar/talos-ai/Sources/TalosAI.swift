@@ -101,6 +101,8 @@ enum Generator {
         json = try await stream(id, session, prompt, options, PrioritisationOut.self, partials: false, runner)
       case .ask:
         json = try await stream(id, session, prompt, options, AnswerOut.self, partials: true, runner)
+      case .watch:
+        json = try await stream(id, session, prompt, options, WatchVerdictOut.self, partials: false, runner)
       }
       return .done(id, json)
     } catch is CancellationError {

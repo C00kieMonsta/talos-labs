@@ -3,6 +3,8 @@ import { act, cleanup, waitFor } from "@testing-library/react";
 import type { BatchOutcome, FixOutcome } from "@talos/core";
 import { DEV_MACHINE, HARDENED, nextAction } from "@talos/core";
 import { fakeAdapters, fakeBatchPlan, fakeFixPort, fakePlan, fakeSystemState } from "../app/testing";
+import { DEFAULT_SETTINGS } from "../settings";
+import { FIX, WATCH_ON } from "./copy";
 import { renderGuided } from "./testing";
 import { AUTO_ADVANCE_MS, AUTO_ADVANCE_REDUCED_MS, LATER_FLASH_MS, resetLaunchGuard } from "./timing";
 
@@ -107,6 +109,31 @@ describe("guided steps", () => {
     expect(state?.kind === "done" && state.line).toBe("2 of 3 fixed.");
     expect(state?.kind === "done" && state.rows.map((r) => r.ok)).toEqual([true, true, false]);
     expect(h.hook.result.current.guided.progress.of).toBe(before);
+  });
+
+  it.each([
+    { watch: false, text: FIX.couldNotCheck },
+    { watch: true, text: WATCH_ON.couldNotCheck },
+  ])("a batch item that ran but could not be rechecked says when it will check again (watch on: $watch)", async ({ watch, text }) => {
+    const ruleIds = ["TL-MAC-002", "TL-MAC-003", "TL-MAC-011"] as const;
+    const outcome: BatchOutcome = { ok: true, error: null, items: ruleIds.map((ruleId) => ({ ruleId, status: "done", error: null, step: null })) };
+    const adapters = fakeAdapters({
+      systemState: fakeSystemState(DEV_MACHINE, { collectSection: vi.fn(async () => { throw new Error("boom"); }) }),
+      fixes: fakeFixPort(fakePlan(), {
+        previewBatch: vi.fn(async () => fakeBatchPlan({ items: ruleIds.map((ruleId) => ({ ruleId: ruleId as "TL-MAC-002", lines: [{ text: "x", privilege: "admin" }], recheck: ["firewall"], previous: null })), recheck: ["firewall"] })),
+        applyBatch: vi.fn(async () => outcome),
+      }),
+    });
+    const h = renderGuided({ adapters, licensed: true, settings: { watch: { ...DEFAULT_SETTINGS.watch, enabled: watch } } });
+    await toFirstStep(h);
+    expect(stepId(h)).toBe("batch");
+    await act(async () => {
+      h.hook.result.current.guided.primary();
+    });
+    await waitFor(() => expect(stepState(h)?.kind).toBe("done"));
+    const state = stepState(h);
+    expect(state?.kind === "done" && state.line).toBe("Done. 3 things fixed.");
+    expect(state?.kind === "done" && state.rows.map((r) => r.text)).toEqual([text, text, text]);
   });
 
   it("auto-advances after 1800 ms under reduced motion and pauses while unfocused", async () => {

@@ -1,6 +1,10 @@
 import type { AskInput, ExplainInput, ExplainerContext, PrioritiseInput, Turn } from "../ports/explainer-port";
+import type { WatchContext } from "../ports/watch-port";
+import { WATCH_LIMITS } from "../ports/watch-port";
+import { MACOS_CATALOG } from "../rules/macos/index";
 import { clampHistory, clampQuestion } from "./limits";
-import { ANSWER_JSON_SCHEMA, EXPLANATION_JSON_SCHEMA, PRIORITISATION_JSON_SCHEMA } from "./schemas";
+import { ANSWER_JSON_SCHEMA, EXPLANATION_JSON_SCHEMA, PRIORITISATION_JSON_SCHEMA, WATCH_JSON_SCHEMA } from "./schemas";
+import { buildSystemPrompt } from "./system-prompt";
 
 /**
  * Request bodies for the remote providers (ChatGPT over the Responses API, Claude through
@@ -8,7 +12,7 @@ import { ANSWER_JSON_SCHEMA, EXPLANATION_JSON_SCHEMA, PRIORITISATION_JSON_SCHEMA
  * Dependency-free: the desktop adapters only add the transport.
  */
 
-export type RemoteTask = "explain" | "prioritise" | "ask";
+export type RemoteTask = "explain" | "prioritise" | "ask" | "watch";
 
 export interface RemoteTurn {
   readonly role: "user" | "assistant";
@@ -17,7 +21,7 @@ export interface RemoteTurn {
 
 interface TaskEnvelope {
   readonly task: RemoteTask;
-  readonly context: ExplainerContext;
+  readonly context: ExplainerContext | WatchContext;
   readonly ruleId?: string;
   readonly question?: string;
 }
@@ -45,6 +49,19 @@ export function askTurns(input: AskInput): readonly RemoteTurn[] {
     content: envelope({ task: "ask", context: input.context, question: clampQuestion(input.question) }),
   });
   return turns;
+}
+
+/** One user turn: { task: "watch", context }. The watch context is the only document the model receives. */
+export function watchTurns(context: WatchContext): readonly RemoteTurn[] {
+  return [{ role: "user", content: envelope({ task: "watch", context }) }];
+}
+
+/** The one block the watch task adds to the frozen system prompt. */
+export const WATCH_INSTRUCTIONS_BLOCK = "You rate, and choose probes and actions by id. You cannot run anything. The ids are the only vocabulary.";
+
+/** The frozen system prompt plus the watch block. Rust reads the same text from fixtures/watch-instructions.txt. */
+export function buildWatchInstructions(): string {
+  return `${buildSystemPrompt(MACOS_CATALOG)}\n\n${WATCH_INSTRUCTIONS_BLOCK}`;
 }
 
 /** The whole conversation as one JSON document, written to Claude Code's stdin. */
@@ -91,6 +108,7 @@ const SCHEMAS: Readonly<Record<RemoteTask, Record<string, unknown>>> = {
   explain: EXPLANATION_JSON_SCHEMA,
   prioritise: PRIORITISATION_JSON_SCHEMA,
   ask: ANSWER_JSON_SCHEMA,
+  watch: WATCH_JSON_SCHEMA,
 };
 
 export interface ResponsesRequest {
@@ -98,7 +116,7 @@ export interface ResponsesRequest {
   readonly instructions: string;
   readonly input: readonly RemoteTurn[];
   readonly store: false;
-  readonly stream: true;
+  readonly stream: boolean;
   readonly max_output_tokens: number;
   readonly reasoning?: { readonly effort: "low" };
   readonly text?: {
@@ -111,21 +129,30 @@ export interface ResponsesRequest {
   };
 }
 
-/** The POST body for the Responses API. plainOutput drops reasoning and the schema for accounts that reject them. */
+export interface ResponsesOptions {
+  /** Drops reasoning and the schema for accounts that reject them. */
+  readonly plainOutput?: boolean;
+  /** Default true; the watch task reads one plain reply. */
+  readonly stream?: boolean;
+  /** Default RESPONSES_MAX_OUTPUT_TOKENS. */
+  readonly maxOutputTokens?: number;
+}
+
+/** The POST body for the Responses API. */
 export function responsesRequestBody(
   task: RemoteTask,
   model: string,
   instructions: string,
   turns: readonly RemoteTurn[],
-  options: { readonly plainOutput?: boolean } = {},
+  options: ResponsesOptions = {},
 ): ResponsesRequest {
   const base = {
     model,
     instructions,
     input: turns,
     store: false as const,
-    stream: true as const,
-    max_output_tokens: RESPONSES_MAX_OUTPUT_TOKENS,
+    stream: options.stream ?? true,
+    max_output_tokens: options.maxOutputTokens ?? RESPONSES_MAX_OUTPUT_TOKENS,
   };
   if (options.plainOutput === true) return base;
   return {
@@ -133,6 +160,11 @@ export function responsesRequestBody(
     reasoning: { effort: "low" },
     text: { format: { type: "json_schema", name: task, schema: strictSchema(SCHEMAS[task]), strict: true } },
   };
+}
+
+/** The non-streaming watch request Rust sends from ai/chatgpt_watch.rs; the fixture pins both bodies. */
+export function watchRequestBody(model: string, instructions: string, context: WatchContext): ResponsesRequest {
+  return responsesRequestBody("watch", model, instructions, watchTurns(context), { stream: false, maxOutputTokens: WATCH_LIMITS.maxOutputTokens });
 }
 
 export const CHATGPT_MODEL_PATTERN = /^[a-z0-9][a-z0-9.-]{0,63}$/;

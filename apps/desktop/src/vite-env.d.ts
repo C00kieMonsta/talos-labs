@@ -23,8 +23,25 @@ interface TalosDemoCall {
     | "aiCancel"
     | "aiConnectStart"
     | "aiConnectCancel"
-    | "aiDisconnect";
-  readonly arg?: string | readonly string[];
+    | "aiDisconnect"
+    | "watch_check_now"
+    | "watch_pause"
+    | "watch_acknowledge"
+    | "watch_answer_gate"
+    | "watch_snooze"
+    | "watch_set_enabled"
+    | "watch_set_interval"
+    | "watch_set_notify"
+    | "watch_set_profile"
+    | "watch_request_notify_permission"
+    | "watch_action_preview"
+    | "watch_action_apply"
+    | "watch_open_source"
+    | "autostart_enable"
+    | "autostart_disable"
+    | "watch:notified";
+  /** A rule, signal, action or watch.* id, a boolean or a number; never a URL, a path or profile text. */
+  readonly arg?: string | number | boolean | readonly string[];
   readonly prompt?: string;
 }
 

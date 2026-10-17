@@ -1,0 +1,137 @@
+/* The 320 px watch window (docs/DESIGN-WATCH.md section 5). Owned by WATCH-WINDOW-UI; classes .watch and .watch-* only. */
+
+/* Paper with a 1 px border drawn inside, square corners, no grain, no gradient, no hero. 16 px padding, 8 px between rows so the act state fits the 360 px window. */
+.watch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: var(--space-2);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--border);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.watch p {
+  margin: 0;
+}
+
+/* Row 1: the 20 px icon and the word, together. */
+.watch-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font: var(--text-guided-list);
+  font-weight: 600;
+}
+
+.watch-status-act {
+  color: var(--sev-critical-fg);
+}
+
+/* Row 2: the time, the static spinner while checking, and the "I couldn't check" count. */
+.watch-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-0) var(--space-1);
+  color: var(--fg-secondary);
+  font: var(--text-guided-meta);
+}
+
+.watch-meta-checking {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0);
+}
+
+.watch-meta-unavailable {
+  cursor: help;
+}
+
+/* Row 3: the top item. */
+.watch-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0);
+}
+
+.watch-item-headline {
+  font: var(--text-guided-list);
+}
+
+.watch-item-why,
+.watch-item-more,
+.watch-item-evidence {
+  font: var(--text-guided-meta);
+  font-weight: 400;
+}
+
+.watch-item-source {
+  color: var(--fg-secondary);
+  font: var(--text-guided-meta);
+}
+
+/* Row 4: the one 44 px primary, on the accent gradient. */
+.watch-primary {
+  width: 100%;
+  min-height: var(--control-guided);
+  padding: 10px 18px;
+  font: var(--text-guided-button);
+  line-height: 1.2;
+}
+
+.watch-primary:focus-visible {
+  box-shadow: none;
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+/* First run: one sentence and the one link. */
+.watch-first-run {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.watch-first-run-text {
+  font: var(--text-guided-list);
+}
+
+/* Text links: the footer pair and the first-run link. A status surface, so two are allowed. */
+.watch-link {
+  min-height: 32px;
+  margin: 0;
+  padding: var(--space-1) 0;
+  border: 0;
+  background: none;
+  color: var(--fg-secondary);
+  font: var(--text-guided-meta);
+  text-align: left;
+  cursor: pointer;
+}
+
+.watch-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.watch-link:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
+}
+
+/* Row 5: the footer sits at the bottom whatever the content height. */
+.watch-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: auto;
+}
+
+.watch-footer .watch-link:last-child {
+  text-align: right;
+}

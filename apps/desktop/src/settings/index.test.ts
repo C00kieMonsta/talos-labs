@@ -6,11 +6,13 @@ import {
   MAX_MODEL_ID_LENGTH,
   PROVIDERS,
   SETTINGS_STORAGE_KEY,
+  WATCH_INTERVALS,
   aiUsable,
   isDeveloperProvider,
   loadSettings,
   parseSettings,
   pickModelId,
+  pickNumber,
   saveSettings,
   type AppSettings,
 } from "./index";
@@ -27,7 +29,9 @@ describe("settings defaults", () => {
       onboarded: false,
       developer: { enabled: false, showCommands: true, showPlanExpanded: true },
       guided: { home: true, autoScan: true },
+      watch: { enabled: true, startAtLogin: false, everyMinutes: 60, notify: true },
     });
+    expect(WATCH_INTERVALS).toEqual([15, 60, 240]);
   });
 
   it("loads the defaults when nothing is stored", () => {
@@ -51,15 +55,16 @@ describe("settings round trip", () => {
       onboarded: true,
       developer: { enabled: true, showCommands: false, showPlanExpanded: false },
       guided: { home: false, autoScan: false },
+      watch: { enabled: false, startAtLogin: true, everyMinutes: 15, notify: false },
     };
     saveSettings(next);
     expect(loadSettings()).toEqual(next);
   });
 
-  it("stores only the five top-level keys as JSON", () => {
+  it("stores only the six top-level keys as JSON", () => {
     saveSettings(DEFAULT_SETTINGS);
     const raw = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) ?? "null") as Record<string, unknown>;
-    expect(Object.keys(raw).sort()).toEqual(["developer", "explainer", "guided", "onboarded", "profile"]);
+    expect(Object.keys(raw).sort()).toEqual(["developer", "explainer", "guided", "onboarded", "profile", "watch"]);
     expect(JSON.stringify(raw)).not.toContain("apiKey");
   });
 });
@@ -124,7 +129,24 @@ describe("tolerant parsing", () => {
       onboarded: true,
       developer: { enabled: true, showCommands: false, showPlanExpanded: true },
       guided: { home: true, autoScan: true },
+      watch: { enabled: true, startAtLogin: false, everyMinutes: 60, notify: true },
     });
+  });
+
+  it("fills the watch block for a v0.3 value and repairs it field by field", () => {
+    expect(parseSettings({ onboarded: true }).watch).toEqual({ enabled: true, startAtLogin: false, everyMinutes: 60, notify: true });
+    expect(parseSettings({ watch: { enabled: false, everyMinutes: 15 } }).watch).toEqual({ enabled: false, startAtLogin: false, everyMinutes: 15, notify: true });
+    expect(parseSettings({ watch: { everyMinutes: 30, notify: "no", startAtLogin: true } }).watch).toEqual({ enabled: true, startAtLogin: true, everyMinutes: 60, notify: true });
+    expect(parseSettings({ watch: { everyMinutes: "60" } }).watch.everyMinutes).toBe(60);
+    expect(parseSettings({ watch: { everyMinutes: 240 } }).watch.everyMinutes).toBe(240);
+    expect(parseSettings({ watch: "on" }).watch).toEqual(DEFAULT_SETTINGS.watch);
+  });
+
+  it("pickNumber keeps only a number from the list", () => {
+    expect(pickNumber(15, WATCH_INTERVALS, 60)).toBe(15);
+    expect(pickNumber(16, WATCH_INTERVALS, 60)).toBe(60);
+    expect(pickNumber("15", WATCH_INTERVALS, 60)).toBe(60);
+    expect(pickNumber(null, [1, 2], 2)).toBe(2);
   });
 
   it("fills the guided block for a v0.2 value and repairs it field by field", () => {
