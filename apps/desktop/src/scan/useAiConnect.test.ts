@@ -530,6 +530,24 @@ describe("useAiConnect sign-in", () => {
     expect(running.result.current.connect.stage).toEqual({ kind: "done", provider: "apple" });
   });
 
+  it("a finished Connect or On this Mac turns the AI switch on, so Claude never reads as connected with every surface hidden", async () => {
+    const h = harness(GUIDED, { availability: null, aiEnabled: false });
+    h.port.polls = [{ stage: "done" }];
+    expect(h.result.current.settings.explainer.aiEnabled).toBe(false);
+    act(() => h.result.current.connect.open({ name: "settings" }));
+    act(() => h.result.current.connect.start("claude_plan"));
+    await tick(0);
+    expect(h.result.current.connect.stage).toEqual({ kind: "done", provider: "claude_plan" });
+    expect(h.result.current.settings.explainer.provider).toBe("claude_plan");
+    expect(h.result.current.settings.explainer.aiEnabled).toBe(true);
+
+    const mac = harness(GUIDED, { availability: null, aiEnabled: false });
+    act(() => mac.result.current.connect.open({ name: "settings" }));
+    act(() => mac.result.current.connect.useThisMac());
+    expect(mac.result.current.connect.stage).toEqual({ kind: "done", provider: "apple" });
+    expect(mac.result.current.settings.explainer.aiEnabled).toBe(true);
+  });
+
   it("signInAgain opens the connect route, keeps the explain target and starts the current provider", async () => {
     const h = harness({ name: "overview" }, { availability: "needs_sign_in", provider: "claude_plan" });
     h.port.polls = [{ stage: "signing_in" }];

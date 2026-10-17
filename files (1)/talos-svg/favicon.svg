@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Talos Labs">
-  <circle cx="16.0" cy="16.0" r="5" fill="none" stroke="#1C1A17" stroke-width="1.6" opacity="1.00"/>
-  <circle cx="16.0" cy="16.0" r="9" fill="none" stroke="#1C1A17" stroke-width="1.6" opacity="0.82"/>
-  <circle cx="16.0" cy="16.0" r="13" fill="none" stroke="#1C1A17" stroke-width="1.6" opacity="0.64"/>
-  <path d="M8.206 11.500A9 9 0 0 1 19.078 7.543" fill="none" stroke="#A7743F" stroke-width="3.04" stroke-linecap="round"/>
-  <circle cx="16.0" cy="16.0" r="2.72" fill="#A7743F"/>
-</svg>

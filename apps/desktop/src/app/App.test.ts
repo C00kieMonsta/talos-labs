@@ -4,7 +4,8 @@ import { createElement } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { DEV_MACHINE, MACOS_CATALOG, evaluate } from "@talos/core";
 import type { LicenseState, WatchItem, WatchOpenScreen, WatchState } from "@talos/core";
-import { fakeAdapters, fakeWatchPort, fakeWatchState } from "./testing";
+import type { FixingPhase, ScanState } from "../scan/machine";
+import { fakeAdapters, fakePlan, fakeWatchPort, fakeWatchState } from "./testing";
 import { FISHY, WATCH_SETTINGS } from "../guided/copy";
 import { resetLaunchGuard } from "../guided/timing";
 
@@ -411,5 +412,20 @@ describe("App", () => {
     expect(screen.getByRole("heading", { level: 2, name: WATCH_SETTINGS.title })).toBeTruthy();
     expect(document.getElementById("watch-heading")).toBeTruthy();
     await waitFor(() => expect(scroll).toHaveBeenCalled());
+  });
+});
+
+describe("fixInFlight", () => {
+  const ready = (over: Partial<Extract<ScanState, { kind: "ready" }>> = {}): ScanState => ({ kind: "ready", report, state: DEV_MACHINE, explain: { kind: "off" }, lastRecheck: null, fixing: null, watching: null, ...over });
+  const fixing = (phase: FixingPhase): Extract<ScanState, { kind: "ready" }>["fixing"] => ({ kind: "single", plan: fakePlan({ ruleId: "TL-MAC-002" }), phase, step: 0, of: 0, error: null, result: null });
+
+  it("is true while a fix waits for the password, runs or rechecks, while a watcher waits, and during a recheck; false otherwise", async () => {
+    const { fixInFlight } = await import("../App");
+    expect(fixInFlight({ kind: "idle", last: null })).toBe(false);
+    expect(fixInFlight(ready())).toBe(false);
+    for (const phase of ["confirm", "waiting_for_password", "running", "rechecking"] as const) expect(fixInFlight(ready({ fixing: fixing(phase) })), phase).toBe(true);
+    for (const phase of ["done", "failed"] as const) expect(fixInFlight(ready({ fixing: fixing(phase) })), phase).toBe(false);
+    expect(fixInFlight(ready({ watching: { ruleId: "TL-MAC-026", since: "2026-10-17T12:00:00.000Z", stale: false } as never }))).toBe(true);
+    expect(fixInFlight({ kind: "rechecking", report, state: DEV_MACHINE, key: "security", explain: { kind: "off" }, watching: null } as never)).toBe(true);
   });
 });

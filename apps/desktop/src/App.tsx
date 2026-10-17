@@ -33,6 +33,7 @@ import { useWatch } from "./watch/useWatch";
 import { WatchControllerContext } from "./watch/watch-controller";
 import { SCANNING_TITLE } from "./guided/copy";
 import { lastReport } from "./scan/machine";
+import type { ScanState } from "./scan/machine";
 import { aiUsable as computeAiUsable } from "./settings";
 import type { AppSettings, WatchSettings } from "./settings";
 import { Brand } from "./components/Brand";
@@ -63,6 +64,14 @@ const NAV_ROUTES: Readonly<Record<SidebarKey, Route>> = {
 /** True inside the Tauri webview; the browser demo and jsdom have no window API. */
 function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+/** A fix, a batch, a recheck or a watcher is in flight: the launch scan must not interrupt it (DESIGN-V03 section 4). */
+export function fixInFlight(state: ScanState): boolean {
+  if (state.kind === "rechecking") return true;
+  if (state.kind !== "ready") return false;
+  if (state.watching !== null) return true;
+  return state.fixing !== null && state.fixing.phase !== "done" && state.fixing.phase !== "failed";
 }
 
 /** The demo's ?ransomNote=1 ticks the fishy flow's checkbox; a build-time choice, never read in the real app. */
@@ -196,13 +205,17 @@ export default function App() {
   const { loadLast, start } = scan;
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const scanStateRef = useRef(scan.scan);
+  scanStateRef.current = scan.scan;
   // The report loadLast found, kept for the guide's "since last time" diff; the launch scan drops it from the machine.
   const loadedReport = useRef<ScanReport | null>(null);
 
-  // "Check my Mac when I open Talos Labs": once per launch and once per showing of a hidden window, never twice within 60 s.
+  // "Check my Mac when I open Talos Labs": once per launch and once per showing of a hidden window, never twice within 60 s,
+  // and never while a fix, a batch, a recheck or a watcher is in flight (DESIGN-V03 section 4).
   const launchScan = useCallback(() => {
     const current = settingsRef.current;
     if (!current.onboarded || !current.guided.autoScan || !current.guided.home) return;
+    if (fixInFlight(scanStateRef.current)) return;
     if (!claimLaunchScan()) return;
     void start();
   }, [start]);

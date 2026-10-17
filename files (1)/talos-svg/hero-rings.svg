@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 720" width="720" height="720" role="img" aria-label="Talos Labs scan illustration">
-  <defs>
-    <linearGradient id="tail" gradientUnits="userSpaceOnUse" x1="273.8" y1="596.8" x2="234.0" y2="141.8">
-      <stop offset="0" stop-color="#A7743F" stop-opacity="0"/><stop offset="1" stop-color="#A7743F" stop-opacity="0.9"/>
-    </linearGradient>
-  </defs>
-  
-<circle cx="360" cy="360" r="60" fill="none" stroke="#1C1A17" stroke-width="1" opacity="0.85"/>  <circle cx="360" cy="360" r="108" fill="none" stroke="#1C1A17" stroke-width="1" opacity="0.75"/>  <circle cx="360" cy="360" r="156" fill="none" stroke="#1C1A17" stroke-width="1" opacity="0.65"/>  <circle cx="360" cy="360" r="204" fill="none" stroke="#1C1A17" stroke-width="1" opacity="0.55"/>  <circle cx="360" cy="360" r="252" fill="none" stroke="#1C1A17" stroke-width="1" opacity="0.45"/>  <circle cx="360" cy="360" r="300" fill="none" stroke="#1C1A17" stroke-width="1" opacity="0.35"/>  <circle cx="360" cy="360" r="348" fill="none" stroke="#1C1A17" stroke-width="1" opacity="0.25"/>  <path d="M273.811 596.803A252 252 0 0 1 234.000 141.762" fill="none" stroke="url(#tail)" stroke-width="4" stroke-linecap="round"/>  <path d="M141.762 234.000A252 252 0 0 1 241.693 137.497" fill="none" stroke="#A7743F" stroke-width="4" stroke-linecap="round"/>  <circle cx="360" cy="360" r="5" fill="#A7743F"/>  <circle cx="360" cy="360" r="14" fill="none" stroke="#A7743F" stroke-width="1" opacity="0.5"/>  <line x1="360.0" y1="20.0" x2="360.0" y2="4.0" stroke="#1C1A17" stroke-width="1" opacity="0.6"/>  <line x1="700.0" y1="360.0" x2="716.0" y2="360.0" stroke="#1C1A17" stroke-width="1" opacity="0.6"/>  <line x1="360.0" y1="700.0" x2="360.0" y2="716.0" stroke="#1C1A17" stroke-width="1" opacity="0.6"/>  <line x1="20.0" y1="360.0" x2="4.0" y2="360.0" stroke="#1C1A17" stroke-width="1" opacity="0.6"/>
-</svg>

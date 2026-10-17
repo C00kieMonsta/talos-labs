@@ -1,5 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <circle cx="32" cy="32" r="30" fill="#A7743F" fill-opacity="0.08"/>
-  <circle cx="32" cy="32" r="30" fill="none" stroke="#A7743F" stroke-opacity="0.25"/>
-  <g fill="none" stroke="#1C1A17" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" transform="translate(20 20)"><rect x="4.5" y="5.5" width="15" height="10" rx="1.5"/><path d="M2.5 18.5h19"/><circle cx="12" cy="10.5" r="1" fill="currentColor" stroke="none"/></g>
-</svg>

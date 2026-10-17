@@ -92,13 +92,14 @@ export function useAiConnect(deps: AiConnectDeps): AiConnectController {
     if (router.route.name === "connect") router.back();
   }, []);
 
-  /** Writes the provider, clears the one it replaces and shows the done tick; the effect below returns. */
+  /** Writes the provider and turns the switch on, clears the one it replaces and shows the done tick; the effect below returns. */
   const finishDone = useCallback((provider: ConnectProvider | "apple") => {
     const { port, settings, updateSettings } = depsRef.current;
     const previous = settings.explainer.provider;
     // Switching replaces: the old provider's stored sign-in goes with it.
     if (isConnectProvider(previous) && previous !== provider) void port.disconnect(previous).catch(() => undefined);
-    updateSettings({ explainer: { ...settings.explainer, provider } });
+    // Connecting is the person's request to use an AI: a switch left off would leave Claude connected but every surface hidden.
+    updateSettings({ explainer: { ...settings.explainer, provider, aiEnabled: true } });
     pendingProbe.current = provider;
     setStage({ kind: "done", provider });
   }, []);

@@ -1073,8 +1073,18 @@ mod tests {
     #[test]
     fn a_not_now_snoozes_every_act_now_item_and_only_the_pressed_one_otherwise() {
         let items = vec![
-            item(SignalId::PersistenceNew, FishyKind::Persistence, false, false),
-            item(SignalId::ListenerNewPorts, FishyKind::Listener, false, false),
+            item(
+                SignalId::PersistenceNew,
+                FishyKind::Persistence,
+                false,
+                false,
+            ),
+            item(
+                SignalId::ListenerNewPorts,
+                FishyKind::Listener,
+                false,
+                false,
+            ),
             item(SignalId::RemoteAccessOn, FishyKind::Remote, true, false),
             item(SignalId::Firewall, FishyKind::Guard, false, true),
         ];

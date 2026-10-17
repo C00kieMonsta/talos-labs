@@ -22,6 +22,12 @@ Every request from the owner, in the order it was made, with its state. Updated 
 | 16 | 2026-10-17 | In general the AI magic is missing | in progress: #10, #12, #13 and #15 are the pieces; build starts when the gate workflow has stopped editing the tree | this ledger |
 | 17 | 2026-10-17 | Keep track of every task; nothing left undone | done, this file | docs/TASKS.md |
 | 18 | 2026-10-17 | Import any UI element worth reusing from the Mineral kit | done: the prototype was already ported class for class (docs/DESIGN-MINERAL.md section 1); added the site hero's rings as `Hero kind="rings"` (available, not mounted) and the editable DMG and app-icon sources | apps/desktop/src/components/Hero.tsx, apps/desktop/brand/mineral/README.md |
+| 19 | 2026-10-17 | The top bar app is not showing any more | explained: the watch is licence-only since #14 and this Mac had no key pasted; a key was issued for the owner (session talos-labs-95, /tmp/talos-owner-licence.txt), and the one from #14 works too | watch-settings.json `licensed`, tray.rs `set_state` |
+| 20 | 2026-10-17 | A better chat interface, like a modern agent-driven app | in progress: design workflow (session talos-labs-95); build next, with #12 | docs/DESIGN-CHAT-UI.md with docs/DESIGN-CHAT.md |
+| 21 | 2026-10-17 | More playful interactions | in progress: design workflow (talos-labs-95) | docs/DESIGN-PLAYFUL.md |
+| 22 | 2026-10-17 | More threat-detection strategies | in progress: design workflow (talos-labs-95) | docs/DESIGN-THREATS-V2.md |
+| 23 | 2026-10-17 | More agentic capabilities | in progress: design workflow (talos-labs-95) | docs/DESIGN-AGENT.md |
+| 24 | 2026-10-17 | Interpretation of daily checks | in progress: design workflow (talos-labs-95) | docs/DESIGN-DAILY.md |
 
 ## Standing items the owner must do or decide
 

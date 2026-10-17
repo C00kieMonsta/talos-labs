@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-// Temporary reproduction for the reopen launch check-up finding. Deleted after the run.
+// End-to-end cover for the fixInFlight guard: a main:shown while a fix waits for the password must not start a scan.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { DEV_MACHINE, MACOS_CATALOG, evaluate } from "@talos/core";
-import type { WatchOpenScreen } from "@talos/core";
+import type { FixOutcome, WatchOpenScreen } from "@talos/core";
 import { fakeAdapters, fakeFixPort, fakePlan, fakeWatchPort } from "./testing";
 import { PLAN, STATUS } from "../guided/copy";
 import { resetLaunchGuard } from "../guided/timing";
@@ -22,7 +22,7 @@ const watch = fakeWatchPort({
 // The fix never resolves: the password box is up.
 const adapters = fakeAdapters({
   reports: { saveLast: vi.fn(async () => undefined), loadLast: vi.fn(async () => report) },
-  fixes: fakeFixPort(fakePlan({ ruleId: "TL-MAC-002" }), { apply: vi.fn(() => new Promise(() => undefined)) }),
+  fixes: fakeFixPort(fakePlan({ ruleId: "TL-MAC-002" }), { apply: vi.fn(() => new Promise<FixOutcome>(() => undefined)) }),
   watch,
 });
 
@@ -38,7 +38,7 @@ vi.mock("../settings", async (importOriginal) => {
 
 afterEach(() => cleanup());
 
-describe("reopen launch check-up (temporary reproduction)", () => {
+describe("reopen launch check-up", () => {
   it("does not start a scan on main:shown home while a fix is waiting for the password", async () => {
     window.__talosDemoPace = 0;
     resetLaunchGuard();
