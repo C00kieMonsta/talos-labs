@@ -113,6 +113,21 @@ describe("CoverageScreen", () => {
     expect(document.querySelectorAll("[class*='sev-'], [class*='critical']").length).toBe(0);
   });
 
+  it("screen readers hear a comma between rows: the dot is aria-hidden, the comma is visually hidden", () => {
+    renderCoverage();
+    const paragraphs = Array.from(document.querySelectorAll(".coverage-group > p"));
+    expect(paragraphs.length).toBe(5);
+    for (const p of paragraphs) {
+      const rows = Array.from(p.querySelectorAll(".coverage-row")).map((el) => el.textContent ?? "");
+      const accessible = p.cloneNode(true) as HTMLElement;
+      accessible.querySelectorAll("[aria-hidden='true']").forEach((node) => node.remove());
+      expect(accessible.textContent).toBe(rows.join(", "));
+      expect(p.textContent).toBe(rows.join(",  · "));
+      expect(p.querySelectorAll(".coverage-dot[aria-hidden='true']").length).toBe(rows.length - 1);
+      expect(p.querySelectorAll(".visually-hidden").length).toBe(rows.length - 1);
+    }
+  });
+
   it("a signed build hides the sockets gap and the bracket; Full Disk Access hides the browsers gap and adds the browser add-ons row", () => {
     renderCoverage({ watch: { state: fakeWatchState({ unavailable: [] }) }, capabilities: { fullDiskAccess: true, automation: "granted", bundled: true } });
     expect(document.querySelectorAll("p.coverage-gap").length).toBe(3);

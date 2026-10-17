@@ -36,7 +36,12 @@ pub fn collect_one(key: SectionKey, shared: &Shared) -> AnySection {
         SectionKey::DiskEncryption => AnySection::DiskEncryption(disk_encryption::collect(cancel)),
         SectionKey::Firewall => AnySection::Firewall(firewall::collect(cancel)),
         SectionKey::PlatformIntegrity => {
-            AnySection::PlatformIntegrity(platform_integrity::collect(cancel))
+            let scope = if shared.full {
+                platform_integrity::Scope::FullCheck
+            } else {
+                platform_integrity::Scope::Recheck
+            };
+            AnySection::PlatformIntegrity(platform_integrity::collect(cancel, scope))
         }
         SectionKey::MalwareProtection => {
             AnySection::MalwareProtection(malware_protection::collect(cancel))

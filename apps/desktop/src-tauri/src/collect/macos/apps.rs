@@ -35,20 +35,22 @@ pub struct BundleEntry {
     pub mtime: i64,
 }
 
-/// A bundle is a codesign candidate only when it is absolute, canonicalises to itself, is a
-/// directory named `*.app` directly under `/Applications` or `~/Applications`, is not under a
-/// prompting folder or a mount root, and sits on a local filesystem. A symlink (Safari's), a
-/// file, a path under `~/Downloads` or a nested bundle is refused.
+/// A bundle is a codesign candidate only when it is absolute, is a directory (not a symlink)
+/// named `*.app` directly under `/Applications` or `~/Applications`, canonicalises to itself,
+/// is not under a prompting folder or a mount root, and sits on a local filesystem. A symlink
+/// (Safari's), a file, a path under `~/Downloads` or a nested bundle is refused. The `lstat`
+/// comes first so a link into `/Volumes` or `/Network` is refused before anything walks its
+/// target.
 pub fn bundle_candidate(path: &Path, home: &Path) -> Option<PathBuf> {
     if !path.is_absolute() {
         return None;
     }
-    let canonical = path.canonicalize().ok()?;
-    if canonical != path {
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    if meta.file_type().is_symlink() || !meta.is_dir() {
         return None;
     }
-    let meta = std::fs::symlink_metadata(path).ok()?;
-    if !meta.is_dir() {
+    let canonical = path.canonicalize().ok()?;
+    if canonical != path {
         return None;
     }
     let name = path.file_name()?.to_str()?;
@@ -80,7 +82,16 @@ fn entries_of(dir: &Path, label: &str) -> Result<Vec<PathBuf>, Fail> {
     }
 }
 
+/// True when the folder itself is a symlink, so a user Applications folder linked into
+/// `~/Documents`, iCloud Drive or a mounted volume is never listed from the background.
+fn folder_is_link(dir: &Path) -> bool {
+    std::fs::symlink_metadata(dir)
+        .map(|meta| meta.file_type().is_symlink())
+        .unwrap_or(false)
+}
+
 /// Every bundle directly under the two folders, sorted by name; a missing folder is empty.
+/// Each folder is `lstat`ed first and skipped when it is a link, before any listing.
 pub fn list_bundles(home: &Path) -> Result<Vec<BundleEntry>, Fail> {
     use std::os::unix::fs::MetadataExt;
     let mut out = Vec::new();
@@ -89,6 +100,9 @@ pub fn list_bundles(home: &Path) -> Result<Vec<BundleEntry>, Fail> {
         (home.join(USER_APPLICATIONS), "user Applications"),
     ];
     for (dir, label) in folders {
+        if folder_is_link(&dir) {
+            continue;
+        }
         for path in entries_of(&dir, label)? {
             let Some(canonical) = bundle_candidate(&path, home) else {
                 continue;
@@ -538,8 +552,16 @@ mod tests {
         let elsewhere = home.join("Elsewhere/Other.app");
         std::fs::create_dir_all(&elsewhere).unwrap();
 
+        let dangling = apps.join("Dangling.app");
+        symlink(Path::new("/Volumes/talos-no-such-share/Far.app"), &dangling).unwrap();
+
         assert_eq!(bundle_candidate(&good, &home), Some(good.clone()));
         assert_eq!(bundle_candidate(&link, &home), None, "symlink");
+        assert_eq!(
+            bundle_candidate(&dangling, &home),
+            None,
+            "a link out of the folder is refused on its own lstat, before any walk of the target"
+        );
         assert_eq!(bundle_candidate(&file, &home), None, "a file");
         assert_eq!(bundle_candidate(&plain, &home), None, "not .app");
         assert_eq!(bundle_candidate(&nested, &home), None, "nested bundle");
@@ -588,8 +610,28 @@ mod tests {
                 .all(|b| b.path.starts_with("/Applications")),
             "a missing ~/Applications is empty"
         );
+
+        // ~/Applications as a link into ~/Documents: the folder is lstat'ed and skipped, so
+        // the unreadable target (mode 000 would turn a read_dir into an error) is never listed.
+        use std::os::unix::fs::PermissionsExt;
+        let linked_home = tmp("binder-linked");
+        let target = linked_home.join("Documents/Apps");
+        std::fs::create_dir_all(target.join("Linked.app/Contents/MacOS")).unwrap();
+        symlink(&target, linked_home.join("Applications")).unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let through_link = list_bundles(&linked_home)
+            .expect("a linked ~/Applications is skipped, not listed through the link");
+        assert!(
+            through_link
+                .iter()
+                .all(|b| !b.path.starts_with(&linked_home)),
+            "nothing under the link target is listed"
+        );
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+
         let _ = std::fs::remove_dir_all(&home);
         let _ = std::fs::remove_dir_all(&no_user_apps);
+        let _ = std::fs::remove_dir_all(&linked_home);
     }
 
     #[test]

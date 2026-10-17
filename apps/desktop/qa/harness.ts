@@ -140,6 +140,8 @@ export interface Shot {
   readonly volatile?: boolean;
   /** A fixed window size instead of the two app sizes: the 320 px watch window. */
   readonly size?: { readonly width: number; readonly height: number };
+  /** The colour schemes to capture; both when absent (the wide-window check runs light only). */
+  readonly schemes?: readonly Scheme[];
 }
 
 /** Called once per screen. `reach` performs the steps that lead to it and may be called again when the shot is volatile. */
@@ -756,7 +758,7 @@ export async function walkGuided(page: Page, baseUrl: string, visit: Visit): Pro
   });
   await visit({ name: "guided-batch-confirm" }, async () => {
     await goto(`${DEV_LICENSED}&fix_delay=0`);
-    await guidedTitle(page, "I found 7 things to fix.");
+    await guidedTitle(page, "I found 8 things to fix.");
     await primary(page, "Let's go");
     await guidedTitle(page, "I can fix 3 things for you now.");
     await assertGuidedScreen(page);
@@ -907,7 +909,7 @@ export async function walkGuided(page: Page, baseUrl: string, visit: Visit): Pro
     await primary(page, "Let's go");
     for (let i = 0; i < 3; i += 1) await link(page, "Do this later");
     await link(page, "Not now");
-    await guidedTitle(page, "There are 4 more things to fix.");
+    await guidedTitle(page, "There are 5 more things to fix.");
     await assertGuidedScreen(page);
     await totalNeverDrops();
   });
@@ -916,7 +918,7 @@ export async function walkGuided(page: Page, baseUrl: string, visit: Visit): Pro
     await primary(page, "Let's go");
     for (let i = 0; i < 3; i += 1) await link(page, "Do this later");
     await link(page, "Not now");
-    await guidedTitle(page, "There are 4 more things to fix.");
+    await guidedTitle(page, "There are 5 more things to fix.");
     await page.getByPlaceholder("Paste your licence key").fill(GUIDED_KEY);
     await page.locator(".licence-valid").waitFor({ timeout: STEP_TIMEOUT });
     await assertNoUrlRecorded(page);
@@ -1282,7 +1284,7 @@ export async function walkAi(page: Page, baseUrl: string, visit: Visit): Promise
     await primary(page, "Let's go");
     for (let i = 0; i < 3; i += 1) await link(page, "Do this later");
     await link(page, "Not now");
-    await guidedTitle(page, "There are 4 more things to fix.");
+    await guidedTitle(page, "There are 5 more things to fix.");
     await page.getByText(PAYWALL_BODY, { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
     if ((await primaryLabel()) !== "Buy the full version, €24 a year") throw new Error(`the buy button reads "${await primaryLabel()}"`);
     if ((await page.getByText("One payment, yours to keep.").count()) !== 0) throw new Error("the one-payment sentence is gone under the yearly price");
@@ -1294,7 +1296,7 @@ export async function walkAi(page: Page, baseUrl: string, visit: Visit): Promise
     await primary(page, "Let's go");
     for (let i = 0; i < 3; i += 1) await link(page, "Do this later");
     await link(page, "Not now");
-    await guidedTitle(page, "There are 4 more things to fix.");
+    await guidedTitle(page, "There are 5 more things to fix.");
     await page.getByText(PAYWALL_BODY, { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
     const body = (await page.locator(".guided-body").textContent()) ?? "";
     if (/\bAI\b|ChatGPT|Claude|explain/i.test(body)) throw new Error(`the paywall body mentions the AI: ${body}`);
@@ -2734,11 +2736,72 @@ export async function walkChat(page: Page, baseUrl: string, visit: Visit): Promi
     await assertChatScreen(page, { calls: 1 });
   });
   await visit({ name: "chat-model-cards" }, async () => {
+    // The demo streams one word every 40 ms: the block must grow through at least five lengths, the badge there from the first sample.
     await opening(`${C}&chat_reply=disk`);
     await sendText(page, "Why does the disk matter?");
+    await page.locator(".guided-model .caret").waitFor({ timeout: STEP_TIMEOUT });
+    // Inline arrows only: tsx names a const function and the page has no __name helper.
+    const stream = await page.evaluate(
+      (limit) =>
+        new Promise<{ lengths: number[]; badges: number }>((done) => {
+          const lengths: number[] = [];
+          let badges = 0;
+          const started = Date.now();
+          const timer = setInterval(() => {
+            const blocks = document.querySelectorAll(".guided-model");
+            const block = blocks[blocks.length - 1];
+            if (block === undefined) return;
+            lengths.push(block.querySelector(".model-text")?.textContent?.length ?? 0);
+            if (block.querySelector(".chat-badge") !== null) badges += 1;
+            if (block.querySelector(".caret") === null || Date.now() - started > limit) {
+              clearInterval(timer);
+              done({ lengths, badges });
+            }
+          }, 30);
+        }),
+      STEP_TIMEOUT,
+    );
+    const distinct = new Set(stream.lengths).size;
+    if (distinct < 5) throw new Error(`the reply streamed through ${distinct} distinct lengths, expected at least five`);
+    if (stream.badges !== stream.lengths.length) throw new Error("the badge was missing on a sample while the reply streamed");
     await modelReady(page);
     await page.locator(".guided-model + .chat-card, .guided-model ~ .chat-card").first().waitFor({ timeout: STEP_TIMEOUT });
+    // The disk reply is two paragraphs; each is its own p of text nodes.
+    if ((await page.locator(".guided-model .model-text p").count()) !== 2) throw new Error("the two-paragraph reply did not render as two paragraphs");
     await assertChatScreen(page, { calls: 1 });
+  });
+  await visit({ name: "chat-greeting" }, async () => {
+    // "hi": two paragraphs in the model's own voice, no card, no row, no notice, one call.
+    await opening(`${C}&chat_reply=greeting`);
+    // The free opening ends with its "more in the full version" line; the greeting must add no notice to it.
+    const notices = await page.locator(".chat-notice").count();
+    await sendText(page, "hi");
+    await modelReady(page);
+    if ((await page.locator(".guided-model .model-text p").count()) !== 2) throw new Error("the greeting did not render as two paragraphs");
+    if ((await page.locator(".chat-card").count()) !== 1) throw new Error("a card landed on a greeting");
+    if ((await page.locator(".chat-row").count()) !== 0) throw new Error("a row landed on a greeting");
+    if ((await page.locator(".chat-notice").count()) !== notices) throw new Error("a notice landed on a greeting");
+    await assertChatScreen(page, { calls: 1 });
+  });
+  await visit({ name: "chat-dropped-reply" }, async () => {
+    // A reply the validator dropped: the authored line, no block, no badge, no card, Send again on the person's turn.
+    await opening(`${C}&chat_fail=rejected_output`);
+    await sendText(page, "hi");
+    await page.locator(".chat").getByText(CHAT_COULD_NOT_USE, { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator(".guided-model").count()) !== 0) throw new Error("a dropped reply left a model block");
+    if ((await page.locator(".chat-badge").count()) !== 0) throw new Error("a dropped reply left a badge");
+    if ((await page.locator(".chat-card").count()) !== 1) throw new Error("a card landed under a dropped reply");
+    await page.locator(".chat-person-turn button.chat-chip").filter({ hasText: /^Send again$/ }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { calls: 1 });
+  });
+  await visit({ name: "chat-comma" }, async () => {
+    // A lone comma is not a turn: Send stays disabled and Enter sends nothing.
+    await opening(C);
+    await composer(page).fill(",");
+    if (!(await page.locator(".chat-composer button[aria-label='Send']").isDisabled())) throw new Error("Send is enabled for a lone comma");
+    await composer(page).press("Enter");
+    if ((await page.locator(".chat-person").count()) !== 0) throw new Error("a lone comma was sent as a turn");
+    await assertChatScreen(page, { calls: 0 });
   });
   for (const [name, reply, line] of [
     ["chat-outside", "outside", CHAT_OUTSIDE],
@@ -2811,12 +2874,14 @@ export async function walkChat(page: Page, baseUrl: string, visit: Visit): Promi
     // The list is rows; the opening's live card stays idle above them.
     await assertChatScreen(page, { calls: 0 });
   });
-  await visit({ name: "chat-apple-derived-cards" }, async () => {
+  await visit({ name: "chat-apple-derived-row" }, async () => {
+    // On this Mac answers in the ask shape: relatedRuleIds draw a "Details:" row under the block, never a live card (seamless chat pass).
     const apple = encodeURIComponent(JSON.stringify({ version: 1, aiLastAvailable: { provider: "apple", at: new Date().toISOString() } }));
-    await opening(`reset=1&fixture=dev-machine&onboarded=1&delay=0&provider=apple&ai=available&chat_reply=disk&memory=${apple}`);
-    await sendText(page, "Why does the disk matter?");
+    await opening(`reset=1&fixture=dev-machine&onboarded=1&delay=0&provider=apple&ai=available&chat_reply=cannot&memory=${apple}`);
+    await sendText(page, "Why can't you fix that one?");
     await modelReady(page, APPLE_BADGE);
-    await page.locator(".guided-model ~ .chat-card").first().waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".guided-model ~ .chat-row").filter({ hasText: /^Details: / }).first().waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator(".chat-card").count()) !== 1) throw new Error("the on-device reply landed a live card from relatedRuleIds");
     await assertChatScreen(page, { calls: 1 });
   });
   await visit({ name: "chat-composer-near-limit" }, async () => {
@@ -2987,7 +3052,7 @@ export async function walkChat(page: Page, baseUrl: string, visit: Visit): Promi
     await opening(C_LICENSED);
     await sendText(page, "watch closer for an hour");
     await page.locator(".chat-notice").filter({ hasText: "I can't change how often I check from here yet. You can set it in Settings." }).waitFor({ timeout: STEP_TIMEOUT });
-    await page.locator(".chat-notice .guided-link").filter({ hasText: /^Open Settings$/ }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".chat-notice-block .guided-link").filter({ hasText: /^Open Settings$/ }).waitFor({ timeout: STEP_TIMEOUT });
     await assertChatScreen(page, { calls: 0 });
   });
   await visit({ name: "chat-model-remind" }, async () => {
@@ -3009,4 +3074,27 @@ export async function walkChat(page: Page, baseUrl: string, visit: Visit): Promi
     if ((await page.locator(".chat-notice").count()) !== 0) throw new Error("a notice landed from a dropped investigate intent");
     await assertChatScreen(page, { calls: 1 });
   });
+  /* Seamless chat pass: the column is centred at a wide window and nothing scrolls sideways, on the chat and on the plan screen. */
+  const assertCentred = async (width: number) => {
+    // The spiral's drift ends first, so the band is at rest when the overflow is read.
+    await page.evaluate(() => Promise.all(document.getAnimations().filter((a) => a.effect?.getTiming().iterations !== Infinity).map((a) => a.finished.catch(() => undefined))));
+    await settle(page);
+    const box = await page.locator(".guided").boundingBox();
+    if (box === null) throw new Error("no .guided column");
+    const want = (width - box.width) / 2;
+    if (Math.abs(box.x - want) > 2) throw new Error(`the column's left edge is at ${box.x} px, expected ${want} at ${width} px wide`);
+    const overflow = await page.locator(".content").evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+    if (overflow.scroll > overflow.client + 1) throw new Error(`.content scrolls sideways: ${overflow.scroll} px against ${overflow.client} px`);
+  };
+  await visit({ name: "chat-wide", size: { width: 1512, height: 900 }, schemes: ["light"] }, async () => {
+    await page.setViewportSize({ width: 1512, height: 900 });
+    await opening(C);
+    await assertCentred(1512);
+    await goto(DEV);
+    await guidedTitle(page, "I found 3 things to fix.");
+    await assertCentred(1512);
+    await opening(C);
+    await assertCentred(1512);
+  });
+  await page.setViewportSize(SIZES[0] ?? { width: 1100, height: 760 });
 }

@@ -540,7 +540,9 @@ export default function App() {
       <WatchControllerContext.Provider value={watch}>
       <FishyContext.Provider value={fishy}>
         <GradientDefs />
-        <CoverageRoute />
+        <ScreenErrorBoundary resetKey="coverage" onRescan={() => guided.start()} onSettings={() => router.navigate({ name: "settings" })}>
+          <CoverageRoute />
+        </ScreenErrorBoundary>
       </FishyContext.Provider>
       </WatchControllerContext.Provider>
       </AppContext.Provider>

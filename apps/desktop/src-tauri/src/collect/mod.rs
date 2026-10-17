@@ -93,13 +93,16 @@ pub type ProgressFn = dyn Fn(SectionKey, ProgressStatus) + Send + Sync;
 /// State shared by the section threads of one scan.
 pub struct Shared {
     pub cancel: Arc<AtomicBool>,
+    /// True for the full check-up, false for a single section's "check again".
+    pub full: bool,
     listeners: OnceLock<Section<Listeners>>,
 }
 
 impl Shared {
-    pub fn new(cancel: Arc<AtomicBool>) -> Self {
+    pub fn new(cancel: Arc<AtomicBool>, full: bool) -> Self {
         Shared {
             cancel,
+            full,
             listeners: OnceLock::new(),
         }
     }
@@ -315,7 +318,7 @@ pub fn collect_section(
     key: SectionKey,
     cancel: Arc<AtomicBool>,
 ) -> Result<AnySection, CollectError> {
-    let shared = Shared::new(cancel);
+    let shared = Shared::new(cancel, false);
     let section = guarded(key, || collect_one(key, &shared));
     if shared.cancelled() {
         return Err(CollectError::Cancelled);
@@ -330,7 +333,7 @@ pub fn collect_all(
 ) -> Result<SystemState, CollectError> {
     let collected_at = now_iso();
     let started = Instant::now();
-    let shared = Arc::new(Shared::new(cancel));
+    let shared = Arc::new(Shared::new(cancel, true));
     let (tx, rx) = mpsc::channel::<AnySection>();
 
     let mut pending: Vec<SectionKey> = Vec::new();

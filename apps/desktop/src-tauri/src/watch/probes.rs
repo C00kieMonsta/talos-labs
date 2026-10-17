@@ -701,7 +701,8 @@ pub fn world_writable(mode: u32) -> bool {
 }
 
 /// World-writable entries among the folders and their entries one level down. Rust `readdir`
-/// and `stat`, following symlinks so a link's target decides; a dangling link is skipped.
+/// and `lstat`: a symlink entry is skipped, so no link's target (a share under `/Volumes`,
+/// say) is ever stat'd from the sweep.
 pub fn count_world_writable(dirs: &[&Path]) -> u64 {
     use std::os::unix::fs::MetadataExt;
     let mut count = 0u64;
@@ -716,7 +717,8 @@ pub fn count_world_writable(dirs: &[&Path]) -> u64 {
             continue;
         };
         for entry in entries.flatten() {
-            if let Ok(meta) = std::fs::metadata(entry.path())
+            if let Ok(meta) = std::fs::symlink_metadata(entry.path())
+                && !meta.file_type().is_symlink()
                 && world_writable(meta.mode())
             {
                 count += 1;
@@ -731,15 +733,17 @@ pub fn parse_mdfind_count(text: &str) -> u64 {
     text.lines().filter(|l| !l.trim().is_empty()).count() as u64
 }
 
-/// `csrutil authenticated-root status`: "enabled" or "disabled" after the colon.
-pub fn parse_authenticated_root(text: &str) -> Option<bool> {
+/// `csrutil authenticated-root status`: "enabled" or "disabled" after the colon. Any other
+/// text is a parse failure, as `parse_csrutil` treats it, so the signal reads unavailable
+/// rather than silently vanishing from the probe.
+pub fn parse_authenticated_root(text: &str) -> Result<bool, Fail> {
     let text = text.to_ascii_lowercase();
     if text.contains("status: enabled") {
-        Some(true)
+        Ok(true)
     } else if text.contains("status: disabled") {
-        Some(false)
+        Ok(false)
     } else {
-        None
+        Err(Fail::parse("csrutil authenticated-root"))
     }
 }
 
@@ -773,11 +777,9 @@ mod live {
             ),
         ];
         let root = run(Bin::Csrutil, &["authenticated-root", "status"], cancel)?;
-        if let Some(enabled) =
-            parse_authenticated_root(&format!("{}\n{}", root.stdout, root.stderr))
-        {
-            out.push(obs(SignalId::AuthenticatedRoot, Observed::Bool(enabled)));
-        }
+        macos::check_exit(&root, Bin::Csrutil)?;
+        let enabled = parse_authenticated_root(&format!("{}\n{}", root.stdout, root.stderr))?;
+        out.push(obs(SignalId::AuthenticatedRoot, Observed::Bool(enabled)));
         Ok(out)
     }
 
@@ -1576,13 +1578,18 @@ mod tests {
     fn the_new_parsers_and_stat_helpers_open_nothing() {
         assert_eq!(
             parse_authenticated_root("Authenticated Root status: enabled\n"),
-            Some(true)
+            Ok(true)
         );
         assert_eq!(
             parse_authenticated_root("Authenticated Root status: disabled\n"),
-            Some(false)
+            Ok(false)
         );
-        assert_eq!(parse_authenticated_root("csrutil: unknown command\n"), None);
+        // A changed or localised listing fails the read, as the SIP read does, so the
+        // platform_integrity probe reads `parse_error` and the signal is marked unavailable
+        // instead of being dropped from an ok outcome.
+        let unknown = parse_authenticated_root("csrutil: unknown command\n").unwrap_err();
+        assert_eq!(reason_of(&unknown), ProbeReason::ParseError);
+        assert!(parse_authenticated_root("").is_err());
         assert_eq!(
             parse_mdfind_count("/Users/x/Library/A.app\n/Users/x/Library/B.app\n\n"),
             2
@@ -1615,15 +1622,19 @@ mod tests {
             std::fs::set_permissions(&file, std::fs::Permissions::from_mode(mode)).unwrap();
         }
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o775)).unwrap();
+        // A link to the world-writable file, and a link out of the folder, are skipped unstat'd.
+        std::os::unix::fs::symlink(dir.join("world"), dir.join("link-to-world")).unwrap();
+        std::os::unix::fs::symlink("/Volumes/talos-no-such-share/x", dir.join("link-away"))
+            .unwrap();
         assert_eq!(
             count_world_writable(&[&dir, Path::new("/nonexistent/talos")]),
             1,
-            "0o002 only: the group-writable entries and folder do not count"
+            "0o002 only: the group-writable entries, the folder and the two links do not count"
         );
         assert!(world_writable(0o100002));
         assert!(!world_writable(0o775));
         let listed = stat_dir_members(&dir);
-        assert_eq!(listed.len(), 3);
+        assert_eq!(listed.len(), 5);
         assert!(listed.windows(2).all(|w| w[0].key <= w[1].key), "sorted");
         let _ = std::fs::remove_dir_all(&dir);
     }

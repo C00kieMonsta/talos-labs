@@ -129,7 +129,13 @@ export function CoverageScreen() {
           <p>
             {group.rows.map((row, index) => (
               <Fragment key={row.label}>
-                {index > 0 && <span className="coverage-dot" aria-hidden="true">{" · "}</span>}
+                {index > 0 && (
+                  <>
+                    {/* The dot is decoration; screen readers get a comma so the rows do not run together. */}
+                    <span className="visually-hidden">, </span>
+                    <span className="coverage-dot" aria-hidden="true">{" · "}</span>
+                  </>
+                )}
                 <span className="coverage-row">
                   {row.label}
                   {row.note !== null && <span className="coverage-reason"> ({row.note})</span>}
