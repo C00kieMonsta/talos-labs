@@ -4,13 +4,15 @@
 
 use std::path::Path;
 
-const FILES: [&str; 19] = [
+const FILES: [&str; 20] = [
     "src/ai/provider.rs",
     "src/ai/claude_code.rs",
     "src/ai/claude_stream.rs",
     "src/ai/chatgpt_oauth.rs",
     "src/ai/chatgpt_watch.rs",
     "src/commands/guard.rs",
+    // watch_open_main holds the person's typed question in memory.
+    "src/commands.rs",
     "src/tray.rs",
     "src/watch/mod.rs",
     "src/watch/types.rs",
