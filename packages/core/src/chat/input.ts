@@ -12,6 +12,7 @@ export const CHAT_EVENTS: readonly ChatEvent[] = ["fixed", "did_not_change", "sn
 export type ChatOutcome =
   | ChatEvent
   | "could_not_check"
+  | "checked"
   | "cancelled"
   | "wrong_password"
   | "timeout"
@@ -30,6 +31,12 @@ export interface AllowedInput {
   readonly details: readonly RuleId[];
   readonly snooze: readonly RuleId[];
   readonly accept: readonly RuleId[];
+  /** The live watch items' ids; empty until WATCH_AGENT_PORTS_READY and while the watch is not active. */
+  readonly investigate: readonly SignalId[];
+  /** The undone and later step ids a reminder may name. */
+  readonly remind: readonly RuleId[];
+  /** Every failing rule id. */
+  readonly whatIf: readonly RuleId[];
   readonly kinds: readonly IntentKind[];
 }
 

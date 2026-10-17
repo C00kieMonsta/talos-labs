@@ -1,5 +1,6 @@
 import type { RuleId } from "../domain/finding";
 import type { ScanReport } from "../domain/report";
+import type { SignalId } from "../ports/watch-port";
 import {
   EXPLAINER_LIMITS,
   SAFE_STRING_PATTERN,
@@ -10,7 +11,7 @@ import {
 } from "../ports/explainer-port";
 import { ALLOWED_LIST_FOR, type Allowed } from "../chat/allowed";
 import type { ChatResult } from "../chat/input";
-import { INTENT_KINDS, INTENT_KINDS_WITHOUT_RULE, type ChatIntent, type IntentKind } from "../chat/intents";
+import { INTENT_KINDS, INTENT_KINDS_WITHOUT_RULE, REMIND_WHENS, type ChatIntent, type IntentKind, type RemindWhen } from "../chat/intents";
 import { CHAT_LIMITS } from "./limits";
 import { claimsAction, containsAppVoice } from "./prose";
 
@@ -187,7 +188,7 @@ export function validateChat(raw: unknown, report: KnownRules, allowed: Allowed,
     for (const entry of rawIntents) {
       const intent = readIntent(entry, known, allowed, lockedSet, lockedOut);
       if (intent === null) continue;
-      const key = `${intent.kind}:${intent.ruleId ?? ""}`;
+      const key = ONE_EACH.includes(intent.kind) ? intent.kind : `${intent.kind}:${intent.ruleId ?? ""}:${intent.signalId ?? ""}`;
       if (seen.has(key)) continue;
       seen.add(key);
       kept.push(intent);
@@ -250,15 +251,19 @@ function readRelated(value: unknown, known: ReadonlySet<string>, allowed: Allowe
   return out.slice(0, CHAT_LIMITS.maxRelated);
 }
 
+/** Kinds kept at most once per reply, whatever ids they carry. */
+const ONE_EACH: readonly IntentKind[] = ["fix_batch", "show_list", "rescan", "change_ai", "open_watch", "investigate", "close_watch", "write_up"];
+
 /** One intent entry, or null when dropped. A locked fix, show or explain id lands in lockedOut instead. */
 function readIntent(entry: unknown, known: ReadonlySet<string>, allowed: Allowed, locked: ReadonlySet<string>, lockedOut: RuleId[]): ChatIntent | null {
   if (!isRecord(entry)) return null;
   const kind = entry["kind"];
   if (typeof kind !== "string" || !INTENT_KINDS.includes(kind as IntentKind) || !allowed.kinds.includes(kind as IntentKind)) return null;
   const intentKind = kind as IntentKind;
+  if (intentKind === "investigate") return readInvestigate(entry, known, allowed);
   if (INTENT_KINDS_WITHOUT_RULE.includes(intentKind)) {
     if (intentKind === "fix_batch" && allowed.batch.length === 0) return null;
-    return { kind: intentKind, ruleId: null };
+    return { kind: intentKind, ruleId: null, signalId: null, when: null };
   }
   const ruleId = entry["ruleId"];
   if (typeof ruleId !== "string" || !SAFE_STRING_PATTERN.test(ruleId) || !known.has(ruleId)) return null;
@@ -269,5 +274,23 @@ function readIntent(entry: unknown, known: ReadonlySet<string>, allowed: Allowed
   }
   const list = ALLOWED_LIST_FOR[intentKind];
   if (list === undefined || !(allowed[list] as readonly RuleId[]).includes(id)) return null;
-  return { kind: intentKind, ruleId: id };
+  if (intentKind === "remind_rule") {
+    const when = entry["when"];
+    if (typeof when !== "string" || !REMIND_WHENS.includes(when as RemindWhen)) return null;
+    return { kind: intentKind, ruleId: id, signalId: null, when: when as RemindWhen };
+  }
+  return { kind: intentKind, ruleId: id, signalId: null, when: null };
+}
+
+/** A signal in allowed.investigate (membership only, never SAFE_STRING_PATTERN), else a rule in allowed.details, else dropped. */
+function readInvestigate(entry: Record<string, unknown>, known: ReadonlySet<string>, allowed: Allowed): ChatIntent | null {
+  const signalId = entry["signalId"];
+  if (typeof signalId === "string" && (allowed.investigate as readonly string[]).includes(signalId)) {
+    return { kind: "investigate", ruleId: null, signalId: signalId as SignalId, when: null };
+  }
+  const ruleId = entry["ruleId"];
+  if (typeof ruleId === "string" && SAFE_STRING_PATTERN.test(ruleId) && known.has(ruleId) && allowed.details.includes(ruleId as RuleId)) {
+    return { kind: "investigate", ruleId: ruleId as RuleId, signalId: null, when: null };
+  }
+  return null;
 }

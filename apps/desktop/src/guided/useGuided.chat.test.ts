@@ -195,3 +195,42 @@ describe("leaving the chat", () => {
     void NOW;
   });
 });
+
+/* AGENT part B region: reminders (docs/DESIGN-AGENT.md 2f). */
+describe("the chat home's reminders", () => {
+  const yesterday = new Date(Date.now() - 86_400_000).toISOString();
+
+  it("remind writes snoozed and reminders to 09:00 that day and leaves laterCount alone; the step counts as done", async () => {
+    const h = await renderChat({ memory: { ...CHATGPT_RECENT, laterCount: { "TL-MAC-002": 1 } } });
+    const firewall = h.hook.result.current.guided.chat.undone().find((s) => s.id === "fix:TL-MAC-002");
+    if (firewall === undefined) throw new Error("step missing");
+    act(() => h.hook.result.current.guided.chat.remind(firewall, "tomorrow"));
+    const saved = h.saved.at(-1);
+    expect(saved?.reminders["TL-MAC-002"]).toBeDefined();
+    expect(saved?.snoozed["TL-MAC-002"]).toBe(saved?.reminders["TL-MAC-002"]);
+    expect(new Date(saved?.reminders["TL-MAC-002"] ?? "").getHours()).toBe(9);
+    expect(saved?.laterCount["TL-MAC-002"]).toBe(1);
+    expect(h.hook.result.current.guided.chat.doneStepIds).toContain("fix:TL-MAC-002");
+    expect(h.adapters.fixes.apply).not.toHaveBeenCalled();
+  });
+
+  it("a due reminder puts its step first, is carried by the phase once, and is cleared from memory at landing", async () => {
+    const h = await renderChat({ memory: { ...CHATGPT_RECENT, reminders: { "TL-MAC-001": yesterday } } });
+    const { phase, chat } = h.hook.result.current.guided;
+    expect(phase.kind).toBe("chat");
+    if (phase.kind !== "chat") return;
+    expect(phase.plan.steps[0]?.id).toBe("show:TL-MAC-001");
+    expect(phase.reminders).toEqual(["TL-MAC-001"]);
+    expect(chat.reminders).toEqual(["TL-MAC-001"]);
+    expect(h.saved.at(-1)?.reminders["TL-MAC-001"]).toBeUndefined();
+  });
+
+  it("a due reminder whose rule now passes is cleared silently", async () => {
+    const passing = reportFor(DEV_MACHINE).results.find((r) => r.status === "pass")?.ruleId;
+    if (passing === undefined) throw new Error("no passing rule");
+    const h = await renderChat({ memory: { ...CHATGPT_RECENT, reminders: { [passing]: yesterday } } });
+    const { phase } = h.hook.result.current.guided;
+    expect(phase.kind === "chat" && phase.reminders).toEqual([]);
+    expect(h.saved.at(-1)?.reminders).toEqual({});
+  });
+});

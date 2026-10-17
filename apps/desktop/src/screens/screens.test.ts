@@ -750,7 +750,7 @@ describe("FindingDetail", () => {
 
   it("streams the explanation field by field with a caret and a Stop button, then moves focus to it", () => {
     const from = { byRule: {}, order: null, priority: null };
-    const running: ExplainState = { kind: "running", target: "TL-MAC-001", partial: { whyItMattersForYou: "Your disk holds" }, answerPartial: null, from };
+    const running: ExplainState = { kind: "running", target: "TL-MAC-001", partial: { whyItMattersForYou: "Your disk holds" }, from };
     const value = readyContext({ state: DEV_MACHINE, license: VALID, explain: running });
     const { rerender } = renderDetail(value, "TL-MAC-001");
     expect(screen.getByText("Your disk holds")).toBeTruthy();
@@ -928,7 +928,7 @@ describe("Findings suggested order", () => {
 
   it("shows Thinking about the order with Stop while it runs, then moves focus to the order", () => {
     const from = { byRule: {}, order: null, priority: null };
-    const running = readyContext({ state: DEV_MACHINE, license: VALID, explain: { kind: "running", target: "prioritise", partial: null, answerPartial: null, from } });
+    const running = readyContext({ state: DEV_MACHINE, license: VALID, explain: { kind: "running", target: "prioritise", partial: null, from } });
     const { rerender } = render(createElement(AppContext.Provider, { value: running }, createElement(Findings)));
     expect(screen.getByText("Thinking about the order")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Stop" }));

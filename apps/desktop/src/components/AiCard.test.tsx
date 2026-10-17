@@ -56,7 +56,7 @@ function bareContext() {
   return fakeContextValue({ adapters: fakeAdapters(), license: NONE, gate: freeGate(), scanState: { kind: "idle", report: null, last: null } });
 }
 
-function card(state: AiCardState, provider: ExplainerProvider = "chatgpt", kind: "finding" | "overview" | "ask" = "overview") {
+function card(state: AiCardState, provider: ExplainerProvider = "chatgpt", kind: "finding" | "overview" = "overview") {
   const h = handlers();
   const view = render(
     <StatefulProvider value={bareContext()}>
@@ -100,7 +100,7 @@ describe("AiCard provider states", () => {
     const o = card({ kind: "not_connected" }, "chatgpt", "overview");
     expect(o.head()?.textContent).toBe(lines.notConnected);
     cleanup();
-    for (const kind of ["finding", "ask"] as const) {
+    for (const kind of ["finding"] as const) {
       const c = card({ kind: "not_connected" }, "claude_plan", kind);
       expect(c.head()?.textContent).toBe(lines.notConnectedFinding);
       expect(c.buttons()).toEqual([AI_ACTIONS.connect]);
@@ -208,9 +208,9 @@ describe("aiCardState", () => {
   });
 });
 
-function Probe({ target }: { target: "prioritise" | "ask" | "TL-MAC-001" | "TL-MAC-002" }) {
+function Probe({ target }: { target: "prioritise" | "TL-MAC-001" | "TL-MAC-002" }) {
   const flow = useAiCardFlow(target);
-  return <AiCard kind={target === "prioritise" ? "overview" : target === "ask" ? "ask" : "finding"} state={flow.state} provider={flow.provider} {...flow.handlers} />;
+  return <AiCard kind={target === "prioritise" ? "overview" : "finding"} state={flow.state} provider={flow.provider} {...flow.handlers} />;
 }
 
 function flowContext(input: { availability: AiAvailability | null; until?: string | null; explain?: ExplainState; provider?: ExplainerProvider; route?: "overview" | "settings" }) {
@@ -229,8 +229,8 @@ function flowContext(input: { availability: AiAvailability | null; until?: strin
 }
 
 describe("useAiCardFlow", () => {
-  it("a connected AI on an unlicensed gate is available_idle for a free rule, a paid rule, prioritise and ask", () => {
-    for (const target of ["TL-MAC-001", "TL-MAC-002", "prioritise", "ask"] as const) {
+  it("a connected AI on an unlicensed gate is available_idle for a free rule, a paid rule and prioritise", () => {
+    for (const target of ["TL-MAC-001", "TL-MAC-002", "prioritise"] as const) {
       render(
         <StatefulProvider value={flowContext({ availability: "available" })}>
           <Probe target={target} />

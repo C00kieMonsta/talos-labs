@@ -9,9 +9,26 @@ import type { ExplainerProvider } from "../settings";
 /** The key into EXPLAIN.limit, signedOut and didNotAnswer. */
 export type Remote = "chatgpt" | "claude_plan";
 
-export type ChipId = "do_them_all" | "fix_what_you_can" | "what_is_urgent" | "what_first" | "whats_next" | "show_list" | "check_again" | "leave_alone" | "why" | "try_again" | "send_again";
+export type ChipId = "do_them_all" | "fix_what_you_can" | "what_is_urgent" | "what_first" | "whats_next" | "show_list" | "check_again" | "leave_alone" | "why" | "try_again" | "send_again" | "remind_tomorrow" | "remind_sunday" | "what_if" | "write_up";
 
-export type ChatLabel = "opening" | "answer" | "end" | "watch" | "result";
+/** walk, remind and what_if are DESIGN-AGENT part B's app answers (2c, 2f, 2h). */
+export type ChatLabel = "opening" | "answer" | "end" | "watch" | "result" | "walk" | "remind" | "what_if";
+
+/** One row of the "Do them all" checklist (docs/DESIGN-AGENT.md 2c), keyed by step id and rule id. */
+export interface WalkRow {
+  readonly stepId: string;
+  readonly ruleId: RuleId;
+  readonly text: string;
+  readonly icon: "running" | "pending" | "ok" | "failed";
+  readonly tag?: string;
+}
+
+export interface WalkChecklist {
+  readonly done: number;
+  readonly of: number;
+  /** The visible rows: the live row and the next two; the rest fold into "and {n} more". */
+  readonly rows: readonly WalkRow[];
+}
 
 /** A plain list row inside an app message (the batch list, the since rows, the end groups). */
 export interface ChatAppRow {
@@ -33,6 +50,10 @@ export interface CardSeed {
   readonly item: WatchItem | null;
   /** watch cards: item.changedAt ?? state.lastCheckAt, for the time sentence. */
   readonly noticedAt?: string | null;
+  /** The list draws a batch as one row per rule: the row's own label, the card's is unchanged. */
+  readonly rowHeadline?: string;
+  /** The write-up card's authored text. */
+  readonly text?: string;
 }
 
 export type CardState = "idle" | "working" | "resolved" | "failed" | "stale";
@@ -60,6 +81,10 @@ export type ChatMessage =
       /** A quieter line after the body (the watch's source line). */
       readonly sourceLine: string | null;
       readonly label: ChatLabel;
+      /** The reminder line before the headline (2f), null otherwise. */
+      readonly lead: string | null;
+      /** The "Do them all" checklist (2c), null otherwise. */
+      readonly checklist: WalkChecklist | null;
     }
   | { readonly id: string; readonly kind: "person"; readonly at: number; readonly text: string; readonly source: "typed" | "chip"; readonly stopped: boolean; readonly resend: boolean }
   | {
@@ -84,9 +109,15 @@ export type ChatMessage =
       readonly noticedAt: string | null;
       readonly state: CardState;
       readonly live: boolean;
+      /** How the card settled; null while idle or working. */
+      readonly outcome: ChatOutcome | null;
       readonly result: string | null;
       readonly rows: readonly DoneRow[];
       readonly failure: CardFailure | null;
+      /** The write-up card's authored text; null on every other kind. */
+      readonly writeUpText: string | null;
+      /** When "Copy it" last succeeded, for the 1500 ms "Copied" word. */
+      readonly copiedAt: number | null;
     }
   | { readonly id: string; readonly kind: "row"; readonly at: number; readonly cardId: string; readonly seed: CardSeed; readonly headline: string }
   | { readonly id: string; readonly kind: "notice"; readonly at: number; readonly text: string; readonly wayOut: WayOut };
@@ -135,11 +166,13 @@ export interface AppAnswer {
   readonly walking?: boolean;
   /** "Show me the list": every card lands as a row and none is live. */
   readonly rowsOnly?: boolean;
+  readonly lead?: string | null;
+  readonly checklist?: WalkChecklist | null;
 }
 
 /** The events of docs/DESIGN-CHAT-UI.md section 4, every payload. `at` is Date.now() so the reducer stays pure. */
 export type ChatAction =
-  | { readonly type: "opened"; readonly at: number; readonly plan: GuidedPlan; readonly undone: readonly GuidedStep[]; readonly diff: ReportDiff | null; readonly same: boolean; readonly brief: { readonly text: string; readonly provider: ExplainerProvider } | null; readonly provider: ExplainerProvider; readonly reading: null; readonly licensedMeta: string | null }
+  | { readonly type: "opened"; readonly at: number; readonly plan: GuidedPlan; readonly undone: readonly GuidedStep[]; readonly diff: ReportDiff | null; readonly same: boolean; readonly brief: { readonly text: string; readonly provider: ExplainerProvider } | null; readonly provider: ExplainerProvider; readonly reading: null; readonly licensedMeta: string | null; readonly watchOn?: boolean; readonly reminders?: readonly RuleId[] }
   | { readonly type: "step_appended"; readonly at: number; readonly seed: CardSeed }
   | { readonly type: "brief_ready"; readonly at: number; readonly text: string; readonly provider: ExplainerProvider }
   | { readonly type: "guard_refused"; readonly at: number; readonly text: string }
@@ -147,7 +180,8 @@ export type ChatAction =
   | { readonly type: "draft_received"; readonly text: string; readonly autoSend: boolean }
   | { readonly type: "draft_consumed" }
   | { readonly type: "person_sent"; readonly at: number; readonly text: string; readonly turnId: string; readonly source?: "typed" | "chip" }
-  | { readonly type: "chip_pressed"; readonly at: number; readonly chipId: ChipId; readonly text: string }
+  | { readonly type: "chip_pressed"; readonly at: number; readonly chipId?: ChipId; readonly text: string }
+  | { readonly type: "card_copied"; readonly at: number; readonly cardId: string }
   | { readonly type: "app_answered"; readonly at: number; readonly answer: AppAnswer }
   | { readonly type: "model_partial"; readonly at: number; readonly turnId: string; readonly text: string }
   | { readonly type: "model_still_waiting"; readonly turnId: string }
@@ -155,10 +189,10 @@ export type ChatAction =
   | { readonly type: "model_failed"; readonly at: number; readonly turnId: string; readonly reason: ExplainerFailure; readonly until: string | null }
   | { readonly type: "stopped"; readonly at: number; readonly turnId: string }
   | { readonly type: "card_started"; readonly cardId: string }
-  | { readonly type: "card_result"; readonly at: number; readonly cardId: string; readonly outcome: ChatOutcome; readonly line: string; readonly rows: readonly DoneRow[]; readonly failure?: CardFailure | null }
+  | { readonly type: "card_result"; readonly at: number; readonly cardId: string; readonly outcome: ChatOutcome; readonly line: string; readonly rows: readonly DoneRow[]; readonly failure?: CardFailure | null; readonly settledRuleIds?: readonly RuleId[] }
   | { readonly type: "row_promoted"; readonly at: number; readonly rowId: string }
   | { readonly type: "card_appended"; readonly at: number; readonly seed: CardSeed }
-  | { readonly type: "card_stale"; readonly cardId: string; readonly line: string }
+  | { readonly type: "card_stale"; readonly at: number; readonly cardId: string; readonly line: string }
   | { readonly type: "lock_shown"; readonly at: number; readonly ruleIds: readonly RuleId[] }
   | { readonly type: "lock_dismissed" }
   | { readonly type: "end_reached"; readonly at: number; readonly title: string; readonly body: string | null; readonly groups: readonly ChatGroup[]; readonly brief: { readonly text: string; readonly provider: ExplainerProvider } | null }
@@ -166,6 +200,7 @@ export type ChatAction =
   | { readonly type: "watch_returned"; readonly at: number; readonly ran: boolean }
   | { readonly type: "availability_changed"; readonly state: AiAvailability; readonly until: string | null }
   | { readonly type: "counter_near_limit"; readonly left: number }
+  | { readonly type: "explain_state"; readonly text: string }
   | { readonly type: "walk_ended" }
   | { readonly type: "cleared" };
 

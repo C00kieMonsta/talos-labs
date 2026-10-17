@@ -1,7 +1,7 @@
 import type { RuleId, RuleStatus, Severity } from "../domain/finding";
 import type { Grade } from "../domain/report";
-import type { Os, UnavailableReason } from "../domain/system-state";
-import { UNAVAILABLE_REASONS } from "../domain/system-state.guard";
+import type { Os, SignatureWord, UnavailableReason } from "../domain/system-state";
+import { SIGNATURE_WORDS, UNAVAILABLE_REASONS } from "../domain/system-state.guard";
 import type { ExplainerProfile } from "./explainer-port";
 import type { FixApplyOptions, FixChoice, FixOutcome, FixPlanLine } from "./fix-port";
 
@@ -69,6 +69,22 @@ export const SIGNAL_IDS = [
   "sig.on_battery",
   "sig.pending_updates",
   "sig.broad_extension_count",
+  "sig.shell_startup_changed",
+  "sig.system_shell_files_count",
+  "sig.paths_d_changed",
+  "sig.path_dir_writable_count",
+  "sig.app_set",
+  "sig.app_new_unquarantined",
+  "sig.app_new_unsigned",
+  "sig.library_apps_count",
+  "sig.airdrop_everyone",
+  "sig.internet_sharing_on",
+  "sig.launch_label_masquerade",
+  "sig.launch_label_masquerade_unsigned",
+  "sig.login_hook_set",
+  "sig.dyld_insert_set",
+  "sig.authenticated_root",
+  "sig.pam_auth_changed",
 ] as const;
 export type SignalId = (typeof SIGNAL_IDS)[number];
 
@@ -94,13 +110,19 @@ export const PROBE_IDS = [
   "probe.updates",
   "probe.scheduled_jobs",
   "probe.logins",
+  "probe.shell_startup",
+  "probe.apps",
+  "probe.app_signatures",
+  "probe.library_apps",
+  "probe.exposure",
+  "probe.hooks",
 ] as const;
 export type ProbeId = (typeof PROBE_IDS)[number];
 
-/** Chosen by the loop only: the two probes that touch file bytes. */
-export const RUST_PROBE_IDS: readonly ProbeId[] = ["probe.persistence_signatures", "probe.ssh_keys"];
-export type ModelProbeId = Exclude<ProbeId, "probe.persistence_signatures" | "probe.ssh_keys">;
-/** PROBE_IDS minus the two Rust-only probes, in PROBE_IDS order. */
+/** Chosen by the loop only: the three probes that run codesign or touch file bytes. */
+export const RUST_PROBE_IDS: readonly ProbeId[] = ["probe.persistence_signatures", "probe.ssh_keys", "probe.app_signatures"];
+export type ModelProbeId = Exclude<ProbeId, "probe.persistence_signatures" | "probe.ssh_keys" | "probe.app_signatures">;
+/** PROBE_IDS minus the three Rust-only probes, in PROBE_IDS order. */
 export const MODEL_PROBE_IDS: readonly ModelProbeId[] = PROBE_IDS.filter(
   (id): id is ModelProbeId => !RUST_PROBE_IDS.includes(id),
 );
@@ -130,6 +152,8 @@ export const ACTION_IDS = [
   "act.lessons_learned",
   "act.run_full_checkup",
   "act.get_help",
+  "act.limit_airdrop",
+  "act.stop_internet_sharing",
 ] as const;
 export type ActionId = (typeof ACTION_IDS)[number];
 
@@ -143,11 +167,14 @@ export const WATCH_ACTION_IDS = [
 ] as const;
 export type WatchActionId = (typeof WATCH_ACTION_IDS)[number];
 
-export type FishyKind = "persistence" | "listener" | "guard" | "remote" | "admin" | "dns" | "backup";
-export const FISHY_KINDS: readonly FishyKind[] = ["persistence", "listener", "guard", "remote", "admin", "dns", "backup"];
+export type FishyKind = "persistence" | "listener" | "guard" | "remote" | "admin" | "dns" | "backup" | "app" | "shell" | "exposure";
+export const FISHY_KINDS: readonly FishyKind[] = ["persistence", "listener", "guard", "remote", "admin", "dns", "backup", "app", "shell", "exposure"];
 
 /** The kinds whose flips a person makes in System Settings, asked about before anything else. */
-export type GatedKind = "guard" | "remote" | "admin" | "backup";
+export type GatedKind = "guard" | "remote" | "admin" | "backup" | "exposure";
+
+/** The closed words for an app bundle's signature; the fishy Details and rule 035 share them. */
+export { SIGNATURE_WORDS };
 
 /** Points for the top-item order; ties by SIGNAL_IDS order. */
 export const SIGNAL_POINTS: Readonly<Record<Severity, number>> = { critical: 10, high: 6, medium: 3, low: 1, info: 0 };
@@ -205,6 +232,22 @@ export const SIGNAL_KIND: Readonly<Record<SignalId, FishyKind | null>> = {
   "sig.on_battery": null,
   "sig.pending_updates": null,
   "sig.broad_extension_count": null,
+  "sig.shell_startup_changed": "shell",
+  "sig.system_shell_files_count": "shell",
+  "sig.paths_d_changed": "shell",
+  "sig.path_dir_writable_count": "shell",
+  "sig.app_set": "app",
+  "sig.app_new_unquarantined": null,
+  "sig.app_new_unsigned": "app",
+  "sig.library_apps_count": null,
+  "sig.airdrop_everyone": "exposure",
+  "sig.internet_sharing_on": "exposure",
+  "sig.launch_label_masquerade": "persistence",
+  "sig.launch_label_masquerade_unsigned": "persistence",
+  "sig.login_hook_set": "persistence",
+  "sig.dyld_insert_set": "persistence",
+  "sig.authenticated_root": "guard",
+  "sig.pam_auth_changed": "admin",
 };
 
 export interface WatchSignal {
@@ -287,6 +330,8 @@ export interface WatchVerdict {
 
 export const WATCH_LIMITS = {
   maxPromptChars: 12000,
+  /** The serialised 67-signal context with 64 rules and 20 recent entries stays under this; a core test pins it. */
+  maxContextChars: 22000,
   maxOutputTokens: 1200,
   /** ratingReason: the window line, never cut. */
   maxReasonChars: 120,
@@ -304,8 +349,8 @@ export const WATCH_LIMITS = {
 export type WatchInterval = 15 | 60 | 240;
 export const WATCH_INTERVALS: readonly WatchInterval[] = [15, 60, 240];
 
-export type WatchOpenScreen = "home" | "noticed" | "settings_watch" | "chat" | "connect";
-export const WATCH_OPEN_SCREENS: readonly WatchOpenScreen[] = ["home", "noticed", "settings_watch", "chat", "connect"];
+export type WatchOpenScreen = "home" | "noticed" | "settings_watch" | "chat" | "connect" | "coverage";
+export const WATCH_OPEN_SCREENS: readonly WatchOpenScreen[] = ["home", "noticed", "settings_watch", "chat", "connect", "coverage"];
 
 /** What the small window hands the main one: the screen, and with "chat" the person's own question as a draft. */
 export interface WatchOpenEvent {
@@ -324,9 +369,9 @@ export interface WatchAi {
   readonly provider: WatchModelProvider | null;
 }
 
-/** The reasons a watch probe can report: the collector's nine plus the socket table an unsigned build cannot read. */
-export type WatchUnavailableReason = UnavailableReason | "unsigned_build";
-export const WATCH_UNAVAILABLE_REASONS: readonly WatchUnavailableReason[] = [...UNAVAILABLE_REASONS, "unsigned_build"];
+/** The reasons a watch probe can report: the collector's nine, the socket table an unsigned build cannot read, and Spotlight indexing off. */
+export type WatchUnavailableReason = UnavailableReason | "unsigned_build" | "spotlight_off";
+export const WATCH_UNAVAILABLE_REASONS: readonly WatchUnavailableReason[] = [...UNAVAILABLE_REASONS, "unsigned_build", "spotlight_off"];
 
 /** A report id as the window may carry it; a failing id drops the whole field. */
 export const WATCH_REPORT_ID = /^[A-Za-z0-9._-]{1,64}$/;
@@ -439,6 +484,10 @@ export interface WatchDetailsItem {
   readonly scope?: WatchDetailsScope;
   readonly port?: number;
   readonly processName?: string;
+  /** shell kind: the stat'd file that changed. */
+  readonly filePath?: string;
+  /** app kind: what codesign said about the bundle. */
+  readonly signature?: SignatureWord;
 }
 
 /** The one document that carries machine text. Never an adapter argument, never persisted. */

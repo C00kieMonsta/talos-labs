@@ -386,6 +386,24 @@ describe("TauriWatchAdapter", () => {
     ]);
   });
 
+  it("openMain coverage invokes watch_open_main with the screen alone and refuses a question with it", async () => {
+    const invoke = fakeInvoke();
+    const port = new TauriWatchAdapter({ invoke, listen: vi.fn(async () => () => undefined), limited: true });
+    await port.openMain("coverage");
+    await expect(port.openMain("coverage", "why")).rejects.toBe("invalid_input");
+    expect(invoke.mock.calls).toEqual([["watch_open_main", { screen: "coverage" }]]);
+    expect(JSON.stringify(invoke.mock.calls)).not.toContain("question");
+  });
+
+  it("details rows carry filePath and the signature word, and refuse a signature outside the closed list", () => {
+    const shell = { signalId: "sig.shell_startup_changed", filePath: "/Users/x/.zshrc" };
+    const app = { signalId: "sig.app_new_unsigned", label: "Helper.app", programPath: "/Applications/Helper.app", signature: "unsigned" };
+    expect(toWatchDetails({ items: [shell, app], wifiAvailable: true })).toEqual({ items: [shell, app], wifiAvailable: true });
+    expect(toWatchDetails({ items: [{ ...app, signature: "trusted" }], wifiAvailable: true })).toBeNull();
+    expect(toWatchDetails({ items: [{ ...shell, filePath: "" }], wifiAvailable: true })).toBeNull();
+    expect(toWatchDetails({ items: [{ ...shell, filePath: 7 }], wifiAvailable: true })).toBeNull();
+  });
+
   it("watch:open and main:shown carry the question when given and drop a non-string one", async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
     const listen = vi.fn(async (event: string, cb: (payload: unknown) => void) => {

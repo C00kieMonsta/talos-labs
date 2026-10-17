@@ -1,4 +1,4 @@
-import type { FishyKind, FixError, GatedKind, SectionKey } from "@talos/core";
+import type { FishyKind, FixError, GatedKind, SectionKey, SignatureWord } from "@talos/core";
 import { AI_BADGES, AI_OPEN_APPLE_SETTINGS, AI_UNAVAILABLE_COPY, SECTION_LABELS } from "../app/labels";
 
 /** Fixed strings of the guided flow. Every value is under the banned-word test. */
@@ -246,6 +246,7 @@ export const FISHY = {
       remote: "Remote access to your Mac was turned on at {time}.",
       admin: "A new admin account was added at {time}.",
       backup: "Your backups were switched off at {time}.",
+      exposure: "A sharing setting was switched on at {time}.",
     } satisfies Readonly<Record<GatedKind, string>>,
     primary: "No, I didn't",
     link: "Yes, that was me",
@@ -259,8 +260,13 @@ export const FISHY = {
       admin: "A new admin account was added",
       dns: "The way your Mac finds websites changed",
       backup: "Your backups were switched off",
+      app: "A new app skipped the usual safety checks",
+      shell: "A hidden file that runs at start-up changed",
+      exposure: "Your Mac is sharing more than before",
     } satisfies Readonly<Record<FishyKind, string>>,
     body: "I noticed this at {time}. It was not there at the last check. I have not deleted anything.",
+    /** The shell kind's Details line under the file path. */
+    changedAt: "changed at {time}",
     source: "SANS calls this identification, the step after preparation.",
     primary: "See what to do",
     link: "This is fine, I know it",
@@ -335,6 +341,18 @@ export const FISHY = {
         text: "Lockdown Mode, for the very few people who may be singled out.",
         details: "Apple says it is for the very few.",
       },
+      limitAirdrop: {
+        text: "Set AirDrop to Contacts Only, so strangers nearby cannot send you files.",
+        details: "Apple macOS 26 Benchmark, section 2.3.1.1.",
+      },
+      stopSharing: {
+        text: "Turn Internet Sharing off unless you meant to hand out your connection.",
+        details: "Apple macOS 26 Benchmark, section 2.3.3.7.",
+      },
+      getHelp: {
+        text: "Get help from someone you trust before you change the file yourself.",
+        details: "CISA, Recovering from a Trojan Horse or Virus, step 1.",
+      },
     },
   },
   recover: {
@@ -348,6 +366,15 @@ export const FISHY = {
   evidence: "I have not deleted anything. The file is still there for an expert to look at.",
   lessons: "Last time you went through the steps for a program that started on its own. Here is what changed since.",
   notifyTail: "Open me to see what experts suggest.",
+  /** The app kind's signature in words, under Details (WatchDetailsItem.signature). */
+  signature: {
+    apple: "from Apple",
+    app_store: "from the App Store",
+    developer_id: "signed by its maker",
+    adhoc: "signed by no one macOS knows",
+    unsigned: "not signed",
+    invalid: "its signature is broken",
+  } satisfies Readonly<Record<SignatureWord, string>>,
 } as const;
 
 /** The 320 px watch window (DESIGN-WATCH.md section 5). "{n}" is the count. */
@@ -381,6 +408,9 @@ export const WATCH = {
     admin: "An admin account can change anything on this Mac.",
     dns: "Your Mac could be sent to the wrong websites.",
     backup: "Without backups, lost files stay lost.",
+    app: "Apps that skip the checks are how bad software gets in.",
+    shell: "Bad software hides there so it runs again and again.",
+    exposure: "Each thing shared is one more way in.",
   } satisfies Readonly<Record<FishyKind, string>>,
 } as const;
 
@@ -397,6 +427,43 @@ export const WATCH_SETTINGS = {
   every240: "Every 4 hours",
   notify: "Tell me when something needs doing now",
   notifyDescription: "Only for things that need doing now. Never about the full version or AI.",
+} as const;
+
+/** The "What I watch" screen (docs/DESIGN-THREATS-V2.md section 4a). "{interval}" is substituted at render. */
+export const COVERAGE = {
+  title: "What I watch",
+  back: "Back",
+  intro: "I look at these every {interval}, from the menu bar. I compare each one with how it was last time.",
+  interval: { 15: "15 minutes", 60: "hour", 240: "4 hours" },
+  introOff: "The watch is off. I look at these when you open me.",
+  introUnlicensed: "I look at these each time you open me.",
+  turnOn: "Turn the watch on",
+  groups: { firewalls: "Firewalls", settings: "Secure settings", access: "Who can get in", malware: "Malware protection", updates: "Updates, backups and health" },
+  fewTimesADay: "a few times a day",
+  reason: {
+    needs_full_disk_access: "needs Full Disk Access",
+    needs_automation_permission: "needs permission to control System Events",
+    needs_admin: "needs an administrator account",
+    permission_denied: "permission was denied",
+    tool_missing: "a system tool is missing",
+    timeout: "took too long",
+    parse_error: "I couldn't read the answer",
+    not_supported_on_os: "not on this version of macOS",
+    collector_error: "something went wrong",
+    rule_error: "something went wrong",
+    indeterminate: "I couldn't tell",
+    unsigned_build: "needs a signed build",
+    spotlight_off: "Spotlight is off",
+  },
+  cannot: "What I can't see",
+  gaps: {
+    sockets: ["Which programs are talking to the internet.", "Needs a signed build."],
+    browsers: ["Browser add-ons and home pages.", "Needs Full Disk Access."],
+    btm: ["All the programs macOS lets run in the background.", "Needs an administrator tool I don't use."],
+    realtime: ["Files being changed as it happens, and network traffic.", "Not possible for an app like me."],
+    privacy: ["Which apps may use your camera, microphone or screen.", "macOS keeps that list private."],
+  },
+  experts: "Experts call these",
 } as const;
 
 /** watchOn swaps the "next time you open me" sentence for the watch's own. */
@@ -464,6 +531,10 @@ export const ACTIVITY = {
     checking: "Checking it worked",
     watching: "Watching for the change",
     watchCheck: "Checking your Mac",
+    /* AGENT part B region: the checklist row fragments (docs/DESIGN-AGENT.md 2c). */
+    waitingForYou: "Waiting for you",
+    anotherDay: "Another day",
+    more: "and {n} more",
   },
   /** The participle of every catalogue guided.verb, pinned by a test. */
   verbs: {
@@ -493,6 +564,83 @@ export const ACTIVITY = {
     changed: "changed",
     stillOff: "still off",
     nowOn: "now on",
+  },
+  /* AGENT part B region (docs/DESIGN-AGENT.md section 4 "Copy"). Templates use {n}, {headline}, {time}, {date}, {done}, {of} and {p}. */
+  investigate: {
+    lead: "I'll re-read the areas this touches and tell you what changed.",
+    wait: "Checking now, one moment.",
+    calm: "Nothing changed in what I re-read.",
+    lookOne: "Still one thing to look at.",
+    look: "Still {n} things to look at.",
+    act: "This needs doing now.",
+  },
+  plan: {
+    lead: "I'll go through these one at a time. Each fix is one tap, and macOS asks for your password when it needs it.",
+    progress: "{done} of {of} done",
+  },
+  closer: {
+    headline: "Watch this closer for an hour",
+    until: "I'll check every 15 minutes until {time}.",
+    paused: "I'll start when the pause ends, then check every 15 minutes for an hour.",
+    // Reworded from the doc's "I already check every 15 minutes." (2.2) to pass the 1.6 counter.
+    already: "I already check that often.",
+  },
+  remind: {
+    tomorrow: "OK. I'll bring this up tomorrow when you open me: {headline}.",
+    sunday: "OK. I'll bring this up on Sunday when you open me: {headline}.",
+    due: "You asked me to bring this up today: {headline}.",
+  },
+  writeUp: {
+    lead: "Here is a plain summary you can send. It has no file names or settings paths in it.",
+    copy: "Copy it",
+    copied: "Copied",
+    save: "Save as a file…",
+    saved: "Saved.",
+    failed: "I couldn't save it there. Copy it instead.",
+    copyFailed: "I couldn't copy it. Select the text and copy it yourself.",
+    title: "Talos Labs check-up, {date}",
+    score: "Score {n} out of 100, {grade}.",
+    fixed: "Fixed today:",
+    todo: "Still to do:",
+    later: "Left for later:",
+    left: "Left alone by choice:",
+    watch: "The menu bar watch:",
+    quote: {
+      chatgpt: "ChatGPT wrote this. Not verified:",
+      claude_plan: "Claude wrote this. Not verified:",
+      claude: "Claude wrote this. Not verified:",
+      apple: "Apple Intelligence on this Mac wrote this. Not verified:",
+      ollama: "A local model wrote this. Not verified:",
+    },
+  },
+  whatIf: {
+    cost: "Leaving it keeps {p} off your score.",
+    critical: "This is the one that would hurt most.",
+  },
+  /** The honest limits of docs/DESIGN-AGENT.md section 3; every one an app line with at most one way out. */
+  refuse: {
+    cannot_from_here: "I can't stop it by name. I can switch off the start-up entry it uses, if it has one.",
+    watch_off: "The menu bar watch is off, so I can't look closer from here.",
+    full_version: "Looking closer from the menu bar is in the full version.",
+    full_version_recheck: "Checking again is in the full version.",
+    full_version_closer: "Watching from the menu bar is in the full version.",
+    cap_reached: "I've used today's allowance for the watch. I'll keep checking the usual way until tomorrow.",
+    limit_reached: "Your AI has hit its limit for now. I'll keep checking the usual way.",
+    no_notify: "I'll say it next time you open me. I don't send reminders.",
+    busy: "I'm in the middle of something. One moment.",
+    lookNotYet: "I can't look closer from here yet. I'll keep checking on my usual timer.",
+    closerNotYet: "I can't change how often I check from here yet. You can set it in Settings.",
+  },
+  /** The one way out a refusal may carry (section 3). */
+  links: { settings: "Open Settings" },
+  /** The agent chips, at most 25 characters; "Do them all" and "Check again" stay CHAT.chips' alone. */
+  chips: {
+    lookInto: "Look into this",
+    watchCloser: "Watch closer for an hour",
+    remindTomorrow: "Ask me again tomorrow",
+    remindSunday: "Remind me on Sunday",
+    writeUp: "Write this up",
+    whatIf: "What if I leave it?",
   },
 } as const;
 
@@ -545,9 +693,7 @@ export const CHAT = {
     leaveAlone: "Leave it alone",
     why: "Why?",
   },
-  /** The "Why?" chip's turn; the watch window's draft is askWhy with the headline quoted. */
-  why: "Why does {headline} matter?",
-  askWhy: 'Why does "{headline}" matter?',
+  // The "Why?" chip's turn and the watch window's draft are both askWhyQuestion(headline) from @talos/core; no template here.
   urgentLead: "This one is urgent:",
   firstLead: "Start here.",
   nextLead: "Next up.",
@@ -560,6 +706,7 @@ export const CHAT = {
   changeAiHeadline: "Change which AI I use",
   changeAiPrimary: "Change",
   watchHeadline: "Your Mac, from the menu bar",
-  watchBody: "I check your Mac's settings on a timer. Ask me to look now, or see what I noticed.",
+  watchBody: "I check your Mac's settings on a timer. Ask me to look now and I'll say what I find.",
   list: "The plan",
+  checkFailed: "I couldn't check just now.",
 } as const;

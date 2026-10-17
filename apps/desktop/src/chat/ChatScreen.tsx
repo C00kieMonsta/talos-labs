@@ -32,7 +32,7 @@ export function ChatScreen({ bridge }: { bridge: ChatBridge }) {
   useGuidedStrip(strip);
   useGuidedHero(true, false, chat.busy);
   const logRef = useRef<HTMLDivElement | null>(null);
-  const { pill, scrollToBottom } = useStickToBottom(logRef, state.messages.length, chat.forced, { reducedMotion: chat.reducedMotion });
+  const { pill, scrollToBottom } = useStickToBottom(logRef, state.messages.length, chat.forced, { reducedMotion: chat.reducedMotion, streaming: state.stream.kind === "streaming" });
   const headlines = useRef(new Map<string, HTMLHeadingElement>());
   const field = useRef<HTMLTextAreaElement | null>(null);
   const focusWanted = useRef<"field" | "headline" | null>(null);
@@ -40,23 +40,35 @@ export function ChatScreen({ bridge }: { bridge: ChatBridge }) {
     if (el === null) headlines.current.delete(id);
     else headlines.current.set(id, el);
   }, []);
-  const focusNewest = useCallback(() => {
-    const id = newestHeadlineId(state.messages, state.live);
-    if (id !== null) headlines.current.get(id)?.focus();
-  }, [state.messages, state.live]);
+  // The stick-to-bottom hook owns the scroll; an automatic focus must not cut its smooth scroll short, Escape may.
+  const focusNewest = useCallback(
+    (options: { preventScroll?: boolean } = {}) => {
+      const id = newestHeadlineId(state.messages, state.live);
+      if (id !== null) headlines.current.get(id)?.focus({ preventScroll: options.preventScroll === true });
+    },
+    [state.messages, state.live],
+  );
   // After a chip or a settled card the newest headline takes focus; after the person's own send or Stop, the field.
+  // A headline wish outlives a silent commit (card_started) so the promoted card still takes focus when its result announces.
+  const seenSeq = useRef(state.announce.seq);
   useEffect(() => {
     const wanted = focusWanted.current;
-    focusWanted.current = null;
-    if (wanted === "headline") focusNewest();
+    const announced = state.announce.seq !== seenSeq.current;
+    seenSeq.current = state.announce.seq;
+    if (wanted === "headline") focusNewest({ preventScroll: true });
     else if (wanted === "field") field.current?.focus();
+    if (announced || wanted === "field") focusWanted.current = null;
   }, [state.announce.seq, focusNewest]);
-  // The watch's act-now always moves focus to its headline.
+  // The watch's act-now always moves focus to its headline; so does the walk's promoted card.
   useEffect(() => {
-    if (chat.forced > 0) focusNewest();
+    if (chat.forced > 0) focusNewest({ preventScroll: true });
     // The forced counter is the trigger; the messages are read when it fires.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chat.forced]);
+  useEffect(() => {
+    if (chat.promoted > 0) focusNewest({ preventScroll: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat.promoted]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!(event.metaKey && event.key.toLowerCase() === "l")) return;
@@ -73,7 +85,7 @@ export function ChatScreen({ bridge }: { bridge: ChatBridge }) {
       ...controller,
       send: (text) => {
         focusWanted.current = "field";
-        controller.send(text);
+        return controller.send(text);
       },
       chip: (id: ChipId) => {
         focusWanted.current = id === "why" ? "field" : "headline";
@@ -101,6 +113,7 @@ export function ChatScreen({ bridge }: { bridge: ChatBridge }) {
   return (
     <ChatStreamContext.Provider value={chat.busy}>
       <div className="guided-chat">
+        <h1 className="visually-hidden">{CHAT.chat}</h1>
         <ChatTranscript messages={state.messages} handlers={handlers} extras={chat.extras} logRef={logRef} headlineRef={headlineRef} />
         <ChatFoot
           chips={chat.chips}
@@ -116,7 +129,7 @@ export function ChatScreen({ bridge }: { bridge: ChatBridge }) {
           onStop={handlers.stop}
           onNavigate={handlers.navigate}
           onNearLimit={chat.nearLimit}
-          onEscape={focusNewest}
+          onEscape={() => focusNewest()}
           fieldRef={(el) => {
             field.current = el;
           }}

@@ -69,11 +69,47 @@ export interface Firewall {
   readonly blockAllIncoming: boolean | null;
 }
 
+/** What `codesign` said about an app bundle, in the closed words the fishy Details and rule 035 share. */
+export type SignatureWord = "apple" | "app_store" | "developer_id" | "adhoc" | "unsigned" | "invalid";
+
+export interface FlaggedBundle {
+  /** Display-only. The bundle folder directly under /Applications or ~/Applications. */
+  readonly path: string;
+  /** Display-only. The `.app` name. */
+  readonly name: string;
+  readonly signature: SignatureWord;
+  /** true when the bundle folder carries the com.apple.quarantine attribute name; the value is never read. */
+  readonly quarantined: boolean;
+}
+
+/** The check-up's app bundle scan: `listxattr` names and two `codesign` runs per bundle, capped. */
+export interface AppsCheck {
+  /** Every bundle directly under the two folders. */
+  readonly bundleCount: number;
+  /** How many got a signature reading before the cap or the budget ran out. */
+  readonly checkedCount: number;
+  /** adhoc or unsigned bundles with no quarantine flag; Gatekeeper never saw them. */
+  readonly flagged: readonly FlaggedBundle[];
+}
+
+/** Things loaded into every process: the running session's insert variable, the login hooks and the legacy launchd file. */
+export interface LibraryInserts {
+  /** `launchctl getenv DYLD_INSERT_LIBRARIES` is non-empty. */
+  readonly dyldInsertSet: boolean;
+  /** A LoginHook or LogoutHook key is present in either loginwindow domain. */
+  readonly loginHookSet: boolean;
+  /** /etc/launchd.conf exists. */
+  readonly launchdConfPresent: boolean;
+}
+
 export interface PlatformIntegrity {
   /** Gatekeeper on macOS, SmartScreen on Windows. null when absent. */
   readonly execPolicyEnabled: boolean | null;
   /** System Integrity Protection on macOS. null on other platforms. */
   readonly systemProtectionEnabled: boolean | null;
+  /** Nested, so a failed app scan never hides Gatekeeper or SIP. */
+  readonly apps: Section<AppsCheck>;
+  readonly inserts: Section<LibraryInserts>;
 }
 
 export type MalwareEngine = "xprotect" | "defender" | "none";
@@ -158,12 +194,20 @@ export interface ServiceState {
   readonly listeningPort: number | null;
 }
 
+/** `defaults read com.apple.sharingd DiscoverableMode`: "unset" when the key or domain is missing or the value is not one of the three. */
+export type AirdropMode = "everyone" | "contacts_only" | "off" | "unset";
+
 export interface RemoteAccess {
   readonly ssh: ServiceState;
   /** Screen Sharing on macOS, RDP on Windows. */
   readonly screenSharing: ServiceState;
   /** Apple Remote Desktop. null on other platforms. */
   readonly remoteManagement: ServiceState | null;
+  /** Remote Apple Events (com.apple.AEServer); absent from launchctl's list is off. null on other platforms. */
+  readonly remoteAppleEvents: ServiceState | null;
+  /** com.apple.nat Enabled; "unset" when the domain is absent. */
+  readonly internetSharing: Tri;
+  readonly airdrop: AirdropMode;
 }
 
 export interface Share {

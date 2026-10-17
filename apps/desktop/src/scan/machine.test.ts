@@ -260,7 +260,7 @@ describe("scan reducer", () => {
 
   it("explain: ready -> running -> ready with byRule and order", () => {
     let state = reduce(ready(), { type: "explain_started", target: "TL-MAC-001" });
-    expect(state.kind === "ready" && state.explain).toEqual({ kind: "running", target: "TL-MAC-001", partial: null, answerPartial: null, from: EMPTY });
+    expect(state.kind === "ready" && state.explain).toEqual({ kind: "running", target: "TL-MAC-001", partial: null, from: EMPTY });
     const order: RuleId[] = ["TL-MAC-001", "TL-MAC-002"];
     state = reduce(state, { type: "explain_ready", byRule: { "TL-MAC-001": EXPLANATION }, order });
     expect(state.kind === "ready" && state.explain).toEqual({
@@ -274,7 +274,7 @@ describe("scan reducer", () => {
 
   it("explain: prioritise target and failure", () => {
     let state = reduce(ready(), { type: "explain_started", target: "prioritise" });
-    expect(state.kind === "ready" && state.explain).toEqual({ kind: "running", target: "prioritise", partial: null, answerPartial: null, from: EMPTY });
+    expect(state.kind === "ready" && state.explain).toEqual({ kind: "running", target: "prioritise", partial: null, from: EMPTY });
     state = reduce(state, { type: "explain_failed", reason: "no_api_key", target: "prioritise", byRule: {}, order: null });
     expect(state.kind === "ready" && state.explain).toEqual({
       kind: "failed",

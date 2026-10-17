@@ -30,8 +30,13 @@ import { TL_MAC_028 } from "./tl-mac-028";
 import { TL_MAC_029 } from "./tl-mac-029";
 import { TL_MAC_030 } from "./tl-mac-030";
 import { TL_MAC_031 } from "./tl-mac-031";
+import { TL_MAC_032 } from "./tl-mac-032";
+import { TL_MAC_033 } from "./tl-mac-033";
+import { TL_MAC_034 } from "./tl-mac-034";
+import { TL_MAC_035 } from "./tl-mac-035";
+import { TL_MAC_036 } from "./tl-mac-036";
 
-export const MACOS_CATALOG_VERSION = "0.2.0";
+export const MACOS_CATALOG_VERSION = "0.3.0";
 export const MACOS_CIS_EDITION = "CIS Apple macOS 26 Tahoe Benchmark v1.0.0";
 
 export const MACOS_CATALOG: RuleCatalog = {
@@ -69,6 +74,11 @@ export const MACOS_CATALOG: RuleCatalog = {
     TL_MAC_029,
     TL_MAC_030,
     TL_MAC_031,
+    TL_MAC_032,
+    TL_MAC_033,
+    TL_MAC_034,
+    TL_MAC_035,
+    TL_MAC_036,
   ],
 };
 
@@ -104,4 +114,9 @@ export {
   TL_MAC_029,
   TL_MAC_030,
   TL_MAC_031,
+  TL_MAC_032,
+  TL_MAC_033,
+  TL_MAC_034,
+  TL_MAC_035,
+  TL_MAC_036,
 };

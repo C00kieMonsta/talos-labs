@@ -48,9 +48,39 @@ describe("packages/core/fixtures/playbook.json", () => {
 });
 
 describe("PLAYBOOK", () => {
-  it("has the 24 rows in ACTION_IDS order, one per id", () => {
+  it("has the 26 rows in ACTION_IDS order, one per id", () => {
     expect(PLAYBOOK.map((r) => r.id)).toEqual([...ACTION_IDS]);
-    expect(PLAYBOOK).toHaveLength(24);
+    expect(PLAYBOOK).toHaveLength(26);
+  });
+
+  it("the two benchmark rows open a pane, name the section without the banned word, and carry the benchmark url", () => {
+    expect(PLAYBOOK_URLS.CIS).toBe("https://www.cisecurity.org/benchmark/apple_os");
+    const airdrop = playbookRow("act.limit_airdrop");
+    expect(airdrop?.source).toBe("CIS");
+    expect(airdrop?.step).toBe("Apple macOS 26 Benchmark, section 2.3.1.1");
+    expect(airdrop?.kind).toEqual({ kind: "pane", pane: "airdrop" });
+    expect(airdrop?.floor).toBe("keep_an_eye");
+    expect(airdrop?.triggers).toEqual(["sig.airdrop_everyone"]);
+    expect(airdrop?.title).toBe("Limit AirDrop to people you know");
+    expect([airdrop?.phase, airdrop?.outcome]).toEqual(["containment", "RS.MI-02"]);
+    const sharing = playbookRow("act.stop_internet_sharing");
+    expect(sharing?.source).toBe("CIS");
+    expect(sharing?.step).toBe("Apple macOS 26 Benchmark, section 2.3.3.7");
+    expect(sharing?.kind).toEqual({ kind: "pane", pane: "sharing" });
+    expect(sharing?.triggers).toEqual(["sig.internet_sharing_on"]);
+    expect(sharing?.title).toBe("Turn Internet Sharing off");
+    expect(sharing?.whatExpertsDo).toBe("Experts turn Internet Sharing off unless the Mac is meant to hand out its connection.");
+    for (const row of [airdrop, sharing]) expect(row?.url).toBe(PLAYBOOK_URLS.CIS);
+  });
+
+  it("the review row covers the app listing and get_help covers the two look-only counts", () => {
+    const review = playbookRow("act.review_background_programs");
+    for (const id of ["sig.launch_label_masquerade", "sig.launch_label_masquerade_unsigned", "sig.app_set", "sig.app_new_unquarantined", "sig.app_new_unsigned", "sig.library_apps_count"]) {
+      expect(review?.triggers, id).toContain(id);
+    }
+    const help = playbookRow("act.get_help");
+    expect(help?.triggers.slice(-2)).toEqual(["sig.path_dir_writable_count", "sig.library_apps_count"]);
+    expect(help?.triggers).toHaveLength(33 + 2);
   });
 
   it("every string field is non-empty and every url is https from the source table", () => {

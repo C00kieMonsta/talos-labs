@@ -9,7 +9,7 @@ import { remoteOf } from "../chat/providers";
 import { ModelText } from "../components/ModelText";
 import { CONNECT_POLL_MS, notConnectedFor, useConnect } from "../scan/ai-connect";
 import { REPROBE_SETTINGS_MS, limitReprobeMs } from "../scan/useAiAvailability";
-import { EXPLAIN } from "./copy";
+import { CHAT, EXPLAIN } from "./copy";
 import { guidedFor } from "./plan";
 
 /** The v0.2 Apple Intelligence states; they render their honest line, never the connect pitch. */
@@ -22,10 +22,14 @@ function isAppleState(state: AiAvailability): state is AppleAiState {
 export interface ExplainPanelProps {
   readonly ruleId: RuleId;
   readonly others?: readonly RuleId[];
+  /** False drops the panel's own live regions; the host speaks the state through onState instead (the chat). */
+  readonly announce?: boolean;
+  /** The state line to speak when it changes while open: checking, waiting, writing; null when none. */
+  readonly onState?: (text: string | null) => void;
 }
 
 /** "Explain this": streams explain(ruleId) through the v0.2 chokepoint. Never on the path; collapses on advance. */
-export function ExplainPanel({ ruleId, others = [] }: ExplainPanelProps) {
+export function ExplainPanel({ ruleId, others = [], announce = true, onState }: ExplainPanelProps) {
   const { scan, ai, settings, adapters } = useApp();
   // One request at a time per provider: while the chat answers, the disclosure says so and asks nothing.
   const chatBusy = useContext(ChatStreamContext);
@@ -89,11 +93,16 @@ export function ExplainPanel({ ruleId, others = [] }: ExplainPanelProps) {
   const text = ready?.whyItMattersForYou ?? partial?.whyItMattersForYou ?? null;
   const provider = settings.explainer.provider;
   const remote = remoteOf(provider);
+  const status = announce ? "status" : undefined;
+  const stateLine = availability === null ? EXPLAIN.checking : availability === "connecting" ? EXPLAIN.waiting : availability === "available" && streaming ? CHAT.writing : null;
+  useEffect(() => {
+    if (open && onState !== undefined) onState(stateLine);
+  }, [open, stateLine, onState]);
 
   let body: ReactNode;
   if (availability === null) {
     body = (
-      <p className="guided-meta" role="status">
+      <p className="guided-meta" role={status}>
         {EXPLAIN.checking}
       </p>
     );
@@ -152,7 +161,7 @@ export function ExplainPanel({ ruleId, others = [] }: ExplainPanelProps) {
     body = <p className="guided-meta guided-explain-line">{EXPLAIN.notOffered[remote]}</p>;
   } else if (availability === "connecting") {
     body = (
-      <p className="guided-meta" role="status">
+      <p className="guided-meta" role={status}>
         {EXPLAIN.waiting}
       </p>
     );
@@ -187,8 +196,8 @@ export function ExplainPanel({ ruleId, others = [] }: ExplainPanelProps) {
       <>
         {text !== null && <ModelText text={text} caret={streaming} />}
         {streaming && (
-          <p className="guided-meta" role="status">
-            Writing{" "}
+          <p className="guided-meta" role={status}>
+            {CHAT.writing}{" "}
             <button type="button" className="link-button" onClick={() => scan.stopExplain()}>
               {EXPLAIN.stop}
             </button>

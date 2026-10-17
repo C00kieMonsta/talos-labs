@@ -1,6 +1,7 @@
 import type { RuleId } from "../domain/finding";
+import type { SignalId } from "../ports/watch-port";
 
-/** DESIGN-CHAT section 4. AGENT part B appends its five kinds here later; nothing else changes. */
+/** DESIGN-CHAT section 4's eleven, then DESIGN-AGENT part B's five, in that order. */
 export const INTENT_KINDS = [
   "fix_rule",
   "fix_batch",
@@ -13,14 +14,27 @@ export const INTENT_KINDS = [
   "snooze_rule",
   "accept_rule",
   "open_watch",
+  "investigate",
+  "close_watch",
+  "remind_rule",
+  "write_up",
+  "what_if",
 ] as const;
 export type IntentKind = (typeof INTENT_KINDS)[number];
 
-/** Kinds that take no ruleId; a ruleId on them is ignored by the validator. */
-export const INTENT_KINDS_WITHOUT_RULE: readonly IntentKind[] = ["fix_batch", "show_list", "rescan", "change_ai", "open_watch"];
+/** The two days a reminder may name. */
+export const REMIND_WHENS = ["tomorrow", "sunday"] as const;
+export type RemindWhen = (typeof REMIND_WHENS)[number];
+
+/** Kinds that take no ruleId; a ruleId on them is ignored by the validator. investigate takes a signalId or a ruleId and is handled on its own. */
+export const INTENT_KINDS_WITHOUT_RULE: readonly IntentKind[] = ["fix_batch", "show_list", "rescan", "change_ai", "open_watch", "close_watch", "write_up"];
 
 export interface ChatIntent {
   readonly kind: IntentKind;
-  /** null for the five kinds above; a report rule id otherwise. */
+  /** null for the kinds above; a report rule id otherwise. */
   readonly ruleId: RuleId | null;
+  /** investigate on a watch item; the validator emits null on every other kind. */
+  readonly signalId?: SignalId | null;
+  /** remind_rule only; the validator emits null on every other kind. */
+  readonly when?: RemindWhen | null;
 }

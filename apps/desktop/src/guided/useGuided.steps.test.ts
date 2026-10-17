@@ -239,8 +239,13 @@ describe("guided steps", () => {
     });
     expect(stepState(h)?.kind).toBe("done");
     const planned = h.hook.result.current.guided.phase;
-    expect(planned.kind === "step" && planned.plan.steps.map((s) => s.id)).toEqual(["batch", "permission:full_disk_access", "paywall", "show:TL-MAC-003"]);
+    expect(planned.kind === "step" && planned.plan.steps.map((s) => s.id)).toEqual(["batch", "show:TL-MAC-032", "permission:full_disk_access", "paywall", "show:TL-MAC-003"]);
     act(() => h.hook.result.current.guided.carryOn());
+    expect(stepId(h)).toBe("show:TL-MAC-032");
+    act(() => h.hook.result.current.guided.later());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LATER_FLASH_MS);
+    });
     expect(stepId(h)).toBe("permission:full_disk_access");
     act(() => h.hook.result.current.guided.later());
     expect(stepId(h)).toBe("paywall");
@@ -264,7 +269,7 @@ describe("guided steps", () => {
     await act(async () => {
       await h.hook.result.current.guided.enterLicence("TL1.DEMO");
     });
-    expect(h.hook.result.current.guided.progress.of).toBe(8);
+    expect(h.hook.result.current.guided.progress.of).toBe(9);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(LATER_FLASH_MS);
     });
@@ -960,17 +965,17 @@ describe("the third Later asks instead of retiring", () => {
     if (scan.kind !== "ready") return;
     const first = nextAction(end.plan, scan.report);
     expect(first).toMatchObject({ kind: "unlock", ruleId: "TL-MAC-022" });
-    expect(first?.step?.kind === "paywall" && first.step.lockedRuleIds).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-022", "TL-MAC-026"]);
+    expect(first?.step?.kind === "paywall" && first.step.lockedRuleIds).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-022", "TL-MAC-026", "TL-MAC-032"]);
     // Details on the best locked rule, "Leave it alone, I know the risk", back to the end screen.
     h.control.memory = acceptRules(h.control.memory, ["TL-MAC-022"], NOW);
     h.hook.rerender();
     const after = h.hook.result.current.guided.phase;
     expect(after.kind).toBe("end");
     if (after.kind !== "end") return;
-    expect(after.plan.locked).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-026"]);
+    expect(after.plan.locked).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-026", "TL-MAC-032"]);
     const action = nextAction(after.plan, scan.report);
     expect(action).toMatchObject({ kind: "unlock", ruleId: "TL-MAC-026" });
-    expect(action?.step?.kind === "paywall" && action.step.lockedRuleIds).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-026"]);
+    expect(action?.step?.kind === "paywall" && action.step.lockedRuleIds).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-026", "TL-MAC-032"]);
     if (action === null) return;
     act(() => h.hook.result.current.guided.doNext(action));
     const phase = h.hook.result.current.guided.phase;
@@ -978,7 +983,7 @@ describe("the third Later asks instead of retiring", () => {
     if (phase.kind !== "step") return;
     const step = phase.plan.steps[phase.index];
     expect(step?.kind).toBe("paywall");
-    expect(step?.kind === "paywall" && step.lockedRuleIds).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-026"]);
+    expect(step?.kind === "paywall" && step.lockedRuleIds).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-026", "TL-MAC-032"]);
     expect(phase.plan.steps.filter((s) => s.kind === "paywall")).toHaveLength(1);
   });
 });

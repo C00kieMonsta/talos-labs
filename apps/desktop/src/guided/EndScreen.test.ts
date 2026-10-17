@@ -70,7 +70,7 @@ const ACT_ITEM: WatchItem = {
 };
 
 function watchWith(rating: WatchState["rating"], items: readonly WatchItem[], licensed = true): WatchController {
-  const state: WatchState = { enabled: true, licensed, firstRun: false, hiddenLaunch: false, rating, since: null, lastCheckAt: null, checking: false, cycleIndex: 2, everyMinutes: 60, notify: true, pausedUntil: null, closeWatchUntil: null, unavailable: [], gated: [], items };
+  const state: WatchState = { enabled: true, licensed, firstRun: false, hiddenLaunch: false, rating, since: null, lastCheckAt: null, checking: false, cycleIndex: 2, everyMinutes: 60, notify: true, pausedUntil: null, closeWatchUntil: null, unavailable: [], gated: [], items, nextCheckAt: null, lastChangeAt: null, ai: { enabled: true, provider: null }, judge: null, recentCount: 0, rulesSince: null, report: null, next: null };
   return { ...INERT_WATCH, state };
 }
 
@@ -189,13 +189,13 @@ describe("EndScreen", () => {
   });
 
   it("says it could not check when nothing was read, with no card, and keeps the unreadable row as the route to Details", () => {
-    renderEnd(plan({ unreadable: 31 }), []);
+    renderEnd(plan({ unreadable: 36 }), []);
     expect(screen.getByRole("heading", { level: 1, name: END.unreadableAll })).toBeTruthy();
     expect(screen.getByText(END.tryAgain)).toBeTruthy();
     expect(screen.queryByText(END.nothing)).toBeNull();
     expect(document.querySelector(".guided-status-mark")).toBeNull();
     expect(document.querySelector(".guided-next-card")).toBeNull();
-    expect(screen.getByRole("button", { name: `I couldn't check 31 areas. ${END.details}` })).toBeTruthy();
+    expect(screen.getByRole("button", { name: `I couldn't check 36 areas. ${END.details}` })).toBeTruthy();
     cleanup();
     renderEnd(plan({ unreadable: 2 }), []);
     expect(screen.getByRole("heading", { level: 1, name: END.unreadableSome })).toBeTruthy();

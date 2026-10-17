@@ -1,5 +1,6 @@
 import type {
   ActionId,
+  Change,
   ExplainerProfile,
   FishyKind,
   FixApplyOptions,
@@ -26,7 +27,7 @@ import type {
   WatchSignal,
   WatchState,
 } from "@talos/core";
-import { ACTION_IDS, boundsFor, MODEL_PROBE_IDS, PLAYBOOK, RATING_ORDER, rateWatch, SIGNAL_POINTS, SIGNAL_SEVERITY, topItems, WATCH_ACTION_IDS, WATCH_INTERVALS } from "@talos/core";
+import { ACTION_IDS, boundsFor, MODEL_PROBE_IDS, PLAYBOOK, RATING_ORDER, rateWatch, siblings, SIGNAL_POINTS, SIGNAL_SEVERITY, topItems, WATCH_ACTION_IDS, WATCH_INTERVALS } from "@talos/core";
 import type { WatchDemoFlags } from "../app/demo-boot";
 import { recordDemoCall, wait } from "./demo-shared";
 
@@ -63,15 +64,17 @@ export const DEFAULT_FLIP_AFTER_MS = 1000;
 
 interface DemoSignal {
   readonly signalId: SignalId;
-  readonly value: boolean | number;
-  readonly previous: boolean | number;
+  /** A Change value is a digest reading: it carries no previous and its change word is the value. */
+  readonly value: boolean | number | Change;
+  readonly previous: boolean | number | null;
 }
 
 /**
  * Per kind: the top signal first, then the one that corroborates it from another listing (the
- * three persistence counters count once). look keeps only the first.
+ * three persistence counters count once). look keeps only the first. The witness is a later,
+ * lower-or-equal-points pair signal from another pair group, so the kind's own signal stays on top.
  */
-const SIGNAL_SETS: Readonly<Record<FishyKind, readonly DemoSignal[]>> = {
+export const SIGNAL_SETS: Readonly<Record<FishyKind, readonly DemoSignal[]>> = {
   persistence: [
     { signalId: "sig.persistence_new", value: 1, previous: 0 },
     { signalId: "sig.listener_new_ports", value: 1, previous: 0 },
@@ -100,10 +103,22 @@ const SIGNAL_SETS: Readonly<Record<FishyKind, readonly DemoSignal[]>> = {
     { signalId: "sig.backup_auto", value: false, previous: true },
     { signalId: "sig.backup_destinations", value: 0, previous: 1 },
   ],
+  app: [
+    { signalId: "sig.app_new_unsigned", value: 1, previous: 0 },
+    { signalId: "sig.dyld_insert_set", value: true, previous: false },
+  ],
+  shell: [
+    { signalId: "sig.shell_startup_changed", value: "changed", previous: null },
+    { signalId: "sig.dyld_insert_set", value: true, previous: false },
+  ],
+  exposure: [
+    { signalId: "sig.internet_sharing_on", value: true, previous: false },
+    { signalId: "sig.airdrop_everyone", value: true, previous: false },
+  ],
 };
 
 /** Fixture text for Details; never sent anywhere, never an adapter argument. */
-const DETAIL_ITEMS: Readonly<Record<FishyKind, WatchDetailsItem>> = {
+export const DETAIL_ITEMS: Readonly<Record<FishyKind, WatchDetailsItem>> = {
   persistence: {
     signalId: "sig.persistence_new",
     plistPath: "/Users/demo/Library/LaunchAgents/com.example.helper.plist",
@@ -117,7 +132,26 @@ const DETAIL_ITEMS: Readonly<Record<FishyKind, WatchDetailsItem>> = {
   admin: { signalId: "sig.admin_count" },
   dns: { signalId: "sig.dns_manual" },
   backup: { signalId: "sig.backup_auto" },
+  app: { signalId: "sig.app_new_unsigned", label: "Helper.app", programPath: "/Applications/Helper.app", signature: "unsigned" },
+  shell: { signalId: "sig.shell_startup_changed", filePath: "/Users/demo/.zshrc" },
+  exposure: { signalId: "sig.internet_sharing_on" },
 };
+
+/** What ?coverage= does to the state the "What I watch" screen reads (docs/DESIGN-THREATS-V2.md section 7). */
+function coverageFor(flags: WatchDemoFlags): { readonly unavailable: WatchState["unavailable"] | null; readonly enabled: boolean; readonly licensed: boolean | null } {
+  switch (flags.coverage) {
+    case "unsigned":
+      return { unavailable: [{ probeId: "probe.listeners", reason: "unsigned_build" }], enabled: true, licensed: null };
+    case "signed":
+      return { unavailable: [], enabled: true, licensed: null };
+    case "off":
+      return { unavailable: null, enabled: false, licensed: null };
+    case "unlicensed":
+      return { unavailable: null, enabled: true, licensed: false };
+    default:
+      return { unavailable: null, enabled: true, licensed: null };
+  }
+}
 
 const MODEL_SENTENCE = "It appeared on its own, and nothing you installed today explains it.";
 
@@ -179,13 +213,17 @@ function actionIdsFor(signalId: SignalId, rating: Rating): ActionId[] {
   return PLAYBOOK.filter((row) => row.triggers.includes(signalId) && rank(row.floor) <= rank(rating)).map((row) => row.id);
 }
 
+function isChange(value: DemoSignal["value"]): value is Change {
+  return typeof value === "string";
+}
+
 function toSignals(set: readonly DemoSignal[], gatedId: SignalId | null): WatchSignal[] {
   return set.map((s) => ({
     signalId: s.signalId,
     value: s.value,
     previous: s.previous,
     severity: SIGNAL_SEVERITY[s.signalId],
-    change: "changed",
+    change: isChange(s.value) ? s.value : "changed",
     minutesSinceChange: 30,
     freshness: "fresh",
     acknowledged: false,
@@ -232,9 +270,10 @@ export class DemoWatch implements WatchPort {
     const items = this.itemsFor(rating, at);
     const report = firstRun || watch === "no-report" ? null : { reportId: DEMO_REPORT_ID, scannedAt: new Date(Date.parse(at) - 2 * 60 * 60_000).toISOString(), score: 72, grade: "fair" as const };
     const next: WatchNext | null = flags.watchNext && report !== null ? { reportId: DEMO_REPORT_ID, ruleId: "TL-MAC-001", kind: "fix" } : null;
+    const coverage = coverageFor(flags);
     this.state = {
-      enabled: true,
-      licensed: flags.licensed,
+      enabled: coverage.enabled,
+      licensed: coverage.licensed ?? flags.licensed,
       firstRun,
       hiddenLaunch: false,
       rating,
@@ -246,7 +285,7 @@ export class DemoWatch implements WatchPort {
       notify: true,
       pausedUntil: watch === "paused" ? new Date(Date.parse(at) + 60 * 60_000).toISOString() : null,
       closeWatchUntil: null,
-      unavailable: watch === "unreadable" ? UNREADABLE_PROBES : [],
+      unavailable: coverage.unavailable ?? (watch === "unreadable" ? UNREADABLE_PROBES : []),
       gated: gatedId === null ? [] : [gatedId],
       items,
       nextCheckAt: firstRun ? null : new Date(Date.parse(at) + 48 * 60_000).toISOString(),
@@ -259,7 +298,7 @@ export class DemoWatch implements WatchPort {
       next,
     };
     // Rust emits watch:notified on the transition into act now, and only while the watch is active; the harness asserts the record.
-    if (watch === "act" && gatedId === null && flags.licensed) {
+    if (watch === "act" && gatedId === null && this.state.licensed) {
       const top = this.state.items[0];
       if (top !== undefined) recordDemoCall({ kind: "watch:notified", arg: top.signalId });
     }
@@ -420,8 +459,9 @@ export class DemoWatch implements WatchPort {
     return this.contextFor(this.signals);
   }
 
+  /** The kind's fixture row binds to an item from the same listing (the signal or a sibling), as detailsItemFor reads it. */
   async details(): Promise<WatchDetails> {
-    const items = this.state.items.map((item): WatchDetailsItem => (item.signalId === DETAIL_ITEMS[item.kind].signalId ? DETAIL_ITEMS[item.kind] : { signalId: item.signalId }));
+    const items = this.state.items.map((item): WatchDetailsItem => (siblings(item.signalId).includes(DETAIL_ITEMS[item.kind].signalId) ? DETAIL_ITEMS[item.kind] : { signalId: item.signalId }));
     return { items, wifiAvailable: this.wifiAvailable };
   }
 

@@ -346,7 +346,7 @@ export interface ProviderLines {
   readonly probing: string;
   /** The Overview card: the order is what it explains. */
   readonly notConnected: string;
-  /** The finding and Ask cards, where there is no order. */
+  /** The finding and chat cards, where there is no order. */
   readonly notConnectedFinding: string;
   readonly connecting: string;
   readonly needsSignIn: string;
@@ -454,4 +454,10 @@ export const WATCH_PROBE_LABELS: Readonly<Record<ProbeId, string>> = {
   "probe.updates": "software updates",
   "probe.scheduled_jobs": "scheduled jobs",
   "probe.logins": "remote logins",
+  "probe.shell_startup": "hidden start-up files",
+  "probe.apps": "new apps",
+  "probe.app_signatures": "new app signatures",
+  "probe.library_apps": "apps hidden in your library",
+  "probe.exposure": "sharing settings",
+  "probe.hooks": "login hooks",
 };

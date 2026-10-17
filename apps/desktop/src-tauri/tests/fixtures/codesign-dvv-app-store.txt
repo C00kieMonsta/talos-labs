@@ -1,0 +1,15 @@
+Executable=/Applications/Keynote.app/Contents/MacOS/Keynote
+Identifier=com.apple.iWork.Keynote
+Format=app bundle with Mach-O universal (x86_64 arm64)
+CodeDirectory v=20500 size=219843 flags=0x12000(library-validation,runtime) hashes=6859+7 location=embedded
+Signature size=4797
+Authority=Apple Mac OS Application Signing
+Authority=Apple Worldwide Developer Relations Certification Authority
+Authority=Apple Root CA
+Info.plist entries=49
+TeamIdentifier=74J34U3R6X
+Runtime Version=15.2.0
+Sealed Resources version=2 rules=13 files=35801
+Internal requirements count=1 size=224
+Total signatures=1
+Chosen signature=1

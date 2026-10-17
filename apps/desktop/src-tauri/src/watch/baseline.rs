@@ -20,6 +20,13 @@ use crate::report_store::write_private;
 pub const FILE_NAME: &str = "watch.json";
 pub const KEY_BYTES: usize = 32;
 pub const MAX_RECENT: usize = 50;
+/// The shape of a `sw_vers` build string ("26A434", "25A5295e"); anything else is treated as unchanged.
+pub const OS_BUILD_PATTERN: &str = "^[0-9A-Za-z]{5,12}$";
+
+/// True when `text` matches `OS_BUILD_PATTERN`.
+pub fn os_build_ok(text: &str) -> bool {
+    (5..=12).contains(&text.len()) && text.bytes().all(|b| b.is_ascii_alphanumeric())
+}
 
 /// A stored value: booleans, counts and versions as numbers, digests as hex text.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,6 +59,12 @@ pub struct Entry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observed: Option<Observed>,
     pub freshness: Freshness,
+    /// Hold digests only: the `sw_vers` build this entry was last re-seeded for (the build hold).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held_for_build: Option<String>,
+    /// The version of the signal's definition this entry was seeded under (`cycle::SIGNAL_DEFINITIONS`); absent means 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub definition: Option<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -120,6 +133,9 @@ pub struct Baseline {
     /// How many rules appeared in the last check-up's diff, kept until the report id changes.
     #[serde(default)]
     pub rules_since: Option<RulesSince>,
+    /// The `sw_vers` build the system-file stat digests were last seeded under (the build hold).
+    #[serde(default)]
+    pub os_build: Option<String>,
 }
 
 fn calm() -> Rating {
@@ -156,6 +172,7 @@ impl Baseline {
             last_signed_change_at: None,
             last_change_at: None,
             rules_since: None,
+            os_build: None,
         }
     }
 
@@ -296,6 +313,8 @@ mod tests {
                 seen_at: "2026-10-17T12:00:00.000Z".into(),
                 observed: None,
                 freshness: Freshness::Fresh,
+                held_for_build: None,
+                definition: None,
             },
         );
         baseline.record(RecentEntry {
@@ -339,6 +358,26 @@ mod tests {
         std::fs::write(path(&dir), br#"{"version":1,"key":"AAAA"}"#).unwrap();
         assert_eq!(load(&dir).key_bytes().len(), KEY_BYTES);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_build_pattern_accepts_release_and_beta_builds_only() {
+        let re = regex::Regex::new(OS_BUILD_PATTERN).unwrap();
+        for (text, ok) in [
+            ("26A434", true),
+            ("25A5295e", true),
+            ("26A4", false),
+            ("", false),
+            ("26A434-beta", false),
+            ("ABCDEFGHIJKLM", false),
+            ("26A434\n", false),
+        ] {
+            assert_eq!(os_build_ok(text), ok, "{text:?}");
+            assert_eq!(re.is_match(text), ok, "{text:?} against the pattern");
+        }
+        let text = r#"{"version":1,"key":"AAAA"}"#;
+        let parsed: Baseline = serde_json::from_str(text).unwrap();
+        assert_eq!(parsed.os_build, None, "an older file has no build");
     }
 
     #[test]

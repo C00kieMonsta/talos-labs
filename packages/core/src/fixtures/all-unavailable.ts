@@ -5,7 +5,7 @@ import type { SystemState } from "../domain/system-state";
  * so an engine test can assert that each rule's unknownReason is the reason
  * of its first required section.
  *
- * Expected with the v0.1 catalog: 31 unknown. Score null, grade null,
+ * Expected with the v0.3 catalog: 36 unknown. Score null, grade null,
  * deducted 0, complete false.
  */
 export const ALL_UNAVAILABLE: SystemState = {

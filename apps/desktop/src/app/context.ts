@@ -17,7 +17,7 @@ export interface AppContextValue {
   readonly gate: Gate;
   readonly scan: ScanController;
   readonly router: Router;
-  /** True when Ask can answer: the on-device model is available, or Developer mode has a Claude or Ollama provider. */
+  /** True when the AI can answer on this Mac: the on-device model is available, or Developer mode has a Claude or Ollama provider. */
   readonly aiUsable: boolean;
   /** The lazy on-device availability probe and its re-probe schedules. */
   readonly ai: AiController;

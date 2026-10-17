@@ -282,7 +282,7 @@ describe("ExplainPanel, state lines", () => {
 
 describe("ExplainPanel, explaining", () => {
   it("streams the text with Stop while running, no badge yet", () => {
-    const { value } = renderPanel({ explain: { kind: "running", target: RULE, partial: { whyItMattersForYou: "Anyone on" }, answerPartial: null, from: { byRule: {}, order: null, priority: null } } });
+    const { value } = renderPanel({ explain: { kind: "running", target: RULE, partial: { whyItMattersForYou: "Anyone on" }, from: { byRule: {}, order: null, priority: null } } });
     open();
     expect(value.scan.explain).toHaveBeenCalledWith(RULE);
     expect(body()).toContain("Anyone on");

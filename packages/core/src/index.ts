@@ -36,6 +36,7 @@ export {
   containsAppVoice,
   claimsAction,
   replyRejected,
+  containsMachineText,
   CHAT_LIMITS,
   clampChatHistory,
   clampChatQuestion,
@@ -93,4 +94,5 @@ export * from "./watch/index";
 export { DEV_MACHINE, HARDENED, ALL_UNAVAILABLE, FRESH_INSTALL, WINDOWS_MINIMAL, FIXTURES } from "./fixtures/index";
 
 export { LATER_ASK_COUNT, KEEP_ACCEPTED_THROUGH_PASS, isAccepted, acceptedFailing, acceptRules, unacceptRule, clearAcceptedThatPass } from "./guided/index";
+export { REMINDER_HOUR, reminderDate, remindRules, reminderDue, clearReminders, dueFirst } from "./guided/index";
 export { ACCEPTED_SENTENCE, buildExplainerSystemPrompt, ON_DEVICE_BASE_INSTRUCTIONS } from "./explainer/index";

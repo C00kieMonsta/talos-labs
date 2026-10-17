@@ -16,8 +16,8 @@ describe("plan helpers", () => {
     expect(planCounts(plan(false))).toEqual({ total: 3, forYou: 1, showWhere: 2 });
     expect(planText(plan(false), false)).toEqual({ title: "I found 3 things to fix.", body: "I can fix 1 of them for you now. The other 2 I'll show you where." });
     expect(planText(plan(false), true).body).toBe("Same 3 things as last time.");
-    expect(planCounts(plan(true))).toEqual({ total: 7, forYou: 4, showWhere: 3 });
-    expect(planText(plan(true), false).title).toBe("I found 7 things to fix.");
+    expect(planCounts(plan(true))).toEqual({ total: 8, forYou: 4, showWhere: 4 });
+    expect(planText(plan(true), false).title).toBe("I found 8 things to fix.");
   });
 
   it("says what follows when only a permission or paywall step is left", () => {

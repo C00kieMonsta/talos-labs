@@ -3,8 +3,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MACOS_CATALOG, PROBE_IDS } from "@talos/core";
 import * as copy from "./copy";
-import { ACCEPT, ACTIVITY, CHAT, CONNECT, CONNECTING, CONNECT_FAILED, END, EXPLAIN, FISHY, GUIDED_SECTION_LABELS, NOT_ANTIVIRUS, PAYWALL, WATCH, WATCH_ON, WATCH_SETTINGS, WELCOME, chosenLine, failureCopy } from "./copy";
-import { AI_BADGES, AI_OPEN_APPLE_SETTINGS, AI_UNAVAILABLE_COPY, DECIDED_BY_APP, WATCH_PROBE_LABELS } from "../app/labels";
+import { ACCEPT, ACTIVITY, CHAT, CONNECT, CONNECTING, CONNECT_FAILED, COVERAGE, END, EXPLAIN, FISHY, GUIDED_SECTION_LABELS, NOT_ANTIVIRUS, PAYWALL, WATCH, WATCH_ON, WATCH_SETTINGS, WELCOME, chosenLine, failureCopy } from "./copy";
+import { AI_BADGES, AI_OPEN_APPLE_SETTINGS, AI_UNAVAILABLE_COPY, DECIDED_BY_APP, UNKNOWN_REASON_LABELS, WATCH_PROBE_LABELS } from "../app/labels";
 import { PROVIDERS } from "../settings";
 import { remoteOf, waitingKey } from "../chat/providers";
 
@@ -137,8 +137,8 @@ describe("watch copy", () => {
       expect(text, text).not.toMatch(BANNED_PATTERN);
     }
     expect(Object.keys(WATCH_PROBE_LABELS)).toEqual([...PROBE_IDS]);
-    expect(Object.keys(WATCH.why)).toEqual(["persistence", "listener", "guard", "remote", "admin", "dns", "backup"]);
-    expect(Object.keys(FISHY.gate.body)).toEqual(["guard", "remote", "admin", "backup"]);
+    expect(Object.keys(WATCH.why)).toEqual(["persistence", "listener", "guard", "remote", "admin", "dns", "backup", "app", "shell", "exposure"]);
+    expect(Object.keys(FISHY.gate.body)).toEqual(["guard", "remote", "admin", "backup", "exposure"]);
   });
 
   it("the headlines and the notification tail equal the core fixture Rust reads", () => {
@@ -162,7 +162,7 @@ describe("watch copy", () => {
       ...Object.values(WATCH.why),
       WATCH.firstRun,
     ];
-    expect(perString.length).toBe(6 + 7 + 4 + 9 + 7 + 1);
+    expect(perString.length).toBe(6 + 10 + 5 + 12 + 10 + 1);
     for (const text of perString) expect(syllablesPerWord(text), text).toBeLessThanOrEqual(1.6);
   });
 
@@ -206,6 +206,70 @@ describe("watch copy", () => {
     expect(FISHY.noticed.ransom).toBe("I saw a message asking for money");
     expect(FISHY.experts.more).toBe("More experts suggest");
     expect(FISHY.experts.primary).toBe("Done");
+  });
+});
+
+/* DESKTOP region: the three new fishy kinds and the "What I watch" screen (docs/DESIGN-THREATS-V2.md sections 4 and 9). */
+describe("threats v2 copy", () => {
+  it("the three headlines, why lines, the gate body, the signature words and the three expert rows are the spec's", () => {
+    expect(FISHY.noticed.headline.app).toBe("A new app skipped the usual safety checks");
+    expect(FISHY.noticed.headline.shell).toBe("A hidden file that runs at start-up changed");
+    expect(FISHY.noticed.headline.exposure).toBe("Your Mac is sharing more than before");
+    expect(WATCH.why.app).toBe("Apps that skip the checks are how bad software gets in.");
+    expect(WATCH.why.shell).toBe("Bad software hides there so it runs again and again.");
+    expect(WATCH.why.exposure).toBe("Each thing shared is one more way in.");
+    expect(FISHY.gate.body.exposure).toBe("A sharing setting was switched on at {time}.");
+    expect(FISHY.noticed.changedAt).toBe("changed at {time}");
+    expect(FISHY.signature).toEqual({
+      apple: "from Apple",
+      app_store: "from the App Store",
+      developer_id: "signed by its maker",
+      adhoc: "signed by no one macOS knows",
+      unsigned: "not signed",
+      invalid: "its signature is broken",
+    });
+    expect(Object.keys(FISHY.experts.rows)).toEqual(["passwords", "devices", "twoFactor", "restore", "doNotPay", "reinstall", "report", "update", "lockdown", "limitAirdrop", "stopSharing", "getHelp"]);
+    expect(FISHY.experts.rows.limitAirdrop.details).toBe("Apple macOS 26 Benchmark, section 2.3.1.1.");
+    expect(FISHY.experts.rows.stopSharing.details).toBe("Apple macOS 26 Benchmark, section 2.3.3.7.");
+    expect(FISHY.experts.rows.getHelp.details).toBe("CISA, Recovering from a Trojan Horse or Virus, step 1.");
+  });
+
+  it("every COVERAGE string, the signature words and the three expert rows pass the banned list, with no em-dash", () => {
+    const all = [...strings(COVERAGE), ...Object.values(FISHY.signature), ...strings(FISHY.experts.rows.limitAirdrop), ...strings(FISHY.experts.rows.stopSharing), ...strings(FISHY.experts.rows.getHelp)];
+    expect(all.length).toBeGreaterThan(40);
+    for (const text of all) {
+      expect(text, text).not.toMatch(BANNED_PATTERN);
+      expect(text, text).not.toContain("—");
+    }
+  });
+
+  it("the headlines, why lines, gate body, the intros and the ten gap sentences read under 1.6 syllables per word", () => {
+    const perString = [
+      FISHY.noticed.headline.app,
+      FISHY.noticed.headline.shell,
+      FISHY.noticed.headline.exposure,
+      WATCH.why.app,
+      WATCH.why.shell,
+      WATCH.why.exposure,
+      FISHY.gate.body.exposure,
+      COVERAGE.intro,
+      COVERAGE.introOff,
+      COVERAGE.introUnlicensed,
+      ...Object.values(COVERAGE.gaps).flat(),
+    ];
+    expect(perString.length).toBe(3 + 3 + 1 + 3 + 10);
+    for (const text of perString) expect(syllablesPerWord(text), text).toBeLessThanOrEqual(1.6);
+  });
+
+  it("the reason keys are the check-up's plus the two watch-only words, the groups are the five controls, the intervals the three", () => {
+    expect(Object.keys(COVERAGE.reason)).toEqual([...Object.keys(UNKNOWN_REASON_LABELS), "unsigned_build", "spotlight_off"]);
+    expect(Object.keys(COVERAGE.groups)).toEqual(["firewalls", "settings", "access", "malware", "updates"]);
+    expect(Object.keys(COVERAGE.interval)).toEqual(["15", "60", "240"]);
+    expect(Object.keys(COVERAGE.gaps)).toEqual(["sockets", "browsers", "btm", "realtime", "privacy"]);
+    for (const gap of Object.values(COVERAGE.gaps)) expect(gap).toHaveLength(2);
+    expect(COVERAGE.intro).toContain("{interval}");
+    expect(COVERAGE.title).toBe("What I watch");
+    expect(COVERAGE.turnOn.length).toBeLessThanOrEqual(28);
   });
 });
 
@@ -301,16 +365,11 @@ describe("chat copy", () => {
     expect(CHAT.left).toContain("{n}");
     expect(CHAT.calls).toContain("{n}");
     expect(CHAT.actHeadline).toContain("{headline}");
-    expect(CHAT.why).toContain("{headline}");
-    expect(CHAT.askWhy).toContain("{headline}");
     expect(CHAT.moreLocked).toContain("{n}");
     expect(CHAT.placeholder).toBe("Ask me, or tell me what to do.");
     expect(CHAT.guard).toBe("I can't read file paths or typed instructions. Say it in words and I'll answer.");
     expect(CHAT.newMessages).toBe("New messages");
     expect(EXPLAIN.busy).toBe("I'm answering in the chat. Stop it there, or give me a moment.");
-    // The watch window's own draft string, when the watch session lands it, must equal CHAT.askWhy.
-    const watchAskWhy = (WATCH as Record<string, unknown>)["askWhy"];
-    if (typeof watchAskWhy === "string") expect(watchAskWhy).toBe(CHAT.askWhy);
   });
 
   it("waitingKey and remoteOf cover every provider and land on a CHAT or EXPLAIN key", () => {
@@ -322,5 +381,71 @@ describe("chat copy", () => {
     expect(waitingKey("ollama")).toBe("apple");
     expect(remoteOf("claude")).toBe("claude_plan");
     expect(remoteOf("apple")).toBe("chatgpt");
+  });
+});
+
+/* AGENT part B region: the rest of the ACTIVITY block (docs/DESIGN-AGENT.md section 4 "Copy"). */
+describe("agent copy", () => {
+  it("every ACTIVITY string passes the banned list with no em-dash and no exclamation mark", () => {
+    const all = strings(ACTIVITY);
+    expect(all.length).toBeGreaterThan(70);
+    for (const text of all) {
+      expect(text, text).not.toMatch(BANNED_PATTERN);
+      expect(text, text).not.toContain("—");
+      expect(text, text).not.toContain("!");
+    }
+  });
+
+  it("the sentences a person reads whole stay under 1.6 syllables per word; the chips, rows, labels and time lines are exempt", () => {
+    const perString = [
+      ...Object.values(ACTIVITY.investigate),
+      ACTIVITY.plan.lead,
+      ACTIVITY.closer.headline,
+      ACTIVITY.closer.already,
+      ...Object.values(ACTIVITY.remind),
+      ACTIVITY.writeUp.lead,
+      ACTIVITY.writeUp.failed,
+      ACTIVITY.writeUp.copyFailed,
+      ...Object.values(ACTIVITY.whatIf),
+      ...Object.values(ACTIVITY.refuse),
+    ];
+    expect(perString.length).toBe(6 + 1 + 2 + 3 + 3 + 2 + 11);
+    for (const text of perString) expect(syllablesPerWord(text), text).toBeLessThanOrEqual(1.6);
+  });
+
+  it("chips at or under 25 characters, the copy primary at or under 28, and never a second Do them all or Check again", () => {
+    for (const chip of Object.values(ACTIVITY.chips)) expect(chip.length, chip).toBeLessThanOrEqual(25);
+    expect(Object.keys(ACTIVITY.chips)).toEqual(["lookInto", "watchCloser", "remindTomorrow", "remindSunday", "writeUp", "whatIf"]);
+    expect(ACTIVITY.writeUp.copy.length).toBeLessThanOrEqual(28);
+    expect(Object.values(ACTIVITY.chips)).not.toContain(CHAT.chips.doThemAll);
+    expect(Object.values(ACTIVITY.chips)).not.toContain(CHAT.chips.checkAgain);
+  });
+
+  it("the templates keep their placeholders and the spec's fixed strings are pinned", () => {
+    expect(ACTIVITY.investigate.look).toContain("{n}");
+    expect(ACTIVITY.rows.more).toContain("{n}");
+    expect(ACTIVITY.plan.progress).toContain("{done}");
+    expect(ACTIVITY.plan.progress).toContain("{of}");
+    expect(ACTIVITY.closer.until).toContain("{time}");
+    expect(ACTIVITY.remind.tomorrow).toContain("{headline}");
+    expect(ACTIVITY.remind.sunday).toContain("{headline}");
+    expect(ACTIVITY.remind.due).toContain("{headline}");
+    expect(ACTIVITY.writeUp.title).toContain("{date}");
+    expect(ACTIVITY.whatIf.cost).toContain("{p}");
+    expect(ACTIVITY.rows.waitingForYou).toBe("Waiting for you");
+    expect(ACTIVITY.rows.anotherDay).toBe("Another day");
+    expect(ACTIVITY.plan.progress).toBe("{done} of {of} done");
+    expect(ACTIVITY.closer.headline).toBe("Watch this closer for an hour");
+    expect(ACTIVITY.remind.due).toBe("You asked me to bring this up today: {headline}.");
+    expect(ACTIVITY.writeUp.lead).toBe("Here is a plain summary you can send. It has no file names or settings paths in it.");
+    expect(ACTIVITY.writeUp.copy).toBe("Copy it");
+    expect(ACTIVITY.whatIf.critical).toBe("This is the one that would hurt most.");
+    expect(ACTIVITY.refuse.lookNotYet).toBe("I can't look closer from here yet. I'll keep checking on my usual timer.");
+    expect(ACTIVITY.refuse.closerNotYet).toBe("I can't change how often I check from here yet. You can set it in Settings.");
+    expect(ACTIVITY.refuse.full_version_closer).toBe("Watching from the menu bar is in the full version.");
+    expect(ACTIVITY.chips.watchCloser).toBe("Watch closer for an hour");
+    expect(ACTIVITY.chips.whatIf).toBe("What if I leave it?");
+    expect(Object.keys(ACTIVITY.writeUp.quote)).toEqual(["chatgpt", "claude_plan", "claude", "apple", "ollama"]);
+    for (const quote of Object.values(ACTIVITY.writeUp.quote)) expect(quote).toMatch(/wrote this\. Not verified:$/);
   });
 });

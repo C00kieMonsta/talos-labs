@@ -17,7 +17,9 @@ export type Route =
   /** The AI connect screen in the guided shell. returnTo records where it was opened from (chat included); leaving is router.back(). */
   | { name: "connect"; returnTo: Route }
   /** The "something seems fishy" flow in the guided shell. start picks the gate or the noticed screen; leaving is router.back(). */
-  | { name: "fishy"; returnTo: Route; start?: "gate" | "noticed" };
+  | { name: "fishy"; returnTo: Route; start?: "gate" | "noticed" }
+  /** "What I watch" in the guided shell (DESIGN-THREATS-V2 section 4). returnTo records where it was opened from; leaving is router.back(). */
+  | { name: "coverage"; returnTo: Route };
 
 export type RouteName = Route["name"];
 

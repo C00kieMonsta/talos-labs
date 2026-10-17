@@ -155,7 +155,7 @@ The text is shown only when complete, never streamed, so a slow Claude Code spaw
 
 ### Moment 4. Ask: the briefing and three questions
 
-**Where.** `apps/desktop/src/screens/Ask.tsx`, the empty conversation state (today one fixed hint at `Ask.tsx:181`).
+**Where.** `apps/desktop/src/chat/ChatScreen.tsx`, the opening exchange (the `opened` event's `brief` slot in `apps/desktop/src/chat/state.ts`, null until a BriefStore exists).
 
 **What the person sees.**
 
@@ -353,7 +353,7 @@ One request at a time, as section 3 says for every provider: a person-initiated 
 
 British English throughout. Model text is shown in a model-text block and is not under the authored banned-word test; every authored string below is, and goes into `apps/desktop/src/guided/copy.ts` or `apps/desktop/src/app/labels.ts`. (Checkup step lines are additionally dropped on the banned list, section 6; that is a validator rule on model text, not a test on authored copy.)
 
-**Blocks.** `div.guided-model` for paragraphs: a 2 px `--border` rule on the left, 12 px inset, the text through `ModelText` at `--text-guided-body` in `--fg`, the badge under it at `--text-guided-meta` in `--fg-secondary`. `p.guided-model-line` for the watch window's one-liner: the sentence through `ModelText`, then the short badge as a trailing `span.guided-model-badge` at `--text-guided-meta` in `--fg-secondary`. Both are text only, never a control. Light and dark follow the kit's tokens; no gradient, no icon, no italics (the Apple precedent used italics; the kit's answer to "this is not ours" is the rule and the badge). The badge line is authored only.
+**Blocks.** `div.guided-model` for paragraphs: a 2 px `--border` rule on the left, 12 px inset, the text through `ModelText` at `--text-guided-body` in `--fg`, the badge under it at `--text-guided-meta` in `--fg-secondary`. `p.guided-model-line` for the watch window's one-liner: the sentence through `ModelText`, then the short badge as a trailing `span.guided-model-badge` at `--text-guided-meta` in `--fg-secondary`. Both are text only, never a control. Light and dark follow the kit's tokens; no gradient, no icon, no italics (the Apple precedent used italics; the kit's answer to "this is not ours" is the rule and the badge). The badge line is authored only. In the chat (`apps/desktop/src/chat/ChatModel.tsx`) the badge is drawn under the caret from the moment the model block is appended, before the first partial, so the provider's name is on screen while the person waits.
 
 **Full badges** (`AI_BADGES`, unchanged): "Written by ChatGPT. Not verified." / "Written by Claude. Not verified." / "Written on this Mac by Apple Intelligence. Not verified." / "Written by a local model. Not verified." (Developer mode).
 

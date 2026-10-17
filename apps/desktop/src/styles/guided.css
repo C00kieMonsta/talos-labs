@@ -1020,3 +1020,96 @@
     stroke-dashoffset: 0;
   }
 }
+
+/* Threats v2, "What I watch" (docs/DESIGN-THREATS-V2.md section 4a). Appended by the threats build; .coverage-* only, no new tokens. */
+.coverage-intro {
+  margin: 0;
+  font: var(--text-guided-list);
+  color: var(--fg);
+}
+
+.coverage .coverage-turn-on {
+  margin-top: 13px;
+}
+
+.coverage-group,
+.coverage-cannot {
+  margin-top: var(--space-3);
+}
+
+.coverage-group h2,
+.coverage-cannot h2 {
+  margin: 0 0 4px;
+  font: var(--text-guided-list);
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.coverage-group > p {
+  margin: 0;
+  font: var(--text-guided-meta);
+  line-height: 1.6;
+  color: var(--fg);
+}
+
+/* The bracketed state and the middle dots sit in the secondary colour; never a severity colour. */
+.coverage-dot,
+.coverage-reason {
+  color: var(--fg-secondary);
+}
+
+.coverage-gap {
+  margin: 0 0 4px;
+  font: var(--text-guided-meta);
+  line-height: 1.5;
+  color: var(--fg);
+}
+
+/* Styled like the fishy Details disclosure, never .guided-explain: nothing here came from a model. */
+.coverage-experts {
+  margin-top: var(--space-3);
+  font: var(--text-guided-list);
+}
+
+.coverage-experts summary {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  cursor: pointer;
+  color: var(--fg-secondary);
+  font: var(--text-guided-meta);
+  font-weight: 400;
+}
+
+.coverage-experts summary:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.coverage-experts summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
+}
+
+.coverage-experts-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  font: var(--text-guided-meta);
+  color: var(--fg);
+}
+
+.coverage-experts-list > li + li {
+  margin-top: 2px;
+}
+
+.coverage-experts-group {
+  font-weight: 600;
+}
+
+/* "What I watch" under the Watch section in Settings sits as one more row of the card. */
+.settings-group > .watch-coverage-link {
+  margin: 0;
+  padding: 13px 16px;
+}

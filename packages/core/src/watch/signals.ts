@@ -57,6 +57,22 @@ export const SIGNAL_SEVERITY: Readonly<Record<SignalId, Severity>> = {
   "sig.on_battery": "info",
   "sig.pending_updates": "low",
   "sig.broad_extension_count": "medium",
+  "sig.shell_startup_changed": "medium",
+  "sig.system_shell_files_count": "medium",
+  "sig.paths_d_changed": "medium",
+  "sig.path_dir_writable_count": "medium",
+  "sig.app_set": "medium",
+  "sig.app_new_unquarantined": "medium",
+  "sig.app_new_unsigned": "high",
+  "sig.library_apps_count": "medium",
+  "sig.airdrop_everyone": "medium",
+  "sig.internet_sharing_on": "high",
+  "sig.launch_label_masquerade": "medium",
+  "sig.launch_label_masquerade_unsigned": "high",
+  "sig.login_hook_set": "high",
+  "sig.dyld_insert_set": "medium",
+  "sig.authenticated_root": "high",
+  "sig.pam_auth_changed": "high",
 };
 
 /** Flips a person makes in System Settings: asked "Did you just change this?" before anything else. */
@@ -67,9 +83,10 @@ export const GATED_SIGNALS: readonly SignalId[] = [
   "sig.autologin",
   "sig.admin_count",
   "sig.backup_auto",
+  "sig.internet_sharing_on",
 ];
 
-/** Flips that need Recovery or root: one alone is act now. */
+/** Flips that need Recovery or root, and an unsigned agent wearing an Apple label: one alone is act now. */
 export const STAND_ALONE_SIGNALS: readonly SignalId[] = [
   "sig.sip",
   "sig.gatekeeper",
@@ -77,6 +94,8 @@ export const STAND_ALONE_SIGNALS: readonly SignalId[] = [
   "sig.xprotect_scans_enabled",
   "sig.xprotect_version",
   "sig.hidden_user_count",
+  "sig.authenticated_root",
+  "sig.launch_label_masquerade_unsigned",
 ];
 
 /** Two of these (or a gated flip) within 24 h is act now. */
@@ -91,17 +110,32 @@ export const PAIR_SIGNALS: readonly SignalId[] = [
   "sig.sysext_count",
   "sig.authorized_keys_changed",
   "sig.cron_lines",
+  "sig.shell_startup_changed",
+  "sig.system_shell_files_count",
+  "sig.paths_d_changed",
+  "sig.app_new_unsigned",
+  "sig.launch_label_masquerade",
+  "sig.login_hook_set",
+  "sig.dyld_insert_set",
+  "sig.pam_auth_changed",
 ];
 
+const PERSISTENCE_GROUP: readonly SignalId[] = [
+  "sig.persistence_set",
+  "sig.persistence_new",
+  "sig.persistence_unsigned",
+  "sig.persistence_in_temp_or_hidden",
+  "sig.launch_label_masquerade",
+  "sig.launch_label_masquerade_unsigned",
+];
+const LISTENER_GROUP: readonly SignalId[] = ["sig.listener_set", "sig.listener_new_ports"];
+const SHELL_GROUP: readonly SignalId[] = ["sig.shell_startup_changed", "sig.system_shell_files_count", "sig.paths_d_changed", "sig.path_dir_writable_count"];
+const APP_GROUP: readonly SignalId[] = ["sig.app_set", "sig.app_new_unquarantined", "sig.app_new_unsigned"];
+
 /** Signals derived from one listing; Rust `signals::siblings` is the same table. */
-const SIBLINGS: Readonly<Partial<Record<SignalId, readonly SignalId[]>>> = {
-  "sig.persistence_set": ["sig.persistence_set", "sig.persistence_new", "sig.persistence_unsigned", "sig.persistence_in_temp_or_hidden"],
-  "sig.persistence_new": ["sig.persistence_set", "sig.persistence_new", "sig.persistence_unsigned", "sig.persistence_in_temp_or_hidden"],
-  "sig.persistence_unsigned": ["sig.persistence_set", "sig.persistence_new", "sig.persistence_unsigned", "sig.persistence_in_temp_or_hidden"],
-  "sig.persistence_in_temp_or_hidden": ["sig.persistence_set", "sig.persistence_new", "sig.persistence_unsigned", "sig.persistence_in_temp_or_hidden"],
-  "sig.listener_set": ["sig.listener_set", "sig.listener_new_ports"],
-  "sig.listener_new_ports": ["sig.listener_set", "sig.listener_new_ports"],
-};
+const SIBLINGS: Readonly<Partial<Record<SignalId, readonly SignalId[]>>> = Object.fromEntries(
+  [PERSISTENCE_GROUP, LISTENER_GROUP, SHELL_GROUP, APP_GROUP].flatMap((group) => group.map((id) => [id, group])),
+);
 
 /** The signal and the others derived from the same listing. */
 export function siblings(signalId: SignalId): readonly SignalId[] {
@@ -113,13 +147,14 @@ export function pairGroup(signalId: SignalId): SignalId {
   return siblings(signalId)[0] ?? signalId;
 }
 
-/** The direction that counts for a kinded boolean, count or version signal. */
-export type BadDirection = "true" | "false" | "up" | "down";
+/** The direction that counts for a kinded boolean, count or version signal; "any" is a stat digest whose every change counts. */
+export type BadDirection = "true" | "false" | "up" | "down" | "any";
 
 /**
- * Every kinded signal but the digest and stat kinds has a row: the headlines all name a bad
- * direction, so a Remediator update or a share removed makes no item. Rust `bad_direction` is
- * the same table.
+ * Every kinded signal but the listing digests and the sudo, hosts and sshd stat kinds has a row:
+ * the headlines all name a bad direction, so a Remediator update or a share removed makes no item.
+ * The shell, PATH, PAM and login-key stat digests read "any": a file that changed is the headline.
+ * Rust `bad_direction` is the same table.
  */
 export const BAD_DIRECTION: Readonly<Partial<Record<SignalId, BadDirection>>> = {
   "sig.sip": "false",
@@ -154,13 +189,28 @@ export const BAD_DIRECTION: Readonly<Partial<Record<SignalId, BadDirection>>> = 
   "sig.managed_prefs_count": "up",
   "sig.sysext_count": "up",
   "sig.kext_count": "up",
-  "sig.authorized_keys_changed": "true",
+  "sig.authorized_keys_changed": "any",
   "sig.cron_lines": "up",
   "sig.at_jobs": "up",
   "sig.legacy_startup_count": "up",
   "sig.sudoers_d_count": "up",
   "sig.remote_logins": "up",
   "sig.broad_extension_count": "up",
+  "sig.shell_startup_changed": "any",
+  "sig.system_shell_files_count": "up",
+  "sig.paths_d_changed": "any",
+  "sig.path_dir_writable_count": "up",
+  "sig.app_new_unquarantined": "up",
+  "sig.app_new_unsigned": "up",
+  "sig.library_apps_count": "up",
+  "sig.airdrop_everyone": "true",
+  "sig.internet_sharing_on": "true",
+  "sig.launch_label_masquerade": "up",
+  "sig.launch_label_masquerade_unsigned": "up",
+  "sig.login_hook_set": "true",
+  "sig.dyld_insert_set": "true",
+  "sig.authenticated_root": "false",
+  "sig.pam_auth_changed": "any",
 };
 
 /** True when the signal changed in the direction its row names. A signal with no row never flips. */
@@ -178,6 +228,8 @@ export function badFlip(signal: Pick<WatchSignal, "signalId" | "value" | "previo
       return typeof value === "number" && value > (typeof previous === "number" ? previous : 0);
     case "down":
       return typeof value === "number" && typeof previous === "number" && value < previous;
+    case "any":
+      return value === "changed";
   }
 }
 

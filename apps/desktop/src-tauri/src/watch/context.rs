@@ -576,8 +576,13 @@ mod tests {
         assert_eq!(context.os_version, "unknown");
         assert_eq!(context.recent.len(), 20);
         assert_eq!(context.recent[0].minutes_ago, 1);
-        assert_eq!(context.probes_available.len(), 19);
-        assert_eq!(context.actions_available.len(), 24);
+        assert_eq!(context.probes_available.len(), 24);
+        assert!(
+            !context
+                .probes_available
+                .contains(&crate::watch::ProbeId::AppSignatures)
+        );
+        assert_eq!(context.actions_available.len(), 26);
         assert_eq!(
             minutes_between("2026-10-17T12:30:00.000Z", "2026-10-17T12:00:00.000Z"),
             Some(0)

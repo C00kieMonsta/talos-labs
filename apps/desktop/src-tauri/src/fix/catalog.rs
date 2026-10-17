@@ -442,6 +442,27 @@ pub static FIX_CATALOG: &[FixSpec] = &[
         REMOTE,
         "remoteAccess.remoteManagement.serviceLoaded == false",
     ),
+    plain(
+        "TL-MAC-033",
+        &[
+            admin(
+                FixBin::Launchctl,
+                &[Arg::Lit("disable"), Arg::Lit("system/com.apple.AEServer")],
+            ),
+            Step {
+                tolerate_exit: Some(3),
+                ..admin(
+                    FixBin::Launchctl,
+                    &[Arg::Lit("bootout"), Arg::Lit("system/com.apple.AEServer")],
+                )
+            },
+        ],
+        Reversible::InSettings(
+            "System Settings > General > Sharing > Remote Application Scripting",
+        ),
+        REMOTE,
+        "remoteAccess.remoteAppleEvents.serviceLoaded == false",
+    ),
     FixSpec {
         choice: Choice::Share,
         ..plain(
@@ -599,7 +620,7 @@ pub fn watch_spec_for(id: &str) -> Option<&'static FixSpec> {
 }
 
 /// Which catalog rows may join a batch: a FIX_CATALOG rule with no choice to make, no secret,
-/// no pty. 002, 003, 007, 008, 009, 011, 013, 015, 016, 019, 020, 021, 030. A test pins the set;
+/// no pty. 002, 003, 007, 008, 009, 011, 013, 015, 016, 019, 020, 021, 033, 030. A test pins the set;
 /// no WATCH_CATALOG row ever qualifies.
 pub fn batchable(spec: &FixSpec) -> bool {
     FIX_CATALOG.iter().any(|s| s.rule == spec.rule)
@@ -732,7 +753,7 @@ mod tests {
     }
 
     #[test]
-    fn batchable_is_the_thirteen_rule_set() {
+    fn batchable_is_the_fourteen_rule_set() {
         let set: Vec<&str> = FIX_CATALOG
             .iter()
             .filter(|s| batchable(s))
@@ -753,9 +774,14 @@ mod tests {
                 "TL-MAC-019",
                 "TL-MAC-020",
                 "TL-MAC-021",
+                "TL-MAC-033",
                 "TL-MAC-030",
             ]
         );
+        let events = spec_for("TL-MAC-033").unwrap();
+        assert!(events.needs_password());
+        assert_eq!(events.steps.len(), 2);
+        assert_eq!(events.steps[1].tolerate_exit, Some(3));
         assert!(!batchable(spec_for("TL-MAC-022").unwrap()));
         assert!(!batchable(spec_for("TL-MAC-029").unwrap()));
         let dump: serde_json::Value = serde_json::from_str(&dump_json()).unwrap();

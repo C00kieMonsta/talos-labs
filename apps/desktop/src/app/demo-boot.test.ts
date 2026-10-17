@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { DEV_MACHINE, MACOS_CATALOG, evaluate } from "@talos/core";
 import { DEFAULT_SETTINGS, SETTINGS_STORAGE_KEY, loadSettings } from "../settings";
-import { bootDemo, CHAT_DIVIDER_AGO_MS, DEFAULT_CHAT_DEMO, DEFAULT_WATCH_DEMO, DEMO_CONTINUE_KEY, DEMO_GUIDED_MEMORY_KEY, DEMO_WATCH_MEMORY_KEY, parseDemoQuery, parseWatchDemoQuery, previousReportFor, seedSettings } from "./demo-boot";
+import { bootDemo, CHAT_DIVIDER_AGO_MS, DEFAULT_CHAT_DEMO, DEFAULT_WATCH_DEMO, DEMO_CONTINUE_KEY, DEMO_GUIDED_MEMORY_KEY, DEMO_REMIND_RULE, DEMO_WATCH_MEMORY_KEY, parseDemoQuery, parseWatchDemoQuery, previousReportFor, seedSettings, withDemoReminder } from "./demo-boot";
 
 afterEach(() => {
   localStorage.clear();
@@ -26,7 +26,7 @@ describe("parseDemoQuery", () => {
       watchMemory: null,
       chatDemo: DEFAULT_CHAT_DEMO,
     });
-    expect(DEFAULT_WATCH_DEMO).toEqual({ watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false, licensed: false, watchReason: true, watchNext: true, watchFlip: null, watchFlipAfter: null, watchCheckDelay: null });
+    expect(DEFAULT_WATCH_DEMO).toEqual({ watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false, licensed: false, watchReason: true, watchNext: true, watchFlip: null, watchFlipAfter: null, watchCheckDelay: null, coverage: null, watchOpenScreen: null });
   });
 
   it("reads every parameter", () => {
@@ -65,7 +65,7 @@ describe("parseDemoQuery", () => {
       since: true,
       continueGuided: true,
       technical: "medium",
-      watchDemo: { watch: "act", fishy: "remote", fishyGate: true, fishyWired: true, watchAi: "chatgpt", ransomNote: true, licensed: true, watchReason: false, watchNext: false, watchFlip: "act_now", watchFlipAfter: 250, watchCheckDelay: 600 },
+      watchDemo: { watch: "act", fishy: "remote", fishyGate: true, fishyWired: true, watchAi: "chatgpt", ransomNote: true, licensed: true, watchReason: false, watchNext: false, watchFlip: "act_now", watchFlipAfter: 250, watchCheckDelay: 600, coverage: null, watchOpenScreen: null },
       watchMemory: '{"version":1}',
       chatDemo: DEFAULT_CHAT_DEMO,
     });
@@ -73,9 +73,10 @@ describe("parseDemoQuery", () => {
 
   it("parseWatchDemoQuery reads the six watch params and the licence flag and ignores unknown values", () => {
     for (const state of ["calm", "look", "act", "unreadable", "first-run"] as const) expect(parseWatchDemoQuery(new URLSearchParams(`watch=${state}`)).watch).toBe(state);
-    for (const kind of ["persistence", "listener", "guard", "remote", "admin", "dns", "backup"] as const) expect(parseWatchDemoQuery(new URLSearchParams(`fishy=${kind}`)).fishy).toBe(kind);
+    for (const kind of ["persistence", "listener", "guard", "remote", "admin", "dns", "backup", "app", "shell", "exposure"] as const) expect(parseWatchDemoQuery(new URLSearchParams(`fishy=${kind}`)).fishy).toBe(kind);
+    expect(parseWatchDemoQuery(new URLSearchParams("fishy=app")).fishy).toBe("app");
     for (const ai of ["off", "apple", "chatgpt", "claude", "limit"] as const) expect(parseWatchDemoQuery(new URLSearchParams(`watchAi=${ai}`)).watchAi).toBe(ai);
-    expect(parseWatchDemoQuery(new URLSearchParams("watch=panic&fishy=ransomware&watchAi=gemini&fishyGate=yes&fishyWired=0&ransomNote=2&watchReason=2&watchNext=yes&watch_flip=red&watch_flip_after=-1&check_delay=soon"))).toEqual(DEFAULT_WATCH_DEMO);
+    expect(parseWatchDemoQuery(new URLSearchParams("watch=panic&fishy=ransomware&watchAi=gemini&fishyGate=yes&fishyWired=0&ransomNote=2&watchReason=2&watchNext=yes&watch_flip=red&watch_flip_after=-1&check_delay=soon&coverage=maybe&watch_open=chat"))).toEqual(DEFAULT_WATCH_DEMO);
     expect(parseWatchDemoQuery(new URLSearchParams(""))).toEqual(DEFAULT_WATCH_DEMO);
     expect(parseWatchDemoQuery(new URLSearchParams("licensed=1")).licensed).toBe(true);
     expect(parseWatchDemoQuery(new URLSearchParams("licensed=yes")).licensed).toBe(false);
@@ -256,6 +257,35 @@ describe("parseDemoQuery fail=", () => {
   });
 });
 
+describe("parseDemoQuery coverage params", () => {
+  it("reads coverage and watch_open=coverage, and ignores other values", () => {
+    for (const state of ["signed", "unsigned", "off", "unlicensed"] as const) expect(parseWatchDemoQuery(new URLSearchParams(`coverage=${state}`)).coverage).toBe(state);
+    expect(parseWatchDemoQuery(new URLSearchParams("coverage=yes")).coverage).toBeNull();
+    expect(parseWatchDemoQuery(new URLSearchParams("watch_open=coverage")).watchOpenScreen).toBe("coverage");
+    expect(parseWatchDemoQuery(new URLSearchParams("watch_open=coverage&question=why")).watchOpenScreen).toBe("coverage");
+    expect(parseWatchDemoQuery(new URLSearchParams("watch_open=chat&question=why")).watchOpenScreen).toBeNull();
+    expect(parseWatchDemoQuery(new URLSearchParams("watch_open=home")).watchOpenScreen).toBeNull();
+    // The chat draft is untouched by the coverage replay and the other way round.
+    expect(parseDemoQuery("?watch_open=coverage&question=why").chatDemo.watchOpenQuestion).toBeNull();
+    expect(parseDemoQuery("?watch_open=chat&question=why").watchDemo.watchOpenScreen).toBeNull();
+  });
+
+  it("bootDemo replays watch:open { screen: coverage } once through onOpen, with no question, and still installs the licence", async () => {
+    const adapters = bootDemo("?reset=1&licensed=1&coverage=unlicensed&watch_open=coverage", localStorage);
+    const events: unknown[] = [];
+    const off = adapters.watch.onOpen((event) => events.push(event));
+    await new Promise((r) => setTimeout(r, 5));
+    expect(events).toEqual([{ screen: "coverage" }]);
+    off();
+    expect(adapters.license.install).toBeDefined();
+    const plain = bootDemo("?reset=1&coverage=unsigned", localStorage);
+    const none: unknown[] = [];
+    plain.watch.onOpen((event) => none.push(event));
+    await new Promise((r) => setTimeout(r, 5));
+    expect(none).toEqual([]);
+  });
+});
+
 describe("parseDemoQuery chat params", () => {
   it("reads chat_reply, chat_fail, chat_fail_after and chat_first_partial into options.chat, and ignores unknown values", () => {
     const flags = parseDemoQuery("?chat_reply=urgent&chat_fail=limit_reached&chat_fail_after=3&chat_first_partial=9000");
@@ -265,8 +295,8 @@ describe("parseDemoQuery chat params", () => {
   });
 
   it("reads chat_divider and the watch_open=chat draft, and never a question without watch_open=chat", () => {
-    expect(parseDemoQuery("?chat_divider=1").chatDemo).toEqual({ divider: true, watchOpenQuestion: null });
-    expect(parseDemoQuery("?watch_open=chat&question=why").chatDemo).toEqual({ divider: false, watchOpenQuestion: "why" });
+    expect(parseDemoQuery("?chat_divider=1").chatDemo).toEqual({ ...DEFAULT_CHAT_DEMO, divider: true });
+    expect(parseDemoQuery("?watch_open=chat&question=why").chatDemo).toEqual({ ...DEFAULT_CHAT_DEMO, watchOpenQuestion: "why" });
     expect(parseDemoQuery("?question=why").chatDemo).toEqual(DEFAULT_CHAT_DEMO);
     expect(parseDemoQuery("?watch_open=chat&question=%20").chatDemo.watchOpenQuestion).toBeNull();
   });
@@ -287,5 +317,31 @@ describe("parseDemoQuery chat params", () => {
     plain.watch.onOpen((event) => none.push(event));
     await new Promise((r) => setTimeout(r, 5));
     expect(none).toEqual([]);
+  });
+});
+
+/* AGENT part B region: remind=due, writeup=1 and the four chat_reply values (docs/DESIGN-AGENT.md section 4 "Demo"). */
+describe("parseDemoQuery agent params", () => {
+  it("reads remind=due and writeup=1, and the four new chat_reply values", () => {
+    expect(parseDemoQuery("?remind=due&writeup=1").chatDemo).toEqual({ ...DEFAULT_CHAT_DEMO, remindDue: true, writeUp: true });
+    expect(parseDemoQuery("?remind=later").chatDemo.remindDue).toBe(false);
+    for (const reply of ["remind", "writeup", "whatif", "investigate"]) expect(parseDemoQuery(`?chat_reply=${reply}`).options.chat).toEqual({ reply });
+  });
+
+  it("remind=due patches the stored memory with the reminder and its snooze at yesterday 09:00, keeping the rest", () => {
+    const stored = JSON.stringify({ version: 1, aiLastAvailable: { provider: "chatgpt", at: "2026-10-16T10:00:00.000Z" } });
+    const patched = JSON.parse(withDemoReminder(stored, Date.parse("2026-10-17T12:00:00.000Z"))) as { reminders: Record<string, string>; snoozed: Record<string, string>; aiLastAvailable: unknown };
+    expect(patched.aiLastAvailable).toEqual({ provider: "chatgpt", at: "2026-10-16T10:00:00.000Z" });
+    expect(patched.reminders[DEMO_REMIND_RULE]).toBe(patched.snoozed[DEMO_REMIND_RULE]);
+    const due = new Date(patched.reminders[DEMO_REMIND_RULE] ?? "");
+    expect(due.getHours()).toBe(9);
+    expect(due.getTime()).toBeLessThan(Date.parse("2026-10-17T12:00:00.000Z"));
+    expect(JSON.parse(withDemoReminder(null)).reminders[DEMO_REMIND_RULE]).toBeDefined();
+    expect(JSON.parse(withDemoReminder("{not json")).version).toBe(1);
+    delete window.__talosDemoChat;
+    bootDemo("?reset=1&remind=due&writeup=1", localStorage);
+    expect(JSON.parse(localStorage.getItem(DEMO_GUIDED_MEMORY_KEY) ?? "{}").reminders[DEMO_REMIND_RULE]).toBeDefined();
+    expect(window.__talosDemoChat).toEqual({ openWriteUp: true });
+    delete window.__talosDemoChat;
   });
 });

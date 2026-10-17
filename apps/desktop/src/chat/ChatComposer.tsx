@@ -19,7 +19,8 @@ export interface ChatComposerProps {
   /** A draft handed in by draft_received; consumed once. */
   readonly draft: string | null;
   onDraftConsumed(): void;
-  onSend(text: string): void;
+  /** False keeps the draft in the field (the guard line answered). */
+  onSend(text: string): boolean | void;
   onStop(): void;
   onNavigate(route: Route): void;
   /** Called once each time the counter crosses CHAT_NEAR_LIMIT, so the status element can say it. */
@@ -48,6 +49,9 @@ export function ChatComposer(props: ChatComposerProps) {
   const { state, streaming, draft, onDraftConsumed, onSend, onStop, onNavigate, onNearLimit, onEscape, fieldRef } = props;
   const [text, setText] = useState("");
   const field = useRef<HTMLTextAreaElement | null>(null);
+  const stateLine = useRef<HTMLParagraphElement | null>(null);
+  // Whether the field held focus when the limit or sign-out line replaced it, so focus is handed on and back.
+  const heldFocus = useRef(false);
   const countId = useId();
   const nearRef = useRef(false);
   useEffect(() => {
@@ -63,13 +67,23 @@ export function ChatComposer(props: ChatComposerProps) {
     nearRef.current = near;
   }, [near, left, onNearLimit]);
   const line = composerStateLine(state);
+  const disabled = line !== null;
+  useEffect(() => {
+    if (disabled) {
+      if (heldFocus.current) stateLine.current?.focus({ preventScroll: true });
+      return;
+    }
+    if (heldFocus.current && (document.activeElement === document.body || document.activeElement === null)) field.current?.focus({ preventScroll: true });
+    heldFocus.current = false;
+  }, [disabled]);
   const canSend = text.trim().length > 0 && !streaming;
   const submit = () => {
     if (!canSend) return;
-    onSend(text);
-    setText("");
+    if (onSend(text) !== false) setText("");
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    // An IME's commit Enter must not send.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       submit();
@@ -90,7 +104,7 @@ export function ChatComposer(props: ChatComposerProps) {
       }}
     >
       {line !== null ? (
-        <p className="chat-composer-state">
+        <p className="chat-composer-state" tabIndex={-1} ref={stateLine}>
           {line.text}
           {line.link !== null && (
             <>
@@ -105,6 +119,7 @@ export function ChatComposer(props: ChatComposerProps) {
         <>
           <textarea
             ref={(el) => {
+              if (el === null && field.current !== null && document.activeElement === field.current) heldFocus.current = true;
               field.current = el;
               fieldRef?.(el);
             }}

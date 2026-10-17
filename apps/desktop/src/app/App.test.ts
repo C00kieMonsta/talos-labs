@@ -2,10 +2,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { DEV_MACHINE, MACOS_CATALOG, evaluate } from "@talos/core";
+import { DEV_MACHINE, EMPTY_GUIDED_MEMORY, MACOS_CATALOG, WATCH_REPORT_ID, buildGuidedPlan, evaluate, nextAction } from "@talos/core";
 import type { LicenseState, WatchItem, WatchOpenScreen, WatchState } from "@talos/core";
 import type { FixingPhase, ScanState } from "../scan/machine";
+import { buildGate } from "./gate";
 import { fakeAdapters, fakePlan, fakeWatchPort, fakeWatchState } from "./testing";
+import { DEFAULT_SETTINGS } from "../settings";
 import { FISHY, WATCH_SETTINGS } from "../guided/copy";
 import { resetLaunchGuard } from "../guided/timing";
 
@@ -100,6 +102,7 @@ afterEach(() => {
   guidedFlags.home = false;
   guidedFlags.autoScan = false;
   throwFlags.finding = false;
+  delete window.__talosDemoPace;
 });
 
 /** The guided home with the launch check-up on, the 60 s guard cleared and the collect count at zero. */
@@ -253,7 +256,7 @@ describe("App", () => {
     expect(watch.status).toHaveBeenCalled();
     expect(watch.autostartIsEnabled).toHaveBeenCalled();
     // Developer mode with the Claude API provider: the AI layer is on in the webview, but the watch has no consumer provider to call. No licence: false.
-    expect(watch.setProfile).toHaveBeenLastCalledWith(expect.objectContaining({ role: "individual" }), { enabled: false, provider: null }, false, []);
+    expect(watch.setProfile).toHaveBeenLastCalledWith(expect.objectContaining({ role: "individual" }), { enabled: false, provider: null }, false, [], null);
     expect(watch.setEnabled).not.toHaveBeenCalled();
     expect(watch.setInterval).not.toHaveBeenCalled();
     expect(watch.setNotify).not.toHaveBeenCalled();
@@ -273,7 +276,7 @@ describe("App", () => {
     expect(watch.setProfile).not.toHaveBeenCalled();
     await act(async () => resolve(VALID));
     await waitFor(() => expect(watch.setProfile).toHaveBeenCalledTimes(1));
-    expect(watch.setProfile).toHaveBeenLastCalledWith(expect.objectContaining({ role: "individual" }), { enabled: false, provider: null }, true, []);
+    expect(watch.setProfile).toHaveBeenLastCalledWith(expect.objectContaining({ role: "individual" }), { enabled: false, provider: null }, true, [], null);
     expect(watch.requestNotifyPermission).not.toHaveBeenCalled();
     cleanup();
     vi.mocked(watch.setProfile).mockClear();
@@ -290,7 +293,7 @@ describe("App", () => {
     const { default: App } = await import("../App");
     render(createElement(App));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Next three fixes" })).toBeTruthy());
-    await waitFor(() => expect(watch.setProfile).toHaveBeenCalledWith(expect.anything(), expect.anything(), false, []));
+    await waitFor(() => expect(watch.setProfile).toHaveBeenCalledWith(expect.anything(), expect.anything(), false, [], null));
     expect(watch.requestNotifyPermission).not.toHaveBeenCalled();
     fireEvent.click(document.querySelector(".sidebar-foot button.nav-row") as HTMLElement);
     await waitFor(() => expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy());
@@ -303,11 +306,11 @@ describe("App", () => {
     };
     await paste();
     await waitFor(() => expect(watch.requestNotifyPermission).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(watch.setProfile).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), true, []));
+    await waitFor(() => expect(watch.setProfile).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), true, [], null));
     expect(JSON.parse(localStorage.getItem("talos.watch") ?? "{}").notifyAskedAt).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
     await waitFor(() => expect(screen.getByLabelText("Licence key")).toBeTruthy());
-    await waitFor(() => expect(watch.setProfile).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), false, []));
+    await waitFor(() => expect(watch.setProfile).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), false, [], null));
     await paste();
     await act(async () => undefined);
     expect(watch.requestNotifyPermission).toHaveBeenCalledTimes(1);
@@ -319,9 +322,27 @@ describe("App", () => {
     render(createElement(App));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Next three fixes" })).toBeTruthy());
     await waitFor(() => expect(watch.setProfile).toHaveBeenCalled());
-    expect(watch.setProfile).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), true, []);
+    expect(watch.setProfile).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), true, [], null);
     await act(async () => undefined);
     expect(watch.requestNotifyPermission).not.toHaveBeenCalled();
+  });
+
+  it("pushes the plan's next action as the fifth argument once the launch check-up lands, and null while there is no plan", async () => {
+    armLaunchScan();
+    // Pace 0 collapses the reveal so the plan lands at once.
+    window.__talosDemoPace = 0;
+    const { default: App } = await import("../App");
+    render(createElement(App));
+    await waitFor(() => expect(watch.setProfile).toHaveBeenCalled());
+    expect(watch.setProfile).toHaveBeenCalledWith(expect.anything(), expect.anything(), false, [], null);
+    // The same plan the guide builds for an unlicensed dev machine; the paywall kind reads as the finding on the wire.
+    const gate = buildGate(report, { status: "none" });
+    const plan = buildGuidedPlan(report, { freeFixes: gate.freeFixes, licensed: false }, DEFAULT_SETTINGS.profile, EMPTY_GUIDED_MEMORY, report.scannedAt);
+    const next = nextAction(plan, report);
+    expect(next).not.toBeNull();
+    const row = { reportId: expect.stringMatching(WATCH_REPORT_ID), ruleId: next?.ruleId, kind: next?.kind === "unlock" ? "details" : next?.kind };
+    await waitFor(() => expect(watch.setProfile).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), false, [], row), { timeout: 5000 });
+    expect(vi.mocked(watch.setProfile).mock.calls.at(-1)).toHaveLength(5);
   });
 
   it("opens the fishy flow on watch:open noticed when the watch has an item, and the link leads back", async () => {
@@ -387,6 +408,18 @@ describe("App", () => {
     await act(async () => undefined);
     expect(adapters.systemState.collect).not.toHaveBeenCalled();
     act(() => shownListener?.({ screen: "home" }));
+    await waitFor(() => expect(adapters.systemState.collect).toHaveBeenCalledTimes(1));
+  });
+
+  it("a chat open from the menu bar window on a hidden launch counts as home: the launch check-up runs", async () => {
+    armLaunchScan();
+    watchState = fakeWatchState({ hiddenLaunch: true });
+    const { default: App } = await import("../App");
+    render(createElement(App));
+    await waitFor(() => expect(shownListener).not.toBeNull());
+    await act(async () => undefined);
+    expect(adapters.systemState.collect).not.toHaveBeenCalled();
+    act(() => shownListener?.({ screen: "chat" }));
     await waitFor(() => expect(adapters.systemState.collect).toHaveBeenCalledTimes(1));
   });
 

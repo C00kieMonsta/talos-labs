@@ -24,11 +24,14 @@ export function PassphraseForm({
   onSubmit,
   onCancel,
   submitLabel = "Add passphrase",
+  autoFocus = true,
 }: {
   keyPath: string | null;
   onSubmit(passphrase: string): void;
   onCancel?(): void;
   submitLabel?: string;
+  /** False where the form lands inside a transcript, so a card cannot pull focus into a password field. */
+  autoFocus?: boolean;
 }) {
   const id = useId();
   const [value, setValue] = useState("");
@@ -57,7 +60,7 @@ export function PassphraseForm({
           value={value}
           onChange={(e) => setValue(e.target.value)}
           aria-describedby={`${id}-hint`}
-          autoFocus
+          autoFocus={autoFocus}
         />
       </div>
       <div className="field-row">

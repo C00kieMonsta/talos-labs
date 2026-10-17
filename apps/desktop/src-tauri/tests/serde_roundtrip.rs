@@ -103,4 +103,26 @@ fn dev_machine_fixture_matches_known_values() {
         chrome.extensions.reason(),
         Some(talos_desktop_lib::state::UnavailableReason::NeedsFullDiskAccess)
     );
+    let remote = state.sections.remote_access.as_ok().unwrap();
+    assert_eq!(
+        remote
+            .remote_apple_events
+            .as_ref()
+            .and_then(|s| s.service_loaded),
+        Some(false)
+    );
+    assert_eq!(
+        remote.internet_sharing,
+        talos_desktop_lib::state::Tri::Unset
+    );
+    assert_eq!(
+        remote.airdrop,
+        talos_desktop_lib::state::AirdropMode::Everyone
+    );
+    let integrity = state.sections.platform_integrity.as_ok().unwrap();
+    let apps = integrity.apps.as_ok().unwrap();
+    assert_eq!((apps.bundle_count, apps.checked_count), (41, 41));
+    assert!(apps.flagged.is_empty());
+    let inserts = integrity.inserts.as_ok().unwrap();
+    assert!(!inserts.dyld_insert_set && !inserts.login_hook_set && !inserts.launchd_conf_present);
 }

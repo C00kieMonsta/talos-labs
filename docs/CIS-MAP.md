@@ -18,7 +18,7 @@ Older editions (Sonoma and earlier) number some sections differently
 | Updates | Install security responses and system files automatically | 1.5 | 1 | system_settings_critical_update_install_enforce, os_config_data_install_enforce |
 | Network | Application firewall enabled | 2.2.1 | 1 | system_settings_firewall_enable |
 | Network | Firewall stealth mode enabled | 2.2.2 | 1 | system_settings_firewall_stealth_mode_enable |
-| Sharing | AirDrop disabled | 2.3.1.1 | 1 | os_airdrop_disable |
+| Sharing | AirDrop disabled (partial: rule 032 passes on Contacts Only; CIS asks for Off) | 2.3.1.1 | 1 | os_airdrop_disable |
 | Sharing | Screen Sharing and Apple Remote Desktop disabled | 2.3.3.1 | 1 | system_settings_screen_sharing_disable |
 | Sharing | File Sharing (SMB) disabled | 2.3.3.2 | 1 | system_settings_smbd_disable |
 | Sharing | Printer Sharing disabled | 2.3.3.3 | 1 | system_settings_printer_sharing_disable |
@@ -44,4 +44,4 @@ Older editions (Sonoma and earlier) number some sections differently
 Controls with no CIS section (use `cis: null`): standard vs admin daily account,
 listening ports exposed on all interfaces, third-party launch agents and daemons,
 login items, backup recency, browser extensions, SSH key passphrases, ~/.ssh
-permissions, secrets in dotfiles.
+permissions, secrets in dotfiles, unsigned app bundles, library inserts and login hooks.

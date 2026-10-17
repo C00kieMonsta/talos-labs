@@ -18,7 +18,7 @@ export type SectionProgressStatus = "pending" | "ok" | "unavailable";
 
 export type ScanError = "collector_crashed" | "timeout" | "schema_mismatch" | "cancelled";
 
-export type ExplainTarget = RuleId | "prioritise" | "ask";
+export type ExplainTarget = RuleId | "prioritise";
 
 /** What the explainer has produced for this report. */
 export interface ExplainCache {
@@ -36,7 +36,6 @@ export type ExplainState =
       kind: "running";
       target: ExplainTarget;
       partial: Partial<Explanation> | null;
-      answerPartial: string | null;
       /** What was shown before, handed back on a cancel. */
       from: ExplainCache;
     }
@@ -142,8 +141,6 @@ export type ScanAction =
   | { type: "recheck_failed"; byRule: Record<string, Explanation>; order: RuleId[] | null; priority?: Prioritisation | null }
   | { type: "explain_started"; target: ExplainTarget }
   | { type: "explain_partial"; target: ExplainTarget; partial: Partial<Explanation> | null }
-  | { type: "ask_partial"; answerPartial: string }
-  | { type: "ask_done" }
   | { type: "explain_cancelled" }
   | { type: "explain_ready"; byRule: Record<string, Explanation>; order: RuleId[] | null; priority?: Prioritisation | null }
   | {
@@ -349,19 +346,11 @@ function reduceExplain(state: ReadyState, action: ScanAction): ReadyState | null
   const explain = state.explain;
   switch (action.type) {
     case "explain_started":
-      return { ...state, explain: { kind: "running", target: action.target, partial: null, answerPartial: null, from: explainCache(explain) } };
+      return { ...state, explain: { kind: "running", target: action.target, partial: null, from: explainCache(explain) } };
 
     case "explain_partial":
       if (explain.kind !== "running" || explain.target !== action.target) return state;
       return { ...state, explain: { ...explain, partial: action.partial } };
-
-    case "ask_partial":
-      if (explain.kind !== "running" || explain.target !== "ask") return state;
-      return { ...state, explain: { ...explain, answerPartial: action.answerPartial } };
-
-    case "ask_done":
-      if (explain.kind !== "running" || explain.target !== "ask") return state;
-      return { ...state, explain: explainFrom(explain.from.byRule, explain.from.order, explain.from.priority) };
 
     case "explain_cancelled":
       if (explain.kind !== "running") return state;

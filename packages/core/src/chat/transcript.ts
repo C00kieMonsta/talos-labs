@@ -38,9 +38,14 @@ const CARD_KIND_FOR: Readonly<Record<IntentKind, ChatCardKind | null>> = {
   snooze_rule: "snooze",
   accept_rule: "accept",
   open_watch: "watch",
+  investigate: null,
+  close_watch: null,
+  remind_rule: null,
+  write_up: "write_up",
+  what_if: null,
 };
 
-/** null only for show_list (rows, not a card). AGENT B extends: investigate, close_watch, remind_rule to null; write_up to "write_up"; what_if to the rule's step kind. */
+/** null for show_list and the four app-message kinds; the desktop resolves what_if to the rule's own step card. */
 export function cardKindFor(kind: IntentKind): ChatCardKind | null {
   return CARD_KIND_FOR[kind];
 }

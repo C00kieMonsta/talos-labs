@@ -124,16 +124,27 @@ fn headline_worthy(signal: &WatchSignal) -> bool {
     true
 }
 
-/// A listing digest (`sig.persistence_set`, `sig.listener_set`) is worth a headline only when a
-/// counter from the same listing rose: a removed launch item or a closed listener is a change
-/// to look at, never "a new program". Mirrors `listingWorthy` in core.
+/// The listing digests: a change to one is a headline only through a kinded sibling counter.
+pub const LISTING_DIGESTS: [SignalId; 3] = [
+    SignalId::PersistenceSet,
+    SignalId::ListenerSet,
+    SignalId::AppSet,
+];
+
+/// A listing digest is worth a headline only when a kinded counter from the same listing rose:
+/// a removed launch item, a closed listener, an App Store install or a self-update is a change
+/// to look at, never "a new program". Every other signal is worthy. Mirrors `listingWorthy` in core.
 fn listing_worthy(signal: &WatchSignal, signals: &[WatchSignal]) -> bool {
-    let group = siblings(signal.signal_id);
-    if group.len() < 2 || super::signals::bad_direction(signal.signal_id).is_some() {
+    if !LISTING_DIGESTS.contains(&signal.signal_id) {
         return true;
     }
+    let group = siblings(signal.signal_id);
     signals.iter().any(|s| {
-        s.signal_id != signal.signal_id && group.contains(&s.signal_id) && active(s) && flips(s)
+        s.signal_id != signal.signal_id
+            && group.contains(&s.signal_id)
+            && kind_of(s.signal_id).is_some()
+            && active(s)
+            && flips(s)
     })
 }
 
@@ -563,6 +574,125 @@ mod tests {
             1,
             "a lone stat digest still counts on any change"
         );
+    }
+
+    #[test]
+    fn a_stat_digest_is_worthy_on_any_change_and_a_listing_only_through_a_kinded_sibling() {
+        let zshrc = [signal(
+            SignalId::ShellStartupChanged,
+            SignalValue::Change(Change::Changed),
+            None,
+            Change::Changed,
+        )];
+        let items = top_items(&zshrc);
+        assert_eq!(items.len(), 1, "a lone .zshrc change is one shell item");
+        assert_eq!(items[0].kind, FishyKind::Shell);
+        assert_eq!(
+            bounds_for(&zshrc, &[]).floor,
+            Rating::KeepAnEye,
+            "one pair signal alone looks"
+        );
+        let mut with_agent = zshrc.to_vec();
+        with_agent.push(signal(
+            SignalId::PersistenceNew,
+            SignalValue::Int(1),
+            Some(PreviousValue::Int(0)),
+            Change::Changed,
+        ));
+        assert_eq!(
+            bounds_for(&with_agent, &[]).floor,
+            Rating::ActNow,
+            "a shell file and a new launch agent are two listings"
+        );
+        let app_store = [
+            signal(
+                SignalId::AppSet,
+                SignalValue::Change(Change::Changed),
+                None,
+                Change::Changed,
+            ),
+            signal(
+                SignalId::AppNewUnquarantined,
+                SignalValue::Int(1),
+                Some(PreviousValue::Int(0)),
+                Change::Changed,
+            ),
+        ];
+        assert!(
+            top_items(&app_store).is_empty(),
+            "an unquarantined bundle alone makes no item"
+        );
+        assert_eq!(bounds_for(&app_store, &[]).floor, Rating::KeepAnEye);
+        let mut unsigned = app_store.to_vec();
+        unsigned.push(signal(
+            SignalId::AppNewUnsigned,
+            SignalValue::Int(1),
+            Some(PreviousValue::Int(0)),
+            Change::Changed,
+        ));
+        let items = top_items(&unsigned);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].signal_id, SignalId::AppNewUnsigned);
+        assert_eq!(items[0].kind, FishyKind::App);
+        assert_eq!(bounds_for(&unsigned, &[]).floor, Rating::KeepAnEye);
+        unsigned.push(signal(
+            SignalId::PersistenceNew,
+            SignalValue::Int(1),
+            Some(PreviousValue::Int(0)),
+            Change::Changed,
+        ));
+        assert_eq!(bounds_for(&unsigned, &[]).floor, Rating::ActNow);
+        let library = [signal(
+            SignalId::LibraryAppsCount,
+            SignalValue::Int(17),
+            Some(PreviousValue::Int(16)),
+            Change::Changed,
+        )];
+        assert!(top_items(&library).is_empty());
+        let airdrop = [signal(
+            SignalId::AirdropEveryone,
+            SignalValue::Bool(true),
+            Some(PreviousValue::Bool(false)),
+            Change::Changed,
+        )];
+        assert_eq!(top_items(&airdrop).len(), 1);
+        assert_eq!(
+            bounds_for(&airdrop, &[]),
+            Bounds {
+                floor: Rating::KeepAnEye,
+                ceiling: Rating::KeepAnEye
+            },
+            "AirDrop Everyone alone never acts"
+        );
+        let root = [signal(
+            SignalId::AuthenticatedRoot,
+            SignalValue::Bool(false),
+            Some(PreviousValue::Bool(true)),
+            Change::Changed,
+        )];
+        assert_eq!(bounds_for(&root, &[]).floor, Rating::ActNow);
+        let masquerade = [
+            signal(
+                SignalId::PersistenceSet,
+                SignalValue::Change(Change::Changed),
+                None,
+                Change::Changed,
+            ),
+            signal(
+                SignalId::PersistenceNew,
+                SignalValue::Int(1),
+                Some(PreviousValue::Int(0)),
+                Change::Changed,
+            ),
+            signal(
+                SignalId::LaunchLabelMasqueradeUnsigned,
+                SignalValue::Int(1),
+                Some(PreviousValue::Int(0)),
+                Change::Changed,
+            ),
+        ];
+        assert_eq!(bounds_for(&masquerade, &[]).floor, Rating::ActNow);
+        assert_eq!(top_items(&masquerade).len(), 1, "one listing, one item");
     }
 
     #[test]

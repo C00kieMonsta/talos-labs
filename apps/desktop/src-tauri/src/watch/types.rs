@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{ActionId, Change, Freshness, ProbeId, Rating, Severity, SignalId};
-use crate::state::Os;
+use crate::state::{Os, SignatureWord};
 
 /// `boolean | number | Change`. Digest kinds and null readings carry the Change.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -246,6 +246,12 @@ pub struct WatchDetailsItem {
     pub port: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process_name: Option<String>,
+    /// The shell kind: the stat'd file that changed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_path: Option<String>,
+    /// The app kind: the bundle's signature in the closed words.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<SignatureWord>,
 }
 
 impl WatchDetailsItem {
@@ -259,6 +265,8 @@ impl WatchDetailsItem {
             scope: None,
             port: None,
             process_name: None,
+            file_path: None,
+            signature: None,
         }
     }
 }
@@ -385,6 +393,24 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&item).unwrap(),
             serde_json::json!({ "signalId": "sig.listener_new_ports", "port": 8080 })
+        );
+        let app = WatchDetailsItem {
+            label: Some("Helper.app".into()),
+            program_path: Some("/Applications/Helper.app".into()),
+            signature: Some(SignatureWord::Unsigned),
+            ..WatchDetailsItem::blank(SignalId::AppSet)
+        };
+        assert_eq!(
+            serde_json::to_value(&app).unwrap(),
+            serde_json::json!({ "signalId": "sig.app_set", "label": "Helper.app", "programPath": "/Applications/Helper.app", "signature": "unsigned" })
+        );
+        let file = WatchDetailsItem {
+            file_path: Some("/Users/demo/.zshrc".into()),
+            ..WatchDetailsItem::blank(SignalId::ShellStartupChanged)
+        };
+        assert_eq!(
+            serde_json::to_value(&file).unwrap(),
+            serde_json::json!({ "signalId": "sig.shell_startup_changed", "filePath": "/Users/demo/.zshrc" })
         );
     }
 

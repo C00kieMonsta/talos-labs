@@ -81,7 +81,8 @@ export type SettingsPane =
   | "time_machine"
   | "full_disk_access"
   | "automation"
-  | "apple_intelligence";
+  | "apple_intelligence"
+  | "airdrop";
 
 /**
  * A command shown to the user with a copy button. The app never runs it.

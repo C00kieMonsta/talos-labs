@@ -1,5 +1,7 @@
+import { useCallback } from "react";
 import type { ActivityEvent } from "@talos/core";
 import { ICONS, SEVERITY_ICONS } from "../app/icons";
+import type { IconComponent, LucideIcon } from "../app/icons";
 import { useApp } from "../app/context";
 import { formatTime } from "../app/labels";
 import { watchActive } from "../app/gate";
@@ -11,6 +13,7 @@ import { GuidedList } from "../guided/GuidedList";
 import { FIX, SHOW, failureCopy } from "../guided/copy";
 import { findingFor, guidedFor, paneFor } from "../guided/plan";
 import { ChatActivity } from "./ChatActivity";
+import { ChatWriteUp } from "./ChatWriteUp";
 import { cardContent } from "./cards";
 import type { ChatHandlers } from "./handlers";
 import type { ChatMessage } from "./state";
@@ -18,6 +21,27 @@ import type { ChatMessage } from "./state";
 type Card = Extract<ChatMessage, { kind: "card" }>;
 
 const PRIMARY_LABELS = { try_again: FIX.tryAgain, show_where: FIX.showWhere, next: FIX.next, check_again: FIX.checkAgain } as const;
+
+/** The icon beside a resolved card's line: a tick for done, the pending glyph for a deferral, eye-off for an accept, none otherwise. */
+function resultIcon(message: Card): { icon: IconComponent | LucideIcon; tick: boolean } | null {
+  if (message.rows.some((r) => !r.ok)) return { icon: ICONS.close, tick: false };
+  switch (message.outcome) {
+    case "fixed":
+    case "watch_passed":
+    case "checked":
+    case "unlocked":
+    case "pane_opened":
+    case "rescanned":
+      return { icon: ICONS.check, tick: true };
+    case "snoozed":
+    case "watch_expired":
+      return { icon: ICONS.watch, tick: false };
+    case "accepted":
+      return { icon: ICONS.eyeOff, tick: false };
+    default:
+      return null;
+  }
+}
 
 export interface ChatCardProps {
   readonly message: Card;
@@ -44,6 +68,9 @@ export function ChatCard({ message, handlers, extraRows, headlineRef }: ChatCard
   const wantsExplain = content.explainRuleId !== null && settings.explainer.aiEnabled && (card.kind === "fix" || card.kind === "batch" || card.kind === "show" || card.kind === "explain");
   const failure = state === "failed" && message.failure !== null ? failureCopy(message.failure.error, message.failure.batch, card.ruleId !== null && paneFor(card.ruleId) !== null, watchActive(settings, gate)) : null;
   const doneRows = message.rows.map((r) => ({ key: r.ruleId, text: r.text, icon: r.ok ? ("ok" as const) : ("failed" as const), tag: r.tag }));
+  const icon = state === "resolved" ? resultIcon(message) : null;
+  // The disclosure's state is spoken by the chat's one status element, never by a live region inside the log.
+  const onExplainState = useCallback((text: string | null) => text !== null && handlers.explainState(text), [handlers]);
   return (
     <div className={`chat-card${cue}`} data-kind={card.kind} data-state={state} data-live={message.live ? "true" : undefined}>
       <h2 ref={headlineRef} className="chat-headline chat-card-headline" tabIndex={-1}>
@@ -72,13 +99,14 @@ export function ChatCard({ message, handlers, extraRows, headlineRef }: ChatCard
       )}
       {(state === "resolved" || state === "stale") && message.result !== null && (
         <p className="chat-result" data-outcome={state}>
-          {state === "resolved" && <Icon icon={message.rows.some((r) => !r.ok) ? ICONS.close : ICONS.check} size={20} className={message.rows.some((r) => !r.ok) ? "chat-result-icon" : "chat-result-icon guided-tick"} />}
+          {icon !== null && <Icon icon={icon.icon} size={20} className={icon.tick ? "chat-result-icon guided-tick" : "chat-result-icon"} />}
           <span>{message.result}</span>
         </p>
       )}
       {state === "resolved" && doneRows.length > 0 && <GuidedList rows={doneRows} />}
-      {state === "idle" && content.passphrase && <PassphraseForm keyPath={content.keyPath} submitLabel={FIX.passphrase} onSubmit={(passphrase) => handlers.primary(message.id, passphrase)} />}
-      {state === "idle" && content.primary !== null && !content.passphrase && (
+      {state === "idle" && card.kind === "write_up" && message.writeUpText !== null && <ChatWriteUp text={message.writeUpText} copiedAt={message.copiedAt} onCopy={() => handlers.primary(message.id)} />}
+      {state === "idle" && content.passphrase && <PassphraseForm keyPath={content.keyPath} submitLabel={FIX.passphrase} autoFocus={false} onSubmit={(passphrase) => handlers.primary(message.id, passphrase)} />}
+      {state === "idle" && content.primary !== null && !content.passphrase && card.kind !== "write_up" && (
         <button type="button" className="button button-primary chat-card-primary" onClick={() => handlers.primary(message.id)}>
           {content.primary}
         </button>
@@ -99,7 +127,7 @@ export function ChatCard({ message, handlers, extraRows, headlineRef }: ChatCard
           {FIX.later}
         </button>
       )}
-      {wantsExplain && (state === "idle" || state === "working") && content.explainRuleId !== null && <ExplainPanel ruleId={content.explainRuleId} />}
+      {wantsExplain && (state === "idle" || state === "working") && content.explainRuleId !== null && <ExplainPanel ruleId={content.explainRuleId} announce={false} onState={onExplainState} />}
     </div>
   );
 }

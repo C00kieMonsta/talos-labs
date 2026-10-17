@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { strictSchema } from "../../src/explainer/remote";
-import { INTENT_KINDS } from "../../src/chat/intents";
+import { INTENT_KINDS, REMIND_WHENS } from "../../src/chat/intents";
 import { ANSWER_JSON_SCHEMA, CHAT_JSON_SCHEMA, EXPLANATION_JSON_SCHEMA, PRIORITISATION_JSON_SCHEMA, WATCH_JSON_SCHEMA } from "../../src/explainer/schemas";
 
 const FILE = join(__dirname, "..", "..", "fixtures", "explainer-schemas.json");
@@ -34,7 +34,7 @@ describe("packages/core/fixtures/explainer-schemas.json", () => {
     expect(CHAT_JSON_SCHEMA["additionalProperties"]).toBe(false);
     expect(props["intents"]?.["maxItems"]).toBe(3);
     const intent = props["intents"]?.["items"] as { required: string[]; additionalProperties: boolean; properties: Record<string, Record<string, unknown>> };
-    expect(intent.required).toEqual(["kind", "ruleId"]);
+    expect(intent.required).toEqual(["kind", "ruleId", "signalId", "when"]);
     expect(intent.additionalProperties).toBe(false);
     expect(intent.properties["kind"]).toEqual({ type: "string", enum: [...INTENT_KINDS] });
     expect(intent.properties["ruleId"]).toEqual({ type: ["string", "null"], minLength: 1, maxLength: 32 });
@@ -42,12 +42,23 @@ describe("packages/core/fixtures/explainer-schemas.json", () => {
     expect(strict.properties.intents.items.properties.ruleId).toEqual({ type: ["string", "null"] });
   });
 
+  it("an intent carries signalId (48 characters, for the longest signal id) and when (the two days or null); strict mode drops the caps only", () => {
+    const props = CHAT_JSON_SCHEMA["properties"] as Record<string, Record<string, unknown>>;
+    const intent = props["intents"]?.["items"] as { properties: Record<string, Record<string, unknown>> };
+    expect(intent.properties["signalId"]).toEqual({ type: ["string", "null"], minLength: 1, maxLength: 48 });
+    expect(intent.properties["when"]).toEqual({ type: ["string", "null"], enum: [...REMIND_WHENS, null] });
+    expect(Object.keys(intent.properties)).toEqual(["kind", "ruleId", "signalId", "when"]);
+    const strict = strictSchema(CHAT_JSON_SCHEMA) as { properties: { intents: { items: { properties: { signalId: unknown; when: unknown } } } } };
+    expect(strict.properties.intents.items.properties.signalId).toEqual({ type: ["string", "null"] });
+    expect(strict.properties.intents.items.properties.when).toEqual({ type: ["string", "null"], enum: ["tomorrow", "sunday", null] });
+  });
+
   it("the watch schema is the contract: five required keys, the rating enum, the three caps", () => {
     const props = WATCH_JSON_SCHEMA["properties"] as Record<string, Record<string, unknown>>;
     expect(WATCH_JSON_SCHEMA["required"]).toEqual(["rating", "ratingReason", "basedOn", "probes", "actions"]);
     expect(WATCH_JSON_SCHEMA["additionalProperties"]).toBe(false);
     expect(props["rating"]).toEqual({ type: "string", enum: ["calm", "keep_an_eye", "act_now"] });
-    expect(props["ratingReason"]).toEqual({ type: "string", maxLength: 300 });
+    expect(props["ratingReason"]).toEqual({ type: "string", maxLength: 120 });
     expect(props["basedOn"]?.["maxItems"]).toBe(6);
     expect(props["probes"]?.["maxItems"]).toBe(3);
     expect(props["actions"]?.["maxItems"]).toBe(3);

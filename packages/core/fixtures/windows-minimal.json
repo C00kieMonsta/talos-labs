@@ -79,7 +79,17 @@
     },
     "platformIntegrity": {
       "data": {
+        "apps": {
+          "detail": "collector: windows",
+          "reason": "not_supported_on_os",
+          "status": "unavailable"
+        },
         "execPolicyEnabled": true,
+        "inserts": {
+          "detail": "collector: windows",
+          "reason": "not_supported_on_os",
+          "status": "unavailable"
+        },
         "systemProtectionEnabled": null
       },
       "status": "ok"

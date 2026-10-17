@@ -1,6 +1,6 @@
 export { SIGNAL_SEVERITY, GATED_SIGNALS, STAND_ALONE_SIGNALS, PAIR_SIGNALS, BAD_DIRECTION, SIGNAL_KIND, badFlip, kindOf, siblings, pairGroup } from "./signals";
 export type { SignalReading, SignalValueKind, BadDirection } from "./signals";
-export { boundsFor, rateWatch, topItems, applyHysteresis, maxRating, minRating } from "./rate";
+export { boundsFor, rateWatch, topItems, applyHysteresis, maxRating, minRating, LISTING_DIGESTS } from "./rate";
 export type { Bounds, TopItem, Hysteresis } from "./rate";
 export { validateWatchVerdict, safeSentence, safeWindowSentence, PATH_LIKE, PORT_LIKE, BANNED_VERBS, APP_VOICE, APP_VOICE_I, ID_LIKE, ACTION_CLAIM, IMPERATIVE_START, REASSURANCE, DURATION, SECOND_SENTENCE } from "./validate";
 export { PLAYBOOK, PLAYBOOK_URLS, playbookRow, playbookJson } from "./playbook";

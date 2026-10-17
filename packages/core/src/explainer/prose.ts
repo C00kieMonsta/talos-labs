@@ -1,3 +1,4 @@
+import { PATH_LIKE } from "../watch/validate";
 import { containsCommandText } from "./validate";
 
 /** The first-person forms, case-sensitive so "i" inside a word or a lower-case quote never trips it. */
@@ -22,4 +23,24 @@ export function claimsAction(text: string): boolean {
 /** The chat's prose rule, run on every partial and the final value. */
 export function replyRejected(text: string): boolean {
   return containsCommandText(text) || containsAppVoice(text) || claimsAction(text);
+}
+
+/** DESIGN-AI-PRESENCE section 6's form; watch/validate's PORT_LIKE also catches a dotted host and is not reused here. */
+const PORT_LIKE_PROSE = /(?<![0-9]):[0-9]{2,5}\b/;
+const RULE_ID_LIKE = /\bTL-[A-Z]{3}-/;
+const FAKE_CITATION = /\b(step|section)\s*[0-9]/i;
+const AUTHORITY = /\b(NIST|CISA|SANS|NCSC)\b/;
+const MACHINE_WORDS = /\b(pid|kill|rm|unload|launchctl|daemon)\b/i;
+
+/** True when the text carries a command, a path, a port, a rule id, a fake citation or a machine word; DESIGN-AI-PRESENCE section 6. */
+export function containsMachineText(text: string): boolean {
+  return (
+    containsCommandText(text) ||
+    PATH_LIKE.test(text) ||
+    PORT_LIKE_PROSE.test(text) ||
+    RULE_ID_LIKE.test(text) ||
+    FAKE_CITATION.test(text) ||
+    AUTHORITY.test(text) ||
+    MACHINE_WORDS.test(text)
+  );
 }

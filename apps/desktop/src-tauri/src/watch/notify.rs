@@ -22,6 +22,9 @@ pub const HEADLINE_REMOTE: &str = "Remote access to your Mac was turned on";
 pub const HEADLINE_ADMIN: &str = "A new admin account was added";
 pub const HEADLINE_DNS: &str = "The way your Mac finds websites changed";
 pub const HEADLINE_BACKUP: &str = "Your backups were switched off";
+pub const HEADLINE_APP: &str = "A new app skipped the usual safety checks";
+pub const HEADLINE_SHELL: &str = "A hidden file that runs at start-up changed";
+pub const HEADLINE_EXPOSURE: &str = "Your Mac is sharing more than before";
 
 pub fn headline(kind: FishyKind) -> &'static str {
     match kind {
@@ -32,6 +35,9 @@ pub fn headline(kind: FishyKind) -> &'static str {
         FishyKind::Admin => HEADLINE_ADMIN,
         FishyKind::Dns => HEADLINE_DNS,
         FishyKind::Backup => HEADLINE_BACKUP,
+        FishyKind::App => HEADLINE_APP,
+        FishyKind::Shell => HEADLINE_SHELL,
+        FishyKind::Exposure => HEADLINE_EXPOSURE,
     }
 }
 
@@ -88,6 +94,10 @@ mod tests {
         assert_eq!(
             body_for(FishyKind::Persistence),
             "A new program started running on its own. Open me to see what experts suggest."
+        );
+        assert_eq!(
+            body_for(FishyKind::Exposure),
+            "Your Mac is sharing more than before. Open me to see what experts suggest."
         );
         for kind in FishyKind::ALL {
             let body = body_for(*kind);

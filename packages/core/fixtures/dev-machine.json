@@ -201,13 +201,35 @@
     },
     "platformIntegrity": {
       "data": {
+        "apps": {
+          "data": {
+            "bundleCount": 41,
+            "checkedCount": 41,
+            "flagged": []
+          },
+          "status": "ok"
+        },
         "execPolicyEnabled": true,
+        "inserts": {
+          "data": {
+            "dyldInsertSet": false,
+            "launchdConfPresent": false,
+            "loginHookSet": false
+          },
+          "status": "ok"
+        },
         "systemProtectionEnabled": true
       },
       "status": "ok"
     },
     "remoteAccess": {
       "data": {
+        "airdrop": "everyone",
+        "internetSharing": "unset",
+        "remoteAppleEvents": {
+          "listeningPort": null,
+          "serviceLoaded": false
+        },
         "remoteManagement": {
           "listeningPort": null,
           "serviceLoaded": false

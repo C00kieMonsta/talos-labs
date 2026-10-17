@@ -13,7 +13,7 @@ import type { GuidedStrip } from "./GuidedShell";
 afterEach(cleanup);
 
 const REPORT: ScanReport = evaluate(DEV_MACHINE, MACOS_CATALOG, { now: "2026-10-16T10:00:00.000Z", os: "macos" });
-const RUNNING: ExplainState = { kind: "running", target: "TL-MAC-001", partial: null, answerPartial: null, from: { byRule: {}, order: null, priority: null } };
+const RUNNING: ExplainState = { kind: "running", target: "TL-MAC-001", partial: null, from: { byRule: {}, order: null, priority: null } };
 
 function ready(explain: ExplainState): ReadyState {
   return { kind: "ready", report: REPORT, state: DEV_MACHINE, explain, lastRecheck: null, fixing: null, watching: null };

@@ -42,6 +42,8 @@ pub enum Bin {
     Crontab,
     Atq,
     Last,
+    /// `-onlyin <home>/Library` app bundle count, watch only, outside the cheap sweep.
+    Mdfind,
     #[cfg(test)]
     Sleep,
     #[cfg(test)]
@@ -82,6 +84,7 @@ impl Bin {
             Bin::Crontab => "/usr/bin/crontab",
             Bin::Atq => "/usr/bin/atq",
             Bin::Last => "/usr/bin/last",
+            Bin::Mdfind => "/usr/bin/mdfind",
             #[cfg(test)]
             Bin::Sleep => "/bin/sleep",
             #[cfg(test)]
@@ -341,7 +344,7 @@ mod tests {
         assert_eq!(Bin::Socketfilterfw.name(), "socketfilterfw");
         assert_eq!(Bin::SwVers.name(), "sw_vers");
         assert_eq!(Bin::Codesign.path(), "/usr/bin/codesign");
-        let watch: [(Bin, &str); 11] = [
+        let watch: [(Bin, &str); 12] = [
             (Bin::Nvram, "/usr/sbin/nvram"),
             (Bin::Xprotect, "/usr/bin/xprotect"),
             (Bin::Profiles, "/usr/bin/profiles"),
@@ -353,6 +356,7 @@ mod tests {
             (Bin::Crontab, "/usr/bin/crontab"),
             (Bin::Atq, "/usr/bin/atq"),
             (Bin::Last, "/usr/bin/last"),
+            (Bin::Mdfind, "/usr/bin/mdfind"),
         ];
         for (bin, path) in watch {
             assert_eq!(bin.path(), path);

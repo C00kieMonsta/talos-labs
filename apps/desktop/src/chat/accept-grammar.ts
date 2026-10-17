@@ -49,17 +49,22 @@ function ruleMatches(ruleId: RuleId, phrase: string, phraseWords: readonly strin
   return phraseWords.some((w) => headline.has(w));
 }
 
+/** The candidates the phrase names, by synonym or headline word, in candidate order; empty for a phrase of stop words. */
+export function matchRules(phrase: string, candidates: readonly RuleId[]): RuleId[] {
+  const phraseWords = words(phrase);
+  if (phraseWords.length === 0) return [];
+  return candidates.filter((id) => ruleMatches(id, phrase, phraseWords));
+}
+
 /** The rules the phrase names among the plan's undone and later items, in plan order; empty when nothing matches. */
 export function acceptMatches(text: string, plan: GuidedPlan, doneStepIds: readonly string[] = []): readonly RuleId[] {
   const phrase = acceptPhrase(text);
   if (phrase === null) return [];
-  const phraseWords = words(phrase);
-  if (phraseWords.length === 0) return [];
   const candidates: RuleId[] = [];
   for (const step of plan.steps) {
     if (doneStepIds.includes(step.id)) continue;
     for (const id of ruleIdsOf(step)) if (!candidates.includes(id)) candidates.push(id);
   }
   for (const id of plan.later) if (!candidates.includes(id)) candidates.push(id);
-  return candidates.filter((id) => !plan.accepted.includes(id) && ruleMatches(id, phrase, phraseWords));
+  return matchRules(phrase, candidates.filter((id) => !plan.accepted.includes(id)));
 }

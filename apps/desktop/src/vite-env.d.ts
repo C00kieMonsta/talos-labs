@@ -52,6 +52,6 @@ interface Window {
   __talosDemoCalls?: TalosDemoCall[];
   /** Demo mode only: scales the Scanning reveal schedule; 0 collapses it. */
   __talosDemoPace?: number;
-  /** Demo mode only: chat_divider=1 dates the chat's opening this far back, so the next message draws the time divider. */
-  __talosDemoChat?: { readonly openingAgoMs: number };
+  /** Demo mode only: chat_divider=1 dates the chat's opening this far back, so the next message draws the time divider; writeup=1 opens the write-up card once. */
+  __talosDemoChat?: { readonly openingAgoMs?: number; readonly openWriteUp?: boolean };
 }

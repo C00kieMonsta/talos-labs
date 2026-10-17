@@ -1,6 +1,7 @@
 import type { RefObject } from "react";
 import { dividerBefore } from "@talos/core";
 import { CHAT } from "../guided/copy";
+import { cardHeadline } from "./cards";
 import { ChatApp } from "./ChatApp";
 import { ChatCard } from "./ChatCard";
 import { ChatDivider } from "./ChatDivider";
@@ -22,6 +23,15 @@ function startsExchange(m: ChatMessage): boolean {
   if (m.kind === "person") return true;
   if (m.kind === "app") return m.label === "opening" || m.label === "end";
   return m.kind === "card" && m.card.kind === "watch";
+}
+
+/** The headline an app-started exchange is named after: the app message's own, or the watch card's. */
+function exchangeHeadline(exchange: Exchange): string | null {
+  const first = exchange.messages[0];
+  if (first === undefined) return null;
+  if (first.kind === "app") return first.headline;
+  if (first.kind === "card") return cardHeadline({ card: first.card, step: first.step, item: first.item });
+  return null;
 }
 
 export function exchangesOf(messages: readonly ChatMessage[]): readonly Exchange[] {
@@ -52,6 +62,7 @@ export function ChatTranscript({ messages, handlers, extras, logRef, headlineRef
   let lastAt: number | null = null;
   return (
     <div ref={logRef} className="chat" role="region" aria-label={CHAT.conversation}>
+      <div className="chat-inner">
       {exchanges.map((exchange) => {
         const first = exchange.messages[0]!;
         const divider = lastAt !== null && dividerBefore(lastAt, first.at);
@@ -59,11 +70,11 @@ export function ChatTranscript({ messages, handlers, extras, logRef, headlineRef
         return (
           <div key={first.id} className="chat-exchange-slot">
             {divider && <ChatDivider at={first.at} />}
-            <ChatExchange person={exchange.person}>
+            <ChatExchange person={exchange.person} headline={exchangeHeadline(exchange)}>
               {exchange.messages.map((m) => {
                 switch (m.kind) {
                   case "app":
-                    return <ChatApp key={m.id} message={m} headlineRef={(el) => headlineRef(m.id, el)} />;
+                    return <ChatApp key={m.id} message={m} headlineRef={(el) => headlineRef(m.id, el)} onPromoteStep={handlers.promoteStep} />;
                   case "person":
                     return <ChatPerson key={m.id} message={m} onResend={handlers.send} />;
                   case "model":
@@ -80,6 +91,7 @@ export function ChatTranscript({ messages, handlers, extras, logRef, headlineRef
           </div>
         );
       })}
+      </div>
     </div>
   );
 }

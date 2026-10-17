@@ -22,7 +22,6 @@ interface Moment {
 }
 
 const SKIPPED: readonly { name: string; reason: string }[] = [
-  { name: "motion-breathe", reason: "needs the chat home (DESIGN-CHAT-UI), not built" },
   { name: "motion-reading", reason: "needs the daily reading (DESIGN-DAILY), not built" },
 ];
 
@@ -357,14 +356,16 @@ const caret: Moment = {
 };
 
 /**
- * The inner span fades in and the live region stays one node. The demo's "Check now" keeps the rating, so the remount
- * on a rating change is pinned by WatchWindow.test.tsx; here the first paint's fade and the node's identity are measured.
+ * The inner span fades in on the first paint and again on a rating change, while the live region stays one node.
+ * The demo flips calm to act now after `watch_flip_after`, so the crossfade itself is measured: the act span is a new
+ * node still fading on its first frame, and the status element that took the probe is the one holding the new word.
  */
 const watchStatus: Moment = {
   name: "motion-watch-status",
   async run(page, baseUrl, mode) {
-    await page.goto(`${baseUrl}/watch.html?watch=calm`);
-    const inner = ".watch-status[role='status'] > .watch-status-inner";
+    await page.goto(`${baseUrl}/watch.html?watch=calm&watch_flip=act_now&watch_flip_after=1500`);
+    const status = ".watch-status[role='status']";
+    const inner = `${status} > .watch-status-inner`;
     const first = await firstSight(page, inner, "animation-name");
     const anim = await animationOf(page, inner);
     if (mode === "motion") check(first === "fade-in" && anim.duration === "0.2s", `the status span runs ${first} over ${anim.duration}, expected fade-in over 0.2s`);
@@ -373,16 +374,47 @@ const watchStatus: Moment = {
     await page.evaluate(() => {
       (document.querySelector(".watch-status[role='status']") as HTMLElement).dataset.motionProbe = "same";
     });
-    await page.locator(".watch-footer .watch-link").filter({ hasText: "Check now" }).click({ timeout: STEP_TIMEOUT });
-    await page.locator(".watch-meta-checking").waitFor({ timeout: STEP_TIMEOUT });
-    await page.locator(".watch-meta-checking").waitFor({ state: "detached", timeout: STEP_TIMEOUT });
+    // The flip lands the act class on the live region and a fresh inner span under it; read that span on its first frame.
+    const actInner = `${status}.watch-status-act > .watch-status-inner`;
+    const flipOpacity = parseFloat(await firstSight(page, actInner, "opacity"));
+    const flipAnim = await animationOf(page, actInner);
+    if (mode === "motion") {
+      check(flipAnim.name === "fade-in" && flipAnim.duration === "0.2s", `the act span runs ${flipAnim.name} over ${flipAnim.duration}, expected fade-in over 0.2s`);
+      check(flipOpacity < 1, `the act span is at opacity ${flipOpacity} on its first frame, expected under 1`);
+      await sleep(300);
+    } else {
+      check(frozen(flipAnim.name, flipAnim.duration), `the act span fades under reduced motion (${flipAnim.name} ${flipAnim.duration})`);
+    }
+    check(parseFloat(await styleOf(page, actInner, "opacity")) === 1, "the act span did not reach opacity 1 by 200 ms");
+    check((await styleOf(page, `${actInner} .watch-status-word`, "text")) === "Act now", "the act word is not in the span");
     const same = await page.evaluate(() => (document.querySelector(".watch-status[role='status']") as HTMLElement | null)?.dataset.motionProbe === "same");
-    check(same, "the status live region was remounted by a check");
+    check(same, "the status live region was remounted by the flip");
     check((await page.locator(inner).count()) === 1, "the status line holds one inner span");
   },
 };
 
-const MOMENTS: readonly Moment[] = [welcomeDrift, hello, scanDot, ringFill, ringReplay, doneDisc, cueBar, cueBarAct, press, horizon, caret, fixedCount, watchStatus];
+/** The spiral breathes only while a chat request runs (DESIGN-PLAYFUL 3.8): the chat home with the first partial held, then Stop. */
+const breathe: Moment = {
+  name: "motion-breathe",
+  async run(page, baseUrl, mode) {
+    const stored = encodeURIComponent(JSON.stringify({ version: 1, aiLastAvailable: { provider: "chatgpt", at: new Date().toISOString() } }));
+    await goto(page, baseUrl, `${DEV}&provider=chatgpt&ai=available&chat_first_partial=60000&memory=${stored}`);
+    await page.locator(".guided-shell .chat .chat-headline").first().waitFor({ timeout: STEP_TIMEOUT });
+    const band = "[data-testid='hero-spiral']";
+    check((await page.locator(`${band}[data-writing='true']`).count()) === 0, "the spiral breathes before a request runs");
+    await page.locator(".chat-composer textarea").fill("Why does the disk matter?");
+    await page.locator(".chat-composer textarea").press("Enter");
+    const first = await firstSight(page, `${band}[data-writing='true'] svg`, "animation-name");
+    const anim = await animationOf(page, `${band} svg`);
+    if (mode === "motion") check(first === "spiral-breathe" && anim.duration === "3s", `the spiral runs ${first} over ${anim.duration}, expected spiral-breathe over 3s`);
+    else check(frozen(anim.name, anim.duration), `the spiral breathes under reduced motion (${anim.name} ${anim.duration})`);
+    await page.locator(".chat-composer .chat-send[aria-label='Stop']").click({ timeout: STEP_TIMEOUT });
+    await page.locator(`${band}[data-writing='true']`).waitFor({ state: "detached", timeout: STEP_TIMEOUT });
+    check((await animationOf(page, `${band} svg`)).name === "none", "the spiral keeps breathing after Stop");
+  },
+};
+
+const MOMENTS: readonly Moment[] = [welcomeDrift, hello, scanDot, ringFill, ringReplay, doneDisc, cueBar, cueBarAct, press, horizon, caret, fixedCount, watchStatus, breathe];
 
 /** After 5 s idle on the plan screen only the caret, the spinner and the shimmer may still run; finished `both` animations stay listed but are not running. */
 async function idle(page: Page, baseUrl: string): Promise<void> {

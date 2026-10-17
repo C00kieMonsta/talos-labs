@@ -6,7 +6,7 @@ import { ALL_UNAVAILABLE } from "../../src/fixtures/all-unavailable";
 import { DEV_MACHINE } from "../../src/fixtures/dev-machine";
 import { HARDENED } from "../../src/fixtures/hardened";
 import { EMPTY_GUIDED_MEMORY } from "../../src/guided/memory";
-import { buildGuidedPlan } from "../../src/guided/plan";
+import { buildGuidedPlan, LEFT_ALONE } from "../../src/guided/plan";
 import { freeFixRuleIds } from "../../src/license/entitled";
 import type { ExplainerProfile } from "../../src/ports/explainer-port";
 import { MACOS_CATALOG } from "../../src/rules/macos/index";
@@ -17,7 +17,7 @@ const MEDIUM: ExplainerProfile = { ...PROFILE, technical: "medium" };
 const DEV = evaluate(DEV_MACHINE, MACOS_CATALOG, ctxFor(DEV_MACHINE));
 const HARD = evaluate(HARDENED, MACOS_CATALOG, ctxFor(HARDENED));
 const UNAVAILABLE = evaluate(ALL_UNAVAILABLE, MACOS_CATALOG, ctxFor(ALL_UNAVAILABLE));
-const LOCKED: RuleId[] = ["TL-MAC-003", "TL-MAC-011", "TL-MAC-022", "TL-MAC-026"];
+const LOCKED: RuleId[] = ["TL-MAC-003", "TL-MAC-011", "TL-MAC-022", "TL-MAC-026", "TL-MAC-032"];
 
 function gateFor(report: ScanReport, licensed: boolean) {
   return { freeFixes: freeFixRuleIds(report), licensed };
@@ -44,12 +44,13 @@ describe("buildGuidedPlan on dev-machine", () => {
     expect(first?.kind === "show" && [first.pane, first.watch, first.watchEvery]).toEqual(["filevault", ["diskEncryption"], 3000]);
   });
 
-  it("licensed: batch, the share fix, the backup question, the restart shows, permission, no paywall", () => {
+  it("licensed: batch, the share fix, the backup question, the AirDrop pane, the restart shows, permission, no paywall", () => {
     const plan = buildGuidedPlan(DEV, gateFor(DEV, true), PROFILE, EMPTY_GUIDED_MEMORY, NOW);
     expect(plan.steps.map((s) => s.id)).toEqual([
       "batch",
       "fix:TL-MAC-022:/Users/alice/Public",
       "show:TL-MAC-026",
+      "show:TL-MAC-032",
       "show:TL-MAC-001",
       "show:TL-MAC-010",
       "permission:full_disk_access",
@@ -60,7 +61,9 @@ describe("buildGuidedPlan on dev-machine", () => {
     expect(share?.kind === "fix" && share.choice).toEqual({ kind: "share", path: "/Users/alice/Public" });
     const backup = plan.steps[2];
     expect(backup?.kind === "show" && backup.question).toBe("backup_disk");
-    const permission = plan.steps[5];
+    const airdrop = plan.steps[3];
+    expect(airdrop?.kind === "show" && [airdrop.pane, airdrop.watch, airdrop.watchEvery]).toEqual(["airdrop", ["remoteAccess"], 3000]);
+    const permission = plan.steps[6];
     expect(permission?.kind === "permission" && permission.unlocks).toEqual(["TL-MAC-028"]);
     expect(plan.locked).toEqual([]);
     expect(plan.technical).toEqual(["TL-MAC-029"]);
@@ -87,9 +90,31 @@ describe("buildGuidedPlan on the other fixtures", () => {
     expect(plan.unreadable).toBe(0);
   });
 
-  it("all-unavailable: the permission step only, 31 unreadable", () => {
+  it("all-unavailable: the permission step only, 36 unreadable", () => {
     const plan = buildGuidedPlan(UNAVAILABLE, gateFor(UNAVAILABLE, false), PROFILE, EMPTY_GUIDED_MEMORY, NOW);
     expect(plan.steps.map((s) => s.id)).toEqual(["permission:full_disk_access"]);
-    expect(plan.unreadable).toBe(31);
+    expect(plan.unreadable).toBe(36);
+  });
+});
+
+describe("LEFT_ALONE and the reveal-only rules 035 and 036", () => {
+  function failing(ruleId: RuleId): ScanReport {
+    return { ...HARD, results: HARD.results.map((r) => (r.ruleId === ruleId ? { ...r, status: "fail", points: 4 } : r)) };
+  }
+
+  it("lists 035 and 036 beside the seven older ids", () => {
+    expect(LEFT_ALONE).toEqual(["TL-MAC-005", "TL-MAC-014", "TL-MAC-017", "TL-MAC-018", "TL-MAC-024", "TL-MAC-028", "TL-MAC-031", "TL-MAC-035", "TL-MAC-036"]);
+  });
+
+  it("a failing 035 or 036 lands in leftAlone and never becomes a step, licensed or not", () => {
+    for (const ruleId of ["TL-MAC-035", "TL-MAC-036"] as const) {
+      const report = failing(ruleId);
+      for (const licensed of [true, false]) {
+        const plan = buildGuidedPlan(report, gateFor(report, licensed), PROFILE, EMPTY_GUIDED_MEMORY, NOW);
+        expect(plan.leftAlone, `${ruleId} ${licensed}`).toEqual([ruleId]);
+        expect(plan.steps.map((s) => s.id), `${ruleId} ${licensed}`).toEqual([]);
+        expect(plan.locked, `${ruleId} ${licensed}`).toEqual([]);
+      }
+    }
   });
 });

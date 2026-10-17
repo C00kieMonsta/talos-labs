@@ -52,6 +52,7 @@ import {
   RATING_ORDER,
   SAFE_STRING_PATTERN,
   SIGNAL_IDS,
+  SIGNATURE_WORDS,
   WATCH_ACTION_IDS,
   WATCH_GRADES,
   WATCH_INTERVALS,
@@ -383,11 +384,12 @@ function optionalText(value: unknown): value is string | undefined {
 
 function toDetailsItem(value: unknown): WatchDetailsItem | null {
   if (!isRecord(value)) return null;
-  const { signalId, plistPath, label, programPath, scope, port, processName } = value;
+  const { signalId, plistPath, label, programPath, scope, port, processName, filePath, signature } = value;
   if (!isSignalId(signalId)) return null;
-  if (!optionalText(plistPath) || !optionalText(label) || !optionalText(programPath) || !optionalText(processName)) return null;
+  if (!optionalText(plistPath) || !optionalText(label) || !optionalText(programPath) || !optionalText(processName) || !optionalText(filePath)) return null;
   if (scope !== undefined && !oneOf(scope, SCOPES)) return null;
   if (port !== undefined && (!isCount(port) || port > 65535)) return null;
+  if (signature !== undefined && !oneOf(signature, SIGNATURE_WORDS)) return null;
   const item: { -readonly [K in keyof WatchDetailsItem]: WatchDetailsItem[K] } = { signalId };
   if (plistPath !== undefined) item.plistPath = plistPath;
   if (label !== undefined) item.label = label;
@@ -395,6 +397,8 @@ function toDetailsItem(value: unknown): WatchDetailsItem | null {
   if (scope !== undefined) item.scope = scope;
   if (port !== undefined) item.port = port;
   if (processName !== undefined) item.processName = processName;
+  if (filePath !== undefined) item.filePath = filePath;
+  if (signature !== undefined) item.signature = signature;
   return item;
 }
 

@@ -25,9 +25,9 @@ import type {
 import { chatPartialOptions, chatPartialRejected } from "./explainer-shared";
 import { recordDemoCall, wait } from "./demo-shared";
 
-/** The canned chat replies, by the chat_reply demo param. The last three exercise the validator. */
-export type DemoChatReply = "urgent" | "disk" | "leave_disk" | "cannot" | "outside" | "inject" | "too_many" | "app_voice" | "long";
-export const DEMO_CHAT_REPLIES: readonly DemoChatReply[] = ["urgent", "disk", "leave_disk", "cannot", "outside", "inject", "too_many", "app_voice", "long"];
+/** The canned chat replies, by the chat_reply demo param. inject, too_many and app_voice exercise the validator; the AGENT four name the part B intents (investigate is dropped while its port is gated). */
+export type DemoChatReply = "urgent" | "disk" | "leave_disk" | "cannot" | "outside" | "inject" | "too_many" | "app_voice" | "long" | "watch" | "remind" | "writeup" | "whatif" | "investigate";
+export const DEMO_CHAT_REPLIES: readonly DemoChatReply[] = ["urgent", "disk", "leave_disk", "cannot", "outside", "inject", "too_many", "app_voice", "long", "watch", "remind", "writeup", "whatif", "investigate"];
 
 /** How the demo chat behaves: which reply, and whether and when the turn fails. */
 export interface DemoChatOptions {
@@ -184,6 +184,25 @@ export class CannedAnswers {
         return { ...base, reply: "Done. I have turned your firewall on for you." };
       case "long":
         return { ...base, reply: longReply() };
+      case "watch":
+        return {
+          ...base,
+          reply: "The watch looks over your Mac every hour and says so when something changes. A check can be started now from the button below.",
+          intents: allowed.kinds.includes("open_watch") ? [{ kind: "open_watch", ruleId: null }] : [],
+        };
+      /* AGENT part B region: the four replies naming the new intents, each with the full four-field entry the schema requires. */
+      case "remind": {
+        const id = allowed.remind[0];
+        return { ...base, reply: "Tomorrow it is. That one comes first at the next check-up.", intents: id === undefined ? [] : [{ kind: "remind_rule", ruleId: id, signalId: null, when: "tomorrow" }] };
+      }
+      case "writeup":
+        return { ...base, reply: "Here is a plain summary of today's check-up, ready to send on.", intents: [{ kind: "write_up", ruleId: null, signalId: null, when: null }] };
+      case "whatif": {
+        const id = allowed.whatIf.includes("TL-MAC-001") ? "TL-MAC-001" : allowed.whatIf[0];
+        return { ...base, reply: "Leaving it is your call. The card below says what it costs and what could happen.", intents: id === undefined ? [] : [{ kind: "what_if", ruleId: id, signalId: null, when: null }] };
+      }
+      case "investigate":
+        return { ...base, reply: "A closer look at that area is the next step.", intents: [{ kind: "investigate", ruleId: null, signalId: input.watch.items[0]?.signalId ?? "sig.persistence_new", when: null }] };
     }
   }
 

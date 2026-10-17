@@ -26,6 +26,7 @@ const CASES: readonly [string, Partial<ActivityEvent>, string][] = [
   ["running while macOS asks", { status: "running", outcome: "waiting_for_password" }, "your password"],
   ["running step of steps", { status: "running", step: 1, of: 2 }, "1 of 2"],
   ["running watcher", { status: "running", kind: "watching" }, "watching"],
+  ["running stale watcher", { status: "running", kind: "watching", outcome: "stale" }, "no change yet"],
   ["running otherwise", { status: "running", kind: "preparing" }, "working"],
   ["done probe same", { status: "done", kind: "probe", outcome: "same" }, "same"],
   ["done probe changed", { status: "done", kind: "probe", outcome: "changed" }, "changed"],

@@ -92,6 +92,33 @@ describe("ChatComposer", () => {
     expect(screen.getByLabelText(CHAT.message)).not.toBeNull();
   });
 
+  it("an IME's commit Enter does not send", () => {
+    const props = mount();
+    fireEvent.change(field(), { target: { value: "Why does the disk matter?" } });
+    fireEvent.keyDown(field(), { key: "Enter", isComposing: true });
+    fireEvent.keyDown(field(), { key: "Enter", keyCode: 229 });
+    expect(props.onSend).not.toHaveBeenCalled();
+    expect(field().value).toBe("Why does the disk matter?");
+  });
+
+  it("hands focus to the limit line when the field it held goes, and back to the field when it returns; otherwise leaves focus alone", () => {
+    const limit: ComposerState = { kind: "limit", provider: "chatgpt", until: null };
+    const props = mount();
+    field().focus();
+    expect(document.activeElement).toBe(field());
+    const { rerender } = render(createElement(ChatComposer, { ...props, state: limit }), { container: document.body.firstElementChild as HTMLElement });
+    expect(document.activeElement?.classList.contains("chat-composer-state")).toBe(true);
+    rerender(createElement(ChatComposer, { ...props, state: { kind: "ready" } }));
+    expect(document.activeElement).toBe(field());
+    cleanup();
+    const other = document.createElement("button");
+    document.body.appendChild(other);
+    other.focus();
+    mount({ state: limit });
+    expect(document.activeElement).toBe(other);
+    other.remove();
+  });
+
   it("takes a draft into the field once and grows to four rows at most", () => {
     const props = mount({ draft: "why does the disk matter" });
     expect(field().value).toBe("why does the disk matter");

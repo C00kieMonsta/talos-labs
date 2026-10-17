@@ -5,6 +5,7 @@
 //! wires them to the app.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -20,7 +21,9 @@ use super::context::{
 };
 use super::notify;
 use super::playbook::PLAYBOOK;
-use super::probes::{self, MemberDetail, Observation, Observed, ProbeOutcome, SWEEP_BUDGET};
+use super::probes::{
+    self, FULL_CHECK_PROBES, MemberDetail, Observation, Observed, ProbeOutcome, SWEEP_BUDGET,
+};
 use super::rate::{Hysteresis, apply_hysteresis, bounds_for, rate_watch, top_items};
 use super::settings::WatchSettingsFile;
 use super::signals::{self, CodesignOutcome, kind_of};
@@ -30,10 +33,30 @@ use super::types::{
 };
 use super::validate;
 use super::{
-    Change, FishyKind, Freshness, JudgeLine, ModelProvider, ProbeReason, Rating, RulesSince,
-    SignalId, UnavailableProbe, WatchItem, WatchState, WatchStore,
+    Change, FishyKind, Freshness, JudgeLine, ModelProvider, ProbeId, ProbeReason, Rating,
+    RulesSince, SignalId, UnavailableProbe, WatchItem, WatchState, WatchStore,
 };
 use crate::state::Os;
+
+#[cfg(target_os = "macos")]
+pub use crate::collect::macos::apps::{AppCheck, flagged as app_flagged};
+
+/// The app check shape, so the cycle types on every platform; the macOS one is in `apps.rs`.
+#[cfg(not(target_os = "macos"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppCheck {
+    pub quarantined: Option<bool>,
+    pub signature: Option<crate::state::SignatureWord>,
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn app_flagged(check: &AppCheck) -> bool {
+    use crate::state::SignatureWord;
+    matches!(
+        check.signature,
+        Some(SignatureWord::Adhoc | SignatureWord::Unsigned)
+    ) && check.quarantined == Some(false)
+}
 
 pub const STATE_EVENT: &str = "watch:state";
 pub const CYCLE_EVENT: &str = "watch:cycle";
@@ -54,6 +77,28 @@ pub const LOOK_RECALL_MS: i64 = 6 * 60 * 60 * 1000;
 
 /// Verifies the programs new launch items name; injected so tests never run `codesign`.
 pub type Codesign<'a> = &'a dyn Fn(&[Option<String>]) -> Vec<Option<CodesignOutcome>>;
+/// Lists the quarantine flag and verifies the signature of new app bundles; injected likewise.
+pub type AppCodesign<'a> = &'a dyn Fn(&[PathBuf]) -> Vec<AppCheck>;
+
+/// The system-file stat digests an OS update moves together: re-seeded silently when the
+/// `sw_vers` build changed (docs/DESIGN-THREATS-V2.md section 3, the build hold).
+pub const HOLD_DIGESTS: [SignalId; 6] = [
+    SignalId::ShellStartupChanged,
+    SignalId::PathsDChanged,
+    SignalId::PamAuthChanged,
+    SignalId::PamSudoChanged,
+    SignalId::HostsChanged,
+    SignalId::SshdConfigChanged,
+];
+
+/// A label Apple never writes under the three launch folders.
+const APPLE_LABEL_PREFIX: &str = "com.apple.";
+/// The stat digests whose fresh members name a file for Details.
+const STAT_DETAILS: [SignalId; 3] = [
+    SignalId::ShellStartupChanged,
+    SignalId::PathsDChanged,
+    SignalId::PamAuthChanged,
+];
 
 pub fn iso(now: DateTime<Utc>) -> String {
     now.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
@@ -117,12 +162,15 @@ fn new_members<'a>(
         .collect()
 }
 
-/// The derived counts and the Details rows from the two listings. The flag is true when the
-/// launch listing has new members and every one of them is validly signed.
+/// The derived counts and the Details rows from the listings: launch items first (they spend the
+/// shared `codesign` budget before the bundles), then listeners, app bundles and the stat
+/// digests. The flag is true when the launch listing has new members and every one of them is
+/// validly signed.
 fn derive(
     baseline: &Baseline,
     observed: &mut BTreeMap<SignalId, Observed>,
     codesign: Codesign<'_>,
+    app_codesign: AppCodesign<'_>,
 ) -> (Vec<WatchDetailsItem>, bool) {
     let mut details = Vec::new();
     let mut signed_listing = false;
@@ -166,6 +214,18 @@ fn derive(
             .count() as u64;
         signed_listing =
             !fresh.is_empty() && outcomes.iter().all(|o| *o == Some(CodesignOutcome::Valid));
+        let masquerade: Vec<bool> = fresh
+            .iter()
+            .map(|m| {
+                matches!(&m.detail, MemberDetail::Launch { label, .. } if label.starts_with(APPLE_LABEL_PREFIX))
+            })
+            .collect();
+        let masquerade_count = masquerade.iter().filter(|m| **m).count() as u64;
+        let masquerade_unsigned = masquerade
+            .iter()
+            .zip(&outcomes)
+            .filter(|(m, o)| **m && o.is_some_and(CodesignOutcome::counts_as_unsigned))
+            .count() as u64;
         for member in &fresh {
             if let MemberDetail::Launch {
                 plist_path,
@@ -190,6 +250,14 @@ fn derive(
         );
         observed.insert(SignalId::PersistenceUnsigned, Observed::Count(unsigned));
         observed.insert(SignalId::PersistenceInTempOrHidden, Observed::Count(temp));
+        observed.insert(
+            SignalId::LaunchLabelMasquerade,
+            Observed::Count(masquerade_count),
+        );
+        observed.insert(
+            SignalId::LaunchLabelMasqueradeUnsigned,
+            Observed::Count(masquerade_unsigned),
+        );
         observed.insert(SignalId::PersistenceSet, Observed::Set(kept));
     }
     if let Some(Observed::Set(members)) = observed.get(&SignalId::ListenerSet).cloned() {
@@ -208,7 +276,160 @@ fn derive(
             Observed::Count(fresh.len() as u64),
         );
     }
+    if let Some(Observed::Set(members)) = observed.get(&SignalId::AppSet).cloned() {
+        let fresh: Vec<(&str, &str)> = new_members(baseline, SignalId::AppSet, &members)
+            .into_iter()
+            .filter_map(|m| match &m.detail {
+                MemberDetail::App { path, name } => Some((path.as_str(), name.as_str())),
+                _ => None,
+            })
+            .collect();
+        let paths: Vec<PathBuf> = fresh.iter().map(|(path, _)| PathBuf::from(path)).collect();
+        let checks = app_codesign(&paths);
+        let unquarantined = checks
+            .iter()
+            .filter(|c| c.quarantined == Some(false))
+            .count() as u64;
+        let unsigned = checks.iter().filter(|c| app_flagged(c)).count() as u64;
+        // Flagged bundles first, so the app item's Details row is the bundle that skipped the checks.
+        let mut rows: Vec<(&(&str, &str), &AppCheck)> = fresh.iter().zip(&checks).collect();
+        rows.sort_by_key(|(_, check)| !app_flagged(check));
+        for ((path, name), check) in rows {
+            details.push(WatchDetailsItem {
+                label: Some((*name).to_owned()),
+                program_path: Some((*path).to_owned()),
+                signature: check.signature,
+                ..WatchDetailsItem::blank(SignalId::AppSet)
+            });
+        }
+        observed.insert(
+            SignalId::AppNewUnquarantined,
+            Observed::Count(unquarantined),
+        );
+        observed.insert(SignalId::AppNewUnsigned, Observed::Count(unsigned));
+    }
+    for signal in STAT_DETAILS {
+        if let Some(Observed::Set(members)) = observed.get(&signal).cloned() {
+            for member in new_members(baseline, signal, &members) {
+                if let MemberDetail::StatFile { path } = &member.detail {
+                    details.push(WatchDetailsItem {
+                        file_path: Some(path.clone()),
+                        ..WatchDetailsItem::blank(signal)
+                    });
+                }
+            }
+        }
+    }
     (details, signed_listing)
+}
+
+/// The observed value of `signal` in this cycle's successful outcomes.
+fn observed_in(outcomes: &[ProbeOutcome], signal: SignalId) -> Option<&Observed> {
+    outcomes.iter().find_map(|o| {
+        o.result
+            .as_ref()
+            .ok()?
+            .iter()
+            .find(|obs| obs.signal == signal)
+            .map(|obs| &obs.value)
+    })
+}
+
+/// Re-seeds one entry from the observed value with no change recorded.
+fn reseed(baseline: &mut Baseline, signal: SignalId, value: &Observed, now: &str) -> &mut Entry {
+    let (kind, current, members) = stored_of(baseline, value);
+    let entry = baseline.baselines.entry(signal).or_insert_with(|| Entry {
+        kind,
+        value: current.clone(),
+        members: members.clone(),
+        seen_at: now.to_owned(),
+        observed: None,
+        freshness: Freshness::Fresh,
+        held_for_build: None,
+        definition: None,
+    });
+    entry.kind = kind;
+    entry.value = current;
+    entry.members = members;
+    entry.seen_at = now.to_owned();
+    entry.observed = None;
+    entry
+}
+
+/// The build hold. A first build is stored silently. When the build changed, each hold digest
+/// this cycle observed is re-seeded from the observed set with no change recorded, once per
+/// build (`Entry.held_for_build`); the new build is stored once all six carry it, and a digest
+/// already re-seeded for the build compares normally while the others wait for their probe.
+/// A None read (binary missing, timeout, text outside the pattern) changes nothing.
+pub fn apply_build_hold(
+    baseline: &mut Baseline,
+    outcomes: &[ProbeOutcome],
+    os_build: Option<&str>,
+    now: &str,
+) {
+    let Some(build) = os_build.filter(|b| super::baseline::os_build_ok(b)) else {
+        return;
+    };
+    let Some(stored) = baseline.os_build.as_deref() else {
+        baseline.os_build = Some(build.to_owned());
+        return;
+    };
+    if stored == build {
+        return;
+    }
+    for signal in HOLD_DIGESTS {
+        let Some(value) = observed_in(outcomes, signal) else {
+            continue;
+        };
+        let already = baseline
+            .baselines
+            .get(&signal)
+            .is_some_and(|e| e.held_for_build.as_deref() == Some(build));
+        if already {
+            continue;
+        }
+        let entry = reseed(baseline, signal, value, now);
+        entry.held_for_build = Some(build.to_owned());
+    }
+    let all_held = HOLD_DIGESTS.iter().all(|signal| {
+        baseline
+            .baselines
+            .get(signal)
+            .is_some_and(|e| e.held_for_build.as_deref() == Some(build))
+    });
+    if all_held {
+        baseline.os_build = Some(build.to_owned());
+    }
+}
+
+/// Signals whose reading was widened after a baseline could have been stored, with the version
+/// of the definition the probe reads today. `sig.remote_access_on` gained the Remote Apple
+/// Events row and `sig.legacy_startup_count` five folders in threats v2; a stored baseline from
+/// before that is re-seeded silently on the first cycle that observes the signal, so an upgrade
+/// never reads as a change on the Mac (DESIGN-WATCH section 11, note 53).
+pub const SIGNAL_DEFINITIONS: [(SignalId, u8); 2] = [
+    (SignalId::RemoteAccessOn, 2),
+    (SignalId::LegacyStartupCount, 2),
+];
+
+/// The definition re-seed: an entry stored under an older definition (or none) takes this
+/// cycle's reading as its baseline with no change recorded, and remembers the version.
+pub fn apply_definitions(baseline: &mut Baseline, outcomes: &[ProbeOutcome], now: &str) {
+    for (signal, version) in SIGNAL_DEFINITIONS {
+        let Some(value) = observed_in(outcomes, signal) else {
+            continue;
+        };
+        let current = baseline
+            .baselines
+            .get(&signal)
+            .and_then(|e| e.definition)
+            .unwrap_or(1);
+        if current >= version {
+            continue;
+        }
+        let entry = reseed(baseline, signal, value, now);
+        entry.definition = Some(version);
+    }
 }
 
 /// True when the launch listing's value differs from the baseline and is not the change the
@@ -233,19 +454,34 @@ fn has_open_gate(baseline: &Baseline, signal: SignalId) -> bool {
 /// Compares one sweep with the baseline, updates the entries and returns the readings. A change
 /// that clears on its own, or is accepted after a day, takes its gate, answer, snooze and
 /// notification with it; a full check that sees a change made since the last acknowledgement
-/// resets the mute count, whichever tick first recorded it.
+/// resets the mute count, whichever tick first recorded it. The two verifiers are the only
+/// injected effects; `PrepareInput` carries the same eight pieces by name.
+#[allow(clippy::too_many_arguments)]
 pub fn compare(
     baseline: &mut Baseline,
     outcomes: &[ProbeOutcome],
     extra: &[Observation],
+    carried: &[UnavailableProbe],
     now: &str,
     codesign: Codesign<'_>,
+    app_codesign: AppCodesign<'_>,
     full_check: bool,
 ) -> Compared {
     let now_ms = ms_of(now).unwrap_or(0);
     let mut observed: BTreeMap<SignalId, Observed> = BTreeMap::new();
     let mut unavailable_signals: BTreeMap<SignalId, ProbeReason> = BTreeMap::new();
     let mut unavailable = Vec::new();
+    let mut mark_unavailable = |probe: ProbeId, reason: ProbeReason| {
+        unavailable.push(UnavailableProbe {
+            probe_id: probe,
+            reason,
+        });
+        if let Some(row) = probes::probe_for(probe) {
+            for signal in row.signals {
+                unavailable_signals.insert(*signal, reason);
+            }
+        }
+    };
     for outcome in outcomes {
         match &outcome.result {
             Ok(list) => {
@@ -253,23 +489,19 @@ pub fn compare(
                     observed.insert(o.signal, o.value.clone());
                 }
             }
-            Err(reason) => {
-                unavailable.push(UnavailableProbe {
-                    probe_id: outcome.probe,
-                    reason: *reason,
-                });
-                if let Some(row) = probes::probe_for(outcome.probe) {
-                    for signal in row.signals {
-                        unavailable_signals.insert(*signal, *reason);
-                    }
-                }
-            }
+            Err(reason) => mark_unavailable(outcome.probe, *reason),
+        }
+    }
+    // A probe outside the sweep that could not read last time keeps its row until it runs again.
+    for row in carried {
+        if !outcomes.iter().any(|o| o.probe == row.probe_id) {
+            mark_unavailable(row.probe_id, row.reason);
         }
     }
     for o in extra {
         observed.insert(o.signal, o.value.clone());
     }
-    let (details, signed_listing) = derive(baseline, &mut observed, codesign);
+    let (details, signed_listing) = derive(baseline, &mut observed, codesign, app_codesign);
     // The signed hold arms once, when the listing change is first recorded, not on every cycle
     // the new item stays unaccepted.
     if signed_listing && listing_newly_changed(baseline, &observed) {
@@ -299,6 +531,8 @@ pub fn compare(
                 seen_at: now.to_owned(),
                 observed: None,
                 freshness: Freshness::Fresh,
+                held_for_build: None,
+                definition: None,
             });
             entry.kind = kind;
             entry.freshness = Freshness::Fresh;
@@ -563,6 +797,11 @@ pub struct PrepareInput<'a> {
     pub last_verdict: Option<WatchLastVerdict>,
     pub probes_left: u32,
     pub codesign: Codesign<'a>,
+    pub app_codesign: AppCodesign<'a>,
+    /// `sw_vers` BuildVersion from the host collector; None when it could not be read.
+    pub os_build: Option<&'a str>,
+    /// The previous snapshot's unavailable rows for probes that did not run this cycle.
+    pub carried: &'a [UnavailableProbe],
     /// True when the full check ran this cycle (the collectors in `extra`, or a manual check).
     pub full_check: bool,
 }
@@ -571,12 +810,16 @@ pub struct PrepareInput<'a> {
 /// and the change history; the rules snapshot is advanced here too.
 pub fn prepare(baseline: &mut Baseline, input: &PrepareInput<'_>) -> (WatchContext, Compared) {
     let now = iso(input.now);
+    apply_build_hold(baseline, input.outcomes, input.os_build, &now);
+    apply_definitions(baseline, input.outcomes, &now);
     let compared = compare(
         baseline,
         input.outcomes,
         input.extra,
+        input.carried,
         &now,
         input.codesign,
+        input.app_codesign,
         input.full_check,
     );
     let previous = snapshot_report(baseline);
@@ -1182,14 +1425,37 @@ fn publish(app: &AppHandle, store: &WatchStore) {
     let _ = app.emit(STATE_EVENT, &state);
 }
 
+/// `sw_vers` as the host collector reads it: the version for the context, the build for the hold.
 #[cfg(target_os = "macos")]
-fn os_version() -> String {
-    crate::collect::macos::host::collect(&std::sync::atomic::AtomicBool::new(false)).os_version
+fn host_facts() -> (String, Option<String>) {
+    let host = crate::collect::macos::host::collect(&std::sync::atomic::AtomicBool::new(false));
+    (host.os_version, host.os_build)
 }
 
 #[cfg(not(target_os = "macos"))]
-fn os_version() -> String {
-    "unknown".to_owned()
+fn host_facts() -> (String, Option<String>) {
+    ("unknown".to_owned(), None)
+}
+
+/// The watch's app bundle check: `listxattr` then `codesign` within what the launch items left
+/// of the shared cap. Never cancelled: the cycle runs to its end like the launch item check.
+#[cfg(target_os = "macos")]
+fn check_app_bundles(paths: &[PathBuf], budget: &mut usize) -> Vec<AppCheck> {
+    use crate::collect::macos::apps;
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let run = apps::codesign_runner(&cancel);
+    apps::check_bundles(paths, budget, None, &run)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn check_app_bundles(paths: &[PathBuf], _budget: &mut usize) -> Vec<AppCheck> {
+    paths
+        .iter()
+        .map(|_| AppCheck {
+            quarantined: None,
+            signature: None,
+        })
+        .collect()
 }
 
 /// Pending outcomes from model-chosen probes stand in for sweep probes that failed this cycle.
@@ -1292,24 +1558,15 @@ pub fn run_once(app: &AppHandle, now: DateTime<Utc>) {
     let pending = std::mem::take(&mut *store.pending.lock().unwrap_or_else(|p| p.into_inner()));
     // Model-chosen probes ran last cycle: this sweep holds what the model asked for.
     let follow_up = !pending.is_empty();
-    let outcomes = merge_pending(
+    let mut outcomes = merge_pending(
         probes::run_sweep(&probes::sweep_probes(), SWEEP_BUDGET),
         pending,
     );
-    {
-        let mut last_run = store
-            .probe_last_run
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        for o in &outcomes {
-            last_run.insert(o.probe, Instant::now());
-        }
-    }
     let dir = crate::commands::app_data_dir(app).ok();
     let report = dir
         .as_deref()
         .and_then(|d| crate::report_store::load_last(d).ok().flatten());
-    let os_version = os_version();
+    let (os_version, os_build) = host_facts();
 
     // Read before the `||` chain, so a manual check consumes the request too.
     let requested = store.full_check_requested.swap(false, Ordering::SeqCst);
@@ -1328,10 +1585,31 @@ pub fn run_once(app: &AppHandle, now: DateTime<Utc>) {
     }
     let extra = if full_check {
         let caps = crate::capabilities::check();
+        // The probes outside the sweep run with the full check, after the collectors; a failed
+        // read (Spotlight off) is kept, unlike a model-chosen retry.
+        let late = probes::run_sweep(&FULL_CHECK_PROBES, SWEEP_BUDGET);
+        outcomes.retain(|o| !late.iter().any(|l| l.probe == o.probe));
+        outcomes.extend(late);
         probes::run_full_check(&caps, &std::sync::atomic::AtomicBool::new(false))
     } else {
         Vec::new()
     };
+    {
+        let mut last_run = store
+            .probe_last_run
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        for o in &outcomes {
+            last_run.insert(o.probe, Instant::now());
+        }
+    }
+    // The rows of probes that did not run this cycle survive from the last snapshot.
+    let carried: Vec<UnavailableProbe> = store
+        .snapshot()
+        .unavailable
+        .into_iter()
+        .filter(|row| !outcomes.iter().any(|o| o.probe == row.probe_id))
+        .collect();
     // The copy is taken after the long reads, so the commands' edits land on the live baseline
     // until here and are replayed onto the copy before it is saved.
     let mut baseline = store.begin_cycle(dir.as_deref());
@@ -1341,8 +1619,20 @@ pub fn run_once(app: &AppHandle, now: DateTime<Utc>) {
     }
     let last_verdict = store.last_verdict_for(now);
     let home = dirs::home_dir().unwrap_or_default();
+    // One `codesign` budget per cycle, shared: launch items run first in `derive`, bundles after.
+    let budget = std::cell::Cell::new(signals::CODESIGN_CAP);
     let codesign = |programs: &[Option<String>]| {
-        signals::verify_programs(programs, &home, &signals::run_codesign)
+        let mut left = budget.get();
+        let outcomes =
+            signals::verify_programs_within(programs, &home, &signals::run_codesign, &mut left);
+        budget.set(left);
+        outcomes
+    };
+    let app_codesign = |paths: &[PathBuf]| {
+        let mut left = budget.get();
+        let checks = check_app_bundles(paths, &mut left);
+        budget.set(left);
+        checks
     };
     let (context, compared) = prepare(
         &mut baseline,
@@ -1356,6 +1646,9 @@ pub fn run_once(app: &AppHandle, now: DateTime<Utc>) {
             last_verdict,
             probes_left: MAX_MODEL_PROBES as u32,
             codesign: &codesign,
+            app_codesign: &app_codesign,
+            os_build: os_build.as_deref(),
+            carried: &carried,
             full_check,
         },
     );
@@ -1627,6 +1920,16 @@ mod tests {
             .collect()
     }
 
+    fn no_apps(paths: &[PathBuf]) -> Vec<AppCheck> {
+        paths
+            .iter()
+            .map(|_| AppCheck {
+                quarantined: None,
+                signature: None,
+            })
+            .collect()
+    }
+
     fn input<'a>(
         outcomes: &'a [ProbeOutcome],
         settings: &'a WatchSettingsFile,
@@ -1643,6 +1946,9 @@ mod tests {
             last_verdict: None,
             probes_left: 3,
             codesign,
+            app_codesign: &no_apps,
+            os_build: None,
+            carried: &[],
             full_check: false,
         }
     }
@@ -3658,5 +3964,645 @@ mod tests {
         assert!(conclusion.items.is_empty());
         assert_eq!(conclusion.rating, Rating::Calm, "the rating fell");
         assert!(pause_holds(paused, false), "the next tick still waits");
+    }
+
+    // ---------- DESIGN-THREATS-V2 ----------
+
+    fn stat(path: &str, key: &str) -> Member {
+        Member {
+            key: format!("{path}|{key}"),
+            detail: MemberDetail::StatFile {
+                path: path.to_owned(),
+            },
+        }
+    }
+
+    fn app(name: &str) -> Member {
+        Member {
+            key: name.to_owned(),
+            detail: MemberDetail::App {
+                path: format!("/Applications/{name}"),
+                name: name.to_owned(),
+            },
+        }
+    }
+
+    fn apps_outcome(names: &[&str]) -> ProbeOutcome {
+        ok(
+            ProbeId::Apps,
+            vec![o(
+                SignalId::AppSet,
+                Observed::Set(names.iter().map(|n| app(n)).collect()),
+            )],
+        )
+    }
+
+    fn shell_outcome(zshrc: &str) -> ProbeOutcome {
+        ok(
+            ProbeId::ShellStartup,
+            vec![
+                o(
+                    SignalId::ShellStartupChanged,
+                    Observed::Set(vec![
+                        stat("/Users/demo/.zshrc", zshrc),
+                        stat("/Users/demo/.zprofile", "139|644|1"),
+                    ]),
+                ),
+                o(SignalId::SystemShellFilesCount, Observed::Count(0)),
+                o(
+                    SignalId::PathsDChanged,
+                    Observed::Set(vec![stat("/etc/paths.d/40-XQuartz", "1|644|1")]),
+                ),
+                o(SignalId::PathDirWritableCount, Observed::Count(0)),
+            ],
+        )
+    }
+
+    /// The six hold digests, each as one stat member keyed by `tag`.
+    fn hold_outcomes(tag: &str, with_hosts: bool) -> Vec<ProbeOutcome> {
+        let mut out = vec![
+            shell_outcome(&format!("2738|644|{tag}")),
+            ok(
+                ProbeId::SudoConfig,
+                vec![
+                    o(SignalId::SudoersDCount, Observed::Count(0)),
+                    o(
+                        SignalId::PamSudoChanged,
+                        Observed::Set(vec![Member::plain(format!("sudo:{tag}"))]),
+                    ),
+                    o(
+                        SignalId::PamAuthChanged,
+                        Observed::Set(vec![stat("/etc/pam.d/login", tag)]),
+                    ),
+                ],
+            ),
+            ok(
+                ProbeId::SshKeys,
+                vec![
+                    o(
+                        SignalId::AuthorizedKeysChanged,
+                        Observed::Set(vec![Member::plain("keys")]),
+                    ),
+                    o(
+                        SignalId::SshdConfigChanged,
+                        Observed::Set(vec![Member::plain(format!("sshd:{tag}"))]),
+                    ),
+                ],
+            ),
+        ];
+        if with_hosts {
+            out.push(ok(
+                ProbeId::Hosts,
+                vec![o(
+                    SignalId::HostsChanged,
+                    Observed::Set(vec![Member::plain(format!("hosts:{tag}"))]),
+                )],
+            ));
+        }
+        out
+    }
+
+    fn with_build<'a>(
+        outcomes: &'a [ProbeOutcome],
+        settings: &'a WatchSettingsFile,
+        now: &str,
+        build: Option<&'a str>,
+    ) -> PrepareInput<'a> {
+        PrepareInput {
+            os_build: build,
+            ..input(outcomes, settings, now, &all_valid)
+        }
+    }
+
+    fn unsigned_unquarantined(paths: &[PathBuf]) -> Vec<AppCheck> {
+        paths
+            .iter()
+            .map(|_| AppCheck {
+                quarantined: Some(false),
+                signature: Some(crate::state::SignatureWord::Unsigned),
+            })
+            .collect()
+    }
+
+    fn app_store_unquarantined(paths: &[PathBuf]) -> Vec<AppCheck> {
+        paths
+            .iter()
+            .map(|_| AppCheck {
+                quarantined: Some(false),
+                signature: Some(crate::state::SignatureWord::AppStore),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_build_hold_stores_the_first_build_silently_and_none_changes_nothing() {
+        let settings = WatchSettingsFile::default();
+        let mut baseline = Baseline::new();
+        let first = hold_outcomes("a", true);
+        cycle(&mut baseline, &first, &settings, T0, &all_valid);
+        assert_eq!(baseline.os_build, None, "a None read stores nothing");
+        prepare(
+            &mut baseline,
+            &with_build(&first, &settings, T1, Some("26A434")),
+        );
+        assert_eq!(baseline.os_build.as_deref(), Some("26A434"));
+        assert!(baseline.recent.is_empty(), "stored silently");
+        prepare(
+            &mut baseline,
+            &with_build(&first, &settings, T2, Some("26A434-bad text")),
+        );
+        assert_eq!(
+            baseline.os_build.as_deref(),
+            Some("26A434"),
+            "text outside the pattern is treated as unchanged"
+        );
+        let moved = hold_outcomes("b", true);
+        let (context, _) = prepare(&mut baseline, &with_build(&moved, &settings, T3, None));
+        assert_eq!(
+            change_of(&context, SignalId::ShellStartupChanged),
+            Change::Changed,
+            "with no build read a file change counts"
+        );
+    }
+
+    #[test]
+    fn a_changed_build_reseeds_the_six_digests_once_and_the_next_move_counts() {
+        let settings = WatchSettingsFile::default();
+        let mut baseline = Baseline::new();
+        let first = hold_outcomes("a", true);
+        cycle(&mut baseline, &first, &settings, T0, &all_valid);
+        prepare(
+            &mut baseline,
+            &with_build(&first, &settings, T1, Some("26A434")),
+        );
+        // The update moved every file; the build moved with it.
+        let updated = hold_outcomes("b", true);
+        let (context, compared) = prepare(
+            &mut baseline,
+            &with_build(&updated, &settings, T2, Some("26B100")),
+        );
+        for signal in HOLD_DIGESTS {
+            assert_eq!(change_of(&context, signal), Change::Same, "{signal:?} held");
+        }
+        assert!(compared.details.is_empty(), "no file named for Details");
+        assert!(
+            baseline
+                .recent
+                .iter()
+                .all(|r| !HOLD_DIGESTS.contains(&r.signal_id)),
+            "no recent entry for a held digest"
+        );
+        assert_eq!(baseline.os_build.as_deref(), Some("26B100"));
+        assert_eq!(baseline.last_change_at, None, "last_change_at untouched");
+        // A real move after the update counts.
+        let edited = hold_outcomes("c", true);
+        let (context, compared) = prepare(
+            &mut baseline,
+            &with_build(&edited, &settings, T3, Some("26B100")),
+        );
+        assert_eq!(
+            change_of(&context, SignalId::PamAuthChanged),
+            Change::Changed,
+            "a PAM change with no build change counts"
+        );
+        assert!(
+            compared
+                .details
+                .iter()
+                .any(|d| d.file_path.as_deref() == Some("/etc/pam.d/login")),
+            "Details names the file"
+        );
+    }
+
+    #[test]
+    fn a_changed_build_with_hosts_missing_keeps_the_old_build_and_the_next_sweep_reseeds_hosts() {
+        let settings = WatchSettingsFile::default();
+        let mut baseline = Baseline::new();
+        cycle(
+            &mut baseline,
+            &hold_outcomes("a", true),
+            &settings,
+            T0,
+            &all_valid,
+        );
+        prepare(
+            &mut baseline,
+            &with_build(&hold_outcomes("a", true), &settings, T1, Some("26A434")),
+        );
+        let partial = hold_outcomes("b", false);
+        let (context, _) = prepare(
+            &mut baseline,
+            &with_build(&partial, &settings, T2, Some("26B100")),
+        );
+        assert_eq!(
+            change_of(&context, SignalId::ShellStartupChanged),
+            Change::Same
+        );
+        assert_eq!(
+            baseline.os_build.as_deref(),
+            Some("26A434"),
+            "five of six re-seeded: the build is not stored"
+        );
+        let full = hold_outcomes("b", true);
+        let (context, _) = prepare(
+            &mut baseline,
+            &with_build(&full, &settings, T3, Some("26B100")),
+        );
+        assert_eq!(
+            change_of(&context, SignalId::HostsChanged),
+            Change::Same,
+            "the following full sweep re-seeds hosts"
+        );
+        assert!(
+            !baseline
+                .recent
+                .iter()
+                .any(|r| r.signal_id == SignalId::HostsChanged),
+            "without a recent entry"
+        );
+        assert_eq!(baseline.os_build.as_deref(), Some("26B100"));
+    }
+
+    #[test]
+    fn a_carried_unavailable_row_survives_a_cycle_that_did_not_run_the_probe() {
+        let settings = WatchSettingsFile::default();
+        let mut baseline = Baseline::new();
+        let mut first = sweep(vec![], true);
+        first.push(ProbeOutcome {
+            probe: ProbeId::LibraryApps,
+            result: Err(ProbeReason::SpotlightOff),
+        });
+        let (_, compared) = prepare(&mut baseline, &input(&first, &settings, T0, &all_valid));
+        let carried: Vec<UnavailableProbe> = compared
+            .unavailable
+            .iter()
+            .copied()
+            .filter(|row| row.probe_id == ProbeId::LibraryApps)
+            .collect();
+        assert_eq!(carried.len(), 1);
+        assert_eq!(carried[0].reason, ProbeReason::SpotlightOff);
+        let second = sweep(vec![], true);
+        let (context, compared) = prepare(
+            &mut baseline,
+            &PrepareInput {
+                carried: &carried,
+                ..input(&second, &settings, T1, &all_valid)
+            },
+        );
+        assert!(
+            compared
+                .unavailable
+                .iter()
+                .any(|row| row.probe_id == ProbeId::LibraryApps
+                    && row.reason == ProbeReason::SpotlightOff),
+            "the row is carried"
+        );
+        let count = context
+            .signals
+            .iter()
+            .find(|s| s.signal_id == SignalId::LibraryAppsCount)
+            .unwrap();
+        assert_eq!(count.freshness, Freshness::Unavailable);
+        assert_eq!(count.change, Change::Same, "carrying it never nags");
+        let third = vec![ok(
+            ProbeId::LibraryApps,
+            vec![o(SignalId::LibraryAppsCount, Observed::Count(16))],
+        )];
+        let (_, compared) = prepare(
+            &mut baseline,
+            &PrepareInput {
+                carried: &carried,
+                ..input(&third, &settings, T2, &all_valid)
+            },
+        );
+        assert!(
+            compared.unavailable.is_empty(),
+            "a cycle that ran the probe drops the carried row"
+        );
+    }
+
+    #[test]
+    fn an_unchecked_unsigned_bundle_alone_looks_and_with_a_new_launch_agent_acts() {
+        let settings = WatchSettingsFile::default();
+        let mut baseline = Baseline::new();
+        let mut first = sweep(vec![launch("com.a", "/opt/a", false)], true);
+        first.push(apps_outcome(&["Claude.app"]));
+        cycle(&mut baseline, &first, &settings, T0, &all_unsigned);
+        let mut second = sweep(vec![launch("com.a", "/opt/a", false)], true);
+        second.push(apps_outcome(&["Claude.app", "Helper.app"]));
+        let (context, compared) = prepare(
+            &mut baseline,
+            &PrepareInput {
+                app_codesign: &unsigned_unquarantined,
+                ..input(&second, &settings, T1, &all_unsigned)
+            },
+        );
+        for id in [SignalId::AppNewUnquarantined, SignalId::AppNewUnsigned] {
+            let signal = context.signals.iter().find(|s| s.signal_id == id).unwrap();
+            assert_eq!(signal.change, Change::Changed, "{id:?}");
+            assert_eq!(signal.value, SignalValue::Int(1), "{id:?}");
+        }
+        assert_eq!(context.floor, Rating::KeepAnEye, "one listing looks");
+        let row = compared
+            .details
+            .iter()
+            .find(|d| d.signal_id == SignalId::AppSet)
+            .unwrap();
+        assert_eq!(row.label.as_deref(), Some("Helper.app"));
+        assert_eq!(
+            row.program_path.as_deref(),
+            Some("/Applications/Helper.app")
+        );
+        assert_eq!(row.signature, Some(crate::state::SignatureWord::Unsigned));
+        assert!(row.plist_path.is_none() && row.port.is_none());
+        let conclusion = conclude(
+            &mut baseline,
+            &context,
+            &compared,
+            None,
+            &settings,
+            at(T1),
+            false,
+        );
+        assert_eq!(conclusion.rating, Rating::KeepAnEye);
+        assert_eq!(conclusion.items.len(), 1);
+        let item = &conclusion.items[0];
+        assert_eq!(item.signal_id, SignalId::AppNewUnsigned);
+        assert_eq!(item.kind, FishyKind::App);
+        assert!(!item.has_startup_entry, "an app item has no plist to stop");
+        assert!(!item.is_listener);
+        assert!(
+            item.action_ids
+                .contains(&crate::watch::ActionId::ReviewBackgroundPrograms)
+        );
+        assert_eq!(conclusion.notify, None);
+        let mut third = sweep(
+            vec![
+                launch("com.a", "/opt/a", false),
+                launch("com.b", "/tmp/b", true),
+            ],
+            true,
+        );
+        third.push(apps_outcome(&["Claude.app", "Helper.app"]));
+        let (context, compared) = prepare(
+            &mut baseline,
+            &PrepareInput {
+                app_codesign: &unsigned_unquarantined,
+                ..input(&third, &settings, T2, &all_unsigned)
+            },
+        );
+        assert_eq!(
+            context.floor,
+            Rating::ActNow,
+            "a new launch agent corroborates"
+        );
+        let conclusion = conclude(
+            &mut baseline,
+            &context,
+            &compared,
+            None,
+            &settings,
+            at(T2),
+            false,
+        );
+        assert_eq!(conclusion.rating, Rating::ActNow);
+        assert_eq!(conclusion.items.len(), 2);
+        assert!(conclusion.notify.is_some());
+    }
+
+    #[test]
+    fn an_app_store_bundle_alone_makes_no_item_and_a_failed_apps_probe_marks_all_three_unavailable()
+    {
+        let settings = WatchSettingsFile::default();
+        let mut baseline = Baseline::new();
+        let mut first = sweep(vec![], true);
+        first.push(apps_outcome(&["Claude.app"]));
+        cycle(&mut baseline, &first, &settings, T0, &all_valid);
+        let mut second = sweep(vec![], true);
+        second.push(apps_outcome(&["Claude.app", "Pages.app"]));
+        let (context, compared) = prepare(
+            &mut baseline,
+            &PrepareInput {
+                app_codesign: &app_store_unquarantined,
+                ..input(&second, &settings, T1, &all_valid)
+            },
+        );
+        assert_eq!(change_of(&context, SignalId::AppSet), Change::Changed);
+        assert_eq!(
+            change_of(&context, SignalId::AppNewUnquarantined),
+            Change::Changed
+        );
+        assert_eq!(change_of(&context, SignalId::AppNewUnsigned), Change::Same);
+        let conclusion = conclude(
+            &mut baseline,
+            &context,
+            &compared,
+            None,
+            &settings,
+            at(T1),
+            false,
+        );
+        assert!(
+            conclusion.items.is_empty(),
+            "no item for an App Store install"
+        );
+        assert_eq!(
+            conclusion.rating,
+            Rating::KeepAnEye,
+            "but something to look at"
+        );
+        let mut third = sweep(vec![], true);
+        third.push(ProbeOutcome {
+            probe: ProbeId::Apps,
+            result: Err(ProbeReason::PermissionDenied),
+        });
+        let (context, _) = prepare(&mut baseline, &input(&third, &settings, T2, &all_valid));
+        for id in [
+            SignalId::AppSet,
+            SignalId::AppNewUnquarantined,
+            SignalId::AppNewUnsigned,
+        ] {
+            let signal = context.signals.iter().find(|s| s.signal_id == id).unwrap();
+            assert_eq!(signal.freshness, Freshness::Unavailable, "{id:?}");
+        }
+    }
+
+    #[test]
+    fn a_zshrc_change_alone_makes_one_shell_item_naming_the_file() {
+        let settings = WatchSettingsFile::default();
+        let mut baseline = Baseline::new();
+        let mut first = sweep(vec![], true);
+        first.push(shell_outcome("2738|644|1"));
+        cycle(&mut baseline, &first, &settings, T0, &all_valid);
+        let mut second = sweep(vec![], true);
+        second.push(shell_outcome("2801|644|2"));
+        let (context, compared) =
+            prepare(&mut baseline, &input(&second, &settings, T1, &all_valid));
+        let digest = context
+            .signals
+            .iter()
+            .find(|s| s.signal_id == SignalId::ShellStartupChanged)
+            .unwrap();
+        assert_eq!(digest.change, Change::Changed);
+        assert_eq!(digest.value, SignalValue::Change(Change::Changed));
+        assert_eq!(
+            compared.details,
+            vec![WatchDetailsItem {
+                file_path: Some("/Users/demo/.zshrc".into()),
+                ..WatchDetailsItem::blank(SignalId::ShellStartupChanged)
+            }],
+            "only the changed file is named"
+        );
+        let conclusion = conclude(
+            &mut baseline,
+            &context,
+            &compared,
+            None,
+            &settings,
+            at(T1),
+            false,
+        );
+        assert_eq!(conclusion.rating, Rating::KeepAnEye);
+        assert_eq!(conclusion.items.len(), 1);
+        assert_eq!(conclusion.items[0].kind, FishyKind::Shell);
+        assert_eq!(conclusion.items[0].signal_id, SignalId::ShellStartupChanged);
+        assert!(!conclusion.items[0].has_startup_entry);
+        assert!(
+            conclusion.items[0]
+                .action_ids
+                .contains(&crate::watch::ActionId::GetHelp)
+        );
+        assert_eq!(conclusion.notify, None);
+    }
+
+    #[test]
+    fn airdrop_everyone_alone_never_notifies_and_internet_sharing_is_gated() {
+        let settings = WatchSettingsFile::default();
+        let mut baseline = Baseline::new();
+        let exposure = |airdrop: bool, sharing: bool| {
+            ok(
+                ProbeId::Exposure,
+                vec![
+                    o(SignalId::AirdropEveryone, Observed::Bool(airdrop)),
+                    o(SignalId::InternetSharingOn, Observed::Bool(sharing)),
+                ],
+            )
+        };
+        let mut first = sweep(vec![], true);
+        first.push(exposure(false, false));
+        cycle(&mut baseline, &first, &settings, T0, &all_valid);
+        let mut second = sweep(vec![], true);
+        second.push(exposure(true, false));
+        let (context, conclusion) = cycle(&mut baseline, &second, &settings, T1, &all_valid);
+        assert_eq!(context.floor, Rating::KeepAnEye);
+        assert_eq!(context.ceiling, Rating::KeepAnEye);
+        assert_eq!(conclusion.rating, Rating::KeepAnEye);
+        assert_eq!(conclusion.items.len(), 1);
+        assert_eq!(conclusion.items[0].kind, FishyKind::Exposure);
+        assert!(!conclusion.items[0].gated, "AirDrop is never gated");
+        assert!(
+            conclusion.items[0]
+                .action_ids
+                .contains(&crate::watch::ActionId::LimitAirdrop)
+        );
+        assert_eq!(
+            conclusion.notify, None,
+            "AirDrop Everyone alone never notifies"
+        );
+        let (_, conclusion) = cycle(&mut baseline, &second, &settings, T2, &all_valid);
+        assert_eq!(conclusion.notify, None);
+        let mut third = sweep(vec![], true);
+        third.push(exposure(true, true));
+        let (context, conclusion) = cycle(&mut baseline, &third, &settings, T3, &all_valid);
+        assert!(
+            context
+                .signals
+                .iter()
+                .any(|s| s.signal_id == SignalId::InternetSharingOn && s.gated)
+        );
+        assert_eq!(
+            conclusion.rating,
+            Rating::KeepAnEye,
+            "unanswered gate looks"
+        );
+        assert_eq!(conclusion.notify, None);
+        answer_not_mine(&mut baseline, SignalId::InternetSharingOn);
+        let (_, conclusion) = refresh(
+            &mut baseline,
+            &third,
+            &settings,
+            "2026-10-17T15:01:00.000Z",
+            &all_valid,
+        );
+        assert_eq!(conclusion.rating, Rating::ActNow, "answered No acts");
+        assert_eq!(
+            conclusion.notify,
+            Some((SignalId::InternetSharingOn, FishyKind::Exposure))
+        );
+    }
+
+    #[test]
+    fn a_masquerading_label_counts_once_with_the_listing_and_unsigned_acts_alone() {
+        let settings = WatchSettingsFile::default();
+        let mut baseline = Baseline::new();
+        cycle(
+            &mut baseline,
+            &sweep(vec![launch("com.a", "/opt/a", false)], true),
+            &settings,
+            T0,
+            &all_valid,
+        );
+        let signed = sweep(
+            vec![
+                launch("com.a", "/opt/a", false),
+                launch("com.apple.helper", "/opt/helper", false),
+            ],
+            true,
+        );
+        // The signed hold lasts one cycle; the next counts it.
+        cycle(&mut baseline, &signed, &settings, T1, &all_valid);
+        let (context, conclusion) = cycle(&mut baseline, &signed, &settings, T2, &all_valid);
+        let masquerade = context
+            .signals
+            .iter()
+            .find(|s| s.signal_id == SignalId::LaunchLabelMasquerade)
+            .unwrap();
+        assert_eq!(masquerade.value, SignalValue::Int(1));
+        assert_eq!(masquerade.change, Change::Changed);
+        assert_eq!(
+            change_of(&context, SignalId::LaunchLabelMasqueradeUnsigned),
+            Change::Same,
+            "a validly signed program is not the unsigned case"
+        );
+        assert_eq!(conclusion.rating, Rating::KeepAnEye, "alone: look");
+        assert_eq!(conclusion.items.len(), 1, "one listing, one item");
+        let mut baseline = Baseline::new();
+        cycle(
+            &mut baseline,
+            &sweep(vec![launch("com.a", "/opt/a", false)], true),
+            &settings,
+            T0,
+            &all_unsigned,
+        );
+        let unsigned = sweep(
+            vec![
+                launch("com.a", "/opt/a", false),
+                launch("com.apple.helper", "/tmp/helper", true),
+            ],
+            true,
+        );
+        let (context, conclusion) = cycle(&mut baseline, &unsigned, &settings, T1, &all_unsigned);
+        let unsigned_masquerade = context
+            .signals
+            .iter()
+            .find(|s| s.signal_id == SignalId::LaunchLabelMasqueradeUnsigned)
+            .unwrap();
+        assert_eq!(unsigned_masquerade.value, SignalValue::Int(1));
+        assert_eq!(context.floor, Rating::ActNow, "stand-alone");
+        assert_eq!(conclusion.rating, Rating::ActNow);
+        assert_eq!(conclusion.items.len(), 1, "one listing, one item");
+        assert_eq!(conclusion.items[0].kind, FishyKind::Persistence);
+        assert!(conclusion.items[0].has_startup_entry);
+        assert!(conclusion.notify.is_some());
     }
 }

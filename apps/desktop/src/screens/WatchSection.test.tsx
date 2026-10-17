@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { WATCH_INTERVALS } from "@talos/core";
 import { StatefulProvider, fakeAdapters, fakeContextValue } from "../app/testing";
-import { NOT_ANTIVIRUS, WATCH_SETTINGS } from "../guided/copy";
+import { COVERAGE, NOT_ANTIVIRUS, WATCH_SETTINGS } from "../guided/copy";
 import { DEFAULT_SETTINGS } from "../settings";
 import type { AppSettings } from "../settings";
 import type { WatchController } from "../watch/watch-controller";
@@ -90,6 +90,18 @@ describe("WatchSection", () => {
     fireEvent.click(screen.getByRole("switch", { name: WATCH_SETTINGS.notify }));
     await waitFor(() => expect(off.setNotify).toHaveBeenCalledWith(false));
     expect(off.requestNotifyPermission).not.toHaveBeenCalled();
+  });
+
+  it("draws the What I watch link after the not-antivirus line, which opens the coverage route returning to Settings", () => {
+    const { value } = renderSection();
+    const link = screen.getByRole("button", { name: COVERAGE.title });
+    expect(link.className).toContain("guided-link");
+    expect(document.querySelectorAll(".guided-link").length).toBe(1);
+    const sentence = screen.getByText(NOT_ANTIVIRUS);
+    expect(sentence.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(link);
+    expect(value.router.navigate).toHaveBeenCalledWith({ name: "coverage", returnTo: { name: "settings" } });
+    expect(document.querySelectorAll(".button-primary").length).toBe(0);
   });
 
   it("keeps the flag write when the permission call rejects", async () => {

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Change, SignalId, WatchContext, WatchSignal } from "../../src/ports/watch-port";
-import { ACTION_IDS, MODEL_PROBE_IDS, SIGNAL_IDS, SIGNAL_KIND } from "../../src/ports/watch-port";
-import { RATE_CASES } from "../../src/watch/cases";
-import { applyHysteresis, boundsFor, maxRating, minRating, rateWatch, topItems } from "../../src/watch/rate";
+import { ACTION_IDS, MODEL_PROBE_IDS, SIGNAL_IDS, SIGNAL_KIND, WATCH_LIMITS } from "../../src/ports/watch-port";
+import { CONTEXT_CASES, RATE_CASES } from "../../src/watch/cases";
+import { LISTING_DIGESTS, applyHysteresis, boundsFor, maxRating, minRating, rateWatch, topItems } from "../../src/watch/rate";
 import { BAD_DIRECTION, GATED_SIGNALS, PAIR_SIGNALS, SIGNAL_SEVERITY, STAND_ALONE_SIGNALS, badFlip, pairGroup, siblings } from "../../src/watch/signals";
 
 function sig(signalId: SignalId, over: Partial<WatchSignal> = {}): WatchSignal {
@@ -47,9 +47,36 @@ describe("the fixture set", () => {
 
   it("covers each stand-alone trigger, each pair and a gate answered No", () => {
     const names = byName("act:").map((c) => c.name).join("\n");
-    for (const word of ["SIP", "Gatekeeper", "XProtect went missing", "XProtect scans", "version went down", "hidden account", "new listener", "PAC URL", "system extension", "cron line", "unanswered gate", "answered No"]) {
+    for (const word of ["SIP", "Gatekeeper", "XProtect went missing", "XProtect scans", "version went down", "hidden account", "new listener", "PAC URL", "system extension", "cron line", "unanswered gate", "answered No", "authenticated root", "Internet Sharing", "unsigned label", "unchecked unsigned app", "shell start-up file"]) {
       expect(names).toContain(word);
     }
+  });
+
+  it("the new signals land where DESIGN-THREATS-V2 section 9 says", () => {
+    const find = (name: string) => {
+      const c = RATE_CASES.find((x) => x.name === name);
+      if (c === undefined) throw new Error(`no case named ${name}`);
+      return c;
+    };
+    expect(find("act: authenticated root went off").expectedItems).toEqual(["sig.authenticated_root"]);
+    const airdrop = find("look: AirDrop open to everyone alone, with no gate");
+    expect(airdrop.expectedItems).toEqual(["sig.airdrop_everyone"]);
+    expect(airdrop.context.signals.some((s) => s.gated)).toBe(false);
+    expect(find("look: Internet Sharing came on, an unanswered gate").context.signals.some((s) => s.signalId === "sig.internet_sharing_on" && s.gated)).toBe(true);
+    expect(find("look: an unchecked unsigned app alone is one app item").expectedItems).toEqual(["sig.app_new_unsigned"]);
+    expect(topItems(find("look: an unchecked unsigned app alone is one app item").context.signals).map((i) => i.kind)).toEqual(["app"]);
+    expect(find("act: an unchecked unsigned app and a new launch agent").expectedItems).toEqual(["sig.persistence_new", "sig.app_new_unsigned"]);
+    expect(find("look: a new App Store app with no download mark alone makes no item").expectedItems).toEqual([]);
+    expect(find("look: more apps hidden in the library alone makes no item").expectedItems).toEqual([]);
+    expect(find("look: a new App Store app and a new signed launch agent within a day").expectedItems).toEqual(["sig.persistence_new"]);
+    const zshrc = find("look: ~/.zshrc changed alone is keep_an_eye with one shell item");
+    expect(zshrc.expectedItems).toEqual(["sig.shell_startup_changed"]);
+    expect(topItems(zshrc.context.signals).map((i) => i.kind)).toEqual(["shell"]);
+    expect(new Set(find("act: a shell start-up file and a new launch agent").expectedItems)).toEqual(new Set(["sig.shell_startup_changed", "sig.persistence_new"]));
+    expect(find("look: a new /etc/zshenv changes two shell signals and is one item").expectedItems).toEqual(["sig.shell_startup_changed"]);
+    expect(find("look: a label that pretends to be Apple's alone is one item").expectedItems).toHaveLength(1);
+    expect(find("act: an unsigned label that pretends to be Apple's is act now on one listing").expectedItems).toHaveLength(1);
+    expect(find("calm: a PAM file that moved with a build change arrives unchanged and makes no item").expectedItems).toEqual([]);
   });
 
   it("the first cycle rates nothing even with SIP off and a model saying act_now", () => {
@@ -207,6 +234,32 @@ describe("topItems", () => {
     expect(topItems([changed("sig.listener_set", "changed", null)])).toEqual([]);
     expect(topItems([changed("sig.hosts_changed", "changed", null)]).map((i) => i.signalId)).toEqual(["sig.hosts_changed"]);
   });
+
+  it("listingWorthy is scoped to the three listing digests; every other digest is an item on its own", () => {
+    expect(LISTING_DIGESTS).toEqual(["sig.persistence_set", "sig.listener_set", "sig.app_set"]);
+    expect(topItems([changed("sig.app_set", "changed", null)])).toEqual([]);
+    expect(topItems([changed("sig.app_set", "changed", null), changed("sig.app_new_unsigned", 1, 0)]).map((i) => i.signalId)).toEqual(["sig.app_new_unsigned"]);
+    // A context-only sibling never makes the listing an item.
+    expect(topItems([changed("sig.app_set", "changed", null), changed("sig.app_new_unquarantined", 1, 0)])).toEqual([]);
+    expect(topItems([changed("sig.shell_startup_changed", "changed", null)]).map((i) => i.signalId)).toEqual(["sig.shell_startup_changed"]);
+    expect(topItems([changed("sig.paths_d_changed", "changed", null)]).map((i) => i.signalId)).toEqual(["sig.paths_d_changed"]);
+    expect(topItems([changed("sig.pam_auth_changed", "changed", null)]).map((i) => i.signalId)).toEqual(["sig.pam_auth_changed"]);
+    expect(topItems([changed("sig.authorized_keys_changed", "changed", null)]).map((i) => i.signalId)).toEqual(["sig.authorized_keys_changed"]);
+  });
+
+  it("a shell file and a launch agent within a day are act now; a shell file alone is one shell item", () => {
+    expect(boundsFor([changed("sig.shell_startup_changed", "changed", null)])).toEqual({ floor: "keep_an_eye", ceiling: "keep_an_eye" });
+    expect(boundsFor([changed("sig.shell_startup_changed", "changed", null), changed("sig.persistence_new", 1, 0)]).floor).toBe("act_now");
+    expect(boundsFor([changed("sig.shell_startup_changed", "changed", null), changed("sig.system_shell_files_count", 1, 0), changed("sig.paths_d_changed", "changed", null)]).floor).toBe("keep_an_eye");
+    expect(pairGroup("sig.paths_d_changed")).toBe("sig.shell_startup_changed");
+    expect(pairGroup("sig.path_dir_writable_count")).toBe("sig.shell_startup_changed");
+    expect(pairGroup("sig.app_new_unsigned")).toBe("sig.app_set");
+    expect(pairGroup("sig.launch_label_masquerade")).toBe("sig.persistence_set");
+    expect(pairGroup("sig.launch_label_masquerade_unsigned")).toBe("sig.persistence_set");
+    expect(siblings("sig.shell_startup_changed")).toEqual(["sig.shell_startup_changed", "sig.system_shell_files_count", "sig.paths_d_changed", "sig.path_dir_writable_count"]);
+    expect(siblings("sig.app_set")).toEqual(["sig.app_set", "sig.app_new_unquarantined", "sig.app_new_unsigned"]);
+    expect(siblings("sig.persistence_set")).toHaveLength(6);
+  });
 });
 
 describe("applyHysteresis", () => {
@@ -239,9 +292,14 @@ describe("the signal tables", () => {
     expect(Object.keys(SIGNAL_KIND)).toEqual([...SIGNAL_IDS]);
   });
 
-  it("every stand-alone, gated and pair signal is high and kinded, and has a bad direction", () => {
-    for (const id of [...STAND_ALONE_SIGNALS, ...GATED_SIGNALS, ...PAIR_SIGNALS]) {
+  it("every stand-alone and gated signal is high; every pair signal is high or medium; all kinded with a bad direction", () => {
+    for (const id of [...STAND_ALONE_SIGNALS, ...GATED_SIGNALS]) {
       expect(SIGNAL_SEVERITY[id], id).toBe("high");
+    }
+    for (const id of PAIR_SIGNALS) {
+      expect(["high", "medium"], id).toContain(SIGNAL_SEVERITY[id]);
+    }
+    for (const id of [...STAND_ALONE_SIGNALS, ...GATED_SIGNALS, ...PAIR_SIGNALS]) {
       expect(SIGNAL_KIND[id], id).not.toBeNull();
       expect(BAD_DIRECTION[id], id).toBeDefined();
     }
@@ -253,13 +311,39 @@ describe("the signal tables", () => {
     expect(badFlip(sig("sig.share_count", { value: 9, previous: 1, change: "changed" }))).toBe(true);
     expect(badFlip(sig("sig.share_count", { value: 1, previous: 9, change: "changed" }))).toBe(false);
     expect(badFlip(changed("sig.load_avg", 9, 1))).toBe(false);
-    expect(GATED_SIGNALS).toEqual(["sig.firewall", "sig.remote_access_on", "sig.guest_share", "sig.autologin", "sig.admin_count", "sig.backup_auto"]);
-    expect(STAND_ALONE_SIGNALS).toHaveLength(6);
-    expect(PAIR_SIGNALS).toHaveLength(10);
+    expect(GATED_SIGNALS).toEqual(["sig.firewall", "sig.remote_access_on", "sig.guest_share", "sig.autologin", "sig.admin_count", "sig.backup_auto", "sig.internet_sharing_on"]);
+    expect(STAND_ALONE_SIGNALS).toEqual(["sig.sip", "sig.gatekeeper", "sig.xprotect_present", "sig.xprotect_scans_enabled", "sig.xprotect_version", "sig.hidden_user_count", "sig.authenticated_root", "sig.launch_label_masquerade_unsigned"]);
+    expect(PAIR_SIGNALS).toHaveLength(18);
+    expect(PAIR_SIGNALS.slice(10)).toEqual(["sig.shell_startup_changed", "sig.system_shell_files_count", "sig.paths_d_changed", "sig.app_new_unsigned", "sig.launch_label_masquerade", "sig.login_hook_set", "sig.dyld_insert_set", "sig.pam_auth_changed"]);
   });
 
-  it("every kinded boolean, count and version signal has a direction; the digest and stat kinds have none", () => {
-    const noRow: readonly SignalId[] = ["sig.persistence_set", "sig.listener_set", "sig.hosts_changed", "sig.sshd_config_changed", "sig.pam_sudo_changed"];
+  it("the severity totals are 32 high, 28 medium, 4 low and 3 info over 67 signals, 57 of them kinded", () => {
+    expect(SIGNAL_IDS).toHaveLength(67);
+    const totals = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+    for (const id of SIGNAL_IDS) totals[SIGNAL_SEVERITY[id]] += 1;
+    expect(totals).toEqual({ critical: 0, high: 32, medium: 28, low: 4, info: 3 });
+    expect(SIGNAL_IDS.filter((id) => SIGNAL_KIND[id] !== null)).toHaveLength(57);
+  });
+
+  it("badFlip any is true on changed only", () => {
+    expect(BAD_DIRECTION["sig.authorized_keys_changed"]).toBe("any");
+    for (const id of ["sig.shell_startup_changed", "sig.paths_d_changed", "sig.pam_auth_changed", "sig.authorized_keys_changed"] as const) {
+      expect(BAD_DIRECTION[id], id).toBe("any");
+      expect(badFlip(changed(id, "changed", null)), id).toBe(true);
+      expect(badFlip(sig(id, { value: "same" })), id).toBe(false);
+      expect(badFlip(sig(id, { value: "cleared", change: "cleared", minutesSinceChange: 1 })), id).toBe(false);
+      expect(badFlip(changed(id, true, false)), id).toBe(false);
+    }
+    expect(badFlip(changed("sig.authenticated_root", false, true))).toBe(true);
+    expect(badFlip(changed("sig.authenticated_root", true, false))).toBe(false);
+    expect(badFlip(changed("sig.internet_sharing_on", true, false))).toBe(true);
+    expect(badFlip(changed("sig.login_hook_set", true, false))).toBe(true);
+    expect(badFlip(changed("sig.app_new_unsigned", 1, 0))).toBe(true);
+    expect(badFlip(changed("sig.library_apps_count", 16, 17))).toBe(false);
+  });
+
+  it("every kinded boolean, count and version signal has a direction; the listing digests and the three untouched stat kinds have none", () => {
+    const noRow: readonly SignalId[] = ["sig.persistence_set", "sig.listener_set", "sig.app_set", "sig.hosts_changed", "sig.sshd_config_changed", "sig.pam_sudo_changed"];
     for (const id of SIGNAL_IDS) {
       if (noRow.includes(id)) expect(BAD_DIRECTION[id], id).toBeUndefined();
       else if (SIGNAL_KIND[id] !== null) expect(BAD_DIRECTION[id], id).toBeDefined();
@@ -274,8 +358,19 @@ describe("the signal tables", () => {
     expect(boundsFor([changed("sig.xprotect_remediator_version", 150, 149)]).floor).toBe("keep_an_eye");
   });
 
-  it("the eight context-only signals have no kind", () => {
+  it("the ten context-only signals have no kind", () => {
     const nulls = SIGNAL_IDS.filter((id) => SIGNAL_KIND[id] === null);
-    expect(nulls).toEqual(["sig.established_count", "sig.resolvers", "sig.backup_age_days", "sig.load_avg", "sig.disk_free_pct", "sig.on_battery", "sig.pending_updates", "sig.broad_extension_count"]);
+    expect(nulls).toEqual(["sig.established_count", "sig.resolvers", "sig.backup_age_days", "sig.load_avg", "sig.disk_free_pct", "sig.on_battery", "sig.pending_updates", "sig.broad_extension_count", "sig.app_new_unquarantined", "sig.library_apps_count"]);
+  });
+
+  it("the 67-signal context with 64 rules and 20 recent entries serialises under maxContextChars", () => {
+    const c = CONTEXT_CASES.find((x) => x.name.startsWith("67 signals"));
+    expect(c).toBeDefined();
+    if (c === undefined) return;
+    expect(c.expected.signals).toHaveLength(67);
+    expect(c.expected.rules).toHaveLength(64);
+    expect(c.expected.recent).toHaveLength(20);
+    expect(WATCH_LIMITS.maxContextChars).toBe(22000);
+    expect(JSON.stringify(c.expected).length).toBeLessThanOrEqual(WATCH_LIMITS.maxContextChars);
   });
 });

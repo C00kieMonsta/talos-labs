@@ -39,7 +39,13 @@ pub fn severity(signal: SignalId) -> Severity {
         | CronLines
         | SudoersDCount
         | PamSudoChanged
-        | RemoteLogins => Severity::High,
+        | RemoteLogins
+        | AppNewUnsigned
+        | InternetSharingOn
+        | LaunchLabelMasqueradeUnsigned
+        | LoginHookSet
+        | AuthenticatedRoot
+        | PamAuthChanged => Severity::High,
         PersistenceSet
         | HelperToolsCount
         | LoginItemsCount
@@ -57,7 +63,17 @@ pub fn severity(signal: SignalId) -> Severity {
         | AtJobs
         | LegacyStartupCount
         | LockdownMode
-        | BroadExtensionCount => Severity::Medium,
+        | BroadExtensionCount
+        | ShellStartupChanged
+        | SystemShellFilesCount
+        | PathsDChanged
+        | PathDirWritableCount
+        | AppSet
+        | AppNewUnquarantined
+        | LibraryAppsCount
+        | AirdropEveryone
+        | LaunchLabelMasquerade
+        | DyldInsertSet => Severity::Medium,
         EstablishedCount | Resolvers | BackupAgeDays | PendingUpdates => Severity::Low,
         LoadAvg | DiskFreePct | OnBattery => Severity::Info,
     }
@@ -80,7 +96,11 @@ pub fn kind_of(signal: SignalId) -> Option<FishyKind> {
         | KextCount
         | CronLines
         | AtJobs
-        | LegacyStartupCount => Some(FishyKind::Persistence),
+        | LegacyStartupCount
+        | LaunchLabelMasquerade
+        | LaunchLabelMasqueradeUnsigned
+        | LoginHookSet
+        | DyldInsertSet => Some(FishyKind::Persistence),
         ListenerSet | ListenerNewPorts => Some(FishyKind::Listener),
         Firewall
         | Gatekeeper
@@ -90,21 +110,27 @@ pub fn kind_of(signal: SignalId) -> Option<FishyKind> {
         | XprotectVersion
         | XprotectRemediatorVersion
         | XprotectScansEnabled
-        | LockdownMode => Some(FishyKind::Guard),
+        | LockdownMode
+        | AuthenticatedRoot => Some(FishyKind::Guard),
         RemoteAccessOn
         | GuestShare
         | ShareCount
         | AuthorizedKeysChanged
         | SshdConfigChanged
         | RemoteLogins => Some(FishyKind::Remote),
-        AdminCount | UserCount | HiddenUserCount | Autologin | SudoersDCount | PamSudoChanged => {
-            Some(FishyKind::Admin)
-        }
+        AdminCount | UserCount | HiddenUserCount | Autologin | SudoersDCount | PamSudoChanged
+        | PamAuthChanged => Some(FishyKind::Admin),
         DnsManual | ProxyOn | PacUrlSet | HostsChanged => Some(FishyKind::Dns),
         BackupAuto | BackupDestinations => Some(FishyKind::Backup),
-        // Context only (spec rows 10, 13 and 18): never a headline.
+        AppSet | AppNewUnsigned => Some(FishyKind::App),
+        ShellStartupChanged | SystemShellFilesCount | PathsDChanged | PathDirWritableCount => {
+            Some(FishyKind::Shell)
+        }
+        AirdropEveryone | InternetSharingOn => Some(FishyKind::Exposure),
+        // Context only (spec rows 10, 13 and 18, and v2 rows 26 and 28): never a headline. An
+        // unquarantined bundle narrows the unsigned count; a library app count names nothing.
         EstablishedCount | Resolvers | BackupAgeDays | LoadAvg | DiskFreePct | OnBattery
-        | PendingUpdates | BroadExtensionCount => None,
+        | PendingUpdates | BroadExtensionCount | AppNewUnquarantined | LibraryAppsCount => None,
     }
 }
 
@@ -119,27 +145,30 @@ pub fn points(severity: Severity) -> u32 {
 }
 
 /// Flips a person makes in System Settings: asked "Did you just change this?" first.
-pub const GATED_SIGNALS: [SignalId; 6] = [
+pub const GATED_SIGNALS: [SignalId; 7] = [
     SignalId::Firewall,
     SignalId::RemoteAccessOn,
     SignalId::GuestShare,
     SignalId::Autologin,
     SignalId::AdminCount,
     SignalId::BackupAuto,
+    SignalId::InternetSharingOn,
 ];
 
-/// Flips that need Recovery or root: one alone is act now.
-pub const STAND_ALONE_SIGNALS: [SignalId; 6] = [
+/// Flips that need Recovery or root, and an unsigned agent wearing Apple's label: one alone is act now.
+pub const STAND_ALONE_SIGNALS: [SignalId; 8] = [
     SignalId::Sip,
     SignalId::Gatekeeper,
     SignalId::XprotectPresent,
     SignalId::XprotectScansEnabled,
     SignalId::XprotectVersion,
     SignalId::HiddenUserCount,
+    SignalId::AuthenticatedRoot,
+    SignalId::LaunchLabelMasqueradeUnsigned,
 ];
 
 /// Two of these (or a gated flip) within 24 h is act now.
-pub const PAIR_SIGNALS: [SignalId; 10] = [
+pub const PAIR_SIGNALS: [SignalId; 18] = [
     SignalId::PersistenceNew,
     SignalId::PersistenceUnsigned,
     SignalId::PersistenceInTempOrHidden,
@@ -150,6 +179,14 @@ pub const PAIR_SIGNALS: [SignalId; 10] = [
     SignalId::SysextCount,
     SignalId::AuthorizedKeysChanged,
     SignalId::CronLines,
+    SignalId::ShellStartupChanged,
+    SignalId::SystemShellFilesCount,
+    SignalId::PathsDChanged,
+    SignalId::AppNewUnsigned,
+    SignalId::LaunchLabelMasquerade,
+    SignalId::LoginHookSet,
+    SignalId::DyldInsertSet,
+    SignalId::PamAuthChanged,
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,17 +195,22 @@ pub enum BadDirection {
     False,
     Up,
     Down,
+    /// A stat digest: any change is the bad direction.
+    Any,
 }
 
 /// The direction that counts for every kinded boolean, count and version signal: the headlines
-/// all name a bad direction, so a Remediator update or a share removed makes no item. Digest
-/// and stat kinds have no row and count on any change.
+/// all name a bad direction, so a Remediator update or a share removed makes no item. The stat
+/// digests of single files read `Any`; the listing digests have no row.
 pub fn bad_direction(signal: SignalId) -> Option<BadDirection> {
     use SignalId::*;
     match signal {
         Sip | Gatekeeper | XprotectPresent | XprotectScansEnabled | Firewall | BackupAuto
-        | LockdownMode => Some(BadDirection::False),
+        | LockdownMode | AuthenticatedRoot => Some(BadDirection::False),
         BootArgsSet => Some(BadDirection::True),
+        ShellStartupChanged | PathsDChanged | PamAuthChanged | AuthorizedKeysChanged => {
+            Some(BadDirection::Any)
+        }
         XprotectVersion | XprotectRemediatorVersion | BackupDestinations => {
             Some(BadDirection::Down)
         }
@@ -191,15 +233,18 @@ pub fn bad_direction(signal: SignalId) -> Option<BadDirection> {
         | LegacyStartupCount
         | SudoersDCount
         | BroadExtensionCount
-        | RemoteLogins => Some(BadDirection::Up),
-        RemoteAccessOn
-        | GuestShare
-        | Autologin
-        | DnsManual
-        | PacUrlSet
-        | AuthorizedKeysChanged
-        | MdmEnrolled
-        | ProxyOn => Some(BadDirection::True),
+        | RemoteLogins
+        | SystemShellFilesCount
+        | PathDirWritableCount
+        | AppNewUnquarantined
+        | AppNewUnsigned
+        | LibraryAppsCount
+        | LaunchLabelMasquerade
+        | LaunchLabelMasqueradeUnsigned => Some(BadDirection::Up),
+        RemoteAccessOn | GuestShare | Autologin | DnsManual | PacUrlSet | MdmEnrolled | ProxyOn
+        | AirdropEveryone | InternetSharingOn | LoginHookSet | DyldInsertSet => {
+            Some(BadDirection::True)
+        }
         _ => None,
     }
 }
@@ -231,15 +276,20 @@ pub fn bad_flip(
             (Some(v), Some(p)) => v < p,
             _ => false,
         },
+        BadDirection::Any => value == SignalValue::Change(Change::Changed),
     }
 }
 
 /// Counts derived from a listing each cycle: their baseline is always 0, never the last count.
-pub const DERIVED_COUNTS: [SignalId; 4] = [
+pub const DERIVED_COUNTS: [SignalId; 8] = [
     SignalId::PersistenceNew,
     SignalId::PersistenceUnsigned,
     SignalId::PersistenceInTempOrHidden,
     SignalId::ListenerNewPorts,
+    SignalId::AppNewUnquarantined,
+    SignalId::AppNewUnsigned,
+    SignalId::LaunchLabelMasquerade,
+    SignalId::LaunchLabelMasqueradeUnsigned,
 ];
 
 /// The listing a pair signal comes from, so three counters from one listing count once.
@@ -251,13 +301,29 @@ pub fn pair_group(signal: SignalId) -> SignalId {
 pub fn siblings(signal: SignalId) -> Vec<SignalId> {
     use SignalId::*;
     match signal {
-        PersistenceSet | PersistenceNew | PersistenceUnsigned | PersistenceInTempOrHidden => vec![
+        PersistenceSet
+        | PersistenceNew
+        | PersistenceUnsigned
+        | PersistenceInTempOrHidden
+        | LaunchLabelMasquerade
+        | LaunchLabelMasqueradeUnsigned => vec![
             PersistenceSet,
             PersistenceNew,
             PersistenceUnsigned,
             PersistenceInTempOrHidden,
+            LaunchLabelMasquerade,
+            LaunchLabelMasqueradeUnsigned,
         ],
         ListenerSet | ListenerNewPorts => vec![ListenerSet, ListenerNewPorts],
+        ShellStartupChanged | SystemShellFilesCount | PathsDChanged | PathDirWritableCount => vec![
+            ShellStartupChanged,
+            SystemShellFilesCount,
+            PathsDChanged,
+            PathDirWritableCount,
+        ],
+        AppSet | AppNewUnquarantined | AppNewUnsigned => {
+            vec![AppSet, AppNewUnquarantined, AppNewUnsigned]
+        }
         other => vec![other],
     }
 }
@@ -269,12 +335,18 @@ pub const PACKAGE_FOLDERS: [&str; 7] = [
     ".local", ".cargo", ".nvm", ".rustup", ".bun", ".deno", ".docker",
 ];
 
-const TEMP_PREFIXES: [&str; 4] = [
+const TEMP_PREFIXES: [&str; 7] = [
     "/tmp/",
     "/private/tmp/",
     "/var/folders/",
     "/private/var/folders/",
+    "/Users/Shared/",
+    "/var/tmp/",
+    "/private/var/tmp/",
 ];
+
+/// A dot-folder directly under this home folder is hidden too (the demo's own fixture lives there).
+const APP_SUPPORT: &str = "Library/Application Support";
 
 /// The data-volume firmlink and the `/private` symlink: `realpath` leaves both as written, so a
 /// path spelt through either is compared in its short form.
@@ -292,7 +364,8 @@ pub fn normalise(path: &Path) -> PathBuf {
     out
 }
 
-/// True for a program under a temp folder, or a dot-folder under home other than the package folders.
+/// True for a program under a temp folder, under `/Users/Shared`, in a dot-folder under home
+/// other than the package folders, or in a dot-folder directly under `~/Library/Application Support`.
 pub fn is_temp_or_hidden(program: &str, home: &Path) -> bool {
     let program = normalise(Path::new(program));
     let text = program.to_string_lossy();
@@ -307,7 +380,15 @@ pub fn is_temp_or_hidden(program: &str, home: &Path) -> bool {
         .next()
         .map(|c| c.as_os_str().to_string_lossy().into_owned())
         .unwrap_or_default();
-    first.starts_with('.') && !PACKAGE_FOLDERS.contains(&first.as_str())
+    if first.starts_with('.') && !PACKAGE_FOLDERS.contains(&first.as_str()) {
+        return true;
+    }
+    rest.strip_prefix(APP_SUPPORT).is_ok_and(|under| {
+        under
+            .components()
+            .next()
+            .is_some_and(|c| c.as_os_str().to_string_lossy().starts_with('.'))
+    })
 }
 
 // ---------- codesign binding ----------
@@ -359,15 +440,7 @@ pub fn codesign_candidate(program: &str, home: &Path) -> Option<PathBuf> {
     if canonical != path {
         return None;
     }
-    let short = normalise(&canonical);
-    if MOUNT_DIRS.iter().any(|dir| short.starts_with(dir)) {
-        return None;
-    }
-    let short_home = normalise(home);
-    if PROMPTING_DIRS
-        .iter()
-        .any(|dir| short.starts_with(short_home.join(dir)))
-    {
+    if in_forbidden_folder(&canonical, home) {
         return None;
     }
     let meta = std::fs::symlink_metadata(&path).ok()?;
@@ -380,6 +453,19 @@ pub fn codesign_candidate(program: &str, home: &Path) -> Option<PathBuf> {
     Some(canonical)
 }
 
+/// True when the canonical path, in its short spelling, is under a mount root or one of the
+/// prompting folders of this home. Shared by the launch item binder and the app bundle binder.
+pub fn in_forbidden_folder(canonical: &Path, home: &Path) -> bool {
+    let short = normalise(canonical);
+    if MOUNT_DIRS.iter().any(|dir| short.starts_with(dir)) {
+        return true;
+    }
+    let short_home = normalise(home);
+    PROMPTING_DIRS
+        .iter()
+        .any(|dir| short.starts_with(short_home.join(dir)))
+}
+
 /// `statfs` reports its flags as `u32`; libc declares the bits as `i32`.
 const MNT_LOCAL: u32 = libc::MNT_LOCAL as u32;
 
@@ -389,7 +475,7 @@ pub fn local_mount_flags(f_flags: u32) -> bool {
 }
 
 /// `statfs` on the path; a path that cannot be stat'ed is not local.
-fn is_local_mount(path: &Path) -> bool {
+pub fn is_local_mount(path: &Path) -> bool {
     use std::os::unix::ffi::OsStrExt;
     let Ok(c_path) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
         return false;
@@ -440,7 +526,18 @@ pub fn verify_programs(
     home: &Path,
     run: &dyn Fn(&Path) -> Result<Output, ExecError>,
 ) -> Vec<Option<CodesignOutcome>> {
-    let mut runs = 0usize;
+    let mut budget = CODESIGN_CAP;
+    verify_programs_within(programs, home, run, &mut budget)
+}
+
+/// The same over a shared budget: every run decrements it, so the app bundles that follow the
+/// launch items in a cycle see what is left of the cap.
+pub fn verify_programs_within(
+    programs: &[Option<String>],
+    home: &Path,
+    run: &dyn Fn(&Path) -> Result<Output, ExecError>,
+    budget: &mut usize,
+) -> Vec<Option<CodesignOutcome>> {
     programs
         .iter()
         .map(|program| {
@@ -450,10 +547,10 @@ pub fn verify_programs(
             let Some(path) = codesign_candidate(program, home) else {
                 return Some(CodesignOutcome::Unbound);
             };
-            if runs >= CODESIGN_CAP {
+            if *budget == 0 {
                 return None;
             }
-            runs += 1;
+            *budget -= 1;
             Some(classify_codesign(&run(&path)))
         })
         .collect()
@@ -527,16 +624,35 @@ mod tests {
             .iter()
             .filter(|s| severity(**s) == Severity::Info)
             .count();
-        assert_eq!((high, medium, low, info), (26, 18, 4, 3));
+        assert_eq!((high, medium, low, info), (32, 28, 4, 3));
         let kinded = SignalId::ALL
             .iter()
             .filter(|s| kind_of(**s).is_some())
             .count();
-        assert_eq!(kinded, 43);
+        assert_eq!(kinded, 57);
+        assert_eq!(GATED_SIGNALS.len(), 7);
+        assert_eq!(STAND_ALONE_SIGNALS.len(), 8);
+        assert_eq!(PAIR_SIGNALS.len(), 18);
+        assert_eq!(DERIVED_COUNTS.len(), 8);
+        assert_eq!(TEMP_PREFIXES.len(), 7);
+        assert_eq!(kind_of(SignalId::AppNewUnsigned), Some(FishyKind::App));
+        assert_eq!(kind_of(SignalId::PathsDChanged), Some(FishyKind::Shell));
+        assert_eq!(
+            kind_of(SignalId::InternetSharingOn),
+            Some(FishyKind::Exposure)
+        );
+        assert_eq!(
+            kind_of(SignalId::LaunchLabelMasqueradeUnsigned),
+            Some(FishyKind::Persistence)
+        );
+        assert_eq!(kind_of(SignalId::AuthenticatedRoot), Some(FishyKind::Guard));
+        assert_eq!(kind_of(SignalId::PamAuthChanged), Some(FishyKind::Admin));
         for context_only in [
             SignalId::EstablishedCount,
             SignalId::Resolvers,
             SignalId::BackupAgeDays,
+            SignalId::AppNewUnquarantined,
+            SignalId::LibraryAppsCount,
         ] {
             assert_eq!(
                 kind_of(context_only),
@@ -613,6 +729,57 @@ mod tests {
             ),
             "no row never flips"
         );
+        for id in [
+            SignalId::ShellStartupChanged,
+            SignalId::PathsDChanged,
+            SignalId::PamAuthChanged,
+            SignalId::AuthorizedKeysChanged,
+        ] {
+            assert_eq!(bad_direction(id), Some(BadDirection::Any), "{id:?}");
+            assert!(
+                bad_flip(
+                    id,
+                    SignalValue::Change(Change::Changed),
+                    None,
+                    Change::Changed
+                ),
+                "{id:?}: any change is the bad direction"
+            );
+            assert!(!bad_flip(
+                id,
+                SignalValue::Change(Change::Same),
+                None,
+                Change::Changed
+            ));
+            assert!(!bad_flip(
+                id,
+                SignalValue::Change(Change::Cleared),
+                None,
+                Change::Cleared
+            ));
+            assert!(
+                !bad_flip(id, SignalValue::Bool(true), None, Change::Changed),
+                "{id:?}: a boolean is never a digest change"
+            );
+        }
+        assert!(bad_flip(
+            SignalId::AuthenticatedRoot,
+            SignalValue::Bool(false),
+            Some(PreviousValue::Bool(true)),
+            Change::Changed
+        ));
+        assert!(bad_flip(
+            SignalId::InternetSharingOn,
+            SignalValue::Bool(true),
+            Some(PreviousValue::Bool(false)),
+            Change::Changed
+        ));
+        assert!(bad_flip(
+            SignalId::AppNewUnsigned,
+            SignalValue::Int(1),
+            Some(PreviousValue::Int(0)),
+            Change::Changed
+        ));
     }
 
     #[test]
@@ -621,6 +788,7 @@ mod tests {
         let no_row = [
             PersistenceSet,
             ListenerSet,
+            AppSet,
             HostsChanged,
             SshdConfigChanged,
             PamSudoChanged,
@@ -730,6 +898,25 @@ mod tests {
             "a prefix match of another home is not home"
         );
         assert!(!is_temp_or_hidden("/usr/local/bin/agent", home));
+        assert!(is_temp_or_hidden("/Users/Shared/x", home));
+        assert!(is_temp_or_hidden("/var/tmp/x", home));
+        assert!(is_temp_or_hidden("/private/var/tmp/x", home));
+        assert!(is_temp_or_hidden(
+            "/Users/alice/Library/Application Support/.h/x",
+            home
+        ));
+        assert!(!is_temp_or_hidden(
+            "/Users/alice/Library/Application Support/Code/x",
+            home
+        ));
+        assert!(
+            !is_temp_or_hidden("/Users/alice/Library/Application Support/x", home),
+            "a file directly under Application Support is not a dot-folder"
+        );
+        assert!(
+            !is_temp_or_hidden("/Users/alice/Library/.hidden/x", home),
+            "only Application Support carries the rule"
+        );
     }
 
     #[test]
@@ -1008,7 +1195,7 @@ mod tests {
 
     #[test]
     fn siblings_group_the_derived_signals() {
-        assert_eq!(siblings(SignalId::PersistenceNew).len(), 4);
+        assert_eq!(siblings(SignalId::PersistenceNew).len(), 6);
         assert_eq!(
             siblings(SignalId::ListenerSet),
             vec![SignalId::ListenerSet, SignalId::ListenerNewPorts]
@@ -1030,5 +1217,63 @@ mod tests {
         for id in DERIVED_COUNTS {
             assert!(siblings(id).len() > 1, "{id:?} comes from a listing");
         }
+        for id in [
+            SignalId::ShellStartupChanged,
+            SignalId::SystemShellFilesCount,
+            SignalId::PathsDChanged,
+            SignalId::PathDirWritableCount,
+        ] {
+            assert_eq!(pair_group(id), SignalId::ShellStartupChanged, "{id:?}");
+            assert_eq!(siblings(id).len(), 4);
+        }
+        for id in [
+            SignalId::LaunchLabelMasquerade,
+            SignalId::LaunchLabelMasqueradeUnsigned,
+        ] {
+            assert_eq!(pair_group(id), SignalId::PersistenceSet, "{id:?}");
+            assert_eq!(siblings(id).len(), 6);
+        }
+        assert_eq!(
+            siblings(SignalId::AppNewUnsigned),
+            vec![
+                SignalId::AppSet,
+                SignalId::AppNewUnquarantined,
+                SignalId::AppNewUnsigned
+            ]
+        );
+        assert_eq!(pair_group(SignalId::AppNewUnsigned), SignalId::AppSet);
+        assert_eq!(pair_group(SignalId::LoginHookSet), SignalId::LoginHookSet);
+    }
+
+    #[test]
+    fn a_shared_budget_is_spent_by_launch_items_first() {
+        let home = tmp("budget");
+        let mut programs = Vec::new();
+        for i in 0..4 {
+            let file = home.join(format!("p{i}"));
+            std::fs::write(&file, b"x").unwrap();
+            programs.push(Some(file.to_string_lossy().into_owned()));
+        }
+        let fake = |_: &Path| {
+            Ok(Output {
+                stdout: String::new(),
+                stderr: String::new(),
+                exit_code: Some(0),
+                truncated: false,
+            })
+        };
+        let mut budget = 3usize;
+        let outcomes = verify_programs_within(&programs, &home, &fake, &mut budget);
+        assert_eq!(budget, 0);
+        assert_eq!(outcomes.iter().filter(|o| o.is_none()).count(), 1);
+        let outcomes = verify_programs_within(&programs, &home, &fake, &mut budget);
+        assert!(
+            outcomes.iter().all(|o| o.is_none()),
+            "nothing runs on an empty budget"
+        );
+        assert!(in_forbidden_folder(&home.join("Downloads/x"), &home));
+        assert!(in_forbidden_folder(Path::new("/Volumes/Disk/x"), &home));
+        assert!(!in_forbidden_folder(&home.join("bin/x"), &home));
+        let _ = std::fs::remove_dir_all(&home);
     }
 }

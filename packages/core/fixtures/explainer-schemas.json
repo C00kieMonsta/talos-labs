@@ -124,7 +124,7 @@
       },
       "ratingReason": {
         "type": "string",
-        "maxLength": 300
+        "maxLength": 120
       },
       "basedOn": {
         "type": "array",
@@ -215,7 +215,9 @@
           "additionalProperties": false,
           "required": [
             "kind",
-            "ruleId"
+            "ruleId",
+            "signalId",
+            "when"
           ],
           "properties": {
             "kind": {
@@ -231,7 +233,12 @@
                 "change_ai",
                 "snooze_rule",
                 "accept_rule",
-                "open_watch"
+                "open_watch",
+                "investigate",
+                "close_watch",
+                "remind_rule",
+                "write_up",
+                "what_if"
               ]
             },
             "ruleId": {
@@ -241,6 +248,25 @@
               ],
               "minLength": 1,
               "maxLength": 32
+            },
+            "signalId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1,
+              "maxLength": 48
+            },
+            "when": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "tomorrow",
+                "sunday",
+                null
+              ]
             }
           }
         }

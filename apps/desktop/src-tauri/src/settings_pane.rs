@@ -17,10 +17,12 @@ pub enum SettingsPane {
     FullDiskAccess,
     Automation,
     AppleIntelligence,
+    #[serde(rename = "airdrop")]
+    AirDrop,
 }
 
 impl SettingsPane {
-    pub const ALL: [SettingsPane; 12] = [
+    pub const ALL: [SettingsPane; 13] = [
         SettingsPane::Filevault,
         SettingsPane::Firewall,
         SettingsPane::Security,
@@ -33,6 +35,7 @@ impl SettingsPane {
         SettingsPane::FullDiskAccess,
         SettingsPane::Automation,
         SettingsPane::AppleIntelligence,
+        SettingsPane::AirDrop,
     ];
 
     pub fn parse(text: &str) -> Option<Self> {
@@ -77,6 +80,10 @@ impl SettingsPane {
             SettingsPane::AppleIntelligence => {
                 "x-apple.systempreferences:com.apple.Siri-Settings.extension"
             }
+            // Not verified on a real Mac (docs/DESIGN-THREATS-V2.md section 9).
+            SettingsPane::AirDrop => {
+                "x-apple.systempreferences:com.apple.AirDrop-Handoff-Settings.extension"
+            }
         }
     }
 }
@@ -100,6 +107,7 @@ mod tests {
             "full_disk_access",
             "automation",
             "apple_intelligence",
+            "airdrop",
         ];
         for (name, pane) in names.iter().zip(SettingsPane::ALL) {
             assert_eq!(SettingsPane::parse(name), Some(pane));
@@ -109,5 +117,11 @@ mod tests {
             );
         }
         assert_eq!(SettingsPane::parse("terminal"), None);
+        assert_eq!(
+            SettingsPane::parse("air_drop"),
+            None,
+            "the wire word is airdrop"
+        );
+        assert_eq!(names.len(), SettingsPane::ALL.len());
     }
 }

@@ -83,6 +83,9 @@ closed_enum! {
         Admin = "admin",
         Dns = "dns",
         Backup = "backup",
+        App = "app",
+        Shell = "shell",
+        Exposure = "exposure",
     }
 }
 
@@ -99,6 +102,7 @@ closed_enum! {
         SettingsWatch = "settings_watch",
         Chat = "chat",
         Connect = "connect",
+        Coverage = "coverage",
     }
 }
 
@@ -114,7 +118,8 @@ closed_enum! {
 
 closed_enum! {
     /// Why a probe could not read: the nine `UnavailableReason` words plus the socket table an
-    /// unsigned build cannot read, which the main window's reason set has no word for.
+    /// unsigned build cannot read and Spotlight indexing being off (`mdfind` exits non-zero),
+    /// neither of which the main window's reason set has a word for.
     ProbeReason {
         NeedsFullDiskAccess = "needs_full_disk_access",
         NeedsAutomationPermission = "needs_automation_permission",
@@ -126,6 +131,7 @@ closed_enum! {
         NotSupportedOnOs = "not_supported_on_os",
         CollectorError = "collector_error",
         UnsignedBuild = "unsigned_build",
+        SpotlightOff = "spotlight_off",
     }
 }
 
@@ -199,11 +205,28 @@ closed_enum! {
         OnBattery = "sig.on_battery",
         PendingUpdates = "sig.pending_updates",
         BroadExtensionCount = "sig.broad_extension_count",
+        ShellStartupChanged = "sig.shell_startup_changed",
+        SystemShellFilesCount = "sig.system_shell_files_count",
+        PathsDChanged = "sig.paths_d_changed",
+        PathDirWritableCount = "sig.path_dir_writable_count",
+        AppSet = "sig.app_set",
+        AppNewUnquarantined = "sig.app_new_unquarantined",
+        AppNewUnsigned = "sig.app_new_unsigned",
+        LibraryAppsCount = "sig.library_apps_count",
+        AirdropEveryone = "sig.airdrop_everyone",
+        InternetSharingOn = "sig.internet_sharing_on",
+        LaunchLabelMasquerade = "sig.launch_label_masquerade",
+        LaunchLabelMasqueradeUnsigned = "sig.launch_label_masquerade_unsigned",
+        LoginHookSet = "sig.login_hook_set",
+        DyldInsertSet = "sig.dyld_insert_set",
+        AuthenticatedRoot = "sig.authenticated_root",
+        PamAuthChanged = "sig.pam_auth_changed",
     }
 }
 
 closed_enum! {
-    /// PROBE_IDS, in the same order. `PersistenceSignatures` and `SshKeys` are never model-chosen.
+    /// PROBE_IDS, in the same order. `PersistenceSignatures`, `SshKeys` and `AppSignatures` are
+    /// never model-chosen.
     ProbeId {
         PlatformIntegrity = "probe.platform_integrity",
         Firewall = "probe.firewall",
@@ -226,6 +249,12 @@ closed_enum! {
         Updates = "probe.updates",
         ScheduledJobs = "probe.scheduled_jobs",
         Logins = "probe.logins",
+        ShellStartup = "probe.shell_startup",
+        Apps = "probe.apps",
+        AppSignatures = "probe.app_signatures",
+        LibraryApps = "probe.library_apps",
+        Exposure = "probe.exposure",
+        Hooks = "probe.hooks",
     }
 }
 
@@ -256,6 +285,8 @@ closed_enum! {
         LessonsLearned = "act.lessons_learned",
         RunFullCheckup = "act.run_full_checkup",
         GetHelp = "act.get_help",
+        LimitAirdrop = "act.limit_airdrop",
+        StopInternetSharing = "act.stop_internet_sharing",
     }
 }
 
@@ -272,9 +303,12 @@ closed_enum! {
 }
 
 impl ProbeId {
-    /// True for the two probes that touch file bytes; the model may never name them.
+    /// True for the three probes that touch file bytes; the model may never name them.
     pub fn rust_only(self) -> bool {
-        matches!(self, ProbeId::PersistenceSignatures | ProbeId::SshKeys)
+        matches!(
+            self,
+            ProbeId::PersistenceSignatures | ProbeId::SshKeys | ProbeId::AppSignatures
+        )
     }
 }
 
@@ -1367,21 +1401,34 @@ mod tests {
                 format!("\"{}\"", id.as_str())
             );
         }
-        assert_eq!(SignalId::ALL.len(), 51);
-        assert_eq!(ProbeId::ALL.len(), 21);
-        assert_eq!(ActionId::ALL.len(), 24);
+        assert_eq!(SignalId::ALL.len(), 67);
+        assert_eq!(ProbeId::ALL.len(), 27);
+        assert_eq!(ActionId::ALL.len(), 26);
         assert_eq!(WatchActionId::ALL.len(), 6);
-        assert_eq!(ProbeId::ALL.iter().filter(|p| p.rust_only()).count(), 2);
+        assert_eq!(FishyKind::ALL.len(), 10);
+        assert_eq!(ProbeId::ALL.iter().filter(|p| p.rust_only()).count(), 3);
+        assert!(ProbeId::AppSignatures.rust_only());
+        assert_eq!(
+            SignalId::ALL.get(51),
+            Some(&SignalId::ShellStartupChanged),
+            "the 16 new ids follow the 51"
+        );
+        assert_eq!(SignalId::ALL.last(), Some(&SignalId::PamAuthChanged));
+        assert_eq!(ProbeId::ALL.get(21), Some(&ProbeId::ShellStartup));
+        assert_eq!(ActionId::ALL.get(24), Some(&ActionId::LimitAirdrop));
+        assert_eq!(FishyKind::parse("exposure"), Some(FishyKind::Exposure));
         assert_eq!(
             OpenScreen::parse("settings_watch"),
             Some(OpenScreen::SettingsWatch)
         );
         assert_eq!(OpenScreen::parse("chat"), Some(OpenScreen::Chat));
         assert_eq!(OpenScreen::parse("connect"), Some(OpenScreen::Connect));
-        assert_eq!(OpenScreen::ALL.len(), 5);
+        assert_eq!(OpenScreen::parse("coverage"), Some(OpenScreen::Coverage));
+        assert_eq!(OpenScreen::ALL.len(), 6);
         assert_eq!(Grade::parse("at_risk"), Some(Grade::AtRisk));
         assert_eq!(NextKind::parse("details"), Some(NextKind::Details));
-        assert_eq!(ProbeReason::ALL.len(), 10);
+        assert_eq!(ProbeReason::ALL.len(), 11);
+        assert_eq!(ProbeReason::SpotlightOff.as_str(), "spotlight_off");
         for reason in [
             UnavailableReason::NeedsFullDiskAccess,
             UnavailableReason::NeedsAutomationPermission,

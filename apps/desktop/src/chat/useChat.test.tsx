@@ -4,11 +4,14 @@ import { createElement } from "react";
 import type { ReactNode } from "react";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { AiAvailability, WatchState } from "@talos/core";
-import { DEV_MACHINE } from "@talos/core";
+import { DEV_MACHINE, WATCH_AGENT_PORTS_READY, askWhyQuestion, reminderDate, validateChat } from "@talos/core";
 import { AppContext } from "../app/context";
 import type { AppContextValue } from "../app/context";
 import { fakeAdapters, fakeContextValue, fakeWatchController, fakeWatchState } from "../app/testing";
-import { CHAT, EXPLAIN, FISHY, LATER_FLASH } from "../guided/copy";
+import type { GuidedPlan } from "@talos/core";
+import { ACTIVITY, CHAT, END, EXPLAIN, FISHY, LATER_FLASH, WATCH } from "../guided/copy";
+import { guidedFor } from "../guided/plan";
+import { CHAT_REDUCED_PARTIAL_MS } from "./useChat";
 import { DEFAULT_SETTINGS } from "../settings";
 import type { AppSettings } from "../settings";
 import type { ScanState } from "../scan/machine";
@@ -16,13 +19,15 @@ import { WatchControllerContext } from "../watch/watch-controller";
 import { ChatDraftContext } from "./draft";
 import type { ChatDraft } from "./draft";
 import type { ChatMessage } from "./state";
-import { ACT_ITEM, REPORT, fakeBridge, planFor, scriptedExplainer } from "./testing";
+import { ACT_ITEM, REPORT, allowedFor, fakeBridge, planFor, scriptedExplainer } from "./testing";
+import { visibleWalkRows } from "./walk";
 import type { ScriptedChat } from "./testing";
 import { CHAT_STILL_WAITING_MS, CHAT_WATCH_CHECK_MS, useChat } from "./useChat";
 
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  delete window.__talosDemoPace;
 });
 
 interface Holder {
@@ -30,6 +35,7 @@ interface Holder {
   availability: AiAvailability | null;
   watch: WatchState | null;
   draft: ChatDraft | null;
+  consume: (seq: number) => void;
   licensed: boolean;
 }
 
@@ -37,14 +43,14 @@ function harness(script: ScriptedChat = {}, licensed = true) {
   const plan = planFor(licensed);
   const { bridge, control } = fakeBridge(plan);
   const explainer = scriptedExplainer(script);
-  const holder: Holder = { scan: { kind: "ready", report: REPORT, state: DEV_MACHINE, explain: { kind: "off" }, lastRecheck: null, fixing: null, watching: null }, availability: "available", watch: fakeWatchState(), draft: null, licensed };
+  const holder: Holder = { scan: { kind: "ready", report: REPORT, state: DEV_MACHINE, explain: { kind: "off" }, lastRecheck: null, fixing: null, watching: null }, availability: "available", watch: fakeWatchState(), draft: null, consume: vi.fn(), licensed };
   const adapters = fakeAdapters({ createExplainer: vi.fn(async () => explainer.port) });
   const watch = fakeWatchController();
   const wrapper = ({ children }: { children: ReactNode }) => {
     const settings: AppSettings = { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: "chatgpt" }, watch: { ...DEFAULT_SETTINGS.watch, enabled: true } };
     const base = fakeContextValue({ adapters, license: { status: "none" }, gate: { licensed: holder.licensed, freeFixes: plan.freeFixes, has: () => holder.licensed, fixLocked: () => !holder.licensed, explainLocked: () => false, watchLocked: !holder.licensed }, scanState: holder.scan, settings });
     const value: AppContextValue = { ...base, ai: { ...base.ai, availability: holder.availability } };
-    return createElement(AppContext.Provider, { value }, createElement(WatchControllerContext.Provider, { value: { ...watch, state: holder.watch } }, createElement(ChatDraftContext.Provider, { value: holder.draft }, children)));
+    return createElement(AppContext.Provider, { value }, createElement(WatchControllerContext.Provider, { value: { ...watch, state: holder.watch } }, createElement(ChatDraftContext.Provider, { value: { draft: holder.draft, consume: holder.consume } }, children)));
   };
   const hook = renderHook(() => useChat(bridge), { wrapper });
   return { hook, bridge, control, explainer, holder, plan, adapters, watch };
@@ -60,7 +66,7 @@ describe("useChat", () => {
     expect(kinds(state.messages)).toEqual(["app", "card"]);
     expect(cards(state.messages)[0]?.card.ruleId).toBe("TL-MAC-001");
     expect(h.explainer.calls).toHaveLength(0);
-    expect(chips.map((c) => c.label)).toEqual([CHAT.chips.doThemAll, CHAT.chips.fixWhatYouCan, CHAT.chips.showList]);
+    expect(chips.map((c) => c.label)).toEqual([CHAT.chips.doThemAll, CHAT.chips.fixWhatYouCan, CHAT.chips.showList, ACTIVITY.chips.writeUp]);
     expect(h.hook.result.current.busy).toBe(false);
   });
 
@@ -182,7 +188,7 @@ describe("useChat", () => {
     const h = harness();
     h.holder.watch = fakeWatchState({ rating: "act_now", items: [ACT_ITEM] });
     h.hook.rerender();
-    const exact = CHAT.askWhy.replace("{headline}", FISHY.noticed.headline.persistence);
+    const exact = askWhyQuestion(FISHY.noticed.headline.persistence);
     h.holder.draft = { text: `${exact}?`, seq: 1 };
     h.hook.rerender();
     expect(h.hook.result.current.state.draft).toBe(`${exact}?`);
@@ -207,16 +213,390 @@ describe("useChat", () => {
     const row = () => h.hook.result.current.extras[watchCard!.id]?.[0];
     expect(row()?.kind).toBe("watch_check");
     expect(row()?.status).toBe("running");
+    expect(h.hook.result.current.state.working).toBe(watchCard!.id);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(CHAT_WATCH_CHECK_MS + 1);
     });
     expect(row()?.status).toBe("failed");
     expect(row()?.outcome).toBe("unavailable");
-    // A second check resolves on the next watch:state, whichever way it reads.
-    act(() => h.hook.result.current.controller.primary(watchCard!.id));
-    expect(h.explainer.calls).toHaveLength(1);
+    const first = cards(h.hook.result.current.state.messages).find((c) => c.id === watchCard!.id);
+    expect(first?.state).toBe("resolved");
+    expect(first?.result).toBe(CHAT.checkFailed);
+    // A second check, from a new card, stays running through the state that reads checking and resolves on the one after it.
+    act(() => h.hook.result.current.controller.send("Check again please"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    const second = cards(h.hook.result.current.state.messages).filter((c) => c.card.kind === "watch").at(-1);
+    expect(second?.id).not.toBe(watchCard!.id);
+    act(() => h.hook.result.current.controller.primary(second!.id));
+    expect(h.watch.checkNow).toHaveBeenCalledTimes(2);
+    const row2 = () => h.hook.result.current.extras[second!.id]?.[0];
     h.holder.watch = fakeWatchState({ checking: true });
     h.hook.rerender();
+    expect(row2()?.status).toBe("running");
+    h.holder.watch = fakeWatchState({ checking: false });
+    h.hook.rerender();
+    expect(row2()?.status).toBe("done");
+    expect(cards(h.hook.result.current.state.messages).find((c) => c.id === second!.id)?.result).toBe(WATCH.checkedJustNow);
+  });
+});
+
+describe("useChat: the fixes of the review", () => {
+  it("an exact draft sends once and is consumed: a plan rebuild adds no call and the field stays empty", async () => {
+    const h = harness();
+    h.holder.consume = vi.fn((seq: number) => {
+      if (h.holder.draft?.seq === seq) h.holder.draft = null;
+    });
+    h.holder.watch = fakeWatchState({ rating: "act_now", items: [ACT_ITEM] });
+    h.hook.rerender();
+    const exact = askWhyQuestion(FISHY.noticed.headline.persistence);
+    h.holder.draft = { text: exact, seq: 7 };
+    h.hook.rerender();
+    await waitFor(() => expect(h.explainer.calls).toHaveLength(1));
+    expect(h.holder.consume).toHaveBeenCalledWith(7);
+    expect(h.hook.result.current.state.draft).toBeNull();
+    await waitFor(() => expect(h.hook.result.current.state.stream.kind).toBe("idle"));
+    (h.bridge as { plan: GuidedPlan }).plan = { ...h.plan };
+    h.hook.rerender();
+    h.hook.rerender();
+    expect(h.explainer.calls).toHaveLength(1);
+  });
+
+  it("Try again on the notice resends the typed question, not the chip pressed since", async () => {
+    const h = harness({ fail: "timeout" });
+    act(() => h.hook.result.current.controller.send("hello there"));
+    await waitFor(() => expect(h.hook.result.current.state.stream.kind).toBe("idle"));
+    act(() => h.hook.result.current.controller.chip("show_list"));
+    act(() => h.hook.result.current.controller.chip("try_again"));
+    await waitFor(() => expect(h.explainer.calls).toHaveLength(2));
+    expect(h.explainer.calls[1]?.input.question).toBe("hello there");
+  });
+
+  it("an accept card whose rule left the allow-lists goes stale at the tap and writes nothing", () => {
+    const h = harness();
+    act(() => h.hook.result.current.controller.send("I know about the disk"));
+    const accept = cards(h.hook.result.current.state.messages).find((c) => c.card.kind === "accept")!;
+    h.control.done = ["show:TL-MAC-001"];
+    act(() => h.hook.result.current.controller.primary(accept.id));
+    expect(h.bridge.accept).not.toHaveBeenCalled();
+    expect(cards(h.hook.result.current.state.messages).find((c) => c.id === accept.id)?.state).toBe("stale");
+  });
+
+  it("Do this later on a failed card snoozes once and resolves it; Next on an unreadable failure leaves it alone once", async () => {
+    const h = harness();
+    const live = cards(h.hook.result.current.state.messages).find((c) => c.live)!;
+    act(() => h.hook.result.current.controller.primary(live.id));
+    h.control.settled = { step: live.step!, outcome: "did_not_change", state: { kind: "failed", error: "command_failed", step: null, batch: false } };
+    h.holder.scan = { ...h.holder.scan };
+    h.hook.rerender();
+    await waitFor(() => expect(cards(h.hook.result.current.state.messages).find((c) => c.id === live.id)?.state).toBe("failed"));
+    act(() => h.hook.result.current.controller.link(live.id));
+    act(() => h.hook.result.current.controller.link(live.id));
+    expect(h.bridge.later).toHaveBeenCalledTimes(1);
+    const after = cards(h.hook.result.current.state.messages).find((c) => c.id === live.id);
+    expect(after?.state).toBe("resolved");
+    expect(after?.result).toBe(LATER_FLASH);
+    const g = harness();
+    const fix = cards(g.hook.result.current.state.messages).find((c) => c.live)!;
+    act(() => g.hook.result.current.controller.primary(fix.id));
+    g.control.settled = { step: fix.step!, outcome: "could_not_check", state: { kind: "failed", error: "unreadable", step: null, batch: false } };
+    g.holder.scan = { ...g.holder.scan };
+    g.hook.rerender();
+    await waitFor(() => expect(cards(g.hook.result.current.state.messages).find((c) => c.id === fix.id)?.state).toBe("failed"));
+    act(() => g.hook.result.current.controller.primary(fix.id));
+    act(() => g.hook.result.current.controller.primary(fix.id));
+    expect(g.bridge.leaveAlone).toHaveBeenCalledTimes(1);
+    expect(cards(g.hook.result.current.state.messages).find((c) => c.id === fix.id)?.state).toBe("resolved");
+  });
+
+  it("events age by turns: noted since the last reply reads 0, one turn later 1", async () => {
+    const h = harness();
+    act(() => h.hook.result.current.controller.send("first"));
+    await waitFor(() => expect(h.hook.result.current.state.stream.kind).toBe("idle"));
+    act(() => h.hook.result.current.controller.chip("check_again"));
+    act(() => h.hook.result.current.controller.send("second"));
+    await waitFor(() => expect(h.hook.result.current.state.stream.kind).toBe("idle"));
+    expect(h.explainer.calls[1]?.input.events[0]?.turnsAgo).toBe(0);
+    act(() => h.hook.result.current.controller.send("third"));
+    await waitFor(() => expect(h.explainer.calls).toHaveLength(3));
+    expect(h.explainer.calls[2]?.input.events[0]?.turnsAgo).toBe(1);
+  });
+
+  it("What is urgent? reads as one sentence with the why under it; Why? on a batch card is not offered and asks nothing", () => {
+    const h = harness();
+    act(() => h.hook.result.current.controller.chip("what_is_urgent"));
+    const app = [...h.hook.result.current.state.messages].reverse().find((m) => m.kind === "app");
+    expect(app?.kind === "app" && app.headline).toBe(`${CHAT.urgentLead} ${guidedFor("TL-MAC-001").headline}.`);
+    expect(app?.kind === "app" && app.body).toBe(guidedFor("TL-MAC-001").why);
+    act(() => h.hook.result.current.controller.chip("fix_what_you_can"));
+    expect(h.hook.result.current.chips.map((c) => c.id)).not.toContain("why");
+    act(() => h.hook.result.current.controller.chip("why"));
+    expect(h.explainer.calls).toHaveLength(0);
+  });
+
+  it("Show me the list draws one row per rule, no paywall or permission row, and the locked count as a line", () => {
+    const h = harness({}, false);
+    act(() => h.hook.result.current.controller.chip("show_list"));
+    const { messages } = h.hook.result.current.state;
+    const rows = messages.filter((m): m is Extract<ChatMessage, { kind: "row" }> => m.kind === "row");
+    expect(rows.every((r) => r.seed.card.kind !== "lock" && r.seed.card.kind !== "permission")).toBe(true);
+    expect(rows.some((r) => r.headline.startsWith("There are"))).toBe(false);
+    expect(rows.some((r) => r.headline === guidedFor("TL-MAC-002").headline)).toBe(true);
+    const list = [...messages].reverse().find((m) => m.kind === "app");
+    expect(list?.kind === "app" && list.body).toMatch(/more in the full version\.$/);
+  });
+
+  it("the lock card waits for the free show step, lands once, and What's next? never lands a second one", async () => {
+    const h = harness({}, false);
+    act(() => h.hook.result.current.controller.chip("show_list"));
+    const firewall = h.hook.result.current.state.messages.find((m) => m.kind === "row" && m.headline === guidedFor("TL-MAC-002").headline)!;
+    act(() => h.hook.result.current.controller.promote(firewall.id));
+    const fix = cards(h.hook.result.current.state.messages).find((c) => c.live)!;
+    act(() => h.hook.result.current.controller.primary(fix.id));
+    h.control.done = [fix.step!.id];
+    h.control.settled = { step: fix.step!, outcome: "fixed", state: { kind: "done", line: "Done.", rows: [] } };
+    h.holder.scan = { ...h.holder.scan };
+    h.hook.rerender();
+    await waitFor(() => expect(h.hook.result.current.state.working).toBeNull());
+    expect(cards(h.hook.result.current.state.messages).some((c) => c.card.kind === "lock")).toBe(false);
+    const disk = h.plan.steps.find((s) => s.kind === "show" && s.ruleId === "TL-MAC-001")!;
+    const diskCard = cards(h.hook.result.current.state.messages).find((c) => c.step?.id === disk.id);
+    h.control.done = h.plan.steps.filter((s) => s.kind !== "paywall").map((s) => s.id);
+    act(() => h.hook.result.current.controller.link(diskCard?.id ?? ""));
+    act(() => h.hook.result.current.controller.afterSettle());
+    expect(cards(h.hook.result.current.state.messages).filter((c) => c.card.kind === "lock")).toHaveLength(1);
+    act(() => h.hook.result.current.controller.chip("whats_next"));
+    expect(cards(h.hook.result.current.state.messages).filter((c) => c.card.kind === "lock")).toHaveLength(1);
+    expect(h.hook.result.current.state.messages.some((m) => m.kind === "app" && m.label === "end")).toBe(true);
+  });
+
+  it("the end message after deferring the only step says the Mac is safer and lists it as still waiting", () => {
+    const h = harness();
+    const live = cards(h.hook.result.current.state.messages).find((c) => c.live)!;
+    vi.mocked(h.bridge.endPlan).mockReturnValue({ ...h.plan, later: ["TL-MAC-001"] });
+    h.control.done = h.plan.steps.map((s) => s.id);
+    act(() => h.hook.result.current.controller.link(live.id));
+    const end = h.hook.result.current.state.messages.at(-1);
+    expect(end?.kind === "app" && end.headline).toBe(END.partial);
+    expect(end?.kind === "app" && end.groups[0]?.label).toBe(END.waiting);
+    expect(end?.kind === "app" && end.groups[0]?.rows[0]?.text).toBe(guidedFor("TL-MAC-001").headline);
+  });
+
+  it("a Check now stays running through a state that never read checking", async () => {
+    vi.useFakeTimers();
+    const h = harness({ result: { ok: true, value: { reply: "The watch is on.", relatedRuleIds: [], outsideScope: false, intents: [{ kind: "open_watch", ruleId: null }], locked: [] } } });
+    act(() => h.hook.result.current.controller.send("Is the watch on?"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    const watchCard = cards(h.hook.result.current.state.messages).find((c) => c.card.kind === "watch")!;
+    act(() => h.hook.result.current.controller.primary(watchCard.id));
+    const row = () => h.hook.result.current.extras[watchCard.id]?.[0];
+    h.holder.watch = fakeWatchState({ checking: false, nextCheckAt: "2026-10-16T11:00:00.000Z" });
+    h.hook.rerender();
+    expect(row()?.status).toBe("running");
+    h.holder.watch = fakeWatchState({ checking: true });
+    h.hook.rerender();
+    h.holder.watch = fakeWatchState({ checking: false });
+    h.hook.rerender();
     expect(row()?.status).toBe("done");
+  });
+
+  it("under reduced motion partials land at most every 400 ms", async () => {
+    vi.useFakeTimers();
+    window.__talosDemoPace = 0;
+    const h = harness({ hold: true });
+    act(() => h.hook.result.current.controller.send("Why?"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(h.explainer.calls).toHaveLength(1);
+    const text = () => h.hook.result.current.state.messages.find((m) => m.kind === "model")?.kind === "model" && (h.hook.result.current.state.messages.find((m) => m.kind === "model") as Extract<ChatMessage, { kind: "model" }>).text;
+    const onPartial = h.explainer.onPartial;
+    act(() => onPartial?.({ reply: "a" }));
+    expect(text()).toBe("a");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+      onPartial?.({ reply: "ab" });
+      await vi.advanceTimersByTimeAsync(100);
+      onPartial?.({ reply: "abc" });
+    });
+    expect(text()).toBe("a");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(CHAT_REDUCED_PARTIAL_MS);
+    });
+    expect(text()).toBe("abc");
+    h.explainer.settle();
+  });
+});
+
+/* AGENT part B region (docs/DESIGN-AGENT.md section 6, desktop): reminders, the write-up, the what-if, the walk's checklist, the gated lines. */
+describe("useChat: agent", () => {
+  const app = (messages: readonly ChatMessage[], label: string) => messages.filter((m): m is Extract<ChatMessage, { kind: "app" }> => m.kind === "app" && m.label === label);
+  const clipboard = (ok: boolean) => {
+    const writeText = vi.fn(async () => {
+      if (!ok) throw new Error("denied");
+    });
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    return writeText;
+  };
+
+  it("Ask me again tomorrow after Do this later reminds through the bridge, answers the line, and makes no call", () => {
+    const h = harness();
+    const live = cards(h.hook.result.current.state.messages).find((c) => c.live)!;
+    act(() => h.hook.result.current.controller.link(live.id));
+    expect(h.hook.result.current.chips.map((c) => c.label)).toEqual([ACTIVITY.chips.remindTomorrow, ACTIVITY.chips.whatIf, CHAT.chips.whatsNext, CHAT.chips.showList]);
+    act(() => h.hook.result.current.controller.chip("remind_tomorrow"));
+    expect(h.bridge.remind).toHaveBeenCalledWith(live.step, "tomorrow");
+    const remind = app(h.hook.result.current.state.messages, "remind").at(-1);
+    expect(remind?.headline).toBe(ACTIVITY.chips.remindTomorrow);
+    expect(remind?.body).toBe(ACTIVITY.remind.tomorrow.replace("{headline}", guidedFor("TL-MAC-001").headline));
+    expect(h.explainer.calls).toHaveLength(0);
+    expect(reminderDate("2026-10-18T10:00:00.000Z", "sunday").slice(0, 10)).toBe("2026-10-25");
+  });
+
+  it("the typed Sunday form collapses the live card to the line and names the rule it resolved; a due reminder renders the lead once", () => {
+    const h = harness();
+    act(() => h.hook.result.current.controller.send("remind me on Sunday about the firewall"));
+    const step = h.plan.steps.find((s) => s.kind === "batch")!;
+    expect(h.bridge.remind).toHaveBeenCalledWith(step, "sunday");
+    expect(app(h.hook.result.current.state.messages, "remind").at(-1)?.body).toBe(ACTIVITY.remind.sunday.replace("{headline}", guidedFor("TL-MAC-002").headline));
+    expect(h.explainer.calls).toHaveLength(0);
+    cleanup();
+    const plan = planFor(true);
+    const { bridge } = fakeBridge(plan, { reminders: ["TL-MAC-002"] });
+    const explainer = scriptedExplainer();
+    const adapters = fakeAdapters({ createExplainer: vi.fn(async () => explainer.port) });
+    const wrapper = ({ children }: { children: ReactNode }) => {
+      const base = fakeContextValue({ adapters, license: { status: "none" }, gate: { licensed: true, freeFixes: plan.freeFixes, has: () => true, fixLocked: () => false, explainLocked: () => false, watchLocked: false }, scanState: { kind: "ready", report: REPORT, state: DEV_MACHINE, explain: { kind: "off" }, lastRecheck: null, fixing: null, watching: null }, settings: { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: "chatgpt" } } });
+      return createElement(AppContext.Provider, { value: base }, createElement(WatchControllerContext.Provider, { value: { ...fakeWatchController(), state: fakeWatchState() } }, children));
+    };
+    const hook = renderHook(() => useChat(bridge), { wrapper });
+    const opening = hook.result.current.state.messages[0];
+    expect(opening?.kind === "app" && opening.lead).toBe(ACTIVITY.remind.due.replace("{headline}", guidedFor("TL-MAC-002").headline));
+    expect(hook.result.current.state.messages.filter((m) => m.kind === "app" && m.lead !== null)).toHaveLength(1);
+  });
+
+  it("Write this up renders authored text with no Where: and no slash; Copy it writes it to the clipboard, and the fallback line appears when it refuses", async () => {
+    const writeText = clipboard(true);
+    const h = harness();
+    act(() => h.hook.result.current.controller.chip("write_up"));
+    const card = cards(h.hook.result.current.state.messages).find((c) => c.card.kind === "write_up")!;
+    expect(card.live).toBe(true);
+    expect(card.writeUpText).toContain("Talos Labs check-up");
+    expect(card.writeUpText).toContain(guidedFor("TL-MAC-001").headline);
+    expect(card.writeUpText).not.toContain("Where:");
+    expect(card.writeUpText).not.toContain("/");
+    expect(card.writeUpText).not.toContain("TL-MAC");
+    expect(h.explainer.calls).toHaveLength(0);
+    act(() => h.hook.result.current.controller.primary(card.id));
+    await waitFor(() => expect(cards(h.hook.result.current.state.messages).find((c) => c.id === card.id)?.copiedAt).not.toBeNull());
+    expect(writeText).toHaveBeenCalledWith(card.writeUpText);
+    expect(h.hook.result.current.state.announce.text).toBe(ACTIVITY.writeUp.copied);
+    cleanup();
+    clipboard(false);
+    const g = harness();
+    act(() => g.hook.result.current.controller.send("write this up for my son"));
+    const again = cards(g.hook.result.current.state.messages).find((c) => c.card.kind === "write_up")!;
+    act(() => g.hook.result.current.controller.primary(again.id));
+    await waitFor(() => expect(g.hook.result.current.state.messages.at(-1)).toMatchObject({ kind: "notice", text: ACTIVITY.writeUp.copyFailed }));
+    expect(g.explainer.calls).toHaveLength(0);
+  });
+
+  it("the what-if answer reads the why first and the cost second, lands the step's card, and offers Leave it alone", () => {
+    const h = harness();
+    act(() => h.hook.result.current.controller.send("what if I leave the disk alone?"));
+    const answer = app(h.hook.result.current.state.messages, "what_if").at(-1)!;
+    const points = REPORT.results.find((r) => r.ruleId === "TL-MAC-001")?.points ?? 0;
+    expect(answer.body?.split("\n")).toEqual([guidedFor("TL-MAC-001").why, ACTIVITY.whatIf.cost.replace("{p}", String(points)), ACTIVITY.whatIf.critical]);
+    expect(cards(h.hook.result.current.state.messages).find((c) => c.live)?.step?.id).toBe("show:TL-MAC-001");
+    expect(h.hook.result.current.chips.map((c) => c.label)).toEqual([CHAT.chips.leaveAlone, CHAT.chips.whatsNext, CHAT.chips.showList]);
+    expect(h.explainer.calls).toHaveLength(0);
+  });
+
+  it("Do them all draws the progress line, three visible rows and the rest as a count; a result ticks its row; a tapped row steps up; a show card waits", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    act(() => h.hook.result.current.controller.chip("do_them_all"));
+    const walk = () => app(h.hook.result.current.state.messages, "walk").at(-1)?.checklist ?? null;
+    expect(walk()?.done).toBe(0);
+    expect(walk()!.of).toBeGreaterThan(3);
+    const visible = visibleWalkRows(walk()!);
+    const running = visible.rows.filter((r) => r.icon === "running").length;
+    expect(running).toBeGreaterThan(0);
+    expect(visible.rows).toHaveLength(running + 2);
+    expect(visible.more).toBe(walk()!.of - running - 2);
+    expect(visible.rows[0]?.icon).toBe("running");
+    const batch = cards(h.hook.result.current.state.messages).find((c) => c.live)!;
+    expect(batch.card.kind).toBe("batch");
+    act(() => h.hook.result.current.controller.promoteStep("show:TL-MAC-001"));
+    expect(cards(h.hook.result.current.state.messages).find((c) => c.live)?.step?.id).toBe("show:TL-MAC-001");
+    expect(walk()?.rows.find((r) => r.stepId === "show:TL-MAC-001")?.icon).toBe("running");
+    expect(walk()?.rows.find((r) => r.stepId === "batch")?.icon).toBe("pending");
+    act(() => h.hook.result.current.controller.promoteStep("batch"));
+    const live = cards(h.hook.result.current.state.messages).find((c) => c.live)!;
+    expect(live.step?.id).toBe("batch");
+    act(() => h.hook.result.current.controller.primary(live.id));
+    const ids = live.card.ruleIds;
+    h.control.settled = { step: live.step!, outcome: "fixed", state: { kind: "done", line: "Done.", rows: ids.map((ruleId) => ({ ruleId, ok: true, text: "x" })) } };
+    h.control.done = ["batch"];
+    h.holder.scan = { ...h.holder.scan };
+    h.hook.rerender();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    expect(walk()?.done).toBe(ids.length);
+    expect(h.hook.result.current.state.announce.text).toBe(`${ids.length} of ${walk()!.of} done`);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    // The walk moved on from the row after the batch; a tapped show row steps up and then waits on the person.
+    const after = cards(h.hook.result.current.state.messages).find((c) => c.live)!;
+    expect(after.step?.id).toBe(h.plan.steps.filter((s) => s.kind !== "paywall" && s.id !== "batch")[0]?.id);
+    act(() => h.hook.result.current.controller.promoteStep("show:TL-MAC-001"));
+    const show = cards(h.hook.result.current.state.messages).find((c) => c.live)!;
+    expect(show.card.kind).toBe("show");
+    act(() => h.hook.result.current.controller.primary(show.id));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(h.hook.result.current.state.working).toBe(show.id);
+    expect(walk()?.rows.find((r) => r.stepId === show.step?.id)?.icon).toBe("running");
+    expect(h.explainer.calls).toHaveLength(0);
+  });
+
+  it("the typed look-into and closer forms answer the gated lines with no call; the chip row never exceeds four", () => {
+    const h = harness();
+    act(() => h.hook.result.current.controller.send("look into this"));
+    expect(h.hook.result.current.state.messages.at(-1)).toMatchObject({ kind: "notice", text: ACTIVITY.refuse.lookNotYet });
+    act(() => h.hook.result.current.controller.send("watch closer for an hour"));
+    expect(h.hook.result.current.state.messages.at(-1)).toMatchObject({ kind: "notice", text: ACTIVITY.refuse.closerNotYet });
+    expect(h.explainer.calls).toHaveLength(0);
+    expect(h.hook.result.current.chips.length).toBeLessThanOrEqual(4);
+    const free = harness({}, false);
+    act(() => free.hook.result.current.controller.send("look into this"));
+    expect(free.hook.result.current.state.messages.at(-1)).toMatchObject({ kind: "notice", text: ACTIVITY.refuse.full_version });
+    for (const chip of ["show_list", "whats_next", "write_up"] as const) {
+      act(() => free.hook.result.current.controller.chip(chip));
+      expect(free.hook.result.current.chips.length).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it("a model reply naming remind_rule lands the reminder after the model block; one naming investigate is dropped by the validator", async () => {
+    const h = harness({ result: { ok: true, value: { reply: "Tomorrow it is.", relatedRuleIds: [], outsideScope: false, intents: [{ kind: "remind_rule", ruleId: "TL-MAC-001", signalId: null, when: "tomorrow" }], locked: [] } } });
+    act(() => h.hook.result.current.controller.send("Can you ask me tomorrow instead?"));
+    await waitFor(() => expect(h.hook.result.current.state.stream.kind).toBe("idle"));
+    const messages = h.hook.result.current.state.messages;
+    const model = messages.findIndex((m) => m.kind === "model" && m.text === "Tomorrow it is.");
+    const remind = messages.findIndex((m) => m.kind === "app" && m.label === "remind");
+    expect(model).toBeGreaterThan(-1);
+    expect(remind).toBeGreaterThan(model);
+    expect(h.bridge.remind).toHaveBeenCalledWith(h.plan.steps.find((s) => s.id === "show:TL-MAC-001"), "tomorrow");
+    const allowed = allowedFor(h.plan, true);
+    const raw = { reply: "That one is worth a closer look.", relatedRuleIds: [], outsideScope: false, intents: [{ kind: "investigate", ruleId: null, signalId: "sig.persistence_new", when: null }] };
+    const validated = validateChat(raw, { results: allowed.details.map((ruleId) => ({ ruleId })) }, allowed, []);
+    expect(validated.ok && validated.value.intents).toEqual([]);
+    expect(allowed.kinds.includes("investigate")).toBe(WATCH_AGENT_PORTS_READY);
   });
 });

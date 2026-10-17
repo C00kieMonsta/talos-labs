@@ -1,0 +1,17 @@
+Executable=/Applications/Claude.app/Contents/MacOS/Claude
+Identifier=com.anthropic.claudefordesktop
+Format=app bundle with Mach-O thin (arm64)
+CodeDirectory v=20500 size=458 flags=0x10000(runtime) hashes=3+7 location=embedded
+Signature size=9047
+Authority=Developer ID Application: Anthropic PBC (Q6L2SF6YDW)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+Timestamp=15 Oct 2026 at 07:10:43
+Notarization Ticket=stapled
+Info.plist entries=46
+TeamIdentifier=Q6L2SF6YDW
+Runtime Version=26.5.0
+Sealed Resources version=2 rules=13 files=4323
+Internal requirements count=1 size=192
+Total signatures=1
+Chosen signature=1

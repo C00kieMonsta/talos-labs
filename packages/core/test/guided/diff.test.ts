@@ -10,28 +10,28 @@ import { ctxFor } from "../helpers";
 const DEV = evaluate(DEV_MACHINE, MACOS_CATALOG, ctxFor(DEV_MACHINE));
 const HARD = evaluate(HARDENED, MACOS_CATALOG, ctxFor(HARDENED));
 const UNAVAILABLE = evaluate(ALL_UNAVAILABLE, MACOS_CATALOG, ctxFor(ALL_UNAVAILABLE));
-const DEV_FAILS = ["TL-MAC-001", "TL-MAC-002", "TL-MAC-003", "TL-MAC-010", "TL-MAC-011", "TL-MAC-014", "TL-MAC-022", "TL-MAC-026", "TL-MAC-029"];
+const DEV_FAILS = ["TL-MAC-001", "TL-MAC-002", "TL-MAC-003", "TL-MAC-010", "TL-MAC-011", "TL-MAC-014", "TL-MAC-022", "TL-MAC-026", "TL-MAC-029", "TL-MAC-032"];
 
 describe("diffReports", () => {
   it("is empty with no previous report", () => {
     expect(diffReports(null, DEV, [])).toEqual({ fixed: [], appeared: [], unreadable: [] });
   });
 
-  it("dev-machine then hardened: nine fixed", () => {
+  it("dev-machine then hardened: ten fixed", () => {
     const diff = diffReports(DEV, HARD, []);
     expect(diff.fixed).toEqual(DEV_FAILS);
     expect(diff.appeared).toEqual([]);
     expect(diff.unreadable).toEqual([]);
   });
 
-  it("hardened then dev-machine: nine appeared, review changes not announced", () => {
+  it("hardened then dev-machine: ten appeared, review changes not announced", () => {
     const diff = diffReports(HARD, DEV, []);
     expect(diff.appeared).toEqual(DEV_FAILS);
     expect(diff.fixed).toEqual([]);
     expect(diff.unreadable).toEqual([]);
   });
 
-  it("dev-machine then all-unavailable: nine unreadable", () => {
+  it("dev-machine then all-unavailable: ten unreadable", () => {
     const diff = diffReports(DEV, UNAVAILABLE, []);
     expect(diff.unreadable).toEqual(DEV_FAILS);
     expect(diff.fixed).toEqual([]);

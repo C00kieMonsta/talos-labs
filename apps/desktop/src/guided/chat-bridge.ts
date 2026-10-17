@@ -1,5 +1,5 @@
-import type { ChatOutcome, GuidedPlan, GuidedStep, RuleId } from "@talos/core";
-import { LATER_ASK_COUNT, acceptRules, planLocked } from "@talos/core";
+import type { ChatOutcome, GuidedPlan, GuidedStep, RemindWhen, RuleId } from "@talos/core";
+import { LATER_ASK_COUNT, acceptRules, planLocked, remindRules, reminderDate } from "@talos/core";
 import { lastReport, rulePasses } from "../scan/machine";
 import type { PermissionCardState } from "../scan/useCapabilityPoll";
 import { start } from "./actions";
@@ -201,6 +201,17 @@ function later(core: Core, step: GuidedStep): readonly RuleId[] {
   return rules.filter((id) => (laterCount[id] ?? 0) >= LATER_ASK_COUNT);
 }
 
+/** The reminder replaces the snooze "Do this later" wrote; laterCount stands so the third-Later ask is not advanced (2f). */
+function remind(core: Core, step: GuidedStep, when: RemindWhen): void {
+  if (chatPhase(core) === null || step.kind === "paywall" || step.kind === "permission") return;
+  const rules = ruleIdsOf(step);
+  const scan = core.scan.scan;
+  if (scan.kind === "ready" && scan.watching !== null && rules.includes(scan.watching.ruleId)) core.scan.stopWatch();
+  const next = remindRules(core.memory, rules, reminderDate(core.now(), when));
+  writeMemory(core, { snoozed: next.snoozed, reminders: next.reminders });
+  clearIfActive(core, step);
+}
+
 function accept(core: Core, ruleIds: readonly RuleId[]): void {
   const phase = chatPhase(core);
   if (phase === null || ruleIds.length === 0) return;
@@ -287,7 +298,7 @@ function toChat(core: Core): void {
   if (phase.kind === "chat") return;
   if (phase.kind !== "since" && phase.kind !== "plan" && phase.kind !== "step" && phase.kind !== "end") return;
   if (phase.kind === "step" && (phase.state.kind === "working" || phase.state.kind === "watching")) return;
-  core.setPhase({ kind: "chat", plan: phase.plan, diff: phase.kind === "since" ? phase.diff : null, active: null, walking: false, resumed: false });
+  core.setPhase({ kind: "chat", plan: phase.plan, diff: phase.kind === "since" ? phase.diff : null, active: null, walking: false, resumed: false, reminders: [] });
 }
 
 function after<T>(bump: () => void, value: T): T {
@@ -296,12 +307,16 @@ function after<T>(bump: () => void, value: T): T {
 }
 
 /** The bridge's functions, built once over the core ref; the readonly fields are composed per render by useGuided. */
-export function buildChatBridge(core: Core, bump: () => void, openPermission: () => void, permission: () => PermissionCardState): Omit<ChatBridge, "plan" | "diff" | "resumed" | "active" | "walking" | "fixed" | "leftAlone" | "doneStepIds" | "permission"> {
+export function buildChatBridge(core: Core, bump: () => void, openPermission: () => void, permission: () => PermissionCardState): Omit<ChatBridge, "plan" | "diff" | "resumed" | "active" | "walking" | "fixed" | "leftAlone" | "doneStepIds" | "permission" | "reminders"> {
   const undone = () => (chatPhase(core)?.plan.steps ?? []).filter((s) => !stepDone(core, s, permission()));
   return {
     undone,
     nextUndone: () => undone()[0] ?? null,
     atEnd: () => undone().length === 0,
+    endPlan: () => {
+      const phase = chatPhase(core);
+      return phase === null ? null : finalPlan(core, phase.plan);
+    },
     run: (step, passphrase) => run(core, bump, openPermission, step, passphrase),
     checkAgain: (step) => checkAgain(core, step),
     settle: () => settle(core, permission()),
@@ -314,6 +329,7 @@ export function buildChatBridge(core: Core, bump: () => void, openPermission: ()
     },
     // A memory write changes which steps count as done, so each one re-renders the phase.
     later: (step) => after(bump, later(core, step)),
+    remind: (step, when) => after(bump, remind(core, step, when)),
     accept: (ruleIds) => after(bump, accept(core, ruleIds)),
     answerNo: (step) => after(bump, answerNo(core, step)),
     leaveAlone: (step) => after(bump, leaveAlone(core, step)),

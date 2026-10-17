@@ -23,7 +23,7 @@ function without<T>(map: Readonly<Record<string, T>>, ids: ReadonlySet<string>):
   return out;
 }
 
-/** accepted[id] = now for each id; their snoozed, laterCount and waiting entries go; everything else is untouched. */
+/** accepted[id] = now for each id; their snoozed, laterCount, waiting and reminders entries go; everything else is untouched. */
 export function acceptRules(memory: GuidedMemory, ruleIds: readonly RuleId[], now: string): GuidedMemory {
   if (ruleIds.length === 0) {
     return memory;
@@ -39,6 +39,7 @@ export function acceptRules(memory: GuidedMemory, ruleIds: readonly RuleId[], no
     laterCount: without(memory.laterCount, ids),
     waiting: without(memory.waiting, ids),
     accepted,
+    reminders: without(memory.reminders, ids),
   };
 }
 

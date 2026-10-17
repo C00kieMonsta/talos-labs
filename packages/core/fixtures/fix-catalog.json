@@ -401,5 +401,71 @@
       "dotfiles"
     ],
     "batchable": false
+  },
+  {
+    "ruleId": "TL-MAC-032",
+    "kind": "deep_link",
+    "choice": null,
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [],
+    "pane": "airdrop",
+    "watch": [
+      "remoteAccess"
+    ],
+    "batchable": false
+  },
+  {
+    "ruleId": "TL-MAC-033",
+    "kind": "in_app",
+    "choice": "none",
+    "passphrase": false,
+    "needsPassword": true,
+    "recheck": [
+      "remoteAccess",
+      "listeners"
+    ],
+    "pane": null,
+    "watch": [],
+    "batchable": true
+  },
+  {
+    "ruleId": "TL-MAC-034",
+    "kind": "deep_link",
+    "choice": null,
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [],
+    "pane": "sharing",
+    "watch": [
+      "remoteAccess"
+    ],
+    "batchable": false
+  },
+  {
+    "ruleId": "TL-MAC-035",
+    "kind": "manual",
+    "choice": null,
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [],
+    "pane": null,
+    "watch": [
+      "platformIntegrity"
+    ],
+    "batchable": false
+  },
+  {
+    "ruleId": "TL-MAC-036",
+    "kind": "manual",
+    "choice": null,
+    "passphrase": false,
+    "needsPassword": false,
+    "recheck": [],
+    "pane": null,
+    "watch": [
+      "platformIntegrity"
+    ],
+    "batchable": false
   }
 ]

@@ -107,6 +107,7 @@ export const CHAT_INSTRUCTIONS_BLOCK = [
   "Name actions only in `intents`, as ids from `allowed`, at most three, most useful first; leave `intents` empty when nothing in `allowed` fits.",
   "Other tasks have no `intents` field.",
   "When the person asks to leave something alone, use `accept_rule`.",
+  "investigate names one thing the app may re-read, close_watch asks the app to check more often for an hour, remind_rule carries when as tomorrow or sunday, write_up asks for a plain summary, what_if asks what leaving one item costs; name them only when the person asked for that.",
   "When the person asks about something the check-up does not cover, set `outsideScope` to true and say so in one sentence.",
 ].join(" ");
 

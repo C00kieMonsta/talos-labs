@@ -9,6 +9,7 @@ export function activityWord(event: ActivityEvent, words: Words = ACTIVITY.words
     case "running":
       if (event.outcome === "waiting_for_password") return words.password;
       if (event.step !== null && event.of !== null) return words.running.replace("{i}", String(event.step)).replace("{n}", String(event.of));
+      if (event.kind === "watching" && event.outcome === "stale") return words.noChange;
       if (event.kind === "watching") return words.watching;
       return words.working;
     case "done":

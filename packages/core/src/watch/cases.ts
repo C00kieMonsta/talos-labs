@@ -8,12 +8,12 @@ import { DEV_MACHINE } from "../fixtures/dev-machine";
 import { HARDENED } from "../fixtures/hardened";
 import type { ExplainerProfile } from "../ports/explainer-port";
 import type { Change, FishyKind, Rating, SignalId, WatchContext, WatchItem, WatchJudge, WatchReport, WatchRule, WatchSignal, WatchState, WatchVerdict } from "../ports/watch-port";
-import { ACTION_IDS, MODEL_PROBE_IDS } from "../ports/watch-port";
+import { ACTION_IDS, MODEL_PROBE_IDS, SIGNAL_IDS, WATCH_LIMITS } from "../ports/watch-port";
 import { MACOS_CATALOG } from "../rules/macos/index";
 import { EMPTY_WATCH_MEMORY } from "./memory";
 import { applyHysteresis, boundsFor, rateWatch, topItems } from "./rate";
 import { watchReportRow } from "./report-row";
-import { GATED_SIGNALS, PAIR_SIGNALS, SIGNAL_KIND, SIGNAL_SEVERITY, STAND_ALONE_SIGNALS, type SignalReading } from "./signals";
+import { BAD_DIRECTION, GATED_SIGNALS, PAIR_SIGNALS, SIGNAL_KIND, SIGNAL_SEVERITY, STAND_ALONE_SIGNALS, type BadDirection, type SignalReading, type SignalValueKind } from "./signals";
 import { validateWatchVerdict } from "./validate";
 import { WATCH_BANNED_WORDS } from "./words";
 
@@ -37,7 +37,13 @@ export const WATCH_HEADLINES: Readonly<Record<FishyKind, string>> = {
   admin: "A new admin account was added",
   dns: "The way your Mac finds websites changed",
   backup: "Your backups were switched off",
+  app: "A new app skipped the usual safety checks",
+  shell: "A hidden file that runs at start-up changed",
+  exposure: "Your Mac is sharing more than before",
 };
+
+/** BAD_DIRECTION made total over SIGNAL_IDS: the word, or null for a signal with no row. Rust pins its table to this key. */
+export const SIGNAL_BAD_DIRECTION: Readonly<Record<SignalId, BadDirection | null>> = Object.fromEntries(SIGNAL_IDS.map((id) => [id, BAD_DIRECTION[id] ?? null])) as Record<SignalId, BadDirection | null>;
 
 /** FISHY.notifyTail; the notification body is the headline, a full stop, a space, then this. */
 export const WATCH_NOTIFY_TAIL = "Open me to see what experts suggest.";
@@ -208,12 +214,28 @@ export const RATE_CASES: readonly RateCase[] = [
   rateCase("act: an unsigned temp item and a manual DNS server", ctx([...QUIET, changed("sig.persistence_new", 1, 0), changed("sig.persistence_unsigned", 1, 0), changed("sig.persistence_in_temp_or_hidden", 1, 0), changed("sig.dns_manual", true, false, 20)]), null),
   rateCase("act: manual DNS and a PAC URL", ctx([...QUIET, changed("sig.dns_manual", true, false), changed("sig.pac_url_set", true, false, 5)]), null),
   rateCase("act: a profile and a system extension", ctx([...QUIET, changed("sig.profiles_count", 1, 0), changed("sig.sysext_count", 2, 1, 120)]), null),
-  rateCase("act: a login key and a cron line", ctx([...QUIET, changed("sig.authorized_keys_changed", true, false), changed("sig.cron_lines", 1, 0, 600)]), null),
+  rateCase("act: a login key and a cron line", ctx([...QUIET, changed("sig.authorized_keys_changed", "changed", null), changed("sig.cron_lines", 1, 0, 600)]), null),
   rateCase("act: an unsigned item corroborates an unanswered gate", ctx([...QUIET.filter((s) => s.signalId !== "sig.firewall"), changed("sig.firewall", false, true, 10, { gated: true }), changed("sig.persistence_unsigned", 1, 0)]), null),
   rateCase("act: a gate answered No", ctx([...QUIET, changed("sig.remote_access_on", true, false, 10)]), null),
   rateCase("act: the model agrees within the bounds", ctx([...QUIET, ...PAIR]), verdict("act_now", { basedOn: ["sig.persistence_new"] })),
   rateCase("act: rises at once from calm", ctx([...QUIET, ...PAIR]), null, "calm", 0),
   rateCase("act: holds on the first lower cycle", ctx([...QUIET, changed("sig.share_count", 2, 1)]), null, "act_now", 0),
+  // DESIGN-THREATS-V2: the sixteen new signals
+  rateCase("act: authenticated root went off", ctx([...QUIET, changed("sig.authenticated_root", false, true)]), null),
+  rateCase("look: Internet Sharing came on, an unanswered gate", ctx([...QUIET, changed("sig.internet_sharing_on", true, false, 10, { gated: true })]), null),
+  rateCase("act: Internet Sharing came on, a gate answered No", ctx([...QUIET, changed("sig.internet_sharing_on", true, false, 10)]), null),
+  rateCase("look: AirDrop open to everyone alone, with no gate", ctx([...QUIET, changed("sig.airdrop_everyone", true, false)]), null),
+  rateCase("look: an unchecked unsigned app alone is one app item", ctx([...QUIET, changed("sig.app_set", "changed", null), changed("sig.app_new_unsigned", 1, 0)]), null),
+  rateCase("act: an unchecked unsigned app and a new launch agent", ctx([...QUIET, changed("sig.app_set", "changed", null), changed("sig.app_new_unsigned", 1, 0), changed("sig.persistence_new", 1, 0, 45)]), null),
+  rateCase("look: a new App Store app with no download mark alone makes no item", ctx([...QUIET, changed("sig.app_set", "changed", null), changed("sig.app_new_unquarantined", 1, 0)]), null),
+  rateCase("look: more apps hidden in the library alone makes no item", ctx([...QUIET, changed("sig.library_apps_count", 17, 16)]), null),
+  rateCase("look: a new App Store app and a new signed launch agent within a day", ctx([...QUIET.filter((s) => s.signalId !== "sig.persistence_set"), changed("sig.app_set", "changed", null), changed("sig.app_new_unquarantined", 1, 0), changed("sig.persistence_set", "changed", null), changed("sig.persistence_new", 1, 0, 45)]), null),
+  rateCase("look: ~/.zshrc changed alone is keep_an_eye with one shell item", ctx([...QUIET, changed("sig.shell_startup_changed", "changed", null)]), null),
+  rateCase("act: a shell start-up file and a new launch agent", ctx([...QUIET, changed("sig.shell_startup_changed", "changed", null), changed("sig.persistence_new", 1, 0, 45)]), null),
+  rateCase("look: a new /etc/zshenv changes two shell signals and is one item", ctx([...QUIET, changed("sig.shell_startup_changed", "changed", null), changed("sig.system_shell_files_count", 1, 0)]), null),
+  rateCase("look: a label that pretends to be Apple's alone is one item", ctx([...QUIET.filter((s) => s.signalId !== "sig.persistence_set"), changed("sig.persistence_set", "changed", null), changed("sig.persistence_new", 1, 0), changed("sig.launch_label_masquerade", 1, 0)]), null),
+  rateCase("act: an unsigned label that pretends to be Apple's is act now on one listing", ctx([...QUIET.filter((s) => s.signalId !== "sig.persistence_set"), changed("sig.persistence_set", "changed", null), changed("sig.persistence_new", 1, 0), changed("sig.persistence_unsigned", 1, 0), changed("sig.launch_label_masquerade", 1, 0), changed("sig.launch_label_masquerade_unsigned", 1, 0)]), null),
+  rateCase("calm: a PAM file that moved with a build change arrives unchanged and makes no item", ctx([...QUIET, sig("sig.pam_auth_changed", { value: "same" })]), null),
 ];
 
 export interface ValidateCase {
@@ -225,6 +247,7 @@ export interface ValidateCase {
 
 const ACT_CONTEXT = ctx([...QUIET, ...PAIR]);
 const LOOK_CONTEXT = ctx([...QUIET, changed("sig.share_count", 2, 1)]);
+const AIRDROP_CONTEXT = ctx([...QUIET, changed("sig.airdrop_everyone", true, false)]);
 
 const GOOD = {
   rating: "act_now",
@@ -253,6 +276,7 @@ export const VALIDATE_CASES: readonly ValidateCase[] = [
   validateCase("rejected: unknown probe id", ACT_CONTEXT, { ...GOOD, probes: [{ probeId: "probe.nope", reason: "" }] }),
   validateCase("rejected: a Rust-only probe", ACT_CONTEXT, { ...GOOD, probes: [{ probeId: "probe.persistence_signatures", reason: "" }] }),
   validateCase("rejected: the other Rust-only probe", ACT_CONTEXT, { ...GOOD, probes: [{ probeId: "probe.ssh_keys", reason: "" }] }),
+  validateCase("rejected: the third Rust-only probe", ACT_CONTEXT, { ...GOOD, probes: [{ probeId: "probe.app_signatures", reason: "" }] }),
   validateCase("rejected: duplicate probe", ACT_CONTEXT, { ...GOOD, probes: [{ probeId: "probe.firewall", reason: "" }, { probeId: "probe.firewall", reason: "" }] }),
   validateCase("rejected: probes over the cap", ACT_CONTEXT, { ...GOOD, probes: ["probe.firewall", "probe.hosts", "probe.backup", "probe.updates"].map((probeId) => ({ probeId, reason: "" })) }),
   validateCase("rejected: a probe that is not an object", ACT_CONTEXT, { ...GOOD, probes: ["probe.firewall"] }),
@@ -281,6 +305,8 @@ export const VALIDATE_CASES: readonly ValidateCase[] = [
   validateCase("dropped: an action whose floor is above the clamped rating", LOOK_CONTEXT, { ...GOOD, rating: "keep_an_eye", basedOn: ["sig.share_count"], actions: [{ actionId: "act.disconnect_network", sentence: "" }] }),
   validateCase("dropped: an action with no changed trigger", ACT_CONTEXT, { ...GOOD, actions: [{ actionId: "act.turn_on_firewall", sentence: "" }] }),
   validateCase("kept: a relevant look action", LOOK_CONTEXT, { rating: "keep_an_eye", ratingReason: "", basedOn: ["sig.share_count"], probes: [], actions: [{ actionId: "act.stop_guest_sharing", sentence: "Close the share you do not use." }] }),
+  validateCase("kept: the AirDrop action when AirDrop opened to everyone", AIRDROP_CONTEXT, { rating: "keep_an_eye", ratingReason: "", basedOn: ["sig.airdrop_everyone"], probes: [], actions: [{ actionId: "act.limit_airdrop", sentence: "Set AirDrop to people you know." }] }),
+  validateCase("dropped: the AirDrop action when AirDrop did not change", LOOK_CONTEXT, { rating: "keep_an_eye", ratingReason: "", basedOn: ["sig.share_count"], probes: [], actions: [{ actionId: "act.limit_airdrop", sentence: "Set AirDrop to people you know." }] }),
 ];
 
 export interface ContextCase {
@@ -365,6 +391,59 @@ const RECENT = Array.from({ length: 25 }, (_, i) => ({
   at: minutesBefore(i * 7),
 }));
 
+const DIGEST_SIGNALS: readonly SignalId[] = [
+  "sig.persistence_set",
+  "sig.listener_set",
+  "sig.resolvers",
+  "sig.hosts_changed",
+  "sig.authorized_keys_changed",
+  "sig.sshd_config_changed",
+  "sig.pam_sudo_changed",
+  "sig.shell_startup_changed",
+  "sig.paths_d_changed",
+  "sig.app_set",
+  "sig.pam_auth_changed",
+];
+const VERSION_SIGNALS: readonly SignalId[] = ["sig.xprotect_version", "sig.xprotect_remediator_version"];
+const BOOL_SIGNALS: readonly SignalId[] = [
+  "sig.remote_access_on",
+  "sig.guest_share",
+  "sig.firewall",
+  "sig.gatekeeper",
+  "sig.sip",
+  "sig.boot_args_set",
+  "sig.xprotect_present",
+  "sig.xprotect_scans_enabled",
+  "sig.autologin",
+  "sig.mdm_enrolled",
+  "sig.dns_manual",
+  "sig.proxy_on",
+  "sig.pac_url_set",
+  "sig.backup_auto",
+  "sig.lockdown_mode",
+  "sig.on_battery",
+  "sig.airdrop_everyone",
+  "sig.internet_sharing_on",
+  "sig.login_hook_set",
+  "sig.dyld_insert_set",
+  "sig.authenticated_root",
+];
+
+function valueKindOf(signalId: SignalId): SignalValueKind {
+  if (DIGEST_SIGNALS.includes(signalId)) return "digest";
+  if (VERSION_SIGNALS.includes(signalId)) return "version";
+  if (BOOL_SIGNALS.includes(signalId)) return "bool";
+  return "count";
+}
+
+/** Every signal changed within the day, so the context is as long as it gets. */
+const EVERY_SIGNAL_CHANGED: readonly SignalReading[] = SIGNAL_IDS.map((signalId, i) => {
+  const kind = valueKindOf(signalId);
+  const value = kind === "digest" ? null : kind === "bool" ? true : 5300 + i;
+  const previous = kind === "digest" ? null : kind === "bool" ? false : 5299 + i;
+  return reading(signalId, { kind, value, previous, change: "changed", changedAt: minutesBefore(i * 13) });
+});
+
 export const CONTEXT_CASES: readonly ContextCase[] = [
   contextCase("first cycle: no previous report, every reading first seen", {
     previousReport: null,
@@ -404,6 +483,19 @@ export const CONTEXT_CASES: readonly ContextCase[] = [
     profile: PROFILE,
     cycle: { index: 5, minutesSinceFullCheck: 10, minutesSinceLastChange: null, probesLeft: 0 },
     lastVerdict: null,
+  }),
+  contextCase("67 signals, 64 rules and 20 recent entries serialise under maxContextChars", {
+    previousReport: PREVIOUS_REPORT,
+    report: hundredRowReport(),
+    readings: EVERY_SIGNAL_CHANGED,
+    memory: EMPTY_WATCH_MEMORY,
+    recent: RECENT.slice(0, WATCH_LIMITS.maxRecent),
+    now: NOW,
+    os: "macos",
+    osVersion: "27.0.1",
+    profile: { role: "freelancer", technical: "medium", handlesClientData: true, laptopLeavesHome: false },
+    cycle: { index: 9, minutesSinceFullCheck: 120, minutesSinceLastChange: 0, probesLeft: 2 },
+    lastVerdict: { rating: "keep_an_eye", minutesAgo: 60 },
   }),
   contextCase("a report with another schema version carries no rules", {
     previousReport: null,
@@ -630,6 +722,7 @@ export const REPORT_ROW_CASES: readonly ReportRowCase[] = [
 export interface WatchCases {
   readonly signalSeverity: typeof SIGNAL_SEVERITY;
   readonly signalKind: typeof SIGNAL_KIND;
+  readonly badDirection: typeof SIGNAL_BAD_DIRECTION;
   readonly gated: readonly SignalId[];
   readonly standAlone: readonly SignalId[];
   readonly pairSet: readonly SignalId[];
@@ -649,6 +742,7 @@ export interface WatchCases {
 export const WATCH_CASES: WatchCases = {
   signalSeverity: SIGNAL_SEVERITY,
   signalKind: SIGNAL_KIND,
+  badDirection: SIGNAL_BAD_DIRECTION,
   gated: GATED_SIGNALS,
   standAlone: STAND_ALONE_SIGNALS,
   pairSet: PAIR_SIGNALS,

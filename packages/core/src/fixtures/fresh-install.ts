@@ -5,9 +5,9 @@ import type { SystemState } from "../domain/system-state";
  * Every defaults key is "unset", Software Update has never run (pendingCount
  * null), no password policy, no SSH folder, no third-party browser.
  *
- * Expected with the v0.1 catalog: fail 001, 002, 003, 014, 026; review 017;
+ * Expected with the v0.3 catalog: fail 001, 002, 003, 014, 026; review 017;
  * unknown 010 (indeterminate); not applicable 027, 028, 029, 030; the other
- * 20 pass. Deducted 36, score 59 after the critical cap (64 uncapped), grade
+ * 25 pass. Deducted 36, score 59 after the critical cap (64 uncapped), grade
  * poor, cappedByCritical true, complete false.
  */
 export const FRESH_INSTALL: SystemState = {
@@ -31,7 +31,12 @@ export const FRESH_INSTALL: SystemState = {
     },
     platformIntegrity: {
       status: "ok",
-      data: { execPolicyEnabled: true, systemProtectionEnabled: true },
+      data: {
+        execPolicyEnabled: true,
+        systemProtectionEnabled: true,
+        apps: { status: "ok", data: { bundleCount: 0, checkedCount: 0, flagged: [] } },
+        inserts: { status: "ok", data: { dyldInsertSet: false, loginHookSet: false, launchdConfPresent: false } },
+      },
     },
     malwareProtection: {
       status: "ok",
@@ -84,6 +89,9 @@ export const FRESH_INSTALL: SystemState = {
         ssh: { serviceLoaded: false, listeningPort: null },
         screenSharing: { serviceLoaded: false, listeningPort: null },
         remoteManagement: { serviceLoaded: false, listeningPort: null },
+        remoteAppleEvents: { serviceLoaded: false, listeningPort: null },
+        internetSharing: "unset",
+        airdrop: "unset",
       },
     },
     fileSharing: {

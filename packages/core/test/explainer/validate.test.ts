@@ -131,10 +131,10 @@ describe("validatePrioritisation against the on-device kept list", () => {
   const kept = [...built.kept];
   const good = { order: [...kept].reverse(), reasons: [{ ruleId: eligible[0], reason: "Biggest risk." }], startWith: [eligible[0]] };
 
-  it("dev-machine keeps 12 of its 13 findings and reports one omitted", () => {
-    expect(eligible).toHaveLength(13);
+  it("dev-machine keeps 12 of its 14 findings and reports two omitted", () => {
+    expect(eligible).toHaveLength(14);
     expect(kept).toHaveLength(12);
-    expect(built.omitted).toBe(1);
+    expect(built.omitted).toBe(2);
   });
 
   it("accepts a permutation of kept", () => {

@@ -14,7 +14,15 @@ export const CANARY: SystemState = {
   sections: {
     diskEncryption: { status: "ok", data: { systemVolumeEncrypted: false, method: "none" } },
     firewall: { status: "ok", data: { enabled: false, stealthMode: false, blockAllIncoming: false } },
-    platformIntegrity: { status: "ok", data: { execPolicyEnabled: false, systemProtectionEnabled: false } },
+    platformIntegrity: {
+      status: "ok",
+      data: {
+        execPolicyEnabled: false,
+        systemProtectionEnabled: false,
+        apps: { status: "ok", data: { bundleCount: 2, checkedCount: 2, flagged: [{ path: inj("bundlePath"), name: inj("bundleName"), signature: "unsigned", quarantined: false }] } },
+        inserts: { status: "ok", data: { dyldInsertSet: true, loginHookSet: true, launchdConfPresent: true } },
+      },
+    },
     malwareProtection: { status: "ok", data: { engine: "xprotect", present: true, version: inj("version") } },
     updates: {
       status: "ok",
@@ -45,6 +53,9 @@ export const CANARY: SystemState = {
         ssh: { serviceLoaded: true, listeningPort: 22 },
         screenSharing: { serviceLoaded: true, listeningPort: 5900 },
         remoteManagement: { serviceLoaded: true, listeningPort: 3283 },
+        remoteAppleEvents: { serviceLoaded: true, listeningPort: 3031 },
+        internetSharing: true,
+        airdrop: "everyone",
       },
     },
     fileSharing: { status: "ok", data: { enabled: true, shares: [{ path: inj("sharePath"), guestAccess: true }] } },
@@ -106,6 +117,15 @@ export const CANARY_NEXT: SystemState = {
   host: { ...CANARY.host, osVersion: inj2("osVersion"), osBuild: inj2("osBuild"), collectorVersion: inj2("collectorVersion") },
   sections: {
     ...CANARY.sections,
+    platformIntegrity: {
+      status: "ok",
+      data: {
+        execPolicyEnabled: false,
+        systemProtectionEnabled: false,
+        apps: { status: "ok", data: { bundleCount: 3, checkedCount: 3, flagged: [{ path: inj2("bundlePath"), name: inj2("bundleName"), signature: "unsigned", quarantined: false }] } },
+        inserts: { status: "ok", data: { dyldInsertSet: true, loginHookSet: true, launchdConfPresent: true } },
+      },
+    },
     malwareProtection: { status: "ok", data: { engine: "xprotect", present: true, version: inj2("version") } },
     updates: {
       status: "ok",

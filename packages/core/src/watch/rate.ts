@@ -90,15 +90,19 @@ function headlineWorthy(signal: WatchSignal): boolean {
   return true;
 }
 
+/** The listing digests whose change alone is never a headline; every other signal is worth one on its own. Rust `LISTING_DIGESTS` is the same list. */
+export const LISTING_DIGESTS: readonly SignalId[] = ["sig.persistence_set", "sig.listener_set", "sig.app_set"];
+
 /**
- * A listing digest (sig.persistence_set, sig.listener_set) is worth a headline only when a
- * counter from the same listing rose: a removed launch item or a closed listener is a change to
- * look at, never "a new program". Rust `listing_worthy` mirrors it.
+ * A listing digest is worth a headline only when a kinded counter from the same listing rose: a
+ * removed launch item, a closed listener or a deleted app is a change to look at, never "a new
+ * program", and a context-only counter (an App Store install with no download mark) never makes
+ * the listing an item. Rust `listing_worthy` mirrors it.
  */
 function listingWorthy(signal: WatchSignal, signals: readonly WatchSignal[]): boolean {
+  if (!LISTING_DIGESTS.includes(signal.signalId)) return true;
   const group = siblings(signal.signalId);
-  if (group.length < 2 || BAD_DIRECTION[signal.signalId] !== undefined) return true;
-  return signals.some((s) => s.signalId !== signal.signalId && group.includes(s.signalId) && active(s) && badFlip(s));
+  return signals.some((s) => s.signalId !== signal.signalId && group.includes(s.signalId) && SIGNAL_KIND[s.signalId] !== null && active(s) && badFlip(s));
 }
 
 /**

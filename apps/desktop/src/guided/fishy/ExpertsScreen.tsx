@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import type { ActionId, WatchItem } from "@talos/core";
+import type { ActionId, FishyKind, WatchItem } from "@talos/core";
 import { playbookRow } from "@talos/core";
 import { ICONS } from "../../app/icons";
 import { Icon } from "../../components/Icon";
@@ -23,18 +23,41 @@ export const EXPERT_ROWS: readonly { readonly key: ExpertRowKey; readonly action
   { key: "lockdown", actionId: "act.lockdown_mode" },
 ];
 
-/** The rows shown: the do-not-pay row only after the ransom box, Lockdown Mode in the main list only for people who handle others' data. */
-export function expertRows(ransomNote: boolean, handlesClientData: boolean): { readonly main: readonly ExpertRowKey[]; readonly more: readonly ExpertRowKey[] } {
-  const main = EXPERT_ROWS.map((row) => row.key).filter((key) => (key === "doNotPay" ? ransomNote : key === "lockdown" ? handlesClientData : true));
-  return { main, more: handlesClientData ? [] : ["lockdown"] };
+/** The kind-led rows, drawn ahead of the base list; kept apart from EXPERT_ROWS, which FishyFlow.test.tsx pins to the base nine. */
+export const LEAD_EXPERT_ROWS: readonly { readonly key: ExpertRowKey; readonly actionId: ActionId }[] = [
+  { key: "limitAirdrop", actionId: "act.limit_airdrop" },
+  { key: "stopSharing", actionId: "act.stop_internet_sharing" },
+  { key: "getHelp", actionId: "act.get_help" },
+];
+
+/** The rows a kind leads with, each only when the item's playbook rows name its action. */
+export const LEAD_ROWS: Readonly<Partial<Record<FishyKind, readonly ExpertRowKey[]>>> = {
+  exposure: ["limitAirdrop", "stopSharing"],
+  shell: ["getHelp"],
+};
+
+function actionOf(key: ExpertRowKey): ActionId | null {
+  return [...EXPERT_ROWS, ...LEAD_EXPERT_ROWS].find((row) => row.key === key)?.actionId ?? null;
+}
+
+/**
+ * The rows shown: the kind's lead rows the item's actions include, then the base list, where the do-not-pay row waits for the
+ * ransom box and Lockdown Mode sits in the main list only for people who handle others' data.
+ */
+export function expertRows(ransomNote: boolean, handlesClientData: boolean, item: WatchItem | null = null): { readonly main: readonly ExpertRowKey[]; readonly more: readonly ExpertRowKey[] } {
+  const lead = item === null ? [] : (LEAD_ROWS[item.kind] ?? []).filter((key) => {
+    const actionId = actionOf(key);
+    return actionId !== null && item.actionIds.includes(actionId);
+  });
+  const base = EXPERT_ROWS.map((row) => row.key).filter((key) => (key === "doNotPay" ? ransomNote : key === "lockdown" ? handlesClientData : true));
+  return { main: [...lead, ...base], more: handlesClientData ? [] : ["lockdown"] };
 }
 
 function ExpertRow({ rowKey, item }: { rowKey: ExpertRowKey; item: WatchItem | null }) {
   const fishy = useFishyController();
   const [open, setOpen] = useState(false);
   const panelId = useId();
-  const row = EXPERT_ROWS.find((r) => r.key === rowKey);
-  const actionId = row?.actionId ?? null;
+  const actionId = actionOf(rowKey);
   const playbook = actionId === null ? undefined : playbookRow(actionId);
   const copy = FISHY.experts.rows[rowKey];
   const chosen = item !== null && actionId !== null && item.actionIds.includes(actionId);
@@ -68,7 +91,7 @@ function ExpertRow({ rowKey, item }: { rowKey: ExpertRowKey; item: WatchItem | n
 export function ExpertsScreen({ item, handlesClientData }: { item: WatchItem | null; handlesClientData: boolean }) {
   const fishy = useFishyController();
   const titleId = useId();
-  const { main, more } = expertRows(fishy.ransomNote, handlesClientData);
+  const { main, more } = expertRows(fishy.ransomNote, handlesClientData, item);
   return (
     <StepFrame progress={null} title={FISHY.experts.title} titleId={titleId} primary={{ label: FISHY.experts.primary, onClick: fishy.next }} className="guided-fishy guided-fishy-experts">
       <ul className="guided-end-list" role="list" aria-labelledby={titleId}>

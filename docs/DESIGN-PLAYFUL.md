@@ -184,7 +184,7 @@ Reduced motion: 0.001 ms. Smoke: `motion-horizon`.
 
 ### 3.8 The chat's caret and the breathing spiral
 
-Where the caret lives: every surface that streams model text: `ModelText caret` (`src/components/ModelText.tsx`) in the Explain disclosure (`src/guided/ExplainPanel.tsx:189`, mounted by `StepFrame.tsx:7` on the step screens), the AI card, the Ask screen today (`src/screens/Ask.tsx`) and the chat's model turn when DESIGN-CHAT-UI is built.
+Where the caret lives: every surface that streams model text: `ModelText caret` (`src/components/ModelText.tsx`) in the Explain disclosure (`src/guided/ExplainPanel.tsx:189`, mounted by `StepFrame.tsx:7` on the step screens), the AI card and the chat's model turn (`src/chat/ChatModel.tsx`).
 
 Where the breath lives: only where the spiral band is mounted. The step screens do not mount it (3.1), so until the chat is built the Explain disclosure has nothing to breathe and no band is added to the step screens for it (that would also fire the drift on every step). The breath lands with the chat home (`useGuidedHero(true, false)` there, DESIGN-CHAT-UI section 2) and with the end screen's AI block (DESIGN-AI-PRESENCE moment 3, the end brief, while its request is `running`). The watch window never breathes (it has no band).
 

@@ -67,8 +67,11 @@ const FORCED_FAILURES: ReadonlyMap<string, ForcedFailure> = new Map([
 
 export type WatchDemoState = "calm" | "look" | "act" | "unreadable" | "first-run" | "paused" | "not-connected" | "look-empty" | "no-report";
 export type WatchDemoAi = "off" | "apple" | "chatgpt" | "claude" | "limit";
+/** ?coverage= states of the "What I watch" screen (docs/DESIGN-THREATS-V2.md section 7). */
+export type WatchDemoCoverage = "signed" | "unsigned" | "off" | "unlicensed";
 const WATCH_STATES: readonly WatchDemoState[] = ["calm", "look", "act", "unreadable", "first-run", "paused", "not-connected", "look-empty", "no-report"];
 const WATCH_AI: readonly WatchDemoAi[] = ["off", "apple", "chatgpt", "claude", "limit"];
+const WATCH_COVERAGE: readonly WatchDemoCoverage[] = ["signed", "unsigned", "off", "unlicensed"];
 
 /** The watch window and fishy flow states the demo serves (DESIGN-WATCH.md section 8, demo params). */
 export interface WatchDemoFlags {
@@ -96,9 +99,13 @@ export interface WatchDemoFlags {
   readonly watchFlipAfter: number | null;
   /** ?check_delay= holds `checking: true` for this many milliseconds after "Check now"; null uses the demo's delay. */
   readonly watchCheckDelay: number | null;
+  /** ?coverage= picks the "What I watch" state: `unsigned` lists probe.listeners under unsigned_build, `signed` nothing, `off` the watch off, `unlicensed` licensed false whatever `licensed=` says; null leaves the state alone. */
+  readonly coverage: WatchDemoCoverage | null;
+  /** ?watch_open=coverage replays watch:open { screen: "coverage" } once after boot, with no question. */
+  readonly watchOpenScreen: "coverage" | null;
 }
 
-export const DEFAULT_WATCH_DEMO: WatchDemoFlags = { watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false, licensed: false, watchReason: true, watchNext: true, watchFlip: null, watchFlipAfter: null, watchCheckDelay: null };
+export const DEFAULT_WATCH_DEMO: WatchDemoFlags = { watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false, licensed: false, watchReason: true, watchNext: true, watchFlip: null, watchFlipAfter: null, watchCheckDelay: null, coverage: null, watchOpenScreen: null };
 
 export interface DemoFlags {
   readonly options: DemoOptions;
@@ -135,9 +142,38 @@ export interface ChatDemoFlags {
   readonly divider: boolean;
   /** ?watch_open=chat&question=<text> replays a watch:open draft after boot through the watch port's onOpen. */
   readonly watchOpenQuestion: string | null;
+  /** ?remind=due seeds a reminder for TL-MAC-002 at yesterday 09:00 into talos.guided (DESIGN-AGENT 2f). */
+  readonly remindDue: boolean;
+  /** ?writeup=1 opens the write-up card on the opening (DESIGN-AGENT 2g). */
+  readonly writeUp: boolean;
 }
 
-export const DEFAULT_CHAT_DEMO: ChatDemoFlags = { divider: false, watchOpenQuestion: null };
+export const DEFAULT_CHAT_DEMO: ChatDemoFlags = { divider: false, watchOpenQuestion: null, remindDue: false, writeUp: false };
+
+/** The rule the remind=due param seeds. */
+export const DEMO_REMIND_RULE = "TL-MAC-002";
+
+/** Yesterday at 09:00 local, ISO: a reminder that is due at the next opening. */
+export function demoReminderDate(now: number = Date.now()): string {
+  const date = new Date(now);
+  date.setDate(date.getDate() - 1);
+  date.setHours(9, 0, 0, 0);
+  return date.toISOString();
+}
+
+/** The memory JSON with the reminder and its snooze patched in; a damaged value starts from the empty memory. */
+export function withDemoReminder(memory: string | null, now: number = Date.now()): string {
+  let parsed: Record<string, unknown> = { version: 1 };
+  try {
+    const raw: unknown = memory === null ? null : JSON.parse(memory);
+    if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) parsed = raw as Record<string, unknown>;
+  } catch {
+    parsed = { version: 1 };
+  }
+  const until = demoReminderDate(now);
+  const map = (key: string): Record<string, unknown> => (typeof parsed[key] === "object" && parsed[key] !== null ? (parsed[key] as Record<string, unknown>) : {});
+  return JSON.stringify({ ...parsed, version: 1, reminders: { ...map("reminders"), [DEMO_REMIND_RULE]: until }, snoozed: { ...map("snoozed"), [DEMO_REMIND_RULE]: until } });
+}
 
 /** The chat_* params into the fakes' options; absent gives the "disk" reply and no failure. */
 export function parseChatDemoQuery(params: URLSearchParams): { readonly options: DemoChatOptions | null; readonly flags: ChatDemoFlags } {
@@ -157,6 +193,8 @@ export function parseChatDemoQuery(params: URLSearchParams): { readonly options:
     flags: {
       divider: flag(params, "chat_divider"),
       watchOpenQuestion: params.get("watch_open") === "chat" && question !== null && question.trim().length > 0 ? question.slice(0, 500) : null,
+      remindDue: params.get("remind") === "due",
+      writeUp: flag(params, "writeup"),
     },
   };
 }
@@ -192,6 +230,8 @@ export function parseWatchDemoQuery(params: URLSearchParams): WatchDemoFlags {
     watchFlip: pickOne(params.get("watch_flip"), RATING_ORDER),
     watchFlipAfter: count(params, "watch_flip_after"),
     watchCheckDelay: count(params, "check_delay"),
+    coverage: pickOne(params.get("coverage"), WATCH_COVERAGE),
+    watchOpenScreen: params.get("watch_open") === "coverage" ? "coverage" : null,
   };
 }
 
@@ -282,6 +322,22 @@ export function withWatchOpenReplay(adapters: Adapters, question: string): Adapt
   return { ...adapters, watch: replayed };
 }
 
+/** The same replay for a screen with no question: watch:open { screen } once, a tick after the app subscribes (?watch_open=coverage). */
+export function withWatchOpenScreenReplay(adapters: Adapters, screen: "coverage"): Adapters {
+  const watch = adapters.watch;
+  const replayed: Adapters["watch"] = Object.assign(Object.create(Object.getPrototypeOf(watch) as object) as Adapters["watch"], watch, {
+    onOpen(listener: Parameters<Adapters["watch"]["onOpen"]>[0]) {
+      const off = watch.onOpen(listener);
+      const timer = setTimeout(() => listener({ screen }), 0);
+      return () => {
+        clearTimeout(timer);
+        off();
+      };
+    },
+  });
+  return { ...adapters, watch: replayed };
+}
+
 /** The fixture's report with two passing rules failing and one failing rule passing, so the diff shows 2 fixed and 1 appeared. */
 export function previousReportFor(fixture: DemoFixture, fail: readonly RuleId[] = []): ScanReport {
   const state = withForcedFailures(DEMO_FIXTURES[fixture], fail);
@@ -312,13 +368,18 @@ export function bootDemo(search: string, storage: Storage | null): Adapters {
   const seeded = seedSettings(loadSettings(), flags);
   if (seeded !== null) saveSettings(seeded);
   if (flags.pace !== null && typeof window !== "undefined") window.__talosDemoPace = flags.pace;
-  if (flags.memory !== null) storage?.setItem(DEMO_GUIDED_MEMORY_KEY, flags.memory);
+  // AGENT part B: remind=due patches the memory before it is stored.
+  const memory = flags.chatDemo.remindDue ? withDemoReminder(flags.memory) : flags.memory;
+  if (memory !== null) storage?.setItem(DEMO_GUIDED_MEMORY_KEY, memory);
   if (flags.watchMemory !== null) storage?.setItem(DEMO_WATCH_MEMORY_KEY, flags.watchMemory);
   if (flags.continueGuided) storage?.setItem(DEMO_CONTINUE_KEY, JSON.stringify({ kind: "guided" }));
   const previousReport = flags.since ? previousReportFor(flags.options.fixture, flags.options.fail ?? []) : null;
-  if (flags.chatDemo.divider && typeof window !== "undefined") window.__talosDemoChat = { openingAgoMs: CHAT_DIVIDER_AGO_MS };
+  if ((flags.chatDemo.divider || flags.chatDemo.writeUp) && typeof window !== "undefined") {
+    window.__talosDemoChat = { ...(flags.chatDemo.divider ? { openingAgoMs: CHAT_DIVIDER_AGO_MS } : {}), ...(flags.chatDemo.writeUp ? { openWriteUp: true } : {}) };
+  }
   const built = createDemoAdapters({ ...flags.options, previousReport, watchDemo: flags.watchDemo });
   const adapters = flags.chatDemo.watchOpenQuestion === null ? built : withWatchOpenReplay(built, flags.chatDemo.watchOpenQuestion);
+  const booted = flags.watchDemo.watchOpenScreen === null ? adapters : withWatchOpenScreenReplay(adapters, flags.watchDemo.watchOpenScreen);
   if (flags.licensed) void adapters.license.install(DEMO_LICENSE_KEY);
-  return adapters;
+  return booted;
 }

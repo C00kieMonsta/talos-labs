@@ -32,8 +32,9 @@ function mount(script: ScriptedChat) {
   return { ...view, explainer };
 }
 
+/** Every live region but the two form errors inside a card (the licence key and the passphrase), which stay assertive by design. */
 function live(container: HTMLElement): Element[] {
-  return [...container.querySelectorAll("[aria-live], [role='status'], [role='log'], [role='alert']")].filter((el) => el.getAttribute("aria-live") !== "off");
+  return [...container.querySelectorAll("[aria-live], [role='status'], [role='log'], [role='alert']")].filter((el) => el.getAttribute("aria-live") !== "off" && !el.matches(".chat-card .notice[role='alert']"));
 }
 
 describe("the chat's live regions", () => {
@@ -68,6 +69,19 @@ describe("the chat's live regions", () => {
     expect(status()).toBe(CHAT.stopped);
     expect(container.querySelector(".guided-model")).toBeNull();
     explainer.settle();
+  });
+
+  it("the Explain disclosure open on a card adds no live region inside the log; its state is spoken by the status element", async () => {
+    const { container } = mount({ hold: true });
+    const summary = container.querySelector(".chat-card .guided-explain summary") as HTMLElement;
+    await act(async () => {
+      fireEvent.click(summary);
+      await Promise.resolve();
+    });
+    expect(container.querySelector(".guided-explain-body")).not.toBeNull();
+    expect(live(container)).toHaveLength(1);
+    expect(container.querySelector(".chat [role='status']")).toBeNull();
+    expect(container.querySelector("h1.visually-hidden")?.textContent).toBe(CHAT.chat);
   });
 
   it("announces the opening headline and the result of a chip, and the strip holds Step by step", () => {

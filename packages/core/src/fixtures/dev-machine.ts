@@ -5,10 +5,10 @@ import type { SystemState } from "../domain/system-state";
  * guest SMB share with port 445 bound, unencrypted SSH key plus a .pem at 600,
  * pending update, App Store auto-update off, screen lock immediate, admin
  * user, Gatekeeper and SIP on, no Time Machine, the stock 4-character password
- * policy, Chrome extensions blocked by TCC.
+ * policy, Chrome extensions blocked by TCC, AirDrop open to everyone.
  *
- * Expected with the v0.1 catalog: 9 fail, 3 review, 1 unknown, 1 not
- * applicable, 17 pass. Deducted 62, score 38, grade at_risk, complete false.
+ * Expected with the v0.3 catalog: 10 fail, 3 review, 1 unknown, 1 not
+ * applicable, 21 pass. Deducted 66, score 34, grade at_risk, complete false.
  */
 export const DEV_MACHINE: SystemState = {
   schemaVersion: 1,
@@ -31,7 +31,12 @@ export const DEV_MACHINE: SystemState = {
     },
     platformIntegrity: {
       status: "ok",
-      data: { execPolicyEnabled: true, systemProtectionEnabled: true },
+      data: {
+        execPolicyEnabled: true,
+        systemProtectionEnabled: true,
+        apps: { status: "ok", data: { bundleCount: 41, checkedCount: 41, flagged: [] } },
+        inserts: { status: "ok", data: { dyldInsertSet: false, loginHookSet: false, launchdConfPresent: false } },
+      },
     },
     malwareProtection: {
       status: "ok",
@@ -87,6 +92,9 @@ export const DEV_MACHINE: SystemState = {
         ssh: { serviceLoaded: false, listeningPort: null },
         screenSharing: { serviceLoaded: false, listeningPort: null },
         remoteManagement: { serviceLoaded: false, listeningPort: null },
+        remoteAppleEvents: { serviceLoaded: false, listeningPort: null },
+        internetSharing: "unset",
+        airdrop: "everyone",
       },
     },
     fileSharing: {

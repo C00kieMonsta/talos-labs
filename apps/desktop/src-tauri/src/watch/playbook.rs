@@ -23,6 +23,7 @@ pub enum Source {
     APsLdm,
     ALdm,
     ALogin,
+    Cis,
 }
 
 impl Source {
@@ -43,6 +44,7 @@ impl Source {
             Source::APsLdm => "A-PS-LDM",
             Source::ALdm => "A-LDM",
             Source::ALogin => "A-LOGIN",
+            Source::Cis => "CIS",
         }
     }
 
@@ -81,19 +83,22 @@ pub struct PlaybookAction {
 }
 
 /// Every signal that can put the watch into act now: stand-alone, gated, then pair.
-pub const ALARM: [SignalId; 22] = [
+pub const ALARM: [SignalId; 33] = [
     SignalId::Sip,
     SignalId::Gatekeeper,
     SignalId::XprotectPresent,
     SignalId::XprotectScansEnabled,
     SignalId::XprotectVersion,
     SignalId::HiddenUserCount,
+    SignalId::AuthenticatedRoot,
+    SignalId::LaunchLabelMasqueradeUnsigned,
     SignalId::Firewall,
     SignalId::RemoteAccessOn,
     SignalId::GuestShare,
     SignalId::Autologin,
     SignalId::AdminCount,
     SignalId::BackupAuto,
+    SignalId::InternetSharingOn,
     SignalId::PersistenceNew,
     SignalId::PersistenceUnsigned,
     SignalId::PersistenceInTempOrHidden,
@@ -104,9 +109,17 @@ pub const ALARM: [SignalId; 22] = [
     SignalId::SysextCount,
     SignalId::AuthorizedKeysChanged,
     SignalId::CronLines,
+    SignalId::ShellStartupChanged,
+    SignalId::SystemShellFilesCount,
+    SignalId::PathsDChanged,
+    SignalId::AppNewUnsigned,
+    SignalId::LaunchLabelMasquerade,
+    SignalId::LoginHookSet,
+    SignalId::DyldInsertSet,
+    SignalId::PamAuthChanged,
 ];
 
-const PERSISTENCE: [SignalId; 9] = [
+const PERSISTENCE: [SignalId; 11] = [
     SignalId::PersistenceSet,
     SignalId::PersistenceNew,
     SignalId::PersistenceUnsigned,
@@ -116,7 +129,45 @@ const PERSISTENCE: [SignalId; 9] = [
     SignalId::CronLines,
     SignalId::AtJobs,
     SignalId::LegacyStartupCount,
+    SignalId::LaunchLabelMasquerade,
+    SignalId::LaunchLabelMasqueradeUnsigned,
 ];
+
+/// The app signals: `act.review_background_programs` reveals the bundle too.
+const APPS: [SignalId; 4] = [
+    SignalId::AppSet,
+    SignalId::AppNewUnquarantined,
+    SignalId::AppNewUnsigned,
+    SignalId::LibraryAppsCount,
+];
+
+/// Two trigger lists back to back, so a widened `ALARM` is written once. The assert makes the
+/// indexing a compile-time check: `N` is the sum, so every index is in range.
+#[allow(clippy::indexing_slicing)]
+const fn join<const A: usize, const B: usize, const N: usize>(
+    a: [SignalId; A],
+    b: [SignalId; B],
+) -> [SignalId; N] {
+    assert!(A + B == N, "the joined length is the sum");
+    let mut out = [SignalId::Sip; N];
+    let mut i = 0;
+    while i < A {
+        out[i] = a[i];
+        i += 1;
+    }
+    let mut j = 0;
+    while j < B {
+        out[A + j] = b[j];
+        j += 1;
+    }
+    out
+}
+
+/// `PERSISTENCE` then `APPS`: the review row reveals the bundle too.
+const PERSISTENCE_AND_APPS: [SignalId; 15] = join(PERSISTENCE, APPS);
+
+const AIRDROP: [SignalId; 1] = [SignalId::AirdropEveryone];
+const INTERNET_SHARING: [SignalId; 1] = [SignalId::InternetSharingOn];
 
 const REMOTE: [SignalId; 4] = [
     SignalId::RemoteAccessOn,
@@ -145,57 +196,15 @@ const STOP_TRIGGERS: [SignalId; 5] = [
 const GUEST: [SignalId; 2] = [SignalId::GuestShare, SignalId::ShareCount];
 const FIREWALL: [SignalId; 1] = [SignalId::Firewall];
 
-const ALARM_PLUS_UPDATES: [SignalId; 23] = [
-    SignalId::Sip,
-    SignalId::Gatekeeper,
-    SignalId::XprotectPresent,
-    SignalId::XprotectScansEnabled,
-    SignalId::XprotectVersion,
-    SignalId::HiddenUserCount,
-    SignalId::Firewall,
-    SignalId::RemoteAccessOn,
-    SignalId::GuestShare,
-    SignalId::Autologin,
-    SignalId::AdminCount,
-    SignalId::BackupAuto,
-    SignalId::PersistenceNew,
-    SignalId::PersistenceUnsigned,
-    SignalId::PersistenceInTempOrHidden,
-    SignalId::ListenerNewPorts,
-    SignalId::DnsManual,
-    SignalId::PacUrlSet,
-    SignalId::ProfilesCount,
-    SignalId::SysextCount,
-    SignalId::AuthorizedKeysChanged,
-    SignalId::CronLines,
-    SignalId::PendingUpdates,
-];
+const ALARM_PLUS_UPDATES: [SignalId; 34] = join(ALARM, [SignalId::PendingUpdates]);
 
-const ALARM_PLUS_LOCKDOWN: [SignalId; 23] = [
-    SignalId::Sip,
-    SignalId::Gatekeeper,
-    SignalId::XprotectPresent,
-    SignalId::XprotectScansEnabled,
-    SignalId::XprotectVersion,
-    SignalId::HiddenUserCount,
-    SignalId::Firewall,
-    SignalId::RemoteAccessOn,
-    SignalId::GuestShare,
-    SignalId::Autologin,
-    SignalId::AdminCount,
-    SignalId::BackupAuto,
-    SignalId::PersistenceNew,
-    SignalId::PersistenceUnsigned,
-    SignalId::PersistenceInTempOrHidden,
-    SignalId::ListenerNewPorts,
-    SignalId::DnsManual,
-    SignalId::PacUrlSet,
-    SignalId::ProfilesCount,
-    SignalId::SysextCount,
-    SignalId::AuthorizedKeysChanged,
-    SignalId::CronLines,
-    SignalId::LockdownMode,
-];
+const ALARM_PLUS_LOCKDOWN: [SignalId; 34] = join(ALARM, [SignalId::LockdownMode]);
+
+/// `ALARM` plus the two look-only counts whose only expert row is "get help".
+const ALARM_PLUS_HELP: [SignalId; 35] = join(
+    ALARM,
+    [SignalId::PathDirWritableCount, SignalId::LibraryAppsCount],
+);
 
 // One positional row builder keeps the table readable; the eleven fields are the contract.
 #[allow(clippy::too_many_arguments)]
@@ -257,11 +266,12 @@ const fn source_url(source: Source) -> &'static str {
         Source::ALogin => {
             "https://support.apple.com/guide/mac-help/change-login-items-extensions-settings-mtusr003/mac"
         }
+        Source::Cis => "https://www.cisecurity.org/benchmark/apple_os",
     }
 }
 
-/// The 24 rows in section 4 order.
-pub static PLAYBOOK: [PlaybookAction; 24] = [
+/// The 26 rows in section 4 order, plus the two DESIGN-THREATS-V2 section 6 rows.
+pub static PLAYBOOK: [PlaybookAction; 26] = [
     row(
         ActionId::DisconnectNetwork,
         Source::CSr,
@@ -346,7 +356,7 @@ pub static PLAYBOOK: [PlaybookAction; 24] = [
         "NIST SP 800-61 (2025), RS.MI-02",
         ActionKind::Pane(SettingsPane::LoginItems),
         Rating::KeepAnEye,
-        &PERSISTENCE,
+        &PERSISTENCE_AND_APPS,
         "Keep it from starting again",
         "Experts remove the entry that starts the program, then check the list again.",
         "eradication",
@@ -552,11 +562,35 @@ pub static PLAYBOOK: [PlaybookAction; 24] = [
         "CISA, Recovering from a Trojan Horse or Virus, step 1",
         ActionKind::Advise,
         Rating::KeepAnEye,
-        &ALARM,
+        &ALARM_PLUS_HELP,
         "Get help",
         "Experts call the people whose job it is: Apple Support, a repair shop, or IT.",
         "identification",
         "RS.CO-03",
+    ),
+    row(
+        ActionId::LimitAirdrop,
+        Source::Cis,
+        "Apple macOS 26 Benchmark, section 2.3.1.1",
+        ActionKind::Pane(SettingsPane::AirDrop),
+        Rating::KeepAnEye,
+        &AIRDROP,
+        "Limit AirDrop to people you know",
+        "Experts set AirDrop to Contacts Only, so no one nearby can push files to the Mac.",
+        "containment",
+        "RS.MI-02",
+    ),
+    row(
+        ActionId::StopInternetSharing,
+        Source::Cis,
+        "Apple macOS 26 Benchmark, section 2.3.3.7",
+        ActionKind::Pane(SettingsPane::Sharing),
+        Rating::KeepAnEye,
+        &INTERNET_SHARING,
+        "Turn Internet Sharing off",
+        "Experts turn Internet Sharing off unless the Mac is meant to hand out its connection.",
+        "containment",
+        "RS.MI-02",
     ),
 ];
 
@@ -602,7 +636,7 @@ mod tests {
     use crate::watch::signals::{GATED_SIGNALS, PAIR_SIGNALS, STAND_ALONE_SIGNALS};
 
     #[test]
-    fn twenty_four_unique_rows_in_action_id_order_with_https_urls() {
+    fn twenty_six_unique_rows_in_action_id_order_with_https_urls() {
         assert_eq!(PLAYBOOK.len(), ActionId::ALL.len());
         for (row, id) in PLAYBOOK.iter().zip(ActionId::ALL) {
             assert_eq!(row.id, *id);
@@ -618,6 +652,31 @@ mod tests {
             action_for(ActionId::DoNotPay).map(|r| r.title),
             Some("Do not pay")
         );
+        assert_eq!(PLAYBOOK.len(), 26);
+        let airdrop = action_for(ActionId::LimitAirdrop).unwrap();
+        assert_eq!(airdrop.source.as_str(), "CIS");
+        assert_eq!(airdrop.url, "https://www.cisecurity.org/benchmark/apple_os");
+        assert_eq!(airdrop.kind, ActionKind::Pane(SettingsPane::AirDrop));
+        assert_eq!(airdrop.triggers, &[SignalId::AirdropEveryone]);
+        let sharing = action_for(ActionId::StopInternetSharing).unwrap();
+        assert_eq!(sharing.kind, ActionKind::Pane(SettingsPane::Sharing));
+        assert_eq!(sharing.triggers, &[SignalId::InternetSharingOn]);
+        for row in [airdrop, sharing] {
+            assert!(
+                !row.step.split_whitespace().any(|w| w == "CIS"),
+                "the whole word CIS is banned in walked strings: {}",
+                row.step
+            );
+        }
+        let review = action_for(ActionId::ReviewBackgroundPrograms).unwrap();
+        assert_eq!(review.triggers.len(), 15);
+        assert_eq!(review.triggers.get(11..), Some(APPS.as_slice()));
+        let help = action_for(ActionId::GetHelp).unwrap();
+        assert_eq!(help.triggers.len(), 35);
+        assert_eq!(
+            help.triggers.get(33..),
+            Some([SignalId::PathDirWritableCount, SignalId::LibraryAppsCount].as_slice())
+        );
     }
 
     #[test]
@@ -628,17 +687,26 @@ mod tests {
             .chain(PAIR_SIGNALS.iter())
             .copied()
             .collect();
+        assert_eq!(ALARM.len(), 33);
         assert_eq!(ALARM.to_vec(), expected);
         assert_eq!(
-            ALARM_PLUS_UPDATES.get(..22).map(<[SignalId]>::to_vec),
+            ALARM_PLUS_UPDATES.get(..33).map(<[SignalId]>::to_vec),
             Some(expected.clone())
         );
-        assert_eq!(ALARM_PLUS_UPDATES.get(22), Some(&SignalId::PendingUpdates));
+        assert_eq!(ALARM_PLUS_UPDATES.get(33), Some(&SignalId::PendingUpdates));
         assert_eq!(
-            ALARM_PLUS_LOCKDOWN.get(..22).map(<[SignalId]>::to_vec),
+            ALARM_PLUS_LOCKDOWN.get(..33).map(<[SignalId]>::to_vec),
+            Some(expected.clone())
+        );
+        assert_eq!(ALARM_PLUS_LOCKDOWN.get(33), Some(&SignalId::LockdownMode));
+        assert_eq!(
+            ALARM_PLUS_HELP.get(..33).map(<[SignalId]>::to_vec),
             Some(expected)
         );
-        assert_eq!(ALARM_PLUS_LOCKDOWN.get(22), Some(&SignalId::LockdownMode));
+        assert_eq!(
+            PERSISTENCE_AND_APPS.get(..11).map(<[SignalId]>::to_vec),
+            Some(PERSISTENCE.to_vec())
+        );
     }
 
     #[test]
@@ -670,5 +738,14 @@ mod tests {
         );
         assert_eq!(dump[22]["kind"], serde_json::json!({ "kind": "recheck" }));
         assert_eq!(dump[2]["kind"], serde_json::json!({ "kind": "advise" }));
+        assert_eq!(
+            dump[24]["kind"],
+            serde_json::json!({ "kind": "pane", "pane": "airdrop" })
+        );
+        assert_eq!(dump[24]["source"], "CIS");
+        assert_eq!(
+            dump[25]["kind"],
+            serde_json::json!({ "kind": "pane", "pane": "sharing" })
+        );
     }
 }

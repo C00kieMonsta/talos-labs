@@ -98,6 +98,7 @@ export function useGuided(scan: ScanController, deps: GuidedDeps): GuidedControl
       resumed: inChat && phase.resumed,
       active: inChat ? phase.active : null,
       walking: inChat && phase.walking,
+      reminders: inChat ? phase.reminders : [],
       fixed: [...core.fixed],
       leftAlone: [...core.leftAlone],
       doneStepIds: inChat ? phase.plan.steps.filter((s) => stepDone(core, s, flow.state)).map((s) => s.id) : [],

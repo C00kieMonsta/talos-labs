@@ -49,7 +49,7 @@ export const ACT_ITEM: WatchItem = {
 };
 
 export function openedAction(plan: GuidedPlan, overrides: Partial<Extract<ChatAction, { type: "opened" }>> = {}): ChatAction {
-  return { type: "opened", at: AT, plan, undone: undoneOf(plan), diff: null, same: false, brief: null, provider: "chatgpt", reading: null, licensedMeta: null, ...overrides };
+  return { type: "opened", at: AT, plan, undone: undoneOf(plan), diff: null, same: false, brief: null, provider: "chatgpt", reading: null, licensedMeta: null, reminders: [], ...overrides };
 }
 
 /** Folds the actions over the initial state. */
@@ -74,12 +74,14 @@ export interface ScriptedChat {
 export function scriptedExplainer(script: ScriptedChat = {}) {
   const calls: ChatCall[] = [];
   let release: (() => void) | null = null;
+  const handle: { onPartial: ((partial: Partial<ChatResult>) => void) | null } = { onPartial: null };
   const port: ExplainerPort = {
     ...noExplainer,
     id: "chatgpt",
     availability: async () => "available",
     async chat(call: ChatCall, options?: ExplainOptions<ChatResult>): Promise<ExplainerResult<ChatResult>> {
       calls.push(call);
+      handle.onPartial = options?.onPartial ?? null;
       const partials = script.partials ?? [];
       for (const [index, reply] of partials.entries()) {
         if (script.fail !== undefined && index === (script.failAfter ?? 0)) return { ok: false, reason: script.fail };
@@ -93,7 +95,15 @@ export function scriptedExplainer(script: ScriptedChat = {}) {
       return script.result ?? { ok: true, value: REPLY };
     },
   };
-  return { port, calls, settle: () => release?.() };
+  return {
+    port,
+    calls,
+    settle: () => release?.(),
+    /** The running call's onPartial, for tests that feed partials by hand. */
+    get onPartial() {
+      return handle.onPartial;
+    },
+  };
 }
 
 /** A ChatBridge over a fixed plan: every mutation is a vi.fn, `settled` is what settle() answers next, `done` the settled step ids. */
@@ -115,6 +125,7 @@ export function fakeBridge(plan: GuidedPlan, overrides: Partial<ChatBridge> = {}
     undone,
     nextUndone: () => undone()[0] ?? null,
     atEnd: () => undone().length === 0,
+    endPlan: vi.fn(() => plan),
     run: vi.fn(),
     checkAgain: vi.fn(async () => null),
     settle: vi.fn(() => {
@@ -125,6 +136,8 @@ export function fakeBridge(plan: GuidedPlan, overrides: Partial<ChatBridge> = {}
     observeShow: vi.fn(() => null),
     watchingSince: () => control.watchingSince,
     later: vi.fn(() => []),
+    remind: vi.fn(),
+    reminders: [],
     accept: vi.fn(),
     answerNo: vi.fn(),
     leaveAlone: vi.fn(),

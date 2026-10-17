@@ -80,9 +80,11 @@ function batch(cardId: string, f: Batch, now: number): ActivityEvent[] {
   const reported = (last: number | null): ActivityEvent[] => {
     const out: ActivityEvent[] = [prep("done")];
     if (f.plan.needsPassword) {
-      // Rust reads one R marker per admin item, so the block fails when any of them did.
-      const adminFailed = f.outcome?.items.find((o) => o.status === "failed" && items.some((i) => i.ruleId === o.ruleId && isAdminItem(i))) ?? null;
-      out.push(adminFailed === null ? admin("done", null) : admin("failed", adminFailed.error ?? "command_failed"));
+      // Rust reads one R marker per admin item; the block fails only when none of them changed, the result rows carry the rest.
+      const adminOutcomes = (f.outcome?.items ?? []).filter((o) => items.some((i) => i.ruleId === o.ruleId && isAdminItem(i)));
+      const adminFailed = adminOutcomes.find((o) => o.status === "failed") ?? null;
+      const anyDone = adminOutcomes.some((o) => o.status === "done");
+      out.push(adminFailed === null || anyDone ? admin("done", null) : admin("failed", adminFailed.error ?? "command_failed"));
     }
     if (last === null) return out;
     for (let i = 0; i <= last; i += 1) {

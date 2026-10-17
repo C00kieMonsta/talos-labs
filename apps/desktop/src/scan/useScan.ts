@@ -1,7 +1,6 @@
 import { useCallback, useReducer, useRef, useState } from "react";
 import type { Dispatch, MutableRefObject } from "react";
 import type {
-  Answer,
   ExplainerContext,
   ExplainerPort,
   ExplainerResult,
@@ -269,7 +268,7 @@ export function useScan(deps: ScanDeps): ScanController {
   /** Runs one explainer call against the held report and settles the explain state. */
   const runExplain = useCallback(
     async <T,>(
-      target: RuleId | "prioritise" | "ask",
+      target: RuleId | "prioritise",
       call: (explainer: ExplainerPort, signal: AbortSignal, onPartial: (partial: Partial<T>) => void) => Promise<ExplainerResult<T>>,
       onValue: (value: T, report: ScanReport) => void,
     ): Promise<ExplainerResult<T>> => {
@@ -293,12 +292,7 @@ export function useScan(deps: ScanDeps): ScanController {
       dispatch({ type: "explain_started", target });
       const onPartial = (partial: Partial<T>) => {
         if (controller.signal.aborted) return;
-        if (target === "ask") {
-          const answer = (partial as Partial<Answer>).answer;
-          if (typeof answer === "string") dispatch({ type: "ask_partial", answerPartial: answer });
-        } else {
-          dispatch({ type: "explain_partial", target, partial: partial as Partial<Explanation> });
-        }
+        dispatch({ type: "explain_partial", target, partial: partial as Partial<Explanation> });
       };
       let result: ExplainerResult<T>;
       try {
@@ -316,7 +310,7 @@ export function useScan(deps: ScanDeps): ScanController {
       }
       if (result.ok) {
         onValue(result.value, current.report);
-        dispatch(target === "ask" ? { type: "ask_done" } : { type: "explain_ready", ...cacheRef.current });
+        dispatch({ type: "explain_ready", ...cacheRef.current });
       } else {
         dispatch({ type: "explain_failed", reason: result.reason, target, ...cacheRef.current });
       }

@@ -18,6 +18,8 @@ export interface GuidedMemory {
   readonly aiAskedAt: string | null;
   /** ruleId -> ISO when the person said "Leave it alone, I know the risk". */
   readonly accepted: Readonly<Record<string, string>>;
+  /** ruleId -> ISO due date of "ask me again tomorrow" or "remind me on Sunday"; the snooze carries the same date. */
+  readonly reminders: Readonly<Record<string, string>>;
   /** The last settled probe that answered available: which provider and when. The chat home reads it at boot. */
   readonly aiLastAvailable: AiLastAvailable | null;
 }
@@ -39,6 +41,7 @@ export const EMPTY_GUIDED_MEMORY: GuidedMemory = {
   permissionAskedAt: {},
   aiAskedAt: null,
   accepted: {},
+  reminders: {},
   aiLastAvailable: null,
 };
 
@@ -156,6 +159,7 @@ export function parseGuidedMemory(raw: unknown): GuidedMemory {
     permissionAskedAt: permissionMap(raw.permissionAskedAt),
     aiAskedAt: isIsoDate(raw.aiAskedAt) ? raw.aiAskedAt : null,
     accepted: dateMap(raw.accepted),
+    reminders: dateMap(raw.reminders),
     aiLastAvailable: aiLastAvailableOf(raw.aiLastAvailable),
   };
 }

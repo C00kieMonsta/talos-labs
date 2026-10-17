@@ -5,7 +5,7 @@ import { CHAT_LIMITS } from "../../src/explainer/limits";
 describe("CHAT_EVENTS", () => {
   it("is the six outcomes the model may hear about, and the app-side outcomes are not among them", () => {
     expect(CHAT_EVENTS).toEqual(["fixed", "did_not_change", "snoozed", "accepted", "pane_opened", "rescanned"]);
-    const appSide: readonly ChatOutcome[] = ["could_not_check", "cancelled", "wrong_password", "timeout", "watch_passed", "watch_expired", "unlocked", "stale", "stopped"];
+    const appSide: readonly ChatOutcome[] = ["could_not_check", "checked", "cancelled", "wrong_password", "timeout", "watch_passed", "watch_expired", "unlocked", "stale", "stopped"];
     for (const outcome of appSide) expect(CHAT_EVENTS as readonly string[]).not.toContain(outcome);
   });
 });

@@ -7,7 +7,7 @@ import { FISHY, WATCH } from "../guided/copy";
 import { guidedFor } from "../guided/plan";
 import { connectOffer } from "./connect-offer";
 import { AI_BADGES_SHORT, WATCH_WINDOW } from "./copy";
-import { calmLine, lookEmptyLine, unavailableLine, WatchWindow } from "./WatchWindow";
+import { calmLine, lookEmptyLine, unavailableIsMixed, unavailableLine, WatchWindow } from "./WatchWindow";
 import type { WatchWindowPort } from "./WatchWindow";
 
 afterEach(cleanup);
@@ -288,6 +288,42 @@ describe("WatchWindow, the calm window", () => {
         ],
       }),
     ).toBe("I couldn't check 3 areas. Open Talos Labs to see why.");
+  });
+
+  it("leaves a spotlight_off row out of the line and the count, and draws no row for it alone", async () => {
+    const spotlight = { probeId: "probe.library_apps", reason: "spotlight_off" } as const;
+    expect(unavailableLine({ ...CALM, unavailable: [spotlight] })).toBe("");
+    expect(unavailableLine({ ...CALM, unavailable: [spotlight, { probeId: "probe.listeners", reason: "unsigned_build" }] })).toBe("I couldn't check network services. Not available in this build.");
+    expect(unavailableIsMixed({ ...CALM, unavailable: [spotlight] })).toBe(false);
+    await renderWindow({ ...CALM, unavailable: [spotlight] });
+    expect(document.querySelector(".watch-unreadable")).toBeNull();
+    expect(document.querySelector(".watch-meta-unavailable")).toBeNull();
+    cleanup();
+    await renderWindow({ ...LOOK, unavailable: [spotlight, { probeId: "probe.firewall", reason: "needs_admin" }] });
+    expect(text(".watch-meta-unavailable")).toBe(WATCH.couldNotCheckOne);
+  });
+
+  it("the mixed fallback is a watch link that opens the main window on What I watch; the one-area and one-reason rows stay text", async () => {
+    const mixed = [
+      { probeId: "probe.listeners", reason: "permission_denied" },
+      { probeId: "probe.sudo_config", reason: "needs_admin" },
+      { probeId: "probe.persistence_signatures", reason: "timeout" },
+    ] as const;
+    expect(unavailableIsMixed({ ...CALM, unavailable: mixed })).toBe(true);
+    expect(unavailableIsMixed(UNREADABLE)).toBe(false);
+    const fake = await renderWindow({ ...CALM, unavailable: mixed });
+    const button = document.querySelector("button.watch-link.watch-unreadable") as HTMLButtonElement;
+    expect(button.textContent).toBe("I couldn't check 3 areas. Open Talos Labs to see why.");
+    expect(button.getAttribute("type")).toBe("button");
+    expect(document.querySelector("p.watch-unreadable")).toBeNull();
+    expect(rows()).toEqual(["watch-status", "watch-meta", "watch-link", "watch-calm-line", "watch-checkup", "watch-ask", "watch-footer"]);
+    fireEvent.click(button);
+    expect(fake.openMain).toHaveBeenCalledWith("coverage");
+    expect(document.querySelector("main.watch [title]")).toBeNull();
+    cleanup();
+    await renderWindow(UNREADABLE);
+    expect(document.querySelector("p.watch-unreadable")).not.toBeNull();
+    expect(document.querySelector("button.watch-unreadable")).toBeNull();
   });
 
   it("falls back to the count when the areas sentence would pass three lines: more than three areas, or over 110 characters", () => {

@@ -33,21 +33,21 @@ describe("evaluate on dev-machine", () => {
   const { report, byStatus } = statusesOf(DEV_MACHINE);
 
   it("matches the per-rule outcomes in RULES.md", () => {
-    expect(byStatus.get("fail")).toEqual(["001", "002", "003", "010", "011", "014", "022", "026", "029"]);
+    expect(byStatus.get("fail")).toEqual(["001", "002", "003", "010", "011", "014", "022", "026", "029", "032"]);
     expect(byStatus.get("review")).toEqual(["017", "023", "025"]);
     expect(byStatus.get("unknown")).toEqual(["028"]);
     expect(byStatus.get("not_applicable")).toEqual(["027"]);
-    expect(byStatus.get("pass")).toHaveLength(17);
+    expect(byStatus.get("pass")).toHaveLength(21);
   });
 
-  it("deducts 62 and scores 38, at_risk, incomplete, not capped", () => {
+  it("deducts 66 and scores 34, at_risk, incomplete, not capped", () => {
     expect(report.score).toMatchObject({
-      deducted: 62,
-      value: 38,
+      deducted: 66,
+      value: 34,
       grade: "at_risk",
       cappedByCritical: false,
       complete: false,
-      counts: { pass: 17, fail: 9, review: 3, unknown: 1, not_applicable: 1 },
+      counts: { pass: 21, fail: 10, review: 3, unknown: 1, not_applicable: 1 },
     });
   });
 
@@ -58,7 +58,7 @@ describe("evaluate on dev-machine", () => {
   });
 
   it("carries one finding per fail, review and unknown result with the catalog text attached", () => {
-    expect(report.findings).toHaveLength(13);
+    expect(report.findings).toHaveLength(14);
     for (const finding of report.findings) {
       const rule = MACOS_CATALOG.rules.find((r) => r.id === finding.ruleId);
       expect(rule).toBeDefined();
@@ -79,6 +79,7 @@ describe("evaluate on dev-machine", () => {
     expect(headline("023")).toBe("Some programs start in the background on their own");
     expect(headline("025")).toBe("Some apps open at login");
     expect(headline("028")).toBe("Couldn't check whether browser extensions are limited to the sites they need");
+    expect(headline("032")).toBe("AirDrop is open to everyone");
     for (const finding of report.findings) {
       expect(finding.headline, finding.ruleId).not.toBe(finding.title);
     }
@@ -95,7 +96,7 @@ describe("evaluate on dev-machine", () => {
   it("fills the report header from the inputs", () => {
     expect(report.schemaVersion).toBe(1);
     expect(report.coreVersion).toBe(CORE_VERSION);
-    expect(report.catalogVersion).toBe("0.2.0");
+    expect(report.catalogVersion).toBe("0.3.0");
     expect(report.cisEdition).toBe("CIS Apple macOS 26 Tahoe Benchmark v1.0.0");
     expect(report.collectedAt).toBe(DEV_MACHINE.collectedAt);
     expect(report.scannedAt).toBe(ctxFor(DEV_MACHINE).now);
@@ -112,7 +113,7 @@ describe("evaluate on dev-machine", () => {
 describe("evaluate on the other fixtures", () => {
   it("hardened scores 100, good, complete", () => {
     const { report, byStatus } = statusesOf(HARDENED);
-    expect(byStatus.get("pass")).toHaveLength(31);
+    expect(byStatus.get("pass")).toHaveLength(36);
     expect(report.score).toMatchObject({ value: 100, grade: "good", deducted: 0, complete: true, cappedByCritical: false });
     expect(report.findings).toEqual([]);
   });
@@ -123,7 +124,7 @@ describe("evaluate on the other fixtures", () => {
     expect(report.score.grade).toBeNull();
     expect(report.score.deducted).toBe(0);
     expect(report.score.complete).toBe(false);
-    expect(report.score.counts.unknown).toBe(31);
+    expect(report.score.counts.unknown).toBe(36);
     for (const result of report.results) {
       const rule = MACOS_CATALOG.rules.find((r) => r.id === result.ruleId);
       const first = rule?.requires[0];
@@ -159,6 +160,11 @@ describe("evaluate on the other fixtures", () => {
     expect(headline("029")).toBe("Couldn't check whether SSH keys are protected by a passphrase");
     expect(headline("030")).toBe("Couldn't check whether your SSH folder is private");
     expect(headline("031")).toBe("Couldn't check whether no password or key is stored in a plain-text config file");
+    expect(headline("032")).toBe("Couldn't check whether AirDrop is limited to people you know");
+    expect(headline("033")).toBe("Couldn't check whether Remote Apple Events is off");
+    expect(headline("034")).toBe("Couldn't check whether Internet Sharing is off");
+    expect(headline("035")).toBe("Couldn't check whether every app came through the usual safety checks");
+    expect(headline("036")).toBe("Couldn't check whether nothing is loaded into every app you open");
     expect(unknownHeadline("")).toBe("Couldn't check whether ");
   });
 
@@ -169,12 +175,13 @@ describe("evaluate on the other fixtures", () => {
     expect(byStatus.get("fail")).toEqual(["001", "002", "003", "014", "026"]);
     expect(byStatus.get("review")).toEqual(["017"]);
     expect(byStatus.get("not_applicable")).toEqual(["027", "028", "029", "030"]);
+    expect(byStatus.get("pass")).toHaveLength(25);
     expect(report.score).toMatchObject({ deducted: 36, value: 59, grade: "poor", cappedByCritical: true, complete: false });
   });
 
-  it("windows-minimal gives 31 not_applicable and a null score", () => {
+  it("windows-minimal gives 36 not_applicable and a null score", () => {
     const report = run(WINDOWS_MINIMAL);
-    expect(report.score.counts.not_applicable).toBe(31);
+    expect(report.score.counts.not_applicable).toBe(36);
     expect(report.score.value).toBeNull();
     expect(report.score.complete).toBe(true);
     expect(report.findings).toEqual([]);

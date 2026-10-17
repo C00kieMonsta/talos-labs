@@ -13,12 +13,12 @@ import { chatActivityRow } from "./ChatActivity";
 import type { ChatHandlers } from "./handlers";
 import type { ChatMessage } from "./state";
 import { ACT_ITEM, AT, REPORT, planFor, stepById } from "./testing";
-import { lockCard, seedForStep, watchCard } from "./cards";
+import { lockCard, seedForStep, watchCard, writeUpCard } from "./cards";
 
 afterEach(cleanup);
 
 type Card = Extract<ChatMessage, { kind: "card" }>;
-const HANDLERS: ChatHandlers = { send: vi.fn(), chip: vi.fn(), primary: vi.fn(), link: vi.fn(), checkAgain: vi.fn(), promote: vi.fn(), stop: vi.fn(), licenceAccepted: vi.fn(), navigate: vi.fn(), draftConsumed: vi.fn() };
+const HANDLERS: ChatHandlers = { send: vi.fn(), chip: vi.fn(), primary: vi.fn(), link: vi.fn(), checkAgain: vi.fn(), promote: vi.fn(), promoteStep: vi.fn(), stop: vi.fn(), licenceAccepted: vi.fn(), navigate: vi.fn(), draftConsumed: vi.fn(), explainState: vi.fn() };
 const PLAN = planFor(true);
 
 function mount(message: Card, options: { fixing?: FixingState | null; licensed?: boolean; aiEnabled?: boolean; extra?: readonly ActivityEvent[] } = {}) {
@@ -34,7 +34,7 @@ function mount(message: Card, options: { fixing?: FixingState | null; licensed?:
 }
 
 function card(seed = seedForStep(stepById(PLAN, "batch")), live = true): Card {
-  return { id: "c1", kind: "card", at: AT, cardId: "c1", card: seed.card, step: seed.step, item: seed.item, noticedAt: null, state: "idle", live, result: null, rows: [], failure: null };
+  return { id: "c1", kind: "card", at: AT, cardId: "c1", card: seed.card, step: seed.step, item: seed.item, noticedAt: null, state: "idle", live, outcome: null, result: null, rows: [], failure: null, writeUpText: null, copiedAt: null };
 }
 
 const batchFixing = (phase: FixingState["phase"]): FixingState => ({ kind: "batch", plan: fakeBatchPlan(), phase, step: 0, of: 0, item: null, error: null, outcome: null, byRule: {} });
@@ -94,6 +94,7 @@ describe("ChatCard", () => {
     cleanup();
     const key = mount(card({ card: { kind: "fix", ruleId: "TL-MAC-029", ruleIds: ["TL-MAC-029"], severity: "high" }, step: { id: "fix:TL-MAC-029:/k", kind: "fix", ruleId: "TL-MAC-029", choice: { kind: "ssh_key", path: "/k" }, passphrase: true }, item: null }));
     expect(key.container.querySelector(".passphrase-form")).not.toBeNull();
+    expect(document.activeElement).toBe(document.body);
     expect(key.container.querySelectorAll(".button-primary")).toHaveLength(1);
     expect(key.container.querySelector(".button-primary")?.textContent).toBe(FIX.passphrase);
     cleanup();
@@ -122,5 +123,25 @@ describe("ChatCard", () => {
     expect(row?.querySelector(".activity-word")?.textContent).toBe(ACTIVITY.words.watching);
     expect(w.container.querySelector(".guided-link")?.textContent).toBe(FIX.checkAgain);
     expect(w.container.querySelectorAll(".button-primary")).toHaveLength(0);
+  });
+});
+
+/* AGENT part B region: the write-up card (docs/DESIGN-AGENT.md 2g). */
+describe("ChatCard: the write-up", () => {
+  it("draws the pre, one Copy it primary, no link, no Explain and no live region; Copied shows after a copy", () => {
+    const text = "Talos Labs check-up, 17 October\nScore 72 out of 100, Fair.";
+    const message: Card = { ...card(writeUpCard(text)), writeUpText: text };
+    const { container } = mount(message);
+    expect(container.querySelector("pre.chat-writeup")?.textContent).toBe(text);
+    expect(container.querySelectorAll(".button-primary")).toHaveLength(1);
+    expect(container.querySelector(".button-primary")?.textContent).toBe(ACTIVITY.writeUp.copy);
+    expect(container.querySelectorAll(".guided-link")).toHaveLength(0);
+    expect(container.querySelector(".guided-explain")).toBeNull();
+    expect(container.querySelector("[role='status'], [aria-live]")).toBeNull();
+    expect(container.querySelector(".chat-card-body")?.textContent).toBe(ACTIVITY.writeUp.lead);
+    expect(container.querySelector(".chat-writeup-copied")).toBeNull();
+    cleanup();
+    const copied = mount({ ...message, copiedAt: AT });
+    expect(copied.container.querySelector(".chat-writeup-copied")?.textContent).toBe(ACTIVITY.writeUp.copied);
   });
 });

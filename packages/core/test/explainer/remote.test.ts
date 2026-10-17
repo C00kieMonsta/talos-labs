@@ -59,7 +59,7 @@ const watchInstructions = buildWatchInstructions();
 const chatInstructions = buildChatInstructions();
 const TASKS = ["explain", "prioritise", "ask", "watch", "chat"] as const;
 /** The WatchDetails field names, which may never appear in any body. */
-const DETAILS_FIELDS = ["plistPath", "label", "programPath", "port", "processName", "wifiAvailable"];
+const DETAILS_FIELDS = ["plistPath", "label", "programPath", "port", "processName", "filePath", "signature", "wifiAvailable"];
 
 /** A validated answer from an earlier turn, as the UI stores it in the history. */
 const PRIOR_ANSWER = JSON.stringify({ answer: "Start with disk encryption.", relatedRuleIds: ["TL-MAC-001"], outsideScope: false });
@@ -73,7 +73,8 @@ const ASK: AskInput = { context, history: HISTORY, question: "What about backups
 function chatInputFor(question: string): ChatInput {
   const gate = { freeFixes: freeFixRuleIds(report), licensed: true };
   const plan = buildGuidedPlan(report, gate, PROFILE, EMPTY_GUIDED_MEMORY, NOW);
-  const allowed = buildAllowed({ plan, report, gate, scanReady: true, watchEnabled: true, memory: EMPTY_GUIDED_MEMORY, doneStepIds: [] });
+  const watchItems = watchContext.signals.map((signal) => signal.signalId);
+  const allowed = buildAllowed({ plan, report, gate, scanReady: true, watchEnabled: true, memory: EMPTY_GUIDED_MEMORY, doneStepIds: [], watchItems });
   const stepRuleIds = plan.steps.flatMap((step) => (step.kind === "batch" ? [step.ruleIds[0] ?? "TL-MAC-002"] : step.kind === "fix" || step.kind === "show" ? [step.ruleId] : []));
   return {
     context,
@@ -163,12 +164,16 @@ describe("remote request canary", () => {
       for (const word of CHAT_FORBIDDEN) expect(turns, word).not.toContain(word);
       const last = JSON.parse(TURNS.chat.at(-1)?.content ?? "{}") as { plan: Record<string, string[]>; allowed: Record<string, string[]>; events: { ruleIds: string[] }[]; watch: { items: { signalId: string }[] } };
       const known = new Set<string>(report.results.map((r) => r.ruleId));
-      const ids = [...Object.values(last.plan).flat(), ...Object.entries(last.allowed).filter(([k]) => k !== "kinds").flatMap(([, v]) => v), ...last.events.flatMap((e) => e.ruleIds)];
+      const ids = [...Object.values(last.plan).flat(), ...Object.entries(last.allowed).filter(([k]) => k !== "kinds" && k !== "investigate").flatMap(([, v]) => v), ...last.events.flatMap((e) => e.ruleIds)];
       expect(ids.length).toBeGreaterThan(0);
       for (const id of ids) {
         expect(id, id).toMatch(SAFE_STRING_PATTERN);
         expect(known.has(id), id).toBe(true);
       }
+      // Signal ids run past SAFE_STRING_PATTERN's 32 characters; membership in SIGNAL_IDS is the check.
+      for (const id of last.allowed["investigate"] ?? []) expect(SIGNAL_IDS as readonly string[]).toContain(id);
+      expect(last.allowed["remind"]?.length).toBeGreaterThan(0);
+      expect(last.allowed["whatIf"]?.length).toBeGreaterThan(0);
       expect(last.watch.items.length).toBeGreaterThan(0);
       for (const item of last.watch.items) expect(SIGNAL_IDS as readonly string[]).toContain(item.signalId);
     });
@@ -257,7 +262,7 @@ describe("turn envelopes", () => {
     expect(Object.keys(last)).toEqual(["task", "context", "question", "plan", "allowed", "events", "watch"]);
     expect(last["task"]).toBe("chat");
     expect(last["question"]).toBe("Why does the disk matter?");
-    expect(Object.keys(last["allowed"] as object)).toEqual(["fix", "batch", "show", "explain", "details", "snooze", "accept", "kinds"]);
+    expect(Object.keys(last["allowed"] as object)).toEqual(["fix", "batch", "show", "explain", "details", "snooze", "accept", "investigate", "remind", "whatIf", "kinds"]);
     expect(Object.keys(last["plan"] as object)).toEqual(["stepRuleIds", "fixed", "later", "accepted", "leftAlone"]);
     const asked = JSON.parse(chatTurns(CHAT, "ask").at(-1)?.content ?? "{}") as Record<string, unknown>;
     expect(asked["task"]).toBe("ask");
@@ -270,14 +275,14 @@ describe("turn envelopes", () => {
     expect(chatTurns({ ...CHAT, history: [{ role: "assistant", text: PRIOR_ANSWER }] })).toHaveLength(1);
   });
 
-  it("buildChatInstructions is the frozen prompt, the chat block and every guided headline, about 1,200 characters of names", () => {
+  it("buildChatInstructions is the frozen prompt, the chat block and every guided headline, under 2,000 characters of names", () => {
     expect(chatInstructions).toBe(`${buildSystemPrompt(MACOS_CATALOG)}\n\n${CHAT_INSTRUCTIONS_BLOCK}\n\n${plainNamesBlock()}`);
     expect(chatInstructions.startsWith(watchInstructions.slice(0, watchInstructions.length - WATCH_INSTRUCTIONS_BLOCK.length))).toBe(true);
     expect(CHAT_INSTRUCTIONS_BLOCK.startsWith("For the chat task: answer the person in plain British English, in the second person, in at most four short sentences.")).toBe(true);
     expect(CHAT_INSTRUCTIONS_BLOCK).toContain("use `accept_rule`");
     for (const rule of MACOS_CATALOG.rules) expect(plainNamesBlock()).toContain(`${rule.id}: ${rule.guided.headline}`);
     expect(plainNamesBlock().length).toBeGreaterThan(900);
-    expect(plainNamesBlock().length).toBeLessThan(1800);
+    expect(plainNamesBlock().length).toBeLessThan(2000);
     expect(chatInstructions).not.toContain(ACCEPTED_SENTENCE);
   });
 

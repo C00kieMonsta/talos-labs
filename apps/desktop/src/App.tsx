@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AiAvailability, Capabilities, GuidedMemory, LicenseState, RuleId, ScanReport, WatchAi, WatchMemory, WatchOpenScreen } from "@talos/core";
-import { EMPTY_GUIDED_MEMORY, acceptRules, unacceptRule } from "@talos/core";
+import type { AiAvailability, Capabilities, GuidedMemory, LicenseState, RuleId, ScanReport, WatchAi, WatchMemory, WatchNext, WatchOpenScreen } from "@talos/core";
+import { EMPTY_GUIDED_MEMORY, acceptRules, nextAction, unacceptRule } from "@talos/core";
 import { AppContext, useApp } from "./app/context";
 import type { AppContextValue } from "./app/context";
 import { adapters, buildContext, catalog, loadSettings, runEngine, saveSettings } from "./app/container";
@@ -15,7 +15,7 @@ import { useScanPacer } from "./scan/useScanPacer";
 import { useAiAvailability, REPROBE_SETTINGS_MS, limitReprobeMs } from "./scan/useAiAvailability";
 import { useAiLastAvailable } from "./scan/useAiLastAvailable";
 import { ChatDraftContext } from "./chat/draft";
-import type { ChatDraft } from "./chat/draft";
+import type { ChatDraft, ChatDraftSlot } from "./chat/draft";
 import { AiConnectContext, CONNECT_POLL_MS, useConnect } from "./scan/ai-connect";
 import { useAiConnect } from "./scan/useAiConnect";
 import type { PermissionKind } from "./scan/useCapabilityPoll";
@@ -29,6 +29,7 @@ import { GuidedShell } from "./guided/GuidedShell";
 import { Guided } from "./guided/screens/Guided";
 import { ConnectScreen } from "./guided/ConnectScreen";
 import { FishyFlow } from "./guided/FishyFlow";
+import { CoverageRoute } from "./guided/screens/CoverageScreen";
 import { FishyContext } from "./guided/fishy/controller";
 import { useFishy } from "./guided/fishy/useFishy";
 import { loadWatchMemory, saveWatchMemory } from "./watch/memory";
@@ -283,6 +284,8 @@ export default function App() {
   // A question from the watch window waits here until the chat is on screen (DESIGN-WATCH-WINDOW "Commands"); seq tells a repeat apart.
   const [chatDraft, setChatDraft] = useState<ChatDraft | null>(null);
   const draftSeq = useRef(0);
+  const consumeDraft = useCallback((seq: number) => setChatDraft((d) => (d !== null && d.seq === seq ? null : d)), []);
+  const draftSlot = useMemo<ChatDraftSlot>(() => ({ draft: chatDraft, consume: consumeDraft }), [chatDraft, consumeDraft]);
   const acceptRule = useCallback((id: RuleId) => saveMemory(acceptRules(memoryRef.current, [id], new Date().toISOString())), [saveMemory]);
   const unaccept = useCallback((id: RuleId) => saveMemory(unacceptRule(memoryRef.current, id)), [saveMemory]);
   // Lives here, not in the Connect screen, so a running sign-in keeps being polled while the person visits other screens.
@@ -298,6 +301,28 @@ export default function App() {
       return next;
     });
   }, []);
+  const guided = useGuided(scan, {
+    gate,
+    settings,
+    memory,
+    saveMemory,
+    capabilitiesNow: capabilities,
+    capabilities: () => adapters.systemState.capabilities(),
+    openPane: (pane) => adapters.openSettingsPane(pane),
+    collectSection: (key) => adapters.systemState.collectSection(key),
+    restart: () => adapters.restart(),
+    reducedMotion,
+    windowFocused: !inactive,
+    resume,
+    loadedReport: () => loadedReport.current,
+  });
+  // The plan's "Do this next" for the watch window's "Up next" row; a paywall step reads as the finding, as the window only opens home.
+  const guidedPlan = "plan" in guided.phase ? guided.phase.plan : null;
+  const watchNext = useMemo((): WatchNext | null => {
+    if (guidedPlan === null || report === null) return null;
+    const next = nextAction(guidedPlan, report);
+    return next === null ? null : { reportId: report.reportId, ruleId: next.ruleId, kind: next.kind === "unlock" ? "details" : next.kind };
+  }, [guidedPlan, report]);
   // The menu bar watch: Rust holds the truth for enabled, interval and notify; this controller mirrors it into settings.
   const watch = useWatch({
     port: adapters.watch,
@@ -306,6 +331,7 @@ export default function App() {
     ai: watchAiFor(settings),
     licensed: licenseRead ? gate.licensed : null,
     accepted: acceptedIds,
+    next: watchNext,
     updateSettings: updateWatchSettings,
     memory: watchMemory,
     saveMemory: saveWatch,
@@ -322,21 +348,6 @@ export default function App() {
     if (previous === false && gate.licensed && watchNotify && !notifyAsked) void requestNotify();
   }, [licenseRead, gate.licensed, watchNotify, notifyAsked, requestNotify]);
   const fishy = useFishy({ watch, adapters, router, settings, ransomNote: demoRansomNote() });
-  const guided = useGuided(scan, {
-    gate,
-    settings,
-    memory,
-    saveMemory,
-    capabilitiesNow: capabilities,
-    capabilities: () => adapters.systemState.capabilities(),
-    openPane: (pane) => adapters.openSettingsPane(pane),
-    collectSection: (key) => adapters.systemState.collectSection(key),
-    restart: () => adapters.restart(),
-    reducedMotion,
-    windowFocused: !inactive,
-    resume,
-    loadedReport: () => loadedReport.current,
-  });
 
   const scanning = scan.scan.kind === "collecting" || scan.scan.kind === "evaluating" || scan.scan.kind === "presenting";
   const showShell = settings.onboarded;
@@ -373,14 +384,17 @@ export default function App() {
       if (!onChat) router.navigate({ name: "chat" });
     } else if (screen === "connect") {
       if (router.route.name !== "connect") connect.open({ name: "guided" });
+    } else if (screen === "coverage") {
+      if (router.route.name !== "coverage") router.navigate({ name: "coverage", returnTo: router.route });
     }
   };
   useEffect(() => adapters.watch.onOpen((event) => onWatchOpen.current(event)), []);
   // With the watch on, closing the window hides it, so a reopen is a show, not a relaunch: the launch scan
   // runs here. Not for noticed or settings_watch, which land the person on another screen.
   const onMainShown = useRef<(screen: WatchOpenScreen) => void>(() => undefined);
+  // A chat open from the menu bar window counts as home: the held question waits on the check-up.
   onMainShown.current = (screen) => {
-    if (screen === "home") launchScan();
+    if (screen === "home" || screen === "chat") launchScan();
   };
   useEffect(() => adapters.watch.onShown(({ screen }) => onMainShown.current(screen)), []);
   // AI off, not_offered or plan_not_eligible while the chat is on screen: the plan or end screen on the same plan (DESIGN-CHAT section 2).
@@ -461,7 +475,7 @@ export default function App() {
       <AppContext.Provider value={value}>
       <WatchControllerContext.Provider value={watch}>
       <FishyContext.Provider value={fishy}>
-      <ChatDraftContext.Provider value={chatDraft}>
+      <ChatDraftContext.Provider value={draftSlot}>
         <GradientDefs />
         {scanning ? (
           <ScanningShell guided inactive={inactive} />
@@ -511,6 +525,22 @@ export default function App() {
             <FishyFlow />
           </ScreenErrorBoundary>
         </GuidedShell>
+      </FishyContext.Provider>
+      </WatchControllerContext.Provider>
+      </AppContext.Provider>
+      </AiConnectContext.Provider>
+    );
+  }
+
+  // "What I watch": CoverageRoute draws its own shell and strip (DESIGN-THREATS-V2 section 4).
+  if (router.route.name === "coverage") {
+    return (
+      <AiConnectContext.Provider value={connect}>
+      <AppContext.Provider value={value}>
+      <WatchControllerContext.Provider value={watch}>
+      <FishyContext.Provider value={fishy}>
+        <GradientDefs />
+        <CoverageRoute />
       </FishyContext.Provider>
       </WatchControllerContext.Provider>
       </AppContext.Provider>
@@ -694,6 +724,8 @@ function RouteToolbar({ route }: { route: Route }) {
       return null;
     case "fishy":
       return null;
+    case "coverage":
+      return null;
   }
 }
 
@@ -815,6 +847,8 @@ function screenFor(route: Route, guided: GuidedController, onResetMemory: () => 
     case "connect":
       return null;
     case "fishy":
+      return null;
+    case "coverage":
       return null;
   }
 }

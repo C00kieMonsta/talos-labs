@@ -11,7 +11,7 @@ import type { GuidedMemory } from "./memory";
 export const WATCH_EVERY_MS = 3000;
 
 /** Never a step; listed under "Things I left alone" when failing. */
-export const LEFT_ALONE: readonly RuleId[] = ["TL-MAC-005", "TL-MAC-014", "TL-MAC-017", "TL-MAC-018", "TL-MAC-024", "TL-MAC-028", "TL-MAC-031"];
+export const LEFT_ALONE: readonly RuleId[] = ["TL-MAC-005", "TL-MAC-014", "TL-MAC-017", "TL-MAC-018", "TL-MAC-024", "TL-MAC-028", "TL-MAC-031", "TL-MAC-035", "TL-MAC-036"];
 
 /** The "Do this later" count at which the step asks whether to stop; "No, keep asking" resets it. */
 export const LATER_ASK_COUNT = 3;

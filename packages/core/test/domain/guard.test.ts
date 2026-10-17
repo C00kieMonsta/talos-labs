@@ -45,6 +45,13 @@ describe("assertSystemState", () => {
     expect(isSystemState(state)).toBe(false);
   });
 
+  it("accepts the nested apps and inserts sections when unavailable with a known reason", () => {
+    const state: Loose = clone(DEV_MACHINE);
+    state["sections"]["platformIntegrity"]["data"]["apps"] = { status: "unavailable", reason: "timeout", detail: "bin: codesign" };
+    state["sections"]["platformIntegrity"]["data"]["inserts"] = { status: "unavailable", reason: "tool_missing", detail: null };
+    expect(() => assertSystemState(state)).not.toThrow();
+  });
+
   it("rejects a nested browser extensions section with a bad reason", () => {
     const state: Loose = clone(DEV_MACHINE);
     state["sections"]["browsers"]["data"]["installed"][0]["extensions"]["reason"] = "nope";
@@ -65,6 +72,15 @@ describe("assertSystemState", () => {
     bad((s) => (s["sections"]["dotfiles"]["data"]["hits"] = [{ path: "x", pattern: "bogus", line: 1 }]), "$.sections.dotfiles.data.hits[0].pattern");
     bad((s) => (s["sections"]["screenLock"]["data"]["screensaverIdleSeconds"] = "never"), "$.sections.screenLock.data.screensaverIdleSeconds");
     bad((s) => (s["sections"]["remoteAccess"]["data"]["remoteManagement"] = {}), "$.sections.remoteAccess.data.remoteManagement.serviceLoaded");
+    bad((s) => (s["sections"]["remoteAccess"]["data"]["remoteAppleEvents"] = {}), "$.sections.remoteAccess.data.remoteAppleEvents.serviceLoaded");
+    bad((s) => (s["sections"]["remoteAccess"]["data"]["internetSharing"] = "maybe"), "$.sections.remoteAccess.data.internetSharing");
+    bad((s) => (s["sections"]["remoteAccess"]["data"]["airdrop"] = "Everyone"), "$.sections.remoteAccess.data.airdrop");
+    bad((s) => delete s["sections"]["remoteAccess"]["data"]["airdrop"], "$.sections.remoteAccess.data.airdrop: missing");
+    bad((s) => delete s["sections"]["platformIntegrity"]["data"]["apps"], "$.sections.platformIntegrity.data.apps: missing");
+    bad((s) => (s["sections"]["platformIntegrity"]["data"]["apps"]["data"]["flagged"] = [{ path: "/Applications/X.app", name: "X.app", signature: "signed", quarantined: false }]), "$.sections.platformIntegrity.data.apps.data.flagged[0].signature");
+    bad((s) => (s["sections"]["platformIntegrity"]["data"]["apps"]["data"]["checkedCount"] = "41"), "$.sections.platformIntegrity.data.apps.data.checkedCount");
+    bad((s) => (s["sections"]["platformIntegrity"]["data"]["inserts"] = { status: "unavailable", reason: "nope", detail: null }), "$.sections.platformIntegrity.data.inserts.reason");
+    bad((s) => (s["sections"]["platformIntegrity"]["data"]["inserts"]["data"]["dyldInsertSet"] = "no"), "$.sections.platformIntegrity.data.inserts.data.dyldInsertSet");
     bad((s) => (s["sections"]["updates"]["data"]["pendingCount"] = "1"), "$.sections.updates.data.pendingCount");
     bad((s) => delete s["collectedAt"], "$.collectedAt");
   });

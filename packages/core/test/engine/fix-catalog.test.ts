@@ -14,6 +14,7 @@ const COMMAND_SIDE_EFFECTS: Readonly<Record<string, readonly SectionKey[]>> = {
   "TL-MAC-020": ["listeners"],
   "TL-MAC-021": ["listeners"],
   "TL-MAC-022": ["listeners"],
+  "TL-MAC-033": ["listeners"],
 };
 
 describe("FixApply catalog invariants", () => {
@@ -45,7 +46,7 @@ describe("FixApply catalog invariants", () => {
     }
   });
 
-  it("019 to 022 recheck listeners as well as their own section", () => {
+  it("019 to 022 and 033 recheck listeners as well as their own section", () => {
     for (const id of Object.keys(COMMAND_SIDE_EFFECTS)) {
       const rule = MACOS_CATALOG.rules.find((r) => r.id === id);
       expect(rule?.fix.apply.kind, id).toBe("in_app");
@@ -94,14 +95,15 @@ describe("FixApply catalog invariants", () => {
 });
 
 describe("batchable", () => {
-  it("is true for the 13 in_app rules with no choice or secret and false for 022 and 029", () => {
+  it("is true for the 14 in_app rules with no choice or secret and false for 022 and 029", () => {
     const batchable = fixCatalogEntries(MACOS_CATALOG)
       .filter((entry) => entry.batchable)
       .map((entry) => entry.ruleId);
-    expect(batchable).toHaveLength(13);
+    expect(batchable).toHaveLength(14);
     expect(batchable).not.toContain("TL-MAC-022");
     expect(batchable).not.toContain("TL-MAC-029");
     expect(batchable).toContain("TL-MAC-030");
+    expect(batchable).toContain("TL-MAC-033");
     for (const entry of fixCatalogEntries(MACOS_CATALOG)) {
       if (entry.kind !== "in_app") {
         expect(entry.batchable, entry.ruleId).toBe(false);

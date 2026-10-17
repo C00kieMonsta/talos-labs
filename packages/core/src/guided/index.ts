@@ -4,6 +4,7 @@ export { diffReports } from "./diff";
 export type { ReportDiff } from "./diff";
 export { buildGuidedPlan, planLocked, convertedShowStep, LEFT_ALONE, WATCH_EVERY_MS, LATER_ASK_COUNT, KEEP_ACCEPTED_THROUGH_PASS } from "./plan";
 export { isAccepted, acceptedFailing, acceptRules, unacceptRule, clearAcceptedThatPass } from "./accepted";
+export { REMINDER_HOUR, reminderDate, remindRules, reminderDue, clearReminders, dueFirst } from "./reminders";
 export type { GuidedStep, GuidedPlan, GuidedGate } from "./plan";
 export { nextAction } from "./next";
 export type { NextAction, NextActionKind } from "./next";

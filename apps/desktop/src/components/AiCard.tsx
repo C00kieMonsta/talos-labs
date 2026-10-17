@@ -11,7 +11,7 @@ import type { AppleAiState } from "../app/labels";
 import type { ExplainerProvider } from "../settings";
 import { Icon } from "./Icon";
 
-export type AiCardKind = "finding" | "overview" | "ask";
+export type AiCardKind = "finding" | "overview";
 
 export type AiCardState =
   | { kind: "probing" }
@@ -65,7 +65,6 @@ export function aiUnavailableCopy(provider: ExplainerProvider, state: AppleState
 const START_LABELS: Readonly<Record<AiCardKind, string>> = {
   finding: "Explain this for me",
   overview: "Suggest an order",
-  ask: "Ask",
 };
 
 /** Failures that mean the provider's state changed under the person; the card shows the state, not a generic error. */
@@ -261,7 +260,7 @@ export function useAiCardFlow(target: ExplainTarget): AiCardFlow {
   }, [availability, until, probe]);
   const explain: ExplainState = scan.scan.kind === "ready" || scan.scan.kind === "rechecking" ? scan.scan.explain : { kind: "off" };
   const has = (cache: { byRule: Record<string, unknown>; order: unknown }) =>
-    target === "prioritise" ? cache.order !== null : target === "ask" ? false : cache.byRule[target] !== undefined;
+    target === "prioritise" ? cache.order !== null : cache.byRule[target] !== undefined;
   const activity: "idle" | "streaming" | "ready" | { failed: ExplainerFailure } =
     explain.kind === "running" && explain.target === target
       ? "streaming"
@@ -284,7 +283,7 @@ export function useAiCardFlow(target: ExplainTarget): AiCardFlow {
   }, [failedReason, probe]);
   const start = () => {
     if (target === "prioritise") void scan.prioritise();
-    else if (target !== "ask") void scan.explain(target);
+    else void scan.explain(target);
   };
   const state = aiCardState(availability, until, activity);
   return {

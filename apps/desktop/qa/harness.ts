@@ -1417,7 +1417,7 @@ export async function walkAi(page: Page, baseUrl: string, visit: Visit): Promise
 export const WATCH_WINDOW_SIZE = { width: 320, height: 420 } as const;
 
 /**
- * The fourteen window shots (DESIGN-WATCH-WINDOW.md section 7): the demo query, the height the sum rule gives the state
+ * The fifteen window shots (DESIGN-WATCH-WINDOW.md section 7, DESIGN-THREATS-V2.md section 9): the demo query, the height the sum rule gives the state
  * (src/watch/height.ts, pinned to the shared fixture), the status word and the one primary or none.
  */
 const WATCH_WINDOW_SHOTS = [
@@ -1431,6 +1431,7 @@ const WATCH_WINDOW_SHOTS = [
   { name: "watch-window-look", query: "watch=look&watchAi=chatgpt&watchReason=0", height: 316, status: "One thing to look at", primary: "Show me" },
   { name: "watch-window-look-reason", query: "watch=look&watchAi=chatgpt", height: 396, status: "One thing to look at", primary: "Show me" },
   { name: "watch-window-look-empty", query: "watch=look-empty&watchAi=chatgpt", height: 324, status: "Something to look at", primary: "Show me" },
+  { name: "watch-window-look-app", query: "watch=look&fishy=app&watchAi=chatgpt&watchReason=0", height: 316, status: "One thing to look at", primary: "Show me" },
   { name: "watch-window-act", query: "watch=act&watchAi=chatgpt&watchReason=0", height: 324, status: "Act now", primary: "See what to do" },
   { name: "watch-window-act-reason", query: "watch=act&watchAi=chatgpt", height: 404, status: "Act now", primary: "See what to do" },
   { name: "watch-window-first-run", query: "watch=first-run", height: 170, status: null, primary: null },
@@ -1451,7 +1452,20 @@ const FISHY_HEADLINES = {
   admin: "A new admin account was added",
   dns: "The way your Mac finds websites changed",
   backup: "Your backups were switched off",
+  app: "A new app skipped the usual safety checks",
+  shell: "A hidden file that runs at start-up changed",
+  exposure: "Your Mac is sharing more than before",
 } as const;
+
+/** The why line under the app headline (DESIGN-THREATS-V2.md section 4b). */
+const APP_WHY = "Apps that skip the checks are how bad software gets in.";
+/** The "What I watch" strings the coverage shots read (DESIGN-THREATS-V2.md section 4a). */
+const COVERAGE_TITLE = "What I watch";
+const COVERAGE_GROUPS = ["Firewalls", "Secure settings", "Who can get in", "Malware protection", "Updates, backups and health"];
+const COVERAGE_CANNOT = "What I can't see";
+const COVERAGE_INTRO_OFF = "The watch is off. I look at these when you open me.";
+const COVERAGE_INTRO_UNLICENSED = "I look at these each time you open me.";
+const COVERAGE_TURN_ON = "Turn the watch on";
 
 const NOT_ANTIVIRUS = "I'm not antivirus. I read your Mac's settings and the list of programs that start on their own, then tell you when something changed. I never read your files. macOS's own virus checks do that part.";
 const EVIDENCE = "I have not deleted anything. The file is still there for an expert to look at.";
@@ -1677,6 +1691,13 @@ export async function walkWatch(page: Page, baseUrl: string, visit: Visit): Prom
         await page.locator(".watch-item-why").filter({ hasText: "Bad software often starts this way." }).waitFor({ timeout: STEP_TIMEOUT });
         await page.locator("button.watch-ask-why").filter({ hasText: "Ask why this matters" }).waitFor({ timeout: STEP_TIMEOUT });
       }
+      if (row.name === "watch-window-look-app") {
+        // The app kind's headline and why line, taken by kind as every other kind's are; the ask link reads the headline.
+        await page.locator(".watch-item-headline").filter({ hasText: FISHY_HEADLINES.app }).waitFor({ timeout: STEP_TIMEOUT });
+        await page.locator(".watch-item-why").filter({ hasText: APP_WHY }).waitFor({ timeout: STEP_TIMEOUT });
+        await page.locator("button.watch-ask-why").filter({ hasText: "Ask why this matters" }).waitFor({ timeout: STEP_TIMEOUT });
+        if ((await page.locator(".watch-item-more").count()) !== 0) throw new Error("look keeps the kind's own signal alone, so there is no more line");
+      }
       if (row.name === "watch-window-look-reason") {
         if ((await page.locator(".watch-item .guided-model-line").count()) !== 1) throw new Error("the look reason line sits inside the item, under the why");
         await page.locator("button.watch-ask-why").click();
@@ -1755,14 +1776,24 @@ export async function walkWatch(page: Page, baseUrl: string, visit: Visit): Prom
     await assertFishyScreen(page, { primary: "No, I didn't", link: "Yes, that was me", sources: 0 });
     await assertNotRecorded(page, "watch:notified");
   });
-  // Screen 1, one per headline. remote is reached through the gate's "No, I didn't".
+  // The exposure gate: a sharing setting switched on, asked about before anything else; it never notifies.
+  await visit({ name: "guided-fishy-gate-exposure" }, async () => {
+    await openFishy("watch=act&fishy=exposure&fishyGate=1");
+    await guidedTitle(page, "Did you just change this?");
+    await page.locator(".guided-body").getByText(/^A sharing setting was switched on at \d{2}:\d{2}\.$/).waitFor({ timeout: STEP_TIMEOUT });
+    await assertFishyScreen(page, { primary: "No, I didn't", link: "Yes, that was me", sources: 0 });
+    await assertGuidedScreen(page, { primaries: 1, fold: false });
+    await assertNotRecorded(page, "watch:notified");
+  });
+  // Screen 1, one per headline. remote and exposure are reached through the gate's "No, I didn't".
+  const GATED_SIGNAL = { remote: "sig.remote_access_on", exposure: "sig.internet_sharing_on" } as const;
   for (const kind of Object.keys(FISHY_HEADLINES) as (keyof typeof FISHY_HEADLINES)[]) {
     await visit({ name: `guided-fishy-noticed-${kind}` }, async () => {
-      if (kind === "remote") {
-        await openFishy("watch=act&fishy=remote&fishyGate=1");
+      if (kind === "remote" || kind === "exposure") {
+        await openFishy(`watch=act&fishy=${kind}&fishyGate=1`);
         await guidedTitle(page, "Did you just change this?");
         await primary(page, "No, I didn't");
-        await assertRecorded(page, "watch_answer_gate", "sig.remote_access_on");
+        await assertRecorded(page, "watch_answer_gate", GATED_SIGNAL[kind]);
       } else {
         await openFishy(`watch=act&fishy=${kind}`);
         await assertRecorded(page, "watch:notified");
@@ -1771,11 +1802,40 @@ export async function walkWatch(page: Page, baseUrl: string, visit: Visit): Prom
       await page.locator(".guided-body").getByText(/^I noticed this at \d{2}:\d{2}\. It was not there at the last check\. I have not deleted anything\.$/).waitFor({ timeout: STEP_TIMEOUT });
       await page.locator(".guided-source").filter({ hasText: NOTICED_SOURCE }).waitFor({ timeout: STEP_TIMEOUT });
       await assertFishyScreen(page, { primary: "See what to do", link: "This is fine, I know it", sources: 1 });
+      await assertGuidedScreen(page, { primaries: 1, fold: false });
       // The program's name and folder sit under Details only, so the headline never carries them.
       const h1 = (await page.locator(".guided h1").first().textContent()) ?? "";
       if (/[/.]/.test(h1)) throw new Error(`the headline carries machine text: ${h1}`);
+      if (kind === "shell" || kind === "app") {
+        // The new kinds' Details: the changed file with its time, or the bundle with its signature in words and Reveal.
+        await page.locator(".fishy-details > summary").click();
+        const lines = page.locator(".fishy-details[open] .fishy-detail-lines li");
+        if (kind === "shell") {
+          if ((await lines.count()) !== 1) throw new Error(`shell Details lists the file: ${await lines.count()} lines`);
+          await page.locator(".fishy-details[open] .fishy-changed-at").filter({ hasText: /^changed at \d{2}:\d{2}$/ }).waitFor({ timeout: STEP_TIMEOUT });
+          if ((await page.locator(".fishy-details[open] .fishy-reveal").count()) !== 0) throw new Error("a changed file has nothing to reveal");
+        } else {
+          if ((await lines.count()) !== 3) throw new Error(`app Details lists the name, the bundle and the signature: ${await lines.count()} lines`);
+          await lines.filter({ hasText: "not signed" }).waitFor({ timeout: STEP_TIMEOUT });
+          await page.locator(".fishy-details[open] .fishy-reveal").waitFor({ timeout: STEP_TIMEOUT });
+          if ((await page.locator(".fishy-details[open] .fishy-changed-at").count()) !== 0) throw new Error("an app row carries no changed-at line");
+        }
+        await assertFishyScreen(page, { primary: "See what to do", link: "This is fine, I know it", sources: 1, detailsOpen: true });
+      }
     });
   }
+  // The app kind: no start-up entry and no listener, so the flow goes from disconnect straight to the experts, with the base seven rows.
+  await visit({ name: "guided-fishy-experts-app" }, async () => {
+    await openFishy("watch=act&fishy=app");
+    await guidedTitle(page, FISHY_HEADLINES.app);
+    await primary(page, "See what to do");
+    await guidedTitle(page, "First, cut it off from the internet");
+    await runPrimary("Turn Wi-Fi off", "watch.wifi_off", "What experts do next");
+    if ((await page.locator(".guided h1").filter({ hasText: /Stop the program|Keep it from starting again/ }).count()) !== 0) throw new Error("an app item visits neither the stop nor the eradicate screen");
+    if ((await expertRows().count()) !== 7) throw new Error(`expected 7 expert rows for an app item, found ${await expertRows().count()}`);
+    await assertFishyScreen(page, { primary: "Done", link: null, sources: 0, fold: false });
+    await assertGuidedScreen(page, { primaries: 1, fold: false });
+  });
   await visit({ name: "guided-fishy-noticed-details" }, async () => {
     await openFishy("watch=act&fishy=persistence");
     await guidedTitle(page, FISHY_HEADLINES.persistence);
@@ -2047,6 +2107,95 @@ export async function walkWatch(page: Page, baseUrl: string, visit: Visit): Prom
     await assertRecorded(page, "watch_set_interval", 15);
     await section.getByRole("radio", { name: "Every hour" }).check();
     await assertRecorded(page, "watch_set_interval", 60);
+    await assertNoUrlRecorded(page);
+  });
+
+  // "What I watch" (DESIGN-THREATS-V2.md section 4a): every probe label once in five groups, the reason in brackets, the gaps, no primary, no link.
+  const coverageScreen = () => page.locator(".guided .coverage");
+  const openCoverage = async (query: string) => {
+    await goto(`${query}&guided=0`);
+    await nav(page, "Settings");
+    await heading(page, "Settings");
+    await page.locator("section[aria-labelledby='watch-heading'] button.guided-link").filter({ hasText: COVERAGE_TITLE }).click();
+    await page.locator(".guided-strip-title").filter({ hasText: COVERAGE_TITLE }).waitFor({ timeout: STEP_TIMEOUT });
+    await coverageScreen().waitFor({ timeout: STEP_TIMEOUT });
+  };
+  const assertCoverage = async (want: { gaps: number; link: string | null; bracket: boolean }) => {
+    const groups = page.locator(".guided .coverage-group");
+    if ((await groups.count()) !== 5) throw new Error(`expected five groups, found ${await groups.count()}`);
+    const h2s = await page.locator(".guided .coverage-group h2").allTextContents();
+    if (h2s.join("|") !== COVERAGE_GROUPS.join("|")) throw new Error(`the group headings read ${JSON.stringify(h2s)}`);
+    await page.locator(".guided .coverage-cannot h2").filter({ hasText: COVERAGE_CANNOT }).waitFor({ timeout: STEP_TIMEOUT });
+    const gaps = await page.locator(".guided p.coverage-gap").count();
+    if (gaps !== want.gaps) throw new Error(`expected ${want.gaps} gap rows, found ${gaps}`);
+    const rows = await page.locator(".guided .coverage-row").allTextContents();
+    const network = rows.find((row) => row.startsWith("network services"));
+    if (network === undefined) throw new Error("the network services row is missing");
+    if (want.bracket ? network !== "network services (needs a signed build)" : network !== "network services") throw new Error(`the network services row reads "${network}"`);
+    if (!rows.includes("login items (a few times a day)")) throw new Error("the login items row is missing");
+    if (!rows.includes("apps hidden in your library (a few times a day)")) throw new Error("the library apps row is missing");
+    if (new Set(rows).size !== rows.length) throw new Error("a row is listed twice");
+    await page.locator(".guided details.coverage-experts > summary").filter({ hasText: "Experts call these" }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator(".guided .coverage-experts.guided-explain").count()) !== 0) throw new Error("the experts disclosure is never the AI's shell");
+    if ((await page.locator(".guided .button-primary").count()) !== 0) throw new Error("What I watch has no primary");
+    const links = page.locator(".guided .guided-link");
+    if (want.link === null) {
+      if ((await links.count()) !== 0) throw new Error(`What I watch has no link, found ${await links.count()}`);
+    } else {
+      if ((await links.count()) !== 1 || ((await links.first().textContent())?.trim() ?? "") !== want.link) throw new Error(`expected the one link "${want.link}"`);
+    }
+    if ((await page.locator(".guided a").count()) !== 0) throw new Error("What I watch holds no inline link");
+    // The one control is the strip's Back, above the fold at every size.
+    const back = page.locator(".guided-strip-link").filter({ hasText: "Back" });
+    await back.waitFor({ timeout: STEP_TIMEOUT });
+    await assertAboveFold(back, "the Back link");
+    await assertNoUrlRecorded(page);
+  };
+  await visit({ name: "coverage" }, async () => {
+    await openCoverage(`${G}&coverage=unsigned`);
+    await page.locator(".guided .coverage-intro").filter({ hasText: /^I look at these every hour, from the menu bar\./ }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertCoverage({ gaps: 5, link: null, bracket: true });
+  });
+  await visit({ name: "coverage-signed" }, async () => {
+    // Back from the previous shot first: the shot is taken after the visit, so the pop is checked here.
+    await page.locator(".guided-strip-link").filter({ hasText: "Back" }).click();
+    await heading(page, "Settings");
+    if ((await coverageScreen().count()) !== 0) throw new Error("Back leaves What I watch");
+    await openCoverage(`${G}&coverage=signed`);
+    await assertCoverage({ gaps: 4, link: null, bracket: false });
+    if ((await page.getByText("Needs a signed build.", { exact: true }).count()) !== 0) throw new Error("a signed build has no socket gap");
+  });
+  await visit({ name: "coverage-off" }, async () => {
+    await openCoverage(`${G}&coverage=off`);
+    await page.locator(".guided .coverage-intro").filter({ hasText: COVERAGE_INTRO_OFF }).waitFor({ timeout: STEP_TIMEOUT });
+    // No unsigned_build row is the signed-build flag (spec 4a row 4), so the sockets gap is gone here too.
+    await assertCoverage({ gaps: 4, link: COVERAGE_TURN_ON, bracket: false });
+  });
+  // Unlicensed: Settings has no Watch section, so the screen is reached by the window's own open event, replayed by the demo.
+  await visit({ name: "coverage-unlicensed" }, async () => {
+    await goto(`${G_FREE}&coverage=unlicensed&watch_open=coverage`);
+    await page.locator(".guided-strip-title").filter({ hasText: COVERAGE_TITLE }).waitFor({ timeout: STEP_TIMEOUT });
+    await coverageScreen().waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".guided .coverage-intro").filter({ hasText: COVERAGE_INTRO_UNLICENSED }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertCoverage({ gaps: 4, link: null, bracket: false });
+    if ((await page.getByText(/full version/).count()) !== 0) throw new Error("What I watch never points at the full version");
+    await assertRecorded(page, "watch_set_profile", false);
+  });
+  // Settings with a licence: the link sits under the Watch section, after the not-antivirus sentence, and lands on the title.
+  await visit({ name: "settings-watch-coverage-link" }, async () => {
+    await goto(`${G}&guided=0`);
+    await nav(page, "Settings");
+    await heading(page, "Settings");
+    const section = page.locator("section[aria-labelledby='watch-heading']");
+    const coverageLink = section.locator("button.guided-link").filter({ hasText: COVERAGE_TITLE });
+    await coverageLink.waitFor({ timeout: STEP_TIMEOUT });
+    if ((await section.locator("button.guided-link").count()) !== 1) throw new Error("the Watch section holds one link");
+    const sentence = await section.getByText(NOT_ANTIVIRUS, { exact: true }).boundingBox();
+    const linkBox = await coverageLink.boundingBox();
+    if (sentence === null || linkBox === null || linkBox.y < sentence.y + sentence.height) throw new Error("the link sits after the not-antivirus sentence");
+    await coverageLink.click();
+    await page.locator(".guided-strip-title").filter({ hasText: COVERAGE_TITLE }).waitFor({ timeout: STEP_TIMEOUT });
+    await coverageScreen().waitFor({ timeout: STEP_TIMEOUT });
     await assertNoUrlRecorded(page);
   });
 
@@ -2393,11 +2542,11 @@ export async function walkChat(page: Page, baseUrl: string, visit: Visit): Promi
 
   await visit({ name: "chat-opening" }, async () => {
     await opening(C);
-    // The dev machine has a critical step, so the opening is the urgent variant: the line, the urgent card live, three chips.
+    // The dev machine has a critical step, so the opening is the urgent variant: the line, the urgent card live, four chips (DESIGN-AGENT 2j adds "Write this up").
     await page.locator(".chat-headline").filter({ hasText: /I found \d+ things to fix\./ }).waitFor({ timeout: STEP_TIMEOUT });
     await page.locator(".chat .guided-urgent").filter({ hasText: "One of these is urgent." }).waitFor({ timeout: STEP_TIMEOUT });
     if ((await page.locator(".guided-model").count()) !== 0) throw new Error("the opening draws a model block with no brief on disk");
-    if ((await page.locator("button.chat-chip").count()) !== 3) throw new Error(`expected three chips on the urgent opening, found ${await page.locator("button.chat-chip").count()}`);
+    if ((await page.locator("button.chat-chip").count()) !== 4) throw new Error(`expected four chips on the urgent opening, found ${await page.locator("button.chat-chip").count()}`);
     if ((await page.locator("button.chat-chip").filter({ hasText: "What is urgent?" }).count()) !== 0) throw new Error("the urgent opening still offers the urgent chip");
     if ((await composer(page).getAttribute("placeholder")) !== CHAT_PLACEHOLDER) throw new Error("the composer placeholder is wrong");
     const strip = page.locator(".guided-strip .guided-strip-link");
@@ -2559,7 +2708,7 @@ export async function walkChat(page: Page, baseUrl: string, visit: Visit): Promi
     await opening(`reset=1&fixture=hardened&fail=001&onboarded=1&delay=0&provider=chatgpt&ai=available&memory=${stored}`);
     await card(page).locator(".guided-link").first().click();
     await page.locator(".chat-headline").filter({ hasText: /Your Mac is safer than it was\.|Your Mac is in good shape\.|Nothing left for me to do\./ }).waitFor({ timeout: STEP_TIMEOUT });
-    if ((await page.locator("button.chat-chip").count()) !== 2) throw new Error("the end message offers two chips");
+    if ((await page.locator("button.chat-chip").count()) !== 3) throw new Error("the end message offers three chips (DESIGN-AGENT 2j adds \"Write this up\")");
     await assertChatScreen(page, { primaries: 0, calls: 0 });
   });
   await visit({ name: "chat-model-waiting", volatile: true }, async () => {
@@ -2720,5 +2869,138 @@ export async function walkChat(page: Page, baseUrl: string, visit: Visit): Promi
     await card(page, "watch").getByRole("button", { name: "Check now" }).click();
     await page.locator('.chat-activity-row[data-state="running"]').filter({ hasText: "Checking your Mac" }).waitFor({ timeout: STEP_TIMEOUT });
     await assertChatScreen(page, { primaries: 0, calls: 1 });
+  });
+
+  /* AGENT part B region (docs/DESIGN-AGENT.md section 6): reminders, the write-up, the what-if, the walk's checklist, the gated lines. */
+  const DISK_HEADLINE = "Your disk is not locked";
+  const FIREWALL_HEADLINE = "The firewall is off";
+  const reminders = async (): Promise<Record<string, string>> => {
+    const stored = await page.evaluate(() => localStorage.getItem("talos.guided"));
+    return (JSON.parse(stored ?? "{}") as { reminders?: Record<string, string> }).reminders ?? {};
+  };
+  await visit({ name: "chat-opening-reminder" }, async () => {
+    // A due reminder: one lead line before the plan sentence and the reminded step's card live, ahead of the critical disk.
+    await opening(`${C}&remind=due`);
+    await page.locator(".chat-app-lead").filter({ hasText: `You asked me to bring this up today: ${FIREWALL_HEADLINE}.` }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator(".chat-app-lead").count()) !== 1) throw new Error("the reminder lead is drawn more than once");
+    const live = page.locator('.chat-card[data-live="true"] .chat-headline');
+    if ((await live.textContent())?.trim() !== FIREWALL_HEADLINE) throw new Error(`the reminded card is not live: ${await live.textContent()}`);
+    if (Object.keys(await reminders()).length !== 0) throw new Error("the due reminder was not cleared at landing");
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-remind-tomorrow" }, async () => {
+    // Do this later, then the chip: the reminder line, talos.guided gains the date, no call.
+    await opening(C);
+    await card(page).locator(".guided-link").first().click();
+    await chip(page, "Ask me again tomorrow");
+    await page.locator('.chat-app[data-label="remind"]').filter({ hasText: `OK. I'll bring this up tomorrow when you open me: ${DISK_HEADLINE}.` }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await reminders())["TL-MAC-001"] === undefined) throw new Error("talos.guided has no reminder for the disk");
+    // The only card was declined and nothing else is live, so no primary is on screen.
+    await assertChatScreen(page, { primaries: 0, calls: 0 });
+  });
+  await visit({ name: "chat-remind-sunday" }, async () => {
+    await opening(C);
+    await sendText(page, "remind me on Sunday");
+    await page.locator('.chat-app[data-label="remind"]').filter({ hasText: `OK. I'll bring this up on Sunday when you open me: ${DISK_HEADLINE}.` }).waitFor({ timeout: STEP_TIMEOUT });
+    const until = (await reminders())["TL-MAC-001"];
+    if (until === undefined || new Date(until).getDay() !== 0) throw new Error(`the Sunday reminder is not on a Sunday: ${until}`);
+    await assertChatScreen(page, { primaries: 0, calls: 0 });
+  });
+  await visit({ name: "chat-whatif" }, async () => {
+    // Zero calls: the why line, the cost line, the step's card and "Leave it alone" in the chips; no third line on a high rule.
+    await opening(C);
+    await sendText(page, "what if I leave the firewall alone?");
+    const body = page.locator('.chat-app[data-label="what_if"] .chat-app-body');
+    await body.waitFor({ timeout: STEP_TIMEOUT });
+    const lines = ((await body.textContent()) ?? "").split("\n");
+    if (lines.length !== 2 || !lines[1]!.startsWith("Leaving it keeps ") || !lines[1]!.endsWith(" off your score.")) throw new Error(`the what-if answer is not why then cost: ${JSON.stringify(lines)}`);
+    await page.locator("button.chat-chip").filter({ hasText: /^Leave it alone$/ }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-whatif-critical" }, async () => {
+    await opening(C);
+    await sendText(page, "what if I leave the disk alone?");
+    const body = page.locator('.chat-app[data-label="what_if"] .chat-app-body');
+    await body.waitFor({ timeout: STEP_TIMEOUT });
+    const lines = ((await body.textContent()) ?? "").split("\n");
+    if (lines.length !== 3 || lines[2] !== "This is the one that would hurt most.") throw new Error(`the critical what-if lacks its third line: ${JSON.stringify(lines)}`);
+    if ((await page.locator('.chat-card[data-live="true"] .chat-headline').textContent())?.trim() !== DISK_HEADLINE) throw new Error("the disk's card is not live under the what-if");
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-writeup" }, async () => {
+    // Authored text: no path, no "Where:", one primary ("Copy it"), no link.
+    await opening(C);
+    await chip(page, "Write this up");
+    const pre = page.locator("pre.chat-writeup");
+    await pre.waitFor({ timeout: STEP_TIMEOUT });
+    const text = (await pre.textContent()) ?? "";
+    if (text.includes("/") || text.includes("Where:") || text.includes("TL-MAC-")) throw new Error("the write-up carries a path, a Where: line or a rule id");
+    if (!text.startsWith("Talos Labs check-up, ")) throw new Error(`the write-up does not start with its title: ${text.slice(0, 40)}`);
+    if ((await card(page, "write_up").locator(".guided-link").count()) !== 0) throw new Error("the write-up card draws a link");
+    await assertChatScreen(page, { primaries: 1, calls: 0 });
+  });
+  await visit({ name: "chat-do-them-all-list", volatile: true }, async () => {
+    // The checklist: the progress line, the live row and the next two, "and N more"; the batch runs under it with no primary.
+    await opening(`${C_LICENSED}&fix_delay=60000`, { paced: true });
+    await chip(page, "Do them all");
+    await page.locator(".chat-walk-progress").filter({ hasText: /^0 of \d+ done$/ }).waitFor({ timeout: STEP_TIMEOUT });
+    // The live batch's rows run, then the next two steps; the rest is a count.
+    if ((await page.locator("button.chat-walk-row").count()) !== 2) throw new Error(`expected two pending checklist rows, found ${await page.locator("button.chat-walk-row").count()}`);
+    if ((await page.locator(".chat-walk > li.guided-row-running").count()) === 0) throw new Error("no running checklist row");
+    await page.locator(".chat-walk-more").filter({ hasText: /^and \d+ more$/ }).waitFor({ timeout: STEP_TIMEOUT });
+    await card(page, "batch").locator(".button-primary").click();
+    await page.locator('.chat-activity-row[data-state="running"]').first().waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { primaries: 0, calls: 0 });
+  });
+  await visit({ name: "chat-do-them-all-promoted" }, async () => {
+    // A tapped pending row steps up as the live card out of order.
+    await opening(C_LICENSED);
+    await chip(page, "Do them all");
+    const row = page.locator("button.chat-walk-row").last();
+    await row.waitFor({ timeout: STEP_TIMEOUT });
+    const text = ((await row.textContent()) ?? "").trim();
+    await row.click();
+    await page.locator('.chat-card[data-live="true"] .chat-headline').filter({ hasText: text }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator(".chat-walk > li.guided-row-running").count()) !== 1) throw new Error("the promoted row is not the one running row");
+    await assertChatScreen(page, { primaries: 1, calls: 0 });
+  });
+  await visit({ name: "chat-do-them-all-reduced" }, async () => {
+    await opening(C_LICENSED, { reducedMotion: true });
+    await chip(page, "Do them all");
+    await page.locator(".chat-walk > li.guided-row-running .guided-row-spinner").first().waitFor({ timeout: STEP_TIMEOUT });
+    const animation = await page.locator(".chat-walk .guided-row-spinner").first().evaluate((el) => getComputedStyle(el).animationName);
+    if (animation !== "none") throw new Error(`the checklist spinner animates under reduced motion: ${animation}`);
+    await assertChatScreen(page, { primaries: 1, calls: 0 });
+  });
+  await visit({ name: "chat-look-into-gated" }, async () => {
+    // The port does not exist yet: the honest line, no call, no card.
+    await opening(C_LICENSED);
+    await sendText(page, "look into this");
+    await page.locator(".chat-notice").filter({ hasText: "I can't look closer from here yet. I'll keep checking on my usual timer." }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-closer-gated" }, async () => {
+    await opening(C_LICENSED);
+    await sendText(page, "watch closer for an hour");
+    await page.locator(".chat-notice").filter({ hasText: "I can't change how often I check from here yet. You can set it in Settings." }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-model-remind" }, async () => {
+    // The model names remind_rule: the reminder answer lands after the block, one call.
+    await opening(`${C}&chat_reply=remind`);
+    await sendText(page, "Could you bring this up another time?");
+    await modelReady(page);
+    await page.locator('.chat-app[data-label="remind"]').waitFor({ timeout: STEP_TIMEOUT });
+    if (Object.keys(await reminders()).length === 0) throw new Error("the model's reminder wrote nothing");
+    await assertChatScreen(page, { calls: 1 });
+  });
+  await visit({ name: "chat-model-investigate-dropped" }, async () => {
+    // The model names investigate while its port is gated: the reply lands, the validator drops the intent, no card, one call.
+    await opening(`${C_LICENSED}&chat_reply=investigate`);
+    await sendText(page, "Could you take a closer look at that area?");
+    await modelReady(page);
+    if ((await page.locator(".chat-card").count()) !== 1) throw new Error("a card landed from a dropped investigate intent");
+    if ((await page.locator(".chat-notice").count()) !== 0) throw new Error("a notice landed from a dropped investigate intent");
+    await assertChatScreen(page, { calls: 1 });
   });
 }

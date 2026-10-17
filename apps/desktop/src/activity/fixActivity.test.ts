@@ -121,7 +121,11 @@ describe("fixEvents, batch", () => {
       error: null,
     };
     const seen = walk([batch("waiting_for_password"), batch("running", { step: 1, of: 1, item: 3 }), batch("failed", { step: 4, item: 3, error: null, outcome })]);
-    expect(seen[3]).toEqual(["Getting ready · done", "Fixing 3 things · did not change", "Locking it sooner · done", "Checking it worked · done"]);
+    // Two of the three admin items changed, so the block reads done; the result rows under "2 of 3 fixed." carry the failure.
+    expect(seen[3]).toEqual(["Getting ready · done", "Fixing 3 things · done", "Locking it sooner · done", "Checking it worked · done"]);
+    const allFailed = { ...outcome, items: outcome.items.map((o) => (o.ruleId === "TL-MAC-013" ? o : { ...o, status: "failed" as const, error: "command_failed" as const, step: 0 })) };
+    const none = walk([batch("waiting_for_password"), batch("running", { step: 1, of: 1, item: 3 }), batch("failed", { step: 4, item: 3, error: null, outcome: allFailed })]);
+    expect(none[3]?.[1]).toBe("Fixing 3 things · did not change");
   });
 
   it("a user-only batch keeps the preparing row working until the first item reports", () => {

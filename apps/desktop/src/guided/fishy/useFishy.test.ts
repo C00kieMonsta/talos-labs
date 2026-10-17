@@ -7,7 +7,7 @@ import { DEFAULT_SETTINGS } from "../../settings";
 import type { WatchController } from "../../watch/watch-controller";
 import { INERT_WATCH } from "../../watch/watch-controller";
 import { EMPTY_WATCH_MEMORY } from "@talos/core";
-import { choiceFor, detailsItemFor, stagesFor, stopActionFor, useFishy } from "./useFishy";
+import { NO_DISCONNECT_KINDS, choiceFor, detailsItemFor, isGatedKind, stagesFor, stopActionFor, useFishy } from "./useFishy";
 
 afterEach(cleanup);
 
@@ -123,6 +123,21 @@ describe("stagesFor and the choice helpers", () => {
     expect(stagesFor({ ...ITEM, kind: "remote", signalId: "sig.remote_access_on", gated: true, hasStartupEntry: false })).toEqual(["gate", "noticed", "disconnect", "experts", "recover"]);
     // A gated flag on a kind that has no gate sentence shows no gate.
     expect(stagesFor({ ...ITEM, gated: true, hasStartupEntry: false })).toEqual(["noticed", "disconnect", "eradicate", "experts", "recover"]);
+  });
+
+  it("the three new kinds: exposure is gated and skips the disconnect screen; app and shell take the four plain screens", () => {
+    const exposure: WatchItem = { ...ITEM, kind: "exposure", signalId: "sig.internet_sharing_on", hasStartupEntry: false, gated: true };
+    expect(stagesFor(exposure)).toEqual(["gate", "noticed", "experts", "recover"]);
+    expect(stagesFor({ ...exposure, gated: false })).toEqual(["noticed", "experts", "recover"]);
+    expect(stagesFor({ ...exposure, gated: false, signalId: "sig.airdrop_everyone" })).toEqual(["noticed", "experts", "recover"]);
+    expect(stagesFor({ ...ITEM, kind: "app", signalId: "sig.app_new_unsigned", hasStartupEntry: false })).toEqual(["noticed", "disconnect", "experts", "recover"]);
+    expect(stagesFor({ ...ITEM, kind: "shell", signalId: "sig.shell_startup_changed", hasStartupEntry: false })).toEqual(["noticed", "disconnect", "experts", "recover"]);
+    // A gated flag on app or shell shows no gate: neither has a gate sentence.
+    expect(stagesFor({ ...ITEM, kind: "app", signalId: "sig.app_new_unsigned", hasStartupEntry: false, gated: true })).toEqual(["noticed", "disconnect", "experts", "recover"]);
+    expect(NO_DISCONNECT_KINDS).toEqual(["exposure"]);
+    expect(isGatedKind("exposure")).toBe(true);
+    expect(isGatedKind("app")).toBe(false);
+    expect(isGatedKind("shell")).toBe(false);
   });
 
   it("leaves out a screen whose row was declined with Not now in the last 14 days, and brings it back after", () => {
@@ -382,6 +397,24 @@ describe("useFishy", () => {
     const none = setup({ port: { details: vi.fn(async () => ({ items: [], wifiAvailable: true })) } });
     act(() => none.hook.result.current.open(GUIDED));
     await waitFor(() => expect(none.hook.result.current.details).not.toBeNull());
+    act(() => none.hook.result.current.reveal());
+    expect(none.adapters.fixes.reveal).not.toHaveBeenCalled();
+  });
+
+  it("reveal uses 035 with the file choice for an app bundle row, and nothing for a changed shell file", async () => {
+    const app: WatchItem = { ...ITEM, kind: "app", signalId: "sig.app_new_unsigned", hasStartupEntry: false };
+    const bundle: WatchDetails = { items: [{ signalId: "sig.app_new_unsigned", label: "Helper.app", programPath: "/Applications/Helper.app", signature: "unsigned" }], wifiAvailable: true };
+    const { hook, adapters } = setup({ items: [app], port: { details: vi.fn(async () => bundle) } });
+    act(() => hook.result.current.open(GUIDED));
+    await waitFor(() => expect(hook.result.current.details).toEqual(bundle));
+    act(() => hook.result.current.reveal());
+    expect(adapters.fixes.reveal).toHaveBeenCalledWith("TL-MAC-035", { kind: "file", path: "/Applications/Helper.app" });
+    cleanup();
+    const shell: WatchItem = { ...ITEM, kind: "shell", signalId: "sig.shell_startup_changed", hasStartupEntry: false };
+    const file: WatchDetails = { items: [{ signalId: "sig.shell_startup_changed", filePath: "/Users/me/.zshrc" }], wifiAvailable: true };
+    const none = setup({ items: [shell], port: { details: vi.fn(async () => file) } });
+    act(() => none.hook.result.current.open(GUIDED));
+    await waitFor(() => expect(none.hook.result.current.details).toEqual(file));
     act(() => none.hook.result.current.reveal());
     expect(none.adapters.fixes.reveal).not.toHaveBeenCalled();
   });

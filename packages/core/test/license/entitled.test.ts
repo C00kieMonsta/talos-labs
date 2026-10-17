@@ -54,6 +54,18 @@ describe("freeFixRuleIds", () => {
     expect(freeFixRuleIds(evaluate(HARDENED, MACOS_CATALOG, ctxFor(HARDENED)))).toEqual([]);
   });
 
+  it("a failing left-alone rule never takes a free slot; a failing 032 behaves as any medium rule", () => {
+    const base = evaluate(HARDENED, MACOS_CATALOG, ctxFor(HARDENED));
+    const withFails = (ids: readonly string[], points: number) => ({
+      ...base,
+      findings: ids.map((ruleId) => ({ ...base.findings[0], ruleId: ruleId as never, status: "fail" as const, points, title: "", headline: "", severity: "medium" as const, category: "platform" as const, cis: null, requires: [], evidence: [], unknownReason: null, explanation: "", fix: MACOS_CATALOG.rules[0]!.fix, guided: MACOS_CATALOG.rules[0]!.guided })),
+    });
+    // 035 and 036 fail with the most points of all and still take no slot; 032 takes one as any medium rule would.
+    expect(freeFixRuleIds(withFails(["TL-MAC-035", "TL-MAC-036", "TL-MAC-032", "TL-MAC-003"], 4))).toEqual(["TL-MAC-032", "TL-MAC-003"]);
+    expect(freeFixRuleIds(withFails(["TL-MAC-035", "TL-MAC-036"], 4))).toEqual([]);
+    expect(freeFixRuleIds(withFails(["TL-MAC-032", "TL-MAC-034", "TL-MAC-003", "TL-MAC-011"], 4))).toEqual(["TL-MAC-032", "TL-MAC-034", "TL-MAC-003"]);
+  });
+
   it("never lists unknown findings and never exceeds three failing ids", () => {
     const report = evaluate(DEV_MACHINE, MACOS_CATALOG, ctxFor(DEV_MACHINE));
     const free = freeFixRuleIds(report);

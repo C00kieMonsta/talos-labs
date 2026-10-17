@@ -1,4 +1,4 @@
-//! "Reveal in Finder" for 023, 024 and 031. The chosen path must come from a fresh listing of our own.
+//! "Reveal in Finder" for 023, 024, 031 and 035. The chosen path must come from a fresh listing of our own.
 
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -10,6 +10,8 @@ use super::{FixChoice, FixError};
 pub const PLIST_RULES: [&str; 2] = ["TL-MAC-023", "TL-MAC-024"];
 /// Rules that reveal a file from the dotfile scan.
 pub const FILE_RULES: [&str; 1] = ["TL-MAC-031"];
+/// Rules that reveal an app bundle from the apps listing.
+pub const BUNDLE_RULES: [&str; 1] = ["TL-MAC-035"];
 
 /// Picks the path out of `candidates` that equals the choice exactly.
 pub fn match_path(chosen: &str, candidates: &[String]) -> Result<PathBuf, FixError> {
@@ -46,6 +48,16 @@ fn fresh_hits() -> Vec<String> {
     paths
 }
 
+#[cfg(target_os = "macos")]
+fn fresh_bundles() -> Vec<String> {
+    crate::collect::macos::apps::fresh_bundles()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn fresh_bundles() -> Vec<String> {
+    Vec::new()
+}
+
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn fresh_plists() -> Vec<String> {
     let _ = AtomicBool::new(false);
@@ -64,9 +76,15 @@ pub fn resolve(rule: &str, choice: &FixChoice) -> Result<PathBuf, FixError> {
             match_path(path, &fresh_plists())
         }
         FixChoice::File { path } if FILE_RULES.contains(&rule) => match_path(path, &fresh_hits()),
+        FixChoice::File { path } if BUNDLE_RULES.contains(&rule) => {
+            match_path(path, &fresh_bundles())
+        }
         FixChoice::Plist { .. } | FixChoice::File { .. } => Err(FixError::InvalidChoice),
         FixChoice::None | FixChoice::Share { .. } | FixChoice::SshKey { .. } => {
-            if PLIST_RULES.contains(&rule) || FILE_RULES.contains(&rule) {
+            if PLIST_RULES.contains(&rule)
+                || FILE_RULES.contains(&rule)
+                || BUNDLE_RULES.contains(&rule)
+            {
                 Err(FixError::InvalidChoice)
             } else {
                 Err(FixError::NotInCatalog)

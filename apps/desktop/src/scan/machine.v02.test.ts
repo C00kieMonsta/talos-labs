@@ -10,7 +10,6 @@ const REPORT = evaluate(DEV_MACHINE, MACOS_CATALOG, { now: NOW, os: "macos" });
 const FIXED_STATE = replaceSection(DEV_MACHINE, "firewall", HARDENED.sections.firewall);
 const FIXED = evaluate(FIXED_STATE, MACOS_CATALOG, { now: NOW, os: "macos" });
 const EXPLANATION: Explanation = { ruleId: "TL-MAC-001", whyItMattersForYou: "why", whatCouldHappen: "what", urgency: "today" };
-const EMPTY = { byRule: {}, order: null, priority: null };
 
 function presenting(previous: ScanState = initialScanState): ScanState {
   let s = reduce(previous, { type: "scan_started", startedAt: NOW });
@@ -141,18 +140,6 @@ describe("explain streaming", () => {
     const off = reduce(reduce(ready(), { type: "explain_started", target: "prioritise" }), { type: "explain_cancelled" });
     expect(off.kind === "ready" && off.explain).toEqual({ kind: "off" });
     expect(reduce(ready(), { type: "explain_cancelled" })).toEqual(ready());
-  });
-
-  it("ask_partial and ask_done act only on a running ask", () => {
-    const other = reduce(ready(), { type: "explain_started", target: "prioritise" });
-    expect(reduce(other, { type: "ask_partial", answerPartial: "x" })).toBe(other);
-    expect(reduce(other, { type: "ask_done" })).toBe(other);
-    let s = reduce(ready(), { type: "explain_started", target: "ask" });
-    expect(s.kind === "ready" && s.explain).toEqual({ kind: "running", target: "ask", partial: null, answerPartial: null, from: EMPTY });
-    s = reduce(s, { type: "ask_partial", answerPartial: "Start with" });
-    expect(s.kind === "ready" && s.explain.kind === "running" && s.explain.answerPartial).toBe("Start with");
-    s = reduce(s, { type: "ask_done" });
-    expect(s.kind === "ready" && s.explain).toEqual({ kind: "off" });
   });
 
   it("explain_ready keeps the prioritisation next to the order", () => {

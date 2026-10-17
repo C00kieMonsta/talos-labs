@@ -1,6 +1,7 @@
 //! macOS collectors. Each module has `collect() -> Section<T>` and pure `parse_*` functions.
 
 pub mod accounts;
+pub mod apps;
 pub mod backup;
 pub mod browsers;
 pub mod defaults;

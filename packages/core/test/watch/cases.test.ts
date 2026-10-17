@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { WATCH_INSTRUCTIONS_BLOCK, watchRequestBody } from "../../src/explainer/remote";
 import { WATCH_REASON_RULES, buildOnDeviceWatchInstructions, buildWatchJudgeInstructions } from "../../src/explainer/watch-prompt";
 import { toWatchContext } from "../../src/explainer/watch-context";
-import { FISHY_KINDS, SIGNAL_IDS } from "../../src/ports/watch-port";
+import { FISHY_KINDS, SIGNAL_IDS, WATCH_LIMITS } from "../../src/ports/watch-port";
 import { WATCH_CASES, WATCH_HEADLINES, WATCH_NOTIFY_TAIL, watchCasesJson } from "../../src/watch/cases";
 import { applyHysteresis, boundsFor, rateWatch, topItems } from "../../src/watch/rate";
 import { validateWatchVerdict } from "../../src/watch/validate";
@@ -16,7 +16,7 @@ describe("packages/core/fixtures/watch-cases.json", () => {
   it("equals watchCasesJson() (run pnpm fixtures:emit otherwise)", () => {
     const text = readFileSync(join(DIR, "watch-cases.json"), "utf8");
     expect(text).toBe(watchCasesJson());
-    expect(Object.keys(JSON.parse(text) as object)).toEqual(["signalSeverity", "signalKind", "gated", "standAlone", "pairSet", "headlines", "notifyTail", "statusWords", "rate", "validate", "contexts", "chatgptBody", "bannedWords", "windowSentences", "heights", "reportRows"]);
+    expect(Object.keys(JSON.parse(text) as object)).toEqual(["signalSeverity", "signalKind", "badDirection", "gated", "standAlone", "pairSet", "headlines", "notifyTail", "statusWords", "rate", "validate", "contexts", "chatgptBody", "bannedWords", "windowSentences", "heights", "reportRows"]);
   });
 
   it("the two instruction texts equal the builders, with the reason rules before the vocabulary block", () => {
@@ -34,7 +34,19 @@ describe("packages/core/fixtures/watch-cases.json", () => {
 
   it("carries the tables, one headline per kind and the notification tail", () => {
     expect(Object.keys(WATCH_CASES.signalSeverity)).toEqual([...SIGNAL_IDS]);
+    expect(Object.keys(WATCH_CASES.signalKind)).toEqual([...SIGNAL_IDS]);
+    expect(Object.keys(WATCH_CASES.badDirection)).toEqual([...SIGNAL_IDS]);
+    expect(SIGNAL_IDS).toHaveLength(67);
+    expect(WATCH_CASES.gated).toHaveLength(7);
+    expect(WATCH_CASES.standAlone).toHaveLength(8);
+    expect(WATCH_CASES.pairSet).toHaveLength(18);
+    expect(FISHY_KINDS).toHaveLength(10);
+    expect(WATCH_CASES.badDirection["sig.shell_startup_changed"]).toBe("any");
+    expect(WATCH_CASES.badDirection["sig.app_set"]).toBeNull();
     expect(Object.keys(WATCH_CASES.headlines)).toEqual([...FISHY_KINDS]);
+    expect(WATCH_HEADLINES.app).toBe("A new app skipped the usual safety checks");
+    expect(WATCH_HEADLINES.shell).toBe("A hidden file that runs at start-up changed");
+    expect(WATCH_HEADLINES.exposure).toBe("Your Mac is sharing more than before");
     expect(WATCH_CASES.headlines).toBe(WATCH_HEADLINES);
     expect(WATCH_CASES.notifyTail).toBe(WATCH_NOTIFY_TAIL);
     expect(WATCH_NOTIFY_TAIL).toBe("Open me to see what experts suggest.");
@@ -62,6 +74,11 @@ describe("every case is reproducible from the functions it pins", () => {
   it("contexts: toWatchContext over the input equals the expected context", () => {
     expect(WATCH_CASES.contexts.length).toBeGreaterThanOrEqual(4);
     for (const c of WATCH_CASES.contexts) expect(toWatchContext(c.input), c.name).toEqual(c.expected);
+    const full = WATCH_CASES.contexts.find((c) => c.name.startsWith("67 signals"));
+    expect(full?.expected.signals).toHaveLength(67);
+    expect(full?.expected.rules).toHaveLength(64);
+    expect(full?.expected.recent).toHaveLength(20);
+    expect(JSON.stringify(full?.expected).length).toBeLessThanOrEqual(WATCH_LIMITS.maxContextChars);
     const hundred = WATCH_CASES.contexts.find((c) => c.name.startsWith("100 report rows"));
     expect(hundred?.input.report?.results.length).toBe(110);
     expect(hundred?.expected.rules).toHaveLength(64);

@@ -22,7 +22,8 @@ export type PlaybookSource =
   | "A-PS-ACCT"
   | "A-PS-LDM"
   | "A-LDM"
-  | "A-LOGIN";
+  | "A-LOGIN"
+  | "CIS";
 
 export type PlaybookKind =
   | { readonly kind: "fix"; readonly spec: RuleId | WatchActionId }
@@ -69,6 +70,7 @@ export const PLAYBOOK_URLS: Readonly<Record<PlaybookSource, string>> = {
   "A-PS-LDM": "https://support.apple.com/guide/personal-safety/harden-your-devices-with-lockdown-mode-ipsd5baf79d0/web",
   "A-LDM": "https://support.apple.com/en-us/105120",
   "A-LOGIN": "https://support.apple.com/guide/mac-help/change-login-items-extensions-settings-mtusr003/mac",
+  CIS: "https://www.cisecurity.org/benchmark/apple_os",
 };
 
 /** Every signal that can put the watch into act now. */
@@ -84,7 +86,11 @@ const PERSISTENCE: readonly SignalId[] = [
   "sig.cron_lines",
   "sig.at_jobs",
   "sig.legacy_startup_count",
+  "sig.launch_label_masquerade",
+  "sig.launch_label_masquerade_unsigned",
 ];
+
+const APPS: readonly SignalId[] = ["sig.app_set", "sig.app_new_unquarantined", "sig.app_new_unsigned", "sig.library_apps_count"];
 
 const REMOTE: readonly SignalId[] = ["sig.remote_access_on", "sig.authorized_keys_changed", "sig.sshd_config_changed", "sig.remote_logins"];
 
@@ -105,7 +111,7 @@ function row(
   return { id, source, step, url: PLAYBOOK_URLS[source], kind, floor, triggers, title, whatExpertsDo, phase, outcome };
 }
 
-/** The 24 rows in section 4 order. */
+/** The 26 rows in section 4 order, then the two CIS rows of DESIGN-THREATS-V2 section 6. */
 export const PLAYBOOK: readonly PlaybookAction[] = [
   row("act.disconnect_network", "C-SR", "CISA #StopRansomware v3.0, Part 2, step 1", { kind: "fix", spec: "watch.wifi_off" }, "act_now", ALARM, "Cut it off from the internet", "Experts cut the machine off from the network first, before anything else.", "containment", "RS.MI-01"),
   row("act.block_incoming", "C-SR", "CISA #StopRansomware v3.0, Part 2, step 1", { kind: "fix", spec: "watch.block_incoming" }, "act_now", ALARM, "Block incoming connections", "When the cable cannot be pulled, experts stop what the machine accepts from the network.", "containment", "RS.MI-01"),
@@ -113,7 +119,7 @@ export const PLAYBOOK: readonly PlaybookAction[] = [
   row("act.note_what_you_saw", "N2", "NIST SP 800-61 (2012 edition), section 3.3.2", { kind: "advise" }, "keep_an_eye", ALARM, "Write down what you saw", "Experts note what they saw and when, and delete nothing.", "containment", "RS.AN-07"),
   row("act.do_not_wait", "N2", "NIST SP 800-61 (2012 edition), section 3.3.1", { kind: "advise" }, "act_now", ALARM, "Do not wait", "Experts say a delay lets an attacker go further.", "containment", "RS.MI-01"),
   row("act.stop_background_program", "C-SR", "CISA #StopRansomware v3.0, Part 2, step 11", { kind: "fix", spec: "watch.stop_user_agent" }, "act_now", ["sig.persistence_set", "sig.persistence_new", "sig.persistence_unsigned", "sig.persistence_in_temp_or_hidden", "sig.listener_new_ports"], "Stop the program", "Experts stop the program from running and keep the file for a closer look.", "eradication", "RS.MI-01"),
-  row("act.review_background_programs", "N3", "NIST SP 800-61 (2025), RS.MI-02", { kind: "pane", pane: "login_items" }, "keep_an_eye", PERSISTENCE, "Keep it from starting again", "Experts remove the entry that starts the program, then check the list again.", "eradication", "RS.MI-02"),
+  row("act.review_background_programs", "N3", "NIST SP 800-61 (2025), RS.MI-02", { kind: "pane", pane: "login_items" }, "keep_an_eye", [...PERSISTENCE, ...APPS], "Keep it from starting again", "Experts remove the entry that starts the program, then check the list again.", "eradication", "RS.MI-02"),
   row("act.turn_off_remote_access", "C-SR", "CISA #StopRansomware v3.0, Part 2, step 13", { kind: "fix", spec: "TL-MAC-019" }, "keep_an_eye", REMOTE, "Turn off remote access", "Experts close the ways in from outside before cleaning up.", "containment", "RS.MI-02"),
   row("act.stop_guest_sharing", "N3", "NIST SP 800-61 (2025), RS.MI-02", { kind: "fix", spec: "TL-MAC-022" }, "keep_an_eye", ["sig.guest_share", "sig.share_count"], "Stop guest sharing", "Experts close shared folders that anyone can reach.", "eradication", "RS.MI-02"),
   row("act.turn_on_firewall", "N2", "NIST SP 800-61 (2012 edition), section 3.3.4", { kind: "fix", spec: "TL-MAC-002" }, "keep_an_eye", ["sig.firewall"], "Turn the firewall on", "Experts tighten what the machine accepts from the network.", "recovery", "RC"),
@@ -130,7 +136,9 @@ export const PLAYBOOK: readonly PlaybookAction[] = [
   row("act.reconnect_and_watch", "N2", "NIST SP 800-61 (2012 edition), section 3.3.4", { kind: "fix", spec: "watch.wifi_on" }, "keep_an_eye", ALARM, "Turn Wi-Fi back on", "Experts plug back in and watch the machine more closely for a while.", "recovery", "RC.RP-04"),
   row("act.lessons_learned", "N2", "NIST SP 800-61 (2012 edition), section 3.4.1", { kind: "advise" }, "keep_an_eye", ALARM, "Look back at what happened", "Experts look back within two weeks at what to watch for next time.", "lessons learned", "ID.IM"),
   row("act.run_full_checkup", "N3", "NIST SP 800-61 (2025), DE.CM-09", { kind: "recheck" }, "keep_an_eye", ALARM, "Run a full check-up", "Experts check the whole machine against what it looked like before.", "identification", "DE.CM-09"),
-  row("act.get_help", "C-TR", "CISA, Recovering from a Trojan Horse or Virus, step 1", { kind: "advise" }, "keep_an_eye", ALARM, "Get help", "Experts call the people whose job it is: Apple Support, a repair shop, or IT.", "identification", "RS.CO-03"),
+  row("act.get_help", "C-TR", "CISA, Recovering from a Trojan Horse or Virus, step 1", { kind: "advise" }, "keep_an_eye", [...ALARM, "sig.path_dir_writable_count", "sig.library_apps_count"], "Get help", "Experts call the people whose job it is: Apple Support, a repair shop, or IT.", "identification", "RS.CO-03"),
+  row("act.limit_airdrop", "CIS", "Apple macOS 26 Benchmark, section 2.3.1.1", { kind: "pane", pane: "airdrop" }, "keep_an_eye", ["sig.airdrop_everyone"], "Limit AirDrop to people you know", "Experts set AirDrop to Contacts Only, so no one nearby can push files to the Mac.", "containment", "RS.MI-02"),
+  row("act.stop_internet_sharing", "CIS", "Apple macOS 26 Benchmark, section 2.3.3.7", { kind: "pane", pane: "sharing" }, "keep_an_eye", ["sig.internet_sharing_on"], "Turn Internet Sharing off", "Experts turn Internet Sharing off unless the Mac is meant to hand out its connection.", "containment", "RS.MI-02"),
 ];
 
 export function playbookRow(id: ActionId): PlaybookAction | undefined {

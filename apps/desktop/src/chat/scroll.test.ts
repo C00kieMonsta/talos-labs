@@ -4,13 +4,16 @@ import { createElement, useRef, useState } from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { STICK_PX, useStickToBottom } from "./scroll";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
-function Log({ reducedMotion = false }: { reducedMotion?: boolean }) {
+function Log({ reducedMotion = false, streaming = false }: { reducedMotion?: boolean; streaming?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const [count, setCount] = useState(1);
   const [forced, setForced] = useState(0);
-  const { pill, scrollToBottom } = useStickToBottom(ref, count, forced, { reducedMotion });
+  const { pill, scrollToBottom } = useStickToBottom(ref, count, forced, { reducedMotion, streaming });
   return createElement(
     "div",
     null,
@@ -54,7 +57,7 @@ describe("useStickToBottom", () => {
     expect(scrollTo).not.toHaveBeenCalled();
     expect(screen.getByText("New messages")).not.toBeNull();
     fireEvent.click(screen.getByText("New messages"));
-    expect(scrollTo).toHaveBeenCalledWith({ top: 1000, behavior: "auto" });
+    expect(scrollTo).toHaveBeenCalledWith({ top: 1000, behavior: "instant" });
     expect(screen.queryByText("New messages")).toBeNull();
     act(() => {
       log.scrollTop = 100;
@@ -67,6 +70,29 @@ describe("useStickToBottom", () => {
     });
     fireEvent.scroll(log);
     expect(screen.queryByText("New messages")).toBeNull();
+  });
+
+  it("a resize of the log keeps a stuck log at the bottom while a turn streams; plain growth waits for the stream", () => {
+    const callbacks: Array<() => void> = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          callbacks.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    render(createElement(Log, { streaming: true }));
+    const log = screen.getByTestId("log");
+    const scrollTo = geometry(log, 600);
+    fireEvent.scroll(log);
+    act(() => callbacks.forEach((callback) => callback()));
+    expect(scrollTo).not.toHaveBeenCalled();
+    Object.defineProperty(log, "clientHeight", { value: 300, configurable: true });
+    act(() => callbacks.forEach((callback) => callback()));
+    expect(scrollTo).toHaveBeenCalledWith({ top: 1000, behavior: "instant" });
   });
 
   it("a forced scroll moves the log whatever the position and draws no pill", () => {

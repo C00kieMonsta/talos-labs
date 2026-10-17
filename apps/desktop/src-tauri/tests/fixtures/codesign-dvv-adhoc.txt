@@ -1,0 +1,9 @@
+Executable=/Applications/Helper.app/Contents/MacOS/Helper
+Identifier=helper-d1d2cce752908cc6
+Format=Mach-O thin (arm64)
+CodeDirectory v=20400 size=492919 flags=0x20002(adhoc,linker-signed) hashes=15400+0 location=embedded
+Signature=adhoc
+Info.plist=not bound
+TeamIdentifier=not set
+Sealed Resources=none
+Internal requirements=none

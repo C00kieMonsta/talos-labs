@@ -17,7 +17,10 @@ export interface FishyDeps {
   readonly now?: () => string;
 }
 
-const GATED_KINDS: readonly FishyKind[] = ["guard", "remote", "admin", "backup"];
+const GATED_KINDS: readonly FishyKind[] = ["guard", "remote", "admin", "backup", "exposure"];
+
+/** Kinds whose flow skips the disconnect screen: a sharing setting is undone in System Settings, not by cutting the network. */
+export const NO_DISCONNECT_KINDS: readonly FishyKind[] = ["exposure"];
 
 export function isGatedKind(kind: FishyKind): kind is GatedKind {
   return GATED_KINDS.includes(kind);
@@ -47,7 +50,8 @@ function stageActions(stage: FishyStage, item: WatchItem | null, wired: boolean)
 export function stagesFor(item: WatchItem | null, memory: Pick<WatchMemory, "actionNotNow"> = EMPTY_WATCH_MEMORY, now: string = new Date().toISOString(), wired = false): readonly FishyStage[] {
   const stages: FishyStage[] = [];
   if (item !== null && item.gated && isGatedKind(item.kind)) stages.push("gate");
-  stages.push("noticed", "disconnect");
+  stages.push("noticed");
+  if (item === null || !NO_DISCONNECT_KINDS.includes(item.kind)) stages.push("disconnect");
   if (item !== null && (item.hasStartupEntry || item.isListener)) stages.push("stop");
   if (item !== null && item.kind === "persistence") stages.push("eradicate");
   stages.push("experts", "recover");
@@ -230,11 +234,18 @@ export function useFishy(deps: FishyDeps): FishyController {
     watch.checkNow();
   }, []);
 
+  // A start-up entry reveals through 023 or 024 by scope; an app bundle (a signature word with its path) through 035.
   const reveal = useCallback(() => {
     const row = detailsItemFor(detailsRef.current, itemRef.current);
-    if (row?.plistPath === undefined) return;
-    const rule = row.scope === "user_agent" || row.scope === undefined ? "TL-MAC-023" : "TL-MAC-024";
-    void depsRef.current.adapters.fixes.reveal(rule, { kind: "plist", path: row.plistPath }).catch(noop);
+    if (row === null) return;
+    if (row.plistPath !== undefined) {
+      const rule = row.scope === "user_agent" || row.scope === undefined ? "TL-MAC-023" : "TL-MAC-024";
+      void depsRef.current.adapters.fixes.reveal(rule, { kind: "plist", path: row.plistPath }).catch(noop);
+      return;
+    }
+    if (row.signature !== undefined && row.programPath !== undefined) {
+      void depsRef.current.adapters.fixes.reveal("TL-MAC-035", { kind: "file", path: row.programPath }).catch(noop);
+    }
   }, []);
 
   const openSource = useCallback((actionId: ActionId) => {

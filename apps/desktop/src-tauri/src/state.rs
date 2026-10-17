@@ -192,11 +192,56 @@ pub struct Firewall {
     pub block_all_incoming: Option<bool>,
 }
 
+/// How a bundle's `codesign` reading reduces: the four `-dvv` authorities, unsigned, or anything
+/// that did not verify (`SignatureWord` in core).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SignatureWord {
+    Apple,
+    AppStore,
+    DeveloperId,
+    Adhoc,
+    Unsigned,
+    Invalid,
+}
+
+/// An app bundle that is `adhoc` or `unsigned` and carries no quarantine flag (TL-MAC-035).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FlaggedBundle {
+    pub path: String,
+    pub name: String,
+    pub signature: SignatureWord,
+    pub quarantined: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppsCheck {
+    /// Every bundle directly under `/Applications` and `~/Applications`.
+    pub bundle_count: u64,
+    /// How many got a signature reading within the check-up's cap and budget.
+    pub checked_count: u64,
+    pub flagged: Vec<FlaggedBundle>,
+}
+
+/// The running session's `DYLD_INSERT_LIBRARIES`, the login hooks and the legacy launchd file (TL-MAC-036).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryInserts {
+    pub dyld_insert_set: bool,
+    pub login_hook_set: bool,
+    pub launchd_conf_present: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlatformIntegrity {
     pub exec_policy_enabled: Option<bool>,
     pub system_protection_enabled: Option<bool>,
+    /// Nested so a failed app scan never hides Gatekeeper or SIP (the `BrowserReport.extensions` precedent).
+    pub apps: Section<AppsCheck>,
+    pub inserts: Section<LibraryInserts>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -292,12 +337,27 @@ pub struct ServiceState {
     pub listening_port: Option<u16>,
 }
 
+/// `defaults read com.apple.sharingd DiscoverableMode`: `Everyone`, `Contacts Only`, `Off`, or unset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AirdropMode {
+    Everyone,
+    ContactsOnly,
+    Off,
+    Unset,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAccess {
     pub ssh: ServiceState,
     pub screen_sharing: ServiceState,
     pub remote_management: Option<ServiceState>,
+    /// The `com.apple.AEServer` row of `launchctl print-disabled system`; absent is off.
+    pub remote_apple_events: Option<ServiceState>,
+    /// `Enabled` under `NAT` in `/Library/Preferences/SystemConfiguration/com.apple.nat`; domain absent is unset.
+    pub internet_sharing: Tri,
+    pub airdrop: AirdropMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -637,6 +697,80 @@ mod tests {
         );
         let back: IdleSeconds = serde_json::from_str("1200").unwrap();
         assert_eq!(back, IdleSeconds::Seconds(1200));
+    }
+
+    #[test]
+    fn the_new_remote_access_and_platform_words_use_the_core_spelling() {
+        for (value, text) in [
+            (AirdropMode::Everyone, "\"everyone\""),
+            (AirdropMode::ContactsOnly, "\"contacts_only\""),
+            (AirdropMode::Off, "\"off\""),
+            (AirdropMode::Unset, "\"unset\""),
+        ] {
+            assert_eq!(serde_json::to_string(&value).unwrap(), text);
+        }
+        for (value, text) in [
+            (SignatureWord::Apple, "\"apple\""),
+            (SignatureWord::AppStore, "\"app_store\""),
+            (SignatureWord::DeveloperId, "\"developer_id\""),
+            (SignatureWord::Adhoc, "\"adhoc\""),
+            (SignatureWord::Unsigned, "\"unsigned\""),
+            (SignatureWord::Invalid, "\"invalid\""),
+        ] {
+            assert_eq!(serde_json::to_string(&value).unwrap(), text);
+            let back: SignatureWord = serde_json::from_str(text).unwrap();
+            assert_eq!(back, value);
+        }
+        let integrity = PlatformIntegrity {
+            exec_policy_enabled: Some(true),
+            system_protection_enabled: Some(true),
+            apps: Section::ok(AppsCheck {
+                bundle_count: 2,
+                checked_count: 1,
+                flagged: vec![FlaggedBundle {
+                    path: "/Applications/X.app".into(),
+                    name: "X.app".into(),
+                    signature: SignatureWord::Unsigned,
+                    quarantined: false,
+                }],
+            }),
+            inserts: Section::unavailable(UnavailableReason::Timeout, Some("bin: launchctl")),
+        };
+        let json = serde_json::to_value(&integrity).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "execPolicyEnabled": true,
+                "systemProtectionEnabled": true,
+                "apps": { "status": "ok", "data": { "bundleCount": 2, "checkedCount": 1, "flagged": [
+                    { "path": "/Applications/X.app", "name": "X.app", "signature": "unsigned", "quarantined": false }
+                ] } },
+                "inserts": { "status": "unavailable", "reason": "timeout", "detail": "bin: launchctl" }
+            })
+        );
+        let back: PlatformIntegrity = serde_json::from_value(json).unwrap();
+        assert_eq!(back, integrity);
+        let remote = RemoteAccess {
+            ssh: ServiceState {
+                service_loaded: Some(false),
+                listening_port: None,
+            },
+            screen_sharing: ServiceState {
+                service_loaded: Some(false),
+                listening_port: None,
+            },
+            remote_management: None,
+            remote_apple_events: Some(ServiceState {
+                service_loaded: Some(false),
+                listening_port: None,
+            }),
+            internet_sharing: Tri::Unset,
+            airdrop: AirdropMode::Everyone,
+        };
+        let json = serde_json::to_value(&remote).unwrap();
+        assert_eq!(json["remoteAppleEvents"]["serviceLoaded"], false);
+        assert_eq!(json["internetSharing"], "unset");
+        assert_eq!(json["airdrop"], "everyone");
     }
 
     #[test]

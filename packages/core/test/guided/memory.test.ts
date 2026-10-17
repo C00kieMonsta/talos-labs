@@ -25,6 +25,7 @@ describe("parseGuidedMemory", () => {
       permissionAskedAt: { full_disk_access: "2026-10-15T10:00:00.000Z" },
       aiAskedAt: "2026-10-14T10:00:00.000Z",
       accepted: { "TL-MAC-001": "2026-10-10T09:00:00.000Z" },
+      reminders: { "TL-MAC-002": "2026-10-18T08:00:00.000Z" },
       aiLastAvailable: { provider: "chatgpt", at: "2026-10-16T09:00:00.000Z" },
       extra: "ignored",
       lastStep: 3,
@@ -46,6 +47,7 @@ describe("parseGuidedMemory", () => {
       permissionAskedAt: { full_disk_access: "2026-10-15T10:00:00.000Z", camera: "2026-10-15T10:00:00.000Z", automation: 3 },
       aiAskedAt: "yesterday",
       accepted: { "TL-MAC-001": "2026-10-10T09:00:00.000Z", "TL-MAC-002": "last week", "/Users/alice": "2026-10-10T09:00:00.000Z" },
+      reminders: { "TL-MAC-002": "2026-10-18T08:00:00.000Z", "TL-MAC-003": "sunday", "~/Library": "2026-10-18T08:00:00.000Z" },
       aiLastAvailable: { provider: "chatgpt", at: "not a date" },
     });
     expect(parsed).toEqual({
@@ -58,8 +60,19 @@ describe("parseGuidedMemory", () => {
       permissionAskedAt: { full_disk_access: "2026-10-15T10:00:00.000Z" },
       aiAskedAt: null,
       accepted: { "TL-MAC-001": "2026-10-10T09:00:00.000Z" },
+      reminders: { "TL-MAC-002": "2026-10-18T08:00:00.000Z" },
       aiLastAvailable: null,
     });
+  });
+
+  it("reminders holds rule ids and dates only, and an older memory loads with an empty map", () => {
+    expect(EMPTY_GUIDED_MEMORY.reminders).toEqual({});
+    expect(parseGuidedMemory({ version: 1 }).reminders).toEqual({});
+    expect(parseGuidedMemory({ version: 1, reminders: { "TL-MAC-002": "2026-10-18T08:00:00.000Z" } }).reminders).toEqual({ "TL-MAC-002": "2026-10-18T08:00:00.000Z" });
+    expect(parseGuidedMemory({ version: 1, reminders: { "/etc/passwd": "2026-10-18T08:00:00.000Z" } }).reminders).toEqual({});
+    expect(parseGuidedMemory({ version: 1, reminders: { "TL-MAC-002": "tomorrow" } }).reminders).toEqual({});
+    expect(parseGuidedMemory({ version: 1, reminders: ["TL-MAC-002"] }).reminders).toEqual({});
+    expect(parseGuidedMemory({ version: 1, reminders: "TL-MAC-002" }).reminders).toEqual({});
   });
 
   it("reads aiLastAvailable as a known provider with a date, else null", () => {

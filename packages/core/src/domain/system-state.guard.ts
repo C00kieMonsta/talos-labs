@@ -1,5 +1,6 @@
 import {
   SECTION_KEYS,
+  type AirdropMode,
   type Arch,
   type BackupMethod,
   type BrowserId,
@@ -9,6 +10,7 @@ import {
   type MalwareEngine,
   type Os,
   type SecretPattern,
+  type SignatureWord,
   type SshKeyFormat,
   type SystemState,
   type UnavailableReason,
@@ -37,6 +39,9 @@ export const UNAVAILABLE_REASONS: readonly UnavailableReason[] = [
   "collector_error",
 ];
 const DISK_METHODS: readonly DiskEncryptionMethod[] = ["filevault", "bitlocker", "luks", "none", "unknown"];
+const AIRDROP_MODES: readonly AirdropMode[] = ["everyone", "contacts_only", "off", "unset"];
+/** The closed signature words; watch-port.ts re-exports this list for the fishy Details. */
+export const SIGNATURE_WORDS: readonly SignatureWord[] = ["apple", "app_store", "developer_id", "adhoc", "unsigned", "invalid"];
 const MALWARE_ENGINES: readonly MalwareEngine[] = ["xprotect", "defender", "none"];
 const BINDS: readonly ListenerBind[] = ["all", "loopback", "link_local", "specific"];
 const PROTOCOLS: readonly string[] = ["tcp", "udp"];
@@ -164,7 +169,20 @@ const browserExtension = shape({
 const SECTION_CHECKS: Readonly<Record<(typeof SECTION_KEYS)[number], Check>> = {
   diskEncryption: section(shape({ systemVolumeEncrypted: bool, method: oneOf(DISK_METHODS, "DiskEncryptionMethod") })),
   firewall: section(shape({ enabled: bool, stealthMode: nullable(bool), blockAllIncoming: nullable(bool) })),
-  platformIntegrity: section(shape({ execPolicyEnabled: nullable(bool), systemProtectionEnabled: nullable(bool) })),
+  platformIntegrity: section(
+    shape({
+      execPolicyEnabled: nullable(bool),
+      systemProtectionEnabled: nullable(bool),
+      apps: section(
+        shape({
+          bundleCount: num,
+          checkedCount: num,
+          flagged: list(shape({ path: str, name: str, signature: oneOf(SIGNATURE_WORDS, "SignatureWord"), quarantined: bool })),
+        }),
+      ),
+      inserts: section(shape({ dyldInsertSet: bool, loginHookSet: bool, launchdConfPresent: bool })),
+    }),
+  ),
   malwareProtection: section(
     shape({ engine: oneOf(MALWARE_ENGINES, "MalwareEngine"), present: bool, version: nullable(str) }),
   ),
@@ -210,7 +228,14 @@ const SECTION_CHECKS: Readonly<Record<(typeof SECTION_KEYS)[number], Check>> = {
     }),
   ),
   remoteAccess: section(
-    shape({ ssh: serviceState, screenSharing: serviceState, remoteManagement: nullable(serviceState) }),
+    shape({
+      ssh: serviceState,
+      screenSharing: serviceState,
+      remoteManagement: nullable(serviceState),
+      remoteAppleEvents: nullable(serviceState),
+      internetSharing: tri,
+      airdrop: oneOf(AIRDROP_MODES, "AirdropMode"),
+    }),
   ),
   fileSharing: section(shape({ enabled: bool, shares: list(shape({ path: str, guestAccess: bool })) })),
   persistence: section(

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEV_MACHINE, EMPTY_GUIDED_MEMORY, MACOS_CATALOG, buildAllowed, buildGuidedPlan, evaluate, freeFixRuleIds, lockedFor, replyRejected, toAllowedInput, toExplainerContext } from "@talos/core";
+import { DEV_MACHINE, EMPTY_GUIDED_MEMORY, MACOS_CATALOG, WATCH_AGENT_PORTS_READY, buildAllowed, buildGuidedPlan, evaluate, freeFixRuleIds, lockedFor, replyRejected, toAllowedInput, toExplainerContext, validateChat } from "@talos/core";
 import type { ChatCall, ChatInput, ChatResult } from "@talos/core";
 import { DEFAULT_SETTINGS } from "../settings";
 import { DemoAiConnect } from "./demo-ai-connect";
@@ -59,6 +59,7 @@ describe("CannedAnswers.chat", () => {
     expect(canned.chat(CALL.input, "leave_disk")["intents"]).toEqual([{ kind: "accept_rule", ruleId: "TL-MAC-001" }]);
     expect(canned.chat(CALL.input, "cannot")["intents"]).toEqual([{ kind: "open_details", ruleId: "TL-MAC-005" }]);
     expect(canned.chat(CALL.input, "outside")["outsideScope"]).toBe(true);
+    expect(canned.chat(CALL.input, "watch")["intents"]).toEqual(CALL.input.allowed.kinds.includes("open_watch") ? [{ kind: "open_watch", ruleId: null }] : []);
     expect((canned.chat(CALL.input, "inject")["intents"] as unknown[]).length).toBe(5);
     expect((canned.chat(CALL.input, "too_many")["intents"] as unknown[]).length).toBe(5);
     const long = String(canned.chat(CALL.input, "long")["reply"]);
@@ -75,7 +76,7 @@ describe("DemoProviderExplainer.chat", () => {
     const result = await run(provider().chat(CALL, { onPartial: (p) => partials.push(p) }));
     expect(result).toEqual({
       ok: true,
-      value: { reply: expect.stringContaining("Your disk holds your photos"), relatedRuleIds: ["TL-MAC-001"], outsideScope: false, intents: [{ kind: "show_where", ruleId: "TL-MAC-001" }], locked: [] },
+      value: { reply: expect.stringContaining("Your disk holds your photos"), relatedRuleIds: ["TL-MAC-001"], outsideScope: false, intents: [{ kind: "show_where", ruleId: "TL-MAC-001", signalId: null, when: null }], locked: [] },
     });
     expect(partials.length).toBeGreaterThan(10);
     for (const partial of partials) expect(Object.keys(partial)).toEqual(["reply"]);
@@ -87,7 +88,7 @@ describe("DemoProviderExplainer.chat", () => {
   it("inject keeps one card and too_many keeps three; the reply text stays", async () => {
     vi.useFakeTimers();
     const injected = await run(provider({ reply: "inject" }).chat(CALL));
-    expect(injected.ok && injected.value.intents).toEqual([{ kind: "show_where", ruleId: "TL-MAC-026" }]);
+    expect(injected.ok && injected.value.intents).toEqual([{ kind: "show_where", ruleId: "TL-MAC-026", signalId: null, when: null }]);
     expect(injected.ok && injected.value.relatedRuleIds).toEqual(["TL-MAC-026"]);
     const many = await run(provider({ reply: "too_many" }).chat(CALL));
     expect(many.ok && many.value.intents.length).toBe(3);
@@ -138,10 +139,28 @@ describe("DemoAppleExplainer.chat and DemoExplainer.chat", () => {
     const dev = new DemoExplainer("ollama", MACOS_CATALOG, null, 300, { reply: "cannot" });
     const partials: unknown[] = [];
     const result = await run(dev.chat(CALL, { onPartial: (p) => partials.push(p) }), 300);
-    expect(result).toEqual({ ok: true, value: { reply: expect.stringContaining("recovery screen"), relatedRuleIds: ["TL-MAC-005"], outsideScope: false, intents: [{ kind: "open_details", ruleId: "TL-MAC-005" }], locked: [] } });
+    expect(result).toEqual({ ok: true, value: { reply: expect.stringContaining("recovery screen"), relatedRuleIds: ["TL-MAC-005"], outsideScope: false, intents: [{ kind: "open_details", ruleId: "TL-MAC-005", signalId: null, when: null }], locked: [] } });
     expect(partials).toHaveLength(1);
     expect(Object.keys(partials[0] as object)).toEqual(["reply"]);
     const failing = new DemoExplainer("claude", MACOS_CATALOG, null, 300, { fail: "needs_sign_in" });
     expect(await run(failing.chat(CALL), 300)).toEqual({ ok: false, reason: "needs_sign_in" });
+  });
+});
+
+/* AGENT part B region: the four replies naming the part B intents (docs/DESIGN-AGENT.md section 4 "Demo"). */
+describe("CannedAnswers.chat: the agent replies", () => {
+  const canned = new CannedAnswers(MACOS_CATALOG);
+
+  it("remind, writeup and whatif validate on the dev plan with their intent kept; investigate is dropped while the port is gated", () => {
+    const known = { results: CALL.allowed.details.map((ruleId) => ({ ruleId })) };
+    const kept = (reply: "remind" | "writeup" | "whatif" | "investigate") => {
+      const result = validateChat(canned.chat(CALL.input, reply), known, CALL.allowed, CALL.locked);
+      return result.ok ? result.value.intents : null;
+    };
+    expect(kept("remind")).toEqual([{ kind: "remind_rule", ruleId: CALL.allowed.remind[0], signalId: null, when: "tomorrow" }]);
+    expect(kept("writeup")).toEqual([{ kind: "write_up", ruleId: null, signalId: null, when: null }]);
+    expect(kept("whatif")).toEqual([{ kind: "what_if", ruleId: "TL-MAC-001", signalId: null, when: null }]);
+    expect(kept("investigate")).toEqual(WATCH_AGENT_PORTS_READY ? [{ kind: "investigate", ruleId: null, signalId: "sig.persistence_new", when: null }] : []);
+    for (const reply of ["remind", "writeup", "whatif", "investigate"] as const) expect(replyRejected(String(canned.chat(CALL.input, reply)["reply"])), reply).toBe(false);
   });
 });

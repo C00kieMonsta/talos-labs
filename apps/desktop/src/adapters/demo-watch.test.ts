@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FishyKind, FixProgress, WatchState } from "@talos/core";
-import { FISHY_KINDS, PLAYBOOK, RATING_ORDER, safeWindowSentence } from "@talos/core";
+import { boundsFor, FISHY_KINDS, PLAYBOOK, RATING_ORDER, rateWatch, safeWindowSentence } from "@talos/core";
 import type { WatchDemoFlags } from "../app/demo-boot";
 import { DEFAULT_WATCH_DEMO } from "../app/demo-boot";
-import { DEFAULT_FLIP_AFTER_MS, DEMO_REASONS, DEMO_WATCH_PLAN_TTL_MS, DemoWatch } from "./demo-watch";
+import { DEFAULT_FLIP_AFTER_MS, DEMO_REASONS, DEMO_WATCH_PLAN_TTL_MS, DETAIL_ITEMS, DemoWatch, SIGNAL_SETS } from "./demo-watch";
 
 const NOW = "2026-10-17T12:00:00.000Z";
 
@@ -173,13 +173,23 @@ describe("DemoWatch per ?fishy=, ?fishyGate=, ?fishyWired=, ?watchAi=, ?ransomNo
       admin: "sig.admin_count",
       dns: "sig.dns_manual",
       backup: "sig.backup_auto",
+      app: "sig.app_new_unsigned",
+      shell: "sig.shell_startup_changed",
+      exposure: "sig.internet_sharing_on",
     };
+    expect(FISHY_KINDS).toHaveLength(10);
     for (const kind of FISHY_KINDS) {
       const port = make({ watch: "act", fishy: kind });
       const state = await port.status();
       const top = state.items[0];
       expect(top?.kind, kind).toBe(kind);
       expect(top?.signalId, kind).toBe(expectedTop[kind]);
+      expect(state.rating, kind).toBe("act_now");
+      // look keeps the kind's own signal alone, and the rating is what the rules give that one signal.
+      const look = await make({ watch: "look", fishy: kind }).status();
+      expect(look.items[0]?.kind, kind).toBe(kind);
+      expect(look.items[0]?.signalId, kind).toBe(expectedTop[kind]);
+      expect(look.rating, kind).toBe("keep_an_eye");
       expect(top?.isListener, kind).toBe(kind === "listener");
       expect(top?.hasStartupEntry, kind).toBe(kind === "persistence");
       for (const id of top?.actionIds ?? []) {
@@ -188,6 +198,62 @@ describe("DemoWatch per ?fishy=, ?fishyGate=, ?fishyWired=, ?watchAi=, ?ransomNo
       }
       expect(port.fishyKind).toBe(kind);
     }
+  });
+
+  it("every signal set rates as boundsFor says: look within the first signal's bounds, act within the pair's, the gated kinds through the gate", async () => {
+    for (const kind of FISHY_KINDS) {
+      const set = SIGNAL_SETS[kind];
+      expect(set.length, kind).toBe(2);
+      const act = make({ watch: "act", fishy: kind });
+      const context = await act.context();
+      const bounds = boundsFor(context.signals);
+      // The pair sets the floor at act now by the rules alone (two pair groups within a day, a stand-alone flip, or a gate answered No).
+      expect(bounds.floor, kind).toBe("act_now");
+      expect(RATING_ORDER.indexOf(rateWatch(context, null)), kind).toBeGreaterThanOrEqual(RATING_ORDER.indexOf("keep_an_eye"));
+      expect(context.signals.map((s) => s.signalId), kind).toEqual(set.map((s) => s.signalId));
+      const look = await make({ watch: "look", fishy: kind }).context();
+      expect(look.signals, kind).toHaveLength(1);
+      expect(look.signals[0]?.signalId, kind).toBe(set[0]?.signalId);
+    }
+    // A digest reading carries its change as the value and no previous; a counter or flag carries both.
+    const shell = await make({ watch: "act", fishy: "shell" }).context();
+    expect(shell.signals[0]).toMatchObject({ signalId: "sig.shell_startup_changed", value: "changed", previous: null, change: "changed" });
+    expect(shell.signals[1]).toMatchObject({ signalId: "sig.dyld_insert_set", value: true, previous: false, change: "changed" });
+    const app = await make({ watch: "act", fishy: "app" }).context();
+    expect(app.signals[0]).toMatchObject({ signalId: "sig.app_new_unsigned", value: 1, previous: 0 });
+    const exposure = await make({ watch: "act", fishy: "exposure", fishyGate: true }).status();
+    expect(exposure.gated).toEqual(["sig.internet_sharing_on"]);
+    expect(exposure.items[0]).toMatchObject({ kind: "exposure", gated: true, hasStartupEntry: false, isListener: false });
+    expect((await make({ watch: "act", fishy: "exposure" }).status()).items.map((i) => i.signalId)).toEqual(["sig.internet_sharing_on", "sig.airdrop_everyone"]);
+  });
+
+  it("the app and shell Details rows attach to their item through the listing's siblings; exposure carries the id alone", async () => {
+    const app = await make({ watch: "act", fishy: "app" }).details();
+    expect(app.items[0]).toEqual(DETAIL_ITEMS.app);
+    expect(app.items[0]).toMatchObject({ signalId: "sig.app_new_unsigned", label: "Helper.app", programPath: "/Applications/Helper.app", signature: "unsigned" });
+    expect(app.items[1]).toEqual({ signalId: "sig.dyld_insert_set" });
+    const shell = await make({ watch: "act", fishy: "shell" }).details();
+    expect(shell.items[0]).toEqual({ signalId: "sig.shell_startup_changed", filePath: "/Users/demo/.zshrc" });
+    const exposure = await make({ watch: "act", fishy: "exposure" }).details();
+    expect(exposure.items).toEqual([{ signalId: "sig.internet_sharing_on" }, { signalId: "sig.airdrop_everyone" }]);
+    // A row for a sibling of the item's signal binds too, as detailsItemFor reads it.
+    expect(DETAIL_ITEMS.persistence.signalId).toBe("sig.persistence_new");
+    const persistence = await make({ watch: "act", fishy: "persistence" }).details();
+    expect(persistence.items[0]?.plistPath).toMatch(/\.plist$/);
+    expect(JSON.stringify(await make({ watch: "act", fishy: "app" }).context())).not.toMatch(/Helper|Applications/);
+  });
+
+  it("coverage drives the unavailable rows, the switch and the licence; absent leaves the state alone", async () => {
+    expect((await make({ coverage: "unsigned" }).status())).toMatchObject({ enabled: true, licensed: true, unavailable: [{ probeId: "probe.listeners", reason: "unsigned_build" }] });
+    expect((await make({ coverage: "signed", watch: "unreadable" }).status()).unavailable).toEqual([]);
+    expect((await make({ coverage: "off" }).status())).toMatchObject({ enabled: false, licensed: true, unavailable: [] });
+    const unlicensed = await make({ coverage: "unlicensed", licensed: true }).status();
+    expect(unlicensed).toMatchObject({ enabled: true, licensed: false });
+    expect((await make({ coverage: null, watch: "unreadable" }).status()).unavailable).toHaveLength(3);
+    expect((await make({ coverage: null }).status()).enabled).toBe(true);
+    // An unlicensed coverage state never notifies, even with act.
+    make({ coverage: "unlicensed", watch: "act" });
+    expect(kinds()).toEqual([]);
   });
 
   it("fishyGate puts the top item in gated; answering No lifts it and rates act now; Yes drops it", async () => {

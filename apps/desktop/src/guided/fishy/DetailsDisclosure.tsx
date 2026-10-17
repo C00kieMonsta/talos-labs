@@ -5,7 +5,7 @@ import { AI_BADGES, DECIDED_BY_APP } from "../../app/labels";
 import { FISHY } from "../copy";
 import { useFishyController } from "./controller";
 
-/** The local text of a details row: the start-up entry, the program, the port or the process, as plain words. */
+/** The local text of a details row: the start-up entry, the program, the port, the process, the changed file or the signature word. */
 export function detailLines(row: WatchDetailsItem | null): readonly string[] {
   if (row === null) return [];
   const lines: string[] = [];
@@ -14,6 +14,8 @@ export function detailLines(row: WatchDetailsItem | null): readonly string[] {
   if (row.programPath !== undefined) lines.push(row.programPath);
   if (row.port !== undefined) lines.push(`Port ${row.port}`);
   if (row.processName !== undefined) lines.push(row.processName);
+  if (row.filePath !== undefined) lines.push(row.filePath);
+  if (row.signature !== undefined) lines.push(FISHY.signature[row.signature]);
   return lines;
 }
 

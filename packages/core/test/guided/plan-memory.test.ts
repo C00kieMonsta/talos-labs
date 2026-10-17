@@ -65,7 +65,7 @@ describe("buildGuidedPlan and memory", () => {
     const memory = { ...EMPTY_GUIDED_MEMORY, paywallSnoozedUntil: daysFrom(NOW, 14) };
     const plan = buildGuidedPlan(DEV, FREE, PROFILE, memory, NOW);
     expect(plan.steps.map((s) => s.id)).not.toContain("paywall");
-    expect(plan.locked).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-022", "TL-MAC-026"]);
+    expect(plan.locked).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-022", "TL-MAC-026", "TL-MAC-032"]);
     const expired = { ...EMPTY_GUIDED_MEMORY, paywallSnoozedUntil: daysFrom(NOW, -1) };
     expect(ids(expired, false)).toContain("paywall");
   });
@@ -110,15 +110,15 @@ describe("buildGuidedPlan and accepted", () => {
     expect(two.accepted).toEqual(["TL-MAC-003", "TL-MAC-011"]);
   });
 
-  it("an accepted locked rule leaves lockedRuleIds; accepting all four removes the paywall", () => {
+  it("an accepted locked rule leaves lockedRuleIds; accepting all five removes the paywall", () => {
     const one = buildGuidedPlan(DEV, FREE, PROFILE, accepted("TL-MAC-022"), NOW);
-    expect(one.locked).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-026"]);
+    expect(one.locked).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-026", "TL-MAC-032"]);
     const paywall = one.steps.find((s) => s.kind === "paywall");
-    expect(paywall?.kind === "paywall" && paywall.lockedRuleIds).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-026"]);
-    const all = buildGuidedPlan(DEV, FREE, PROFILE, accepted("TL-MAC-003", "TL-MAC-011", "TL-MAC-022", "TL-MAC-026"), NOW);
+    expect(paywall?.kind === "paywall" && paywall.lockedRuleIds).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-026", "TL-MAC-032"]);
+    const all = buildGuidedPlan(DEV, FREE, PROFILE, accepted("TL-MAC-003", "TL-MAC-011", "TL-MAC-022", "TL-MAC-026", "TL-MAC-032"), NOW);
     expect(all.locked).toEqual([]);
     expect(all.steps.map((s) => s.id)).not.toContain("paywall");
-    expect(all.accepted).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-022", "TL-MAC-026"]);
+    expect(all.accepted).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-022", "TL-MAC-026", "TL-MAC-032"]);
   });
 
   it("accepted lists only failing rules, in catalogue order", () => {
@@ -156,11 +156,11 @@ describe("the frozen free set", () => {
     const after = withPassing(DEV, "TL-MAC-002");
     const frozen = buildGuidedPlan(after, { freeFixes: plan.freeFixes, licensed: false }, PROFILE, EMPTY_GUIDED_MEMORY, NOW);
     expect(frozen.steps.filter((s) => s.kind === "fix" || s.kind === "batch")).toEqual([]);
-    expect(frozen.locked).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-022", "TL-MAC-026"]);
+    expect(frozen.locked).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-022", "TL-MAC-026", "TL-MAC-032"]);
     // The drift this guards against: the live gate would make 022 free next.
     const live = buildGuidedPlan(after, { freeFixes: freeFixRuleIds(after), licensed: false }, PROFILE, EMPTY_GUIDED_MEMORY, NOW);
     expect(live.steps.map((s) => s.id)).toContain("fix:TL-MAC-022:/Users/alice/Public");
-    expect(live.locked).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-026"]);
+    expect(live.locked).toEqual(["TL-MAC-003", "TL-MAC-011", "TL-MAC-026", "TL-MAC-032"]);
   });
 });
 

@@ -4,11 +4,14 @@ import { cardKindFor, dividerBefore, DIVIDER_GAP_MS, exchangeLabel, historyFor, 
 
 const STRINGS = { you: "You asked", app: "Talos Labs" };
 
+const APP_MESSAGE_KINDS = ["show_list", "investigate", "close_watch", "remind_rule", "what_if"];
+
 describe("cardKindFor", () => {
-  it("maps every kind, null only for show_list", () => {
+  it("maps every kind, null for show_list and the four app-message kinds, write_up to its own card", () => {
     for (const kind of INTENT_KINDS) {
-      expect(cardKindFor(kind) === null, kind).toBe(kind === "show_list");
+      expect(cardKindFor(kind) === null, kind).toBe(APP_MESSAGE_KINDS.includes(kind));
     }
+    expect(cardKindFor("write_up")).toBe("write_up");
     expect(cardKindFor("fix_rule")).toBe("fix");
     expect(cardKindFor("fix_batch")).toBe("batch");
     expect(cardKindFor("show_where")).toBe("show");
@@ -70,5 +73,7 @@ describe("intentToCard", () => {
     expect(intentToCard({ kind: "fix_batch", ruleId: null }, null, ["TL-MAC-002", "TL-MAC-003"])).toEqual({ kind: "batch", ruleId: null, ruleIds: ["TL-MAC-002", "TL-MAC-003"], severity: null });
     expect(intentToCard({ kind: "rescan", ruleId: null }, null)).toEqual({ kind: "rescan", ruleId: null, ruleIds: [], severity: null });
     expect(intentToCard({ kind: "show_list", ruleId: null }, null)).toBeNull();
+    expect(intentToCard({ kind: "write_up", ruleId: null }, null)).toEqual({ kind: "write_up", ruleId: null, ruleIds: [], severity: null });
+    expect(intentToCard({ kind: "remind_rule", ruleId: "TL-MAC-002", when: "sunday" }, "high")).toBeNull();
   });
 });

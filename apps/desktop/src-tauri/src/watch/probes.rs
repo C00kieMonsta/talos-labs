@@ -1,8 +1,9 @@
-//! The compiled-in probe table and the probe functions (docs/DESIGN-WATCH.md section 2). Every
-//! probe is a read-only run of an `exec::Bin` with fixed arguments, a `stat`, a listing or a
-//! `defaults read`; nothing here opens file contents beyond the launchd plists the existing
-//! persistence collector already reads. Machine text (paths, labels, names, ports) stays in
-//! `Member` values that the cycle digests or counts; it never reaches a `WatchSignal`.
+//! The compiled-in probe table and the probe functions (docs/DESIGN-WATCH.md section 2 and
+//! docs/DESIGN-THREATS-V2.md section 2). Every probe is a read-only run of an `exec::Bin` with
+//! fixed arguments, a `stat`, a listing, a `listxattr(2)` of attribute names or a `defaults
+//! read`; nothing here opens file contents beyond the launchd plists the existing persistence
+//! collector already reads. Machine text (paths, labels, names, ports) stays in `Member` values
+//! that the cycle digests or counts; it never reaches a `WatchSignal`.
 
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
@@ -70,11 +71,16 @@ const fn probe(
     }
 }
 
-/// The 21 probes in PROBE_IDS order. The two that touch file bytes are never model-choosable.
-pub static PROBES: [Probe; 21] = [
+/// The 27 probes in PROBE_IDS order. The three that touch file bytes are never model-choosable.
+pub static PROBES: [Probe; 27] = [
     probe(
         ProbeId::PlatformIntegrity,
-        &[SignalId::Gatekeeper, SignalId::Sip, SignalId::BootArgsSet],
+        &[
+            SignalId::Gatekeeper,
+            SignalId::Sip,
+            SignalId::BootArgsSet,
+            SignalId::AuthenticatedRoot,
+        ],
         M5,
         true,
     ),
@@ -126,6 +132,8 @@ pub static PROBES: [Probe; 21] = [
             SignalId::PersistenceUnsigned,
             SignalId::PersistenceInTempOrHidden,
             SignalId::HelperToolsCount,
+            SignalId::LaunchLabelMasquerade,
+            SignalId::LaunchLabelMasqueradeUnsigned,
         ],
         M5,
         true,
@@ -177,7 +185,11 @@ pub static PROBES: [Probe; 21] = [
     probe(ProbeId::LockdownMode, &[SignalId::LockdownMode], M5, true),
     probe(
         ProbeId::SudoConfig,
-        &[SignalId::SudoersDCount, SignalId::PamSudoChanged],
+        &[
+            SignalId::SudoersDCount,
+            SignalId::PamSudoChanged,
+            SignalId::PamAuthChanged,
+        ],
         M5,
         true,
     ),
@@ -209,6 +221,51 @@ pub static PROBES: [Probe; 21] = [
         true,
     ),
     probe(ProbeId::Logins, &[SignalId::RemoteLogins], M5, true),
+    probe(
+        ProbeId::ShellStartup,
+        &[
+            SignalId::ShellStartupChanged,
+            SignalId::SystemShellFilesCount,
+            SignalId::PathsDChanged,
+            SignalId::PathDirWritableCount,
+        ],
+        M5,
+        true,
+    ),
+    probe(
+        ProbeId::Apps,
+        &[
+            SignalId::AppSet,
+            SignalId::AppNewUnquarantined,
+            SignalId::AppNewUnsigned,
+        ],
+        M5,
+        true,
+    ),
+    probe(
+        ProbeId::AppSignatures,
+        &[SignalId::AppNewUnsigned],
+        M5,
+        false,
+    ),
+    probe(
+        ProbeId::LibraryApps,
+        &[SignalId::LibraryAppsCount],
+        H1,
+        true,
+    ),
+    probe(
+        ProbeId::Exposure,
+        &[SignalId::AirdropEveryone, SignalId::InternetSharingOn],
+        M5,
+        true,
+    ),
+    probe(
+        ProbeId::Hooks,
+        &[SignalId::LoginHookSet, SignalId::DyldInsertSet],
+        M5,
+        true,
+    ),
 ];
 
 /// The two sections the full check re-runs, each only when its permission is already granted,
@@ -218,6 +275,13 @@ pub const FULL_CHECK_SECTIONS: [(SectionKey, Needs); 2] = [
     (SectionKey::Browsers, Needs::FullDiskAccess),
 ];
 
+/// Probes outside the cheap sweep that the full check runs: `mdfind` depends on Spotlight and
+/// costs a second, so the library listing is read a few times a day and on a model re-read.
+pub const FULL_CHECK_PROBES: [ProbeId; 1] = [ProbeId::LibraryApps];
+
+/// The probes that never run on their own: their signals come from another probe's listing.
+const DERIVED_PROBES: [ProbeId; 2] = [ProbeId::PersistenceSignatures, ProbeId::AppSignatures];
+
 pub fn probe_for(id: ProbeId) -> Option<&'static Probe> {
     PROBES.iter().find(|p| p.id == id)
 }
@@ -226,7 +290,7 @@ pub fn probe_for(id: ProbeId) -> Option<&'static Probe> {
 pub fn probe_of(signal: SignalId) -> Option<ProbeId> {
     PROBES
         .iter()
-        .find(|p| p.signals.contains(&signal) && p.id != ProbeId::PersistenceSignatures)
+        .find(|p| p.signals.contains(&signal) && !DERIVED_PROBES.contains(&p.id))
         .map(|p| p.id)
 }
 
@@ -239,11 +303,11 @@ pub fn model_probes() -> Vec<ProbeId> {
         .collect()
 }
 
-/// Every probe of the cheap sweep.
+/// Every probe of the cheap sweep: not the derived two, not the full-check one.
 pub fn sweep_probes() -> Vec<ProbeId> {
     PROBES
         .iter()
-        .filter(|p| p.id != ProbeId::PersistenceSignatures)
+        .filter(|p| !DERIVED_PROBES.contains(&p.id) && !FULL_CHECK_PROBES.contains(&p.id))
         .map(|p| p.id)
         .collect()
 }
@@ -265,6 +329,15 @@ pub enum MemberDetail {
     Listener {
         port: u16,
         process_name: Option<String>,
+    },
+    /// One stat'd file of a stat digest; Details names the one that changed.
+    StatFile {
+        path: String,
+    },
+    /// One app bundle of the apps listing.
+    App {
+        path: String,
+        name: String,
     },
 }
 
@@ -311,13 +384,18 @@ pub struct ProbeOutcome {
 
 /// The socket table's empty read under an ad-hoc build, as `parse_netstat` reports it.
 const EMPTY_SOCKET_TABLE: &str = "netstat: empty socket table";
+/// `mdfind` exiting non-zero: Spotlight indexing is off for the folder.
+const MDFIND_EXIT: &str = "mdfind: exit";
 
 /// The watch's reason word for a failed probe: the collector's word, except that an empty
-/// socket table is the unsigned build's doing, not a denied permission. The detail is dropped
-/// here; nothing past this point carries it.
+/// socket table is the unsigned build's doing, not a denied permission, and a failed `mdfind`
+/// is Spotlight being off. The detail is dropped here; nothing past this point carries it.
 pub fn reason_of(fail: &Fail) -> ProbeReason {
     if fail.detail.as_deref() == Some(EMPTY_SOCKET_TABLE) {
         return ProbeReason::UnsignedBuild;
+    }
+    if fail.detail.as_deref() == Some(MDFIND_EXIT) {
+        return ProbeReason::SpotlightOff;
     }
     ProbeReason::from(fail.reason)
 }
@@ -557,16 +635,124 @@ fn stat_key(path: &Path) -> String {
     }
 }
 
+/// One stat'd file as a member keyed `<path>|<size>|<mode>|<mtime>`, carrying its path for Details.
+pub fn stat_member(path: &Path) -> Member {
+    let text = path.to_string_lossy().into_owned();
+    Member {
+        key: format!("{}|{}", text, stat_key(path)),
+        detail: MemberDetail::StatFile { path: text },
+    }
+}
+
+/// The shell start-up files under home (row 21); `/etc/zshenv` and `/etc/zlogin` are row 22's.
+pub const HOME_SHELL_FILES: [&str; 7] = [
+    ".zshenv",
+    ".zprofile",
+    ".zshrc",
+    ".zlogin",
+    ".bash_profile",
+    ".bashrc",
+    ".profile",
+];
+pub const SYSTEM_SHELL_FILES: [&str; 4] =
+    ["/etc/zprofile", "/etc/zshrc", "/etc/profile", "/etc/bashrc"];
+/// Files every shell reads that Apple does not ship (row 22); `/etc/launchd.conf` is a legacy marker.
+pub const SYSTEM_SHELL_EXTRAS: [&str; 3] = ["/etc/zshenv", "/etc/zlogin", "/etc/launchd.conf"];
+pub const PATHS_D_DIRS: [&str; 2] = ["/etc/paths.d", "/etc/manpaths.d"];
+/// PATH folders whose entries, one level down, are checked for world-writable modes (row 24).
+pub const PATH_DIRS: [&str; 5] = [
+    "/usr/local/bin",
+    "/usr/local/sbin",
+    "/opt/homebrew/bin",
+    "/opt/homebrew/sbin",
+    "/usr/local/lib",
+];
+pub const PAM_AUTH_FILES: [&str; 3] = [
+    "/etc/pam.d/login",
+    "/etc/pam.d/screensaver",
+    "/etc/pam.d/authorization",
+];
+/// Periodic script folders Apple removed and the emond rules folder (KnockKnock "Periodic Scripts", "Event Rules").
+pub const LEGACY_PERIODIC_DIRS: [&str; 5] = [
+    "/etc/periodic/daily",
+    "/etc/periodic/weekly",
+    "/etc/periodic/monthly",
+    "/usr/local/etc/periodic",
+    "/etc/emond.d/rules",
+];
+
+/// How many of `paths` exist.
+pub fn existing_count(paths: &[&str]) -> u64 {
+    paths.iter().filter(|p| Path::new(p).exists()).count() as u64
+}
+
+/// The entries of a folder as stat members, sorted; a missing folder is empty.
+pub fn stat_dir_members(dir: &Path) -> Vec<Member> {
+    let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+        .map(|entries| entries.flatten().map(|e| e.path()).collect())
+        .unwrap_or_default();
+    paths.sort();
+    paths.iter().map(|p| stat_member(p)).collect()
+}
+
+/// True when the mode has the world-writable bit (`0o002`); group-writable Homebrew folders do not count.
+pub fn world_writable(mode: u32) -> bool {
+    mode & 0o002 != 0
+}
+
+/// World-writable entries among the folders and their entries one level down. Rust `readdir`
+/// and `stat`, following symlinks so a link's target decides; a dangling link is skipped.
+pub fn count_world_writable(dirs: &[&Path]) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    let mut count = 0u64;
+    for dir in dirs {
+        let Ok(meta) = std::fs::metadata(dir) else {
+            continue;
+        };
+        if world_writable(meta.mode()) {
+            count += 1;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if let Ok(meta) = std::fs::metadata(entry.path())
+                && world_writable(meta.mode())
+            {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
+/// Lines of `mdfind` output: one bundle path per line.
+pub fn parse_mdfind_count(text: &str) -> u64 {
+    text.lines().filter(|l| !l.trim().is_empty()).count() as u64
+}
+
+/// `csrutil authenticated-root status`: "enabled" or "disabled" after the colon.
+pub fn parse_authenticated_root(text: &str) -> Option<bool> {
+    let text = text.to_ascii_lowercase();
+    if text.contains("status: enabled") {
+        Some(true)
+    } else if text.contains("status: disabled") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
 // ---------- the probe functions (macOS) ----------
 
 #[cfg(target_os = "macos")]
 mod live {
     use super::*;
     use crate::collect::macos::{
-        accounts, backup, defaults, file_sharing, firewall, listeners, malware_protection,
+        accounts, apps, backup, defaults, file_sharing, firewall, listeners, malware_protection,
         persistence, platform_integrity, remote_access, updates,
     };
-    use crate::state::ListenerBind;
+    use crate::state::{AirdropMode, ListenerBind, Tri};
 
     fn platform_integrity(cancel: &AtomicBool) -> Result<Vec<Observation>, Fail> {
         let spctl = run(Bin::Spctl, &["--status"], cancel)?;
@@ -578,14 +764,21 @@ mod live {
         let sip =
             platform_integrity::parse_csrutil(&format!("{}\n{}", csrutil.stdout, csrutil.stderr))?;
         let nvram = run(Bin::Nvram, &["boot-args"], cancel)?;
-        Ok(vec![
+        let mut out = vec![
             obs(SignalId::Gatekeeper, Observed::Bool(gatekeeper)),
             obs(SignalId::Sip, Observed::Bool(sip)),
             obs(
                 SignalId::BootArgsSet,
                 Observed::Bool(parse_boot_args(&nvram)),
             ),
-        ])
+        ];
+        let root = run(Bin::Csrutil, &["authenticated-root", "status"], cancel)?;
+        if let Some(enabled) =
+            parse_authenticated_root(&format!("{}\n{}", root.stdout, root.stderr))
+        {
+            out.push(obs(SignalId::AuthenticatedRoot, Observed::Bool(enabled)));
+        }
+        Ok(out)
     }
 
     fn firewall_probe(cancel: &AtomicBool) -> Result<Vec<Observation>, Fail> {
@@ -638,9 +831,12 @@ mod live {
             remote_access::service_loaded(overrides.as_ref(), remote_access::SCREEN_SHARING_LABEL)
                 .unwrap_or(false);
         let management = Path::new(remote_access::REMOTE_MANAGEMENT_FILE).exists();
+        let events =
+            remote_access::service_loaded(overrides.as_ref(), remote_access::AE_SERVER_LABEL)
+                .unwrap_or(false);
         Ok(vec![obs(
             SignalId::RemoteAccessOn,
-            Observed::Bool(ssh || screen || management),
+            Observed::Bool(ssh || screen || management || events),
         )])
     }
 
@@ -906,6 +1102,10 @@ mod live {
             stat_key(Path::new("/etc/pam.d/sudo")),
             stat_key(Path::new("/etc/pam.d/sudo_local"))
         );
+        let pam_auth = PAM_AUTH_FILES
+            .iter()
+            .map(|p| stat_member(Path::new(p)))
+            .collect();
         Ok(vec![
             obs(
                 SignalId::SudoersDCount,
@@ -915,6 +1115,7 @@ mod live {
                 SignalId::PamSudoChanged,
                 Observed::Set(vec![Member::plain(key)]),
             ),
+            obs(SignalId::PamAuthChanged, Observed::Set(pam_auth)),
         ])
     }
 
@@ -991,7 +1192,11 @@ mod live {
         let at = run(Bin::Atq, &[], cancel)?;
         let legacy = dir_count("/Library/StartupItems")
             + dir_count("/Library/ScriptingAdditions")
-            + dir_count("/Library/Security/SecurityAgentPlugins");
+            + dir_count("/Library/Security/SecurityAgentPlugins")
+            + LEGACY_PERIODIC_DIRS
+                .iter()
+                .map(|d| dir_count(d))
+                .sum::<u64>();
         Ok(vec![
             obs(
                 SignalId::CronLines,
@@ -1008,6 +1213,112 @@ mod live {
             SignalId::RemoteLogins,
             Observed::Count(parse_remote_logins(&out.stdout)),
         )])
+    }
+
+    /// Rows 21 to 24: `stat` of the shell start-up files, the extra system files, the paths.d
+    /// listings and the world-writable PATH entries. Nothing is opened.
+    fn shell_startup(_cancel: &AtomicBool) -> Result<Vec<Observation>, Fail> {
+        let home = macos::home()?;
+        let mut members: Vec<Member> = HOME_SHELL_FILES
+            .iter()
+            .map(|name| stat_member(&home.join(name)))
+            .collect();
+        members.extend(SYSTEM_SHELL_FILES.iter().map(|p| stat_member(Path::new(p))));
+        let paths_d: Vec<Member> = PATHS_D_DIRS
+            .iter()
+            .flat_map(|d| stat_dir_members(Path::new(d)))
+            .collect();
+        let path_dirs: Vec<&Path> = PATH_DIRS.iter().map(Path::new).collect();
+        Ok(vec![
+            obs(SignalId::ShellStartupChanged, Observed::Set(members)),
+            obs(
+                SignalId::SystemShellFilesCount,
+                Observed::Count(existing_count(&SYSTEM_SHELL_EXTRAS)),
+            ),
+            obs(SignalId::PathsDChanged, Observed::Set(paths_d)),
+            obs(
+                SignalId::PathDirWritableCount,
+                Observed::Count(count_world_writable(&path_dirs)),
+            ),
+        ])
+    }
+
+    /// Row 25: the bundle names of the two Applications folders. Rows 26 and 27 are derived by
+    /// the cycle from the members absent from the baseline.
+    fn apps_probe(_cancel: &AtomicBool) -> Result<Vec<Observation>, Fail> {
+        let home = macos::home()?;
+        let members: Vec<Member> = apps::list_bundles(&home)?
+            .into_iter()
+            .map(|b| Member {
+                key: b.name.clone(),
+                detail: MemberDetail::App {
+                    path: b.path.to_string_lossy().into_owned(),
+                    name: b.name,
+                },
+            })
+            .collect();
+        Ok(vec![obs(SignalId::AppSet, Observed::Set(members))])
+    }
+
+    /// Row 28: `mdfind` over `~/Library`; a non-zero exit reads `spotlight_off`.
+    fn library_apps(cancel: &AtomicBool) -> Result<Vec<Observation>, Fail> {
+        let home = macos::home()?;
+        let library = home.join("Library");
+        let library = library.to_string_lossy();
+        let out = run(
+            Bin::Mdfind,
+            &[
+                "-onlyin",
+                library.as_ref(),
+                "kMDItemContentType == 'com.apple.application-bundle'",
+            ],
+            cancel,
+        )?;
+        if !out.success() {
+            return Err(Fail::collector(MDFIND_EXIT));
+        }
+        Ok(vec![obs(
+            SignalId::LibraryAppsCount,
+            Observed::Count(parse_mdfind_count(&out.stdout)),
+        )])
+    }
+
+    /// Rows 29 and 30: AirDrop's discoverable mode and Internet Sharing's `NAT` switch.
+    fn exposure(cancel: &AtomicBool) -> Result<Vec<Observation>, Fail> {
+        let airdrop =
+            defaults::read_key("com.apple.sharingd", "DiscoverableMode", "sharingd", cancel)?;
+        let nat = defaults::read_domain(
+            "/Library/Preferences/SystemConfiguration/com.apple.nat",
+            "nat",
+            cancel,
+        )?;
+        Ok(vec![
+            obs(
+                SignalId::AirdropEveryone,
+                Observed::Bool(
+                    remote_access::parse_airdrop(airdrop.as_deref()) == AirdropMode::Everyone,
+                ),
+            ),
+            obs(
+                SignalId::InternetSharingOn,
+                Observed::Bool(remote_access::parse_internet_sharing(nat.as_deref()) == Tri::True),
+            ),
+        ])
+    }
+
+    /// Rows 32 and 33: the login hook keys and the session's insert variable.
+    fn hooks(cancel: &AtomicBool) -> Result<Vec<Observation>, Fail> {
+        let inserts = apps::read_inserts(cancel)?;
+        Ok(vec![
+            obs(
+                SignalId::LoginHookSet,
+                Observed::Bool(inserts.login_hook_set),
+            ),
+            obs(
+                SignalId::DyldInsertSet,
+                Observed::Bool(inserts.dyld_insert_set),
+            ),
+        ])
     }
 
     pub fn run_probe(id: ProbeId, cancel: &AtomicBool) -> Result<Vec<Observation>, Fail> {
@@ -1033,6 +1344,12 @@ mod live {
             ProbeId::Updates => updates_probe(cancel),
             ProbeId::ScheduledJobs => scheduled(cancel),
             ProbeId::Logins => logins(cancel),
+            ProbeId::ShellStartup => shell_startup(cancel),
+            ProbeId::Apps => apps_probe(cancel),
+            ProbeId::AppSignatures => Ok(Vec::new()),
+            ProbeId::LibraryApps => library_apps(cancel),
+            ProbeId::Exposure => exposure(cancel),
+            ProbeId::Hooks => hooks(cancel),
         }
     }
 
@@ -1182,21 +1499,133 @@ mod tests {
     }
 
     #[test]
-    fn the_table_covers_every_probe_and_the_rust_only_two_are_never_model_choosable() {
+    fn the_table_covers_every_probe_and_the_rust_only_three_are_never_model_choosable() {
         assert_eq!(PROBES.len(), ProbeId::ALL.len());
+        assert_eq!(PROBES.len(), 27);
         for (row, id) in PROBES.iter().zip(ProbeId::ALL) {
             assert_eq!(row.id, *id);
             assert_eq!(row.model_choosable, !id.rust_only(), "{}", id.as_str());
             assert!(!row.signals.is_empty());
         }
-        assert_eq!(model_probes().len(), 19);
-        assert_eq!(sweep_probes().len(), 20);
+        assert_eq!(model_probes().len(), 24);
+        let sweep = sweep_probes();
+        assert_eq!(sweep.len(), 24);
+        for excluded in [
+            ProbeId::PersistenceSignatures,
+            ProbeId::AppSignatures,
+            ProbeId::LibraryApps,
+        ] {
+            assert!(!sweep.contains(&excluded), "{excluded:?}");
+        }
+        assert!(
+            sweep.contains(&ProbeId::SshKeys),
+            "ssh keys stay in the sweep"
+        );
+        assert_eq!(FULL_CHECK_PROBES, [ProbeId::LibraryApps]);
         assert_eq!(
             probe_of(SignalId::PersistenceUnsigned),
             Some(ProbeId::Persistence)
         );
+        assert_eq!(probe_of(SignalId::AppNewUnsigned), Some(ProbeId::Apps));
         assert_eq!(probe_of(SignalId::LoginItemsCount), None);
+        assert_eq!(
+            probe_of(SignalId::AuthenticatedRoot),
+            Some(ProbeId::PlatformIntegrity)
+        );
+        assert_eq!(
+            probe_of(SignalId::LaunchLabelMasqueradeUnsigned),
+            Some(ProbeId::Persistence)
+        );
+        assert_eq!(
+            probe_of(SignalId::PamAuthChanged),
+            Some(ProbeId::SudoConfig)
+        );
+        assert_eq!(
+            probe_of(SignalId::LibraryAppsCount),
+            Some(ProbeId::LibraryApps)
+        );
         assert!(probe_for(ProbeId::Updates).is_some_and(|p| p.min_interval == H1));
+        assert!(probe_for(ProbeId::LibraryApps).is_some_and(|p| p.min_interval == H1));
+        let apps = probe_for(ProbeId::Apps).unwrap();
+        assert_eq!(
+            apps.signals,
+            &[
+                SignalId::AppSet,
+                SignalId::AppNewUnquarantined,
+                SignalId::AppNewUnsigned
+            ]
+        );
+        assert_eq!(
+            probe_for(ProbeId::AppSignatures).unwrap().signals,
+            &[SignalId::AppNewUnsigned]
+        );
+        for id in [
+            ProbeId::ShellStartup,
+            ProbeId::Apps,
+            ProbeId::Exposure,
+            ProbeId::Hooks,
+        ] {
+            assert!(
+                probe_for(id).is_some_and(|p| p.min_interval == M5),
+                "{id:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_new_parsers_and_stat_helpers_open_nothing() {
+        assert_eq!(
+            parse_authenticated_root("Authenticated Root status: enabled\n"),
+            Some(true)
+        );
+        assert_eq!(
+            parse_authenticated_root("Authenticated Root status: disabled\n"),
+            Some(false)
+        );
+        assert_eq!(parse_authenticated_root("csrutil: unknown command\n"), None);
+        assert_eq!(
+            parse_mdfind_count("/Users/x/Library/A.app\n/Users/x/Library/B.app\n\n"),
+            2
+        );
+        assert_eq!(parse_mdfind_count(""), 0);
+        assert_eq!(
+            reason_of(&Fail::collector("mdfind: exit")),
+            ProbeReason::SpotlightOff
+        );
+        let member = stat_member(Path::new("/etc/hosts"));
+        assert!(member.key.starts_with("/etc/hosts|"));
+        assert_eq!(
+            member.detail,
+            MemberDetail::StatFile {
+                path: "/etc/hosts".into()
+            }
+        );
+        let absent = stat_member(Path::new("/nonexistent/talos"));
+        assert_eq!(absent.key, "/nonexistent/talos|absent");
+        assert_eq!(HOME_SHELL_FILES.len() + SYSTEM_SHELL_FILES.len(), 11);
+        assert_eq!(existing_count(&["/etc/hosts", "/nonexistent/talos"]), 1);
+        assert!(stat_dir_members(Path::new("/nonexistent/talos")).is_empty());
+        let dir = std::env::temp_dir().join(format!("talos-path-scan-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        for (name, mode) in [("world", 0o777), ("group", 0o775), ("plain", 0o755)] {
+            let file = dir.join(name);
+            std::fs::write(&file, b"x").unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(mode)).unwrap();
+        }
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o775)).unwrap();
+        assert_eq!(
+            count_world_writable(&[&dir, Path::new("/nonexistent/talos")]),
+            1,
+            "0o002 only: the group-writable entries and folder do not count"
+        );
+        assert!(world_writable(0o100002));
+        assert!(!world_writable(0o775));
+        let listed = stat_dir_members(&dir);
+        assert_eq!(listed.len(), 3);
+        assert!(listed.windows(2).all(|w| w[0].key <= w[1].key), "sorted");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1367,11 +1796,41 @@ mod tests {
     #[test]
     fn a_sweep_over_a_pending_probe_reads_timeout_at_the_budget() {
         let outcomes = run_sweep(
-            &[ProbeId::Hosts, ProbeId::SudoConfig],
+            &[ProbeId::Hosts, ProbeId::SudoConfig, ProbeId::ShellStartup],
             Duration::from_secs(5),
         );
-        assert_eq!(outcomes.len(), 2);
+        assert_eq!(outcomes.len(), 3);
         assert!(outcomes.iter().all(|o| o.result.is_ok()), "{outcomes:?}");
+        let shell = outcomes
+            .iter()
+            .find(|o| o.probe == ProbeId::ShellStartup)
+            .and_then(|o| o.result.as_ref().ok())
+            .unwrap();
+        let digest = shell
+            .iter()
+            .find(|o| o.signal == SignalId::ShellStartupChanged)
+            .unwrap();
+        match &digest.value {
+            Observed::Set(members) => {
+                assert_eq!(members.len(), 11, "the shell probe stats 11 paths");
+                assert!(
+                    members
+                        .iter()
+                        .all(|m| matches!(m.detail, MemberDetail::StatFile { .. }))
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+        let pam = outcomes
+            .iter()
+            .find(|o| o.probe == ProbeId::SudoConfig)
+            .and_then(|o| o.result.as_ref().ok())
+            .unwrap();
+        let pam = pam
+            .iter()
+            .find(|o| o.signal == SignalId::PamAuthChanged)
+            .unwrap();
+        assert!(matches!(&pam.value, Observed::Set(members) if members.len() == 3));
         let empty = run_sweep(&[], Duration::from_millis(10));
         assert!(empty.is_empty());
     }

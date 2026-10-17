@@ -118,10 +118,10 @@ describe("buildOnDevicePrompt and accepted rows", () => {
     const env = parse(built.text) as { context: { findings: { ruleId: string }[] }; catalog: { ruleId: string }[]; omitted: number };
     expect(env.context.findings.map((f) => f.ruleId)).not.toContain("TL-MAC-001");
     expect(env.catalog.map((c) => c.ruleId)).not.toContain("TL-MAC-001");
-    // The dev machine has 13 findings; 12 fit. Without the accepted row, the 12 remaining all fit and nothing is omitted.
+    // The dev machine has 14 findings; 12 fit. Without the accepted row, 13 remain and one is omitted.
     expect(built.kept).toHaveLength(12);
-    expect(built.omitted).toBe(0);
-    expect(env.omitted).toBe(0);
+    expect(built.omitted).toBe(1);
+    expect(env.omitted).toBe(1);
   });
 
   it("explain and ask keep the accepted row with its flag", () => {
@@ -186,17 +186,17 @@ describe("buildOnDevicePrompt shape", () => {
     expect(built.text).not.toContain(rule("TL-MAC-002").title);
   });
 
-  it("prioritise keeps 12 of the 13 dev-machine findings, in context order, dropping the least important", () => {
+  it("prioritise keeps 12 of the 14 dev-machine findings, in context order, dropping the two least important", () => {
     const built = buildOnDevicePrompt("prioritise", context, MACOS_CATALOG);
-    expect(context.findings).toHaveLength(13);
+    expect(context.findings).toHaveLength(14);
     expect(built.kept).toHaveLength(12);
-    expect(built.omitted).toBe(1);
+    expect(built.omitted).toBe(2);
     const contextIds = context.findings.map((f) => f.ruleId);
     expect(built.kept).toEqual(contextIds.filter((id) => built.kept.includes(id)));
-    const dropped = contextIds.find((id) => !built.kept.includes(id));
-    expect(context.findings.find((f) => f.ruleId === dropped)?.status).toBe("unknown");
+    const dropped = contextIds.filter((id) => !built.kept.includes(id));
+    expect(dropped.map((id) => context.findings.find((f) => f.ruleId === id)?.status).sort()).toEqual(["review", "unknown"]);
     const env = parse(built.text);
-    expect(env["omitted"]).toBe(1);
+    expect(env["omitted"]).toBe(2);
     const catalog = env["catalog"] as { ruleId: string; title: string; fixSummary?: string; explanation?: string }[];
     expect(catalog.map((c) => c.ruleId)).toEqual(built.kept);
     for (const entry of catalog) {

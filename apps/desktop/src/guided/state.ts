@@ -1,4 +1,4 @@
-import type { Capabilities, ChatOutcome, FixError, GuidedMemory, GuidedPlan, GuidedStep, NextAction, ReportDiff, RuleId, ScanReport, SectionKey, SettingsPane } from "@talos/core";
+import type { Capabilities, ChatOutcome, FixError, GuidedMemory, GuidedPlan, GuidedStep, NextAction, RemindWhen, ReportDiff, RuleId, ScanReport, SectionKey, SettingsPane } from "@talos/core";
 import type { Gate } from "../app/gate";
 import type { ScanError } from "../scan/machine";
 import type { PermissionCardState, PermissionKind } from "../scan/useCapabilityPoll";
@@ -20,7 +20,7 @@ export type GuidedPhase =
    * "since last time" rows into the opening; `resumed` is true once after a guided relaunch, so the chat appends
    * the first undone step's card. Card states are read off the scan machine through GuidedController.chat.
    */
-  | { readonly kind: "chat"; readonly plan: GuidedPlan; readonly diff: ReportDiff | null; readonly active: GuidedStep | null; readonly walking: boolean; readonly resumed: boolean };
+  | { readonly kind: "chat"; readonly plan: GuidedPlan; readonly diff: ReportDiff | null; readonly active: GuidedStep | null; readonly walking: boolean; readonly resumed: boolean; readonly reminders: readonly RuleId[] };
 
 export interface DoneRow {
   readonly ruleId: RuleId;
@@ -108,6 +108,8 @@ export interface ChatBridge {
   nextUndone(): GuidedStep | null;
   /** True when no undone step remains: the chat appends the end message. */
   atEnd(): boolean;
+  /** The plan with the latest memory folded in (finalPlan), for the end message's title and rows; null outside the chat phase. */
+  endPlan(): GuidedPlan | null;
   /**
    * Makes `step` the live card (appending it to the plan when it is not there, as "Do this next" does) and runs
    * it as the step's primary would: fix and batch preview then apply, show opens the pane and watches, permission
@@ -124,6 +126,10 @@ export interface ChatBridge {
   watchingSince(): string | null;
   /** "Do this later": a 7 day snooze (14 for the paywall, the asked-at note for a permission); returns the rules whose third Later asks about accepting. */
   later(step: GuidedStep): readonly RuleId[];
+  /** "Ask me again tomorrow" and "Remind me on Sunday" (DESIGN-AGENT 2f): snoozed and reminders to 09:00 that day; laterCount untouched. */
+  remind(step: GuidedStep, when: RemindWhen): void;
+  /** The due reminder ids landed() found for this check-up, for the opening's lead line. */
+  readonly reminders: readonly RuleId[];
   /** "Leave it alone, I know the risk": accepted until "Ask me again". */
   accept(ruleIds: readonly RuleId[]): void;
   /** The 026 question's "No, I'll get one later": a 30 day snooze. */

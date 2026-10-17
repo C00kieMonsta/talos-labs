@@ -18,7 +18,7 @@ use talos_desktop_lib::watch::notify;
 use talos_desktop_lib::watch::playbook::PLAYBOOK;
 use talos_desktop_lib::watch::rate::{apply_hysteresis, bounds_for, rate_watch, top_items};
 use talos_desktop_lib::watch::signals::{
-    self, GATED_SIGNALS, PAIR_SIGNALS, STAND_ALONE_SIGNALS, kind_of,
+    self, BadDirection, GATED_SIGNALS, PAIR_SIGNALS, STAND_ALONE_SIGNALS, bad_direction, kind_of,
 };
 use talos_desktop_lib::watch::types::{
     ExplainerProfile, SignalReading, WatchContext, WatchCycle, WatchLastVerdict, WatchVerdict,
@@ -59,20 +59,61 @@ fn parse<T: serde::de::DeserializeOwned>(value: &Value) -> T {
     serde_json::from_value(value.clone()).unwrap()
 }
 
+/// The fixture's `badDirection` word: `true`, `false` (as a boolean or its word), `"up"`,
+/// `"down"`, `"any"` or null.
+fn direction_of(value: &Value) -> Option<BadDirection> {
+    match value {
+        Value::Null => None,
+        Value::Bool(true) => Some(BadDirection::True),
+        Value::Bool(false) => Some(BadDirection::False),
+        Value::String(word) => match word.as_str() {
+            "true" => Some(BadDirection::True),
+            "false" => Some(BadDirection::False),
+            "up" => Some(BadDirection::Up),
+            "down" => Some(BadDirection::Down),
+            "any" => Some(BadDirection::Any),
+            other => panic!("not a direction: {other}"),
+        },
+        other => panic!("not a direction: {other}"),
+    }
+}
+
 #[test]
 fn the_signal_tables_match() {
     let f = fixture_or_skip!();
+    assert_eq!(SignalId::ALL.len(), 67);
+    for key in ["signalSeverity", "signalKind", "badDirection"] {
+        assert_eq!(
+            f[key].as_object().map(|o| o.len()),
+            Some(67),
+            "{key} covers every signal"
+        );
+    }
     for id in SignalId::ALL {
         let severity: Severity = parse(&f["signalSeverity"][id.as_str()]);
         assert_eq!(signals::severity(*id), severity, "{}", id.as_str());
         let kind: Option<FishyKind> = parse(&f["signalKind"][id.as_str()]);
         assert_eq!(kind_of(*id), kind, "{}", id.as_str());
+        let direction = direction_of(&f["badDirection"][id.as_str()]);
+        assert_eq!(bad_direction(*id), direction, "{}", id.as_str());
     }
+    assert_eq!(
+        direction_of(&f["badDirection"]["sig.shell_startup_changed"]),
+        Some(BadDirection::Any)
+    );
+    let kinded = SignalId::ALL
+        .iter()
+        .filter(|s| kind_of(**s).is_some())
+        .count();
+    assert_eq!(kinded, 57);
     let gated: Vec<SignalId> = parse(&f["gated"]);
+    assert_eq!(gated.len(), 7);
     assert_eq!(gated, GATED_SIGNALS.to_vec());
     let stand_alone: Vec<SignalId> = parse(&f["standAlone"]);
+    assert_eq!(stand_alone.len(), 8);
     assert_eq!(stand_alone, STAND_ALONE_SIGNALS.to_vec());
     let pairs: Vec<SignalId> = parse(&f["pairSet"]);
+    assert_eq!(pairs.len(), 18);
     assert_eq!(pairs, PAIR_SIGNALS.to_vec());
 }
 
@@ -345,6 +386,8 @@ fn every_report_row_case_agrees() {
 fn the_notification_body_is_pinned_to_the_copy() {
     let f = fixture_or_skip!();
     assert_eq!(notify::TAIL, f["notifyTail"].as_str().unwrap());
+    assert_eq!(f["headlines"].as_object().map(|o| o.len()), Some(10));
+    assert_eq!(FishyKind::ALL.len(), 10);
     for kind in FishyKind::ALL {
         let headline = f["headlines"][kind.as_str()].as_str().unwrap();
         assert_eq!(notify::headline(*kind), headline, "{}", kind.as_str());

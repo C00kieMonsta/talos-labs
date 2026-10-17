@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { ICONS } from "../app/icons";
 
-export type GuidedRowIcon = "none" | "pending" | "ok" | "failed" | "bullet";
+/** `running` is the walk's live row (DESIGN-AGENT 2c): the static spinner, never the spin class. */
+export type GuidedRowIcon = "none" | "pending" | "ok" | "failed" | "bullet" | "running";
 
 export interface GuidedRow {
   readonly key: string;
@@ -22,8 +23,10 @@ function Bullet({ state }: { state: "empty" | "done" | "failed" }) {
   );
 }
 
-function RowIcon({ icon }: { icon: GuidedRowIcon }) {
+export function RowIcon({ icon }: { icon: GuidedRowIcon }) {
   switch (icon) {
+    case "running":
+      return <ICONS.spinner size={17} strokeWidth={1.5} className="guided-row-spinner" aria-hidden="true" focusable="false" />;
     case "ok":
       return <Bullet state="done" />;
     case "failed":

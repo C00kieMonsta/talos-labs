@@ -1,6 +1,6 @@
 import { useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { ActivityEvent, AiAvailability, Allowed, ExplainerFailure, RuleId } from "@talos/core";
-import { MACOS_CATALOG, buildAllowed, toExplainerContext } from "@talos/core";
+import { MACOS_CATALOG, askWhyQuestion, buildAllowed, toExplainerContext } from "@talos/core";
 import { useApp } from "../app/context";
 import { watchActive } from "../app/gate";
 import { motionOff } from "../app/motion";
@@ -8,7 +8,8 @@ import { useConnect } from "../scan/ai-connect";
 import { limitReprobeMs } from "../scan/useAiAvailability";
 import { lastReport } from "../scan/machine";
 import { useFishyController } from "../guided/fishy/controller";
-import { CHAT, FISHY, SHOW } from "../guided/copy";
+import { formatDate } from "../app/labels";
+import { CHAT, FISHY, SHOW, WATCH } from "../guided/copy";
 import type { ChatBridge } from "../guided/state";
 import { STALE_AFTER_MS, autoAdvanceMs, paced } from "../guided/timing";
 import { useWatchController } from "../watch/watch-controller";
@@ -45,6 +46,8 @@ export interface UseChat {
   readonly extras: ActivityExtras;
   /** Bumped when the log must scroll whatever the position (the watch's act-now). */
   readonly forced: number;
+  /** Bumped when the walk's timer promoted the next card, so focus can follow it. */
+  readonly promoted: number;
   readonly reducedMotion: boolean;
   /** The composer crossed sixty characters left: the status element says so once. */
   nearLimit(left: number): void;
@@ -56,26 +59,28 @@ export function useChat(bridge: ChatBridge): UseChat {
   const watch = useWatchController();
   const fishy = useFishyController();
   const connect = useConnect();
-  const draft = useContext(ChatDraftContext);
+  const { draft, consume } = useContext(ChatDraftContext);
   const reducedMotion = motionOff();
   const [state, dispatch] = useReducer(reduce, settings.explainer.provider, initialChatState);
   const [extras, setExtras] = useState<ActivityExtras>({});
   const [forced, setForced] = useState(0);
+  const [promoted, setPromoted] = useState(0);
   const stateRef = useRef(state);
   stateRef.current = state;
   const live = useRef({ bridge, settings, scan, ai, gate, router, guidedMemory, watch, fishy, connect, adapters });
   live.current = { bridge, settings, scan, ai, gate, router, guidedMemory, watch, fishy, connect, adapters };
   const abort = useRef<AbortController | null>(null);
   const partial = useRef<{ turnId: string; text: string; timer: ReturnType<typeof setTimeout> | null; lastAt: number }>({ turnId: "", text: "", timer: null, lastAt: 0 });
-  const pendingCheck = useRef<{ cardId: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const pendingCheck = useRef<{ cardId: string; timer: ReturnType<typeof setTimeout>; sawChecking: boolean } | null>(null);
   const walkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const allowed = useCallback((): Allowed => {
     const { bridge: b, scan: s, gate: g, settings: st, guidedMemory: m } = live.current;
     const report = lastReport(s.scan);
     const plan = b.plan;
-    if (plan === null || report === null) return { fix: [], batch: [], show: [], explain: [], details: [], snooze: [], accept: [], kinds: [], accepted: [], snoozed: [] };
-    return buildAllowed({ plan, report, gate: { freeFixes: plan.freeFixes, licensed: g.licensed }, scanReady: s.scan.kind === "ready", watchEnabled: watchActive(st, g), memory: m, doneStepIds: b.doneStepIds });
+    if (plan === null || report === null) return { fix: [], batch: [], show: [], explain: [], details: [], snooze: [], accept: [], investigate: [], remind: [], whatIf: [], kinds: [], accepted: [], snoozed: [] };
+    const watchItems = (live.current.watch.state?.items ?? []).map((item) => item.signalId);
+    return buildAllowed({ plan, report, gate: { freeFixes: plan.freeFixes, licensed: g.licensed }, scanReady: s.scan.kind === "ready", watchEnabled: watchActive(st, g), memory: m, doneStepIds: b.doneStepIds, watchItems });
   }, []);
 
   const setRow = useCallback((cardId: string, row: ActivityEvent) => {
@@ -123,19 +128,21 @@ export function useChat(bridge: ChatBridge): UseChat {
       acknowledge: (signalId) => void live.current.watch.acknowledge(signalId),
       checkWatch: (cardId) => {
         if (pendingCheck.current !== null) return;
+        dispatch({ type: "card_started", cardId });
         setRow(cardId, chatActivityRow(cardId, "watch_check", "running", Date.now()));
         live.current.watch.checkNow();
         const timer = setTimeout(() => {
           pendingCheck.current = null;
           setRow(cardId, chatActivityRow(cardId, "watch_check", "failed", Date.now(), "unavailable"));
+          dispatch({ type: "card_result", at: Date.now(), cardId, outcome: "could_not_check", line: CHAT.checkFailed, rows: [] });
         }, paced(CHAT_WATCH_CHECK_MS));
-        pendingCheck.current = { cardId, timer };
+        pendingCheck.current = { cardId, timer, sawChecking: false };
       },
       scheduleWalk: () => {
         if (walkTimer.current !== null) clearTimeout(walkTimer.current);
         walkTimer.current = setTimeout(() => {
           walkTimer.current = null;
-          controllerRef.current?.walkNext();
+          if (controllerRef.current?.walkNext() === true) setPromoted((n) => n + 1);
         }, autoAdvanceMs(motionOff()));
       },
       abort: () => abort.current?.abort(),
@@ -159,6 +166,15 @@ export function useChat(bridge: ChatBridge): UseChat {
         // The provider's state changed mid-turn: the AI controller hears it without a probe, as a failed explain would.
         if (STATE_FAILURES.includes(reason as ExplainerFailure)) live.current.ai.report({ state: reason as AiAvailability, until: live.current.ai.until });
       },
+      clipboard: async (text) => {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      date: () => formatDate(new Date().toISOString()),
     });
   }, [allowed, setRow]);
   const controllerRef = useRef<ChatController | null>(null);
@@ -174,7 +190,7 @@ export function useChat(bridge: ChatBridge): UseChat {
     const locked = !gate.licensed && plan.locked.length > 0 ? plan.locked.length : 0;
     dispatch({
       type: "opened",
-      at: Date.now(),
+      at: Date.now() - (window.__talosDemoChat?.openingAgoMs ?? 0),
       plan,
       undone,
       diff: bridge.diff,
@@ -183,12 +199,20 @@ export function useChat(bridge: ChatBridge): UseChat {
       provider: settings.explainer.provider,
       reading: null,
       licensedMeta: locked === 0 ? null : locked === 1 ? CHAT.moreLockedOne : CHAT.moreLocked.replace("{n}", String(locked)),
+      watchOn: watchActive(live.current.settings, live.current.gate),
+      reminders: bridge.reminders,
     });
     const first = undone[0];
     if (bridge.resumed && first !== undefined && openingStep(undone)?.id !== first.id) {
       dispatch({ type: "step_appended", at: Date.now(), seed: seedForStep(first) });
     }
+    // Demo only: writeup=1 opens the write-up card on the opening, once.
+    if (window.__talosDemoChat?.openWriteUp === true && !openedWriteUp.current) {
+      openedWriteUp.current = true;
+      controllerRef.current?.chip("write_up");
+    }
   }, [plan, bridge, gate.licensed, settings.explainer.provider]);
+  const openedWriteUp = useRef(false);
 
   // Eight seconds with no partial, before or between partials: one line under the caret, removed by the next partial.
   const stream = state.stream;
@@ -218,11 +242,11 @@ export function useChat(bridge: ChatBridge): UseChat {
     }
   }, [working, workingCard, scanState, bridge, controller, setRow, bridge.permission]);
 
-  // A watcher with no change for ten seconds reads "no change yet"; the card keeps watching.
+  // A watcher with no change for ten seconds reads "no change yet" and keeps running; only the expiry fails the row.
   const watchingSince = working === null ? null : bridge.watchingSince();
   useEffect(() => {
     if (working === null || watchingSince === null) return;
-    const timer = setTimeout(() => setRow(working, chatActivityRow(working, "watching", "failed", Date.now(), "stale")), paced(STALE_AFTER_MS));
+    const timer = setTimeout(() => setRow(working, chatActivityRow(working, "watching", "running", Date.now(), "stale")), paced(STALE_AFTER_MS));
     return () => clearTimeout(timer);
   }, [working, watchingSince, scanState, setRow]);
 
@@ -233,7 +257,7 @@ export function useChat(bridge: ChatBridge): UseChat {
     for (const m of stateRef.current.messages) {
       if (m.kind !== "card" || m.state !== "idle" || m.step === null || !done.includes(m.step.id)) continue;
       const passes = report !== null && ruleIdsOf(m.step).length > 0 && ruleIdsOf(m.step).every((id) => report.results.find((r) => r.ruleId === id)?.status === "pass");
-      dispatch({ type: "card_stale", cardId: m.id, line: passes ? CHAT.staleDone : CHAT.staleWaiting });
+      dispatch({ type: "card_stale", at: Date.now(), cardId: m.id, line: passes ? CHAT.staleDone : CHAT.staleWaiting });
     }
   }, [done, scanState]);
 
@@ -241,12 +265,18 @@ export function useChat(bridge: ChatBridge): UseChat {
   const noticed = useRef<string | null>(null);
   const watchState = watch.state;
   useEffect(() => {
-    if (pendingCheck.current !== null) {
-      clearTimeout(pendingCheck.current.timer);
-      setRow(pendingCheck.current.cardId, chatActivityRow(pendingCheck.current.cardId, "watch_check", "done", Date.now()));
-      pendingCheck.current = null;
+    // The row resolves on the first state after one that read checking, or the fallback.
+    const p = pendingCheck.current;
+    if (p !== null) {
+      if (watchState?.checking === true) p.sawChecking = true;
+      else if (p.sawChecking) {
+        clearTimeout(p.timer);
+        setRow(p.cardId, chatActivityRow(p.cardId, "watch_check", "done", Date.now()));
+        dispatch({ type: "card_result", at: Date.now(), cardId: p.cardId, outcome: "checked", line: WATCH.checkedJustNow, rows: [] });
+        pendingCheck.current = null;
+      }
     }
-    if (watchState === null || watchState.rating !== "act_now" || !watchState.licensed || router.route.name === "fishy") return;
+    if (watchState === null || watchState.rating !== "act_now" || !watchState.licensed || live.current.router.route.name === "fishy") return;
     const item = watchState.items[0];
     if (item === undefined) return;
     const key = `${item.signalId}:${item.changedAt ?? ""}`;
@@ -254,7 +284,7 @@ export function useChat(bridge: ChatBridge): UseChat {
     noticed.current = key;
     dispatch({ type: "watch_noticed", at: Date.now(), item, changedAt: item.changedAt ?? watchState.lastCheckAt });
     setForced((f) => f + 1);
-  }, [watchState, router.route.name, setRow]);
+  }, [watchState, setRow]);
 
   // Back from the fishy flow: the recover line when the flow ran.
   const ranAt = watch.memory.fishyRanAt;
@@ -264,14 +294,18 @@ export function useChat(bridge: ChatBridge): UseChat {
     seenRan.current = ranAt;
   }, [ranAt]);
 
-  // The watch window's draft: the field takes it; the exact "Why does ... matter?" of the top item sends at once.
+  // The watch window's draft, once per seq: the exact "Why does ... matter?" of the top item sends at once, anything else lands in the field.
+  const seenDraft = useRef<number | null>(null);
+  const hasPlan = plan !== null;
   useEffect(() => {
-    if (draft === null || plan === null) return;
+    if (draft === null || !hasPlan || seenDraft.current === draft.seq) return;
+    seenDraft.current = draft.seq;
+    consume(draft.seq);
     const top = live.current.watch.state?.items[0] ?? null;
-    const autoSend = top !== null && draft.text === CHAT.askWhy.replace("{headline}", FISHY.noticed.headline[top.kind]);
-    dispatch({ type: "draft_received", text: draft.text, autoSend });
-    if (autoSend) controller.send(draft.text);
-  }, [draft, plan, controller]);
+    const autoSend = top !== null && draft.text === askWhyQuestion(FISHY.noticed.headline[top.kind]);
+    // A refused send (a disclosure or a turn running) falls back to the field so the question is not lost.
+    if (!autoSend || !controller.send(draft.text)) dispatch({ type: "draft_received", text: draft.text, autoSend });
+  }, [draft, hasPlan, controller, consume]);
 
   // The provider's state lands in the composer's line; the chat itself stays.
   const availability = ai.availability;
@@ -303,6 +337,7 @@ export function useChat(bridge: ChatBridge): UseChat {
     const liveSeverity = liveCard !== undefined && liveCard !== null && liveCard.kind === "card" ? liveCard.card.severity : null;
     const newest = [...state.messages].reverse().find((m) => m.kind === "card");
     return {
+      ruleCard: newest !== undefined && newest.kind === "card" && newest.card.ruleId !== null,
       fixable: undone.some((s) => s.kind === "fix" || s.kind === "batch"),
       anyUndone: undone.length > 0,
       urgentOrHigh: undone.some((s) => {
@@ -317,5 +352,5 @@ export function useChat(bridge: ChatBridge): UseChat {
 
   const nearLimit = useCallback((left: number) => dispatch({ type: "counter_near_limit", left }), []);
 
-  return { state, chips, controller, busy: state.stream.kind !== "idle", extras, forced, reducedMotion, nearLimit };
+  return { state, chips, controller, busy: state.stream.kind !== "idle", extras, forced, promoted, reducedMotion, nearLimit };
 }

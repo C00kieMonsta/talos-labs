@@ -9,6 +9,17 @@
   padding: 0;
 }
 
+/* The shell's top padding drops to 24 px on a short window, so the log keeps the opening's headline and its primary in view. */
+@media (max-height: 700px) {
+  .guided:has(.guided-chat) {
+    padding-top: 24px;
+  }
+
+  .guided-chat {
+    height: calc(100vh - 52px - 24px);
+  }
+}
+
 .chat {
   display: flex;
   flex: 1 1 auto;
@@ -18,7 +29,16 @@
   margin: 0;
   padding: 0 0 16px;
   overflow-y: auto;
+  /* The hook owns the position; Chrome's anchoring would read a card shrinking above the fold as a scroll-up. */
+  overflow-anchor: none;
   scroll-behavior: smooth;
+}
+
+/* The content the stick-to-bottom hook measures: the log's own box never changes, its content does. */
+.chat-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
 .chat-exchange {
@@ -61,10 +81,6 @@
   font: var(--text-guided-list);
   font-weight: 600;
   color: var(--fg);
-}
-
-.chat-headline:focus {
-  outline: none;
 }
 
 .chat-app .guided-urgent {
@@ -297,7 +313,7 @@
   flex-direction: column;
   gap: 8px;
   padding: 8px 0 12px;
-  background: var(--bg);
+  background: var(--bg-canvas);
 }
 
 .chat-new-pill {
@@ -363,7 +379,7 @@
   max-width: none;
   margin: 0;
   padding: 11px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   background: var(--bg-elevated);
   font: var(--text-guided-body);
@@ -428,4 +444,65 @@
   .chat {
     scroll-behavior: auto;
   }
+}
+
+/* AGENT part B region (docs/DESIGN-AGENT.md 2c, 2f, 2g): the write-up preview, the reminder lead, the walk's rows. */
+.chat-writeup {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  max-height: calc(8 * 1.5em + 2 * var(--space-3));
+  overflow: auto;
+  font: var(--text-guided-meta);
+  font-family: inherit;
+  color: var(--fg);
+  white-space: pre-wrap;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+}
+
+.chat-writeup-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.chat-writeup-copied {
+  font: var(--text-guided-meta);
+  color: var(--fg-secondary);
+}
+
+.chat-app-lead {
+  margin: 0 0 var(--space-2);
+  font: var(--text-guided-body);
+  color: var(--fg);
+}
+
+.chat-app[data-label="what_if"] .chat-app-body {
+  white-space: pre-line;
+}
+
+.chat-walk-progress {
+  margin-top: var(--space-2);
+}
+
+.chat-walk .guided-row-running .guided-row-spinner {
+  flex: none;
+  color: var(--fg-secondary);
+}
+
+.chat-walk-row {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: 0;
+  min-height: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+}
+
+.chat-walk-more {
+  margin-top: var(--space-1);
 }

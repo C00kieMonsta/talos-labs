@@ -1,5 +1,5 @@
 import type { GuidedPlan, GuidedStep, RuleId, ScanReport } from "@talos/core";
-import { aiAvailableRecently, buildGuidedPlan, clearAcceptedThatPass, diffReports } from "@talos/core";
+import { aiAvailableRecently, buildGuidedPlan, clearAcceptedThatPass, clearReminders, diffReports, dueFirst, reminderDue } from "@talos/core";
 import { rulePasses } from "../scan/machine";
 import type { Core } from "./core";
 import { finalPlan, openStep, writeMemory } from "./core";
@@ -32,7 +32,12 @@ export function landed(core: Core, report: ScanReport): void {
   if (chatHome) {
     const resumed = core.resume;
     core.resume = false;
-    core.setPhase({ kind: "chat", plan, diff: changed ? diff : null, active: null, walking: false, resumed });
+    /* AGENT part B region (2f): a due reminder is said once in the opening and its step goes first; one whose rule passes is cleared silently. */
+    const due = reminderDue(core.memory, report, now);
+    const passed = (Object.keys(core.memory.reminders) as RuleId[]).filter((id) => rulePasses(report, id));
+    const cleared = clearReminders(core.memory, [...due, ...passed]);
+    if (cleared !== core.memory) writeMemory(core, { reminders: cleared.reminders });
+    core.setPhase({ kind: "chat", plan: { ...plan, steps: dueFirst(plan.steps, due) }, diff: changed ? diff : null, active: null, walking: false, resumed, reminders: due });
     return;
   }
   if (core.resume) {

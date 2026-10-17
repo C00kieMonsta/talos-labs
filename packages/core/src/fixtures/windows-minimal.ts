@@ -11,7 +11,7 @@ const NOT_SUPPORTED = {
  * BitLocker, Defender Firewall, SmartScreen and Defender. Every other
  * section is not_supported_on_os.
  *
- * Expected with the v0.1 catalog: 31 not_applicable, score null, grade null,
+ * Expected with the v0.3 catalog: 36 not_applicable, score null, grade null,
  * complete true.
  */
 export const WINDOWS_MINIMAL: SystemState = {
@@ -35,7 +35,7 @@ export const WINDOWS_MINIMAL: SystemState = {
     },
     platformIntegrity: {
       status: "ok",
-      data: { execPolicyEnabled: true, systemProtectionEnabled: null },
+      data: { execPolicyEnabled: true, systemProtectionEnabled: null, apps: NOT_SUPPORTED, inserts: NOT_SUPPORTED },
     },
     malwareProtection: {
       status: "ok",

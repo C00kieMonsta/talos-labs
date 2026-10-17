@@ -47,8 +47,8 @@ export function syllablesPerWord(text: string): number {
   return total / words.length;
 }
 
-const DEEP_LINK = ["TL-MAC-001", "TL-MAC-004", "TL-MAC-006", "TL-MAC-010", "TL-MAC-012", "TL-MAC-014", "TL-MAC-018", "TL-MAC-023", "TL-MAC-025", "TL-MAC-026", "TL-MAC-027"];
-const MANUAL = ["TL-MAC-005", "TL-MAC-017", "TL-MAC-024", "TL-MAC-028", "TL-MAC-031"];
+const DEEP_LINK = ["TL-MAC-001", "TL-MAC-004", "TL-MAC-006", "TL-MAC-010", "TL-MAC-012", "TL-MAC-014", "TL-MAC-018", "TL-MAC-023", "TL-MAC-025", "TL-MAC-026", "TL-MAC-027", "TL-MAC-032", "TL-MAC-034"];
+const MANUAL = ["TL-MAC-005", "TL-MAC-017", "TL-MAC-024", "TL-MAC-028", "TL-MAC-031", "TL-MAC-035", "TL-MAC-036"];
 
 describe("guided strings", () => {
   it("every rule has all five strings within the caps", () => {

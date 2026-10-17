@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { askWhyQuestion, WATCH_BANNED_PATTERN } from "@talos/core";
 import { FISHY } from "../guided/copy";
 import { guidedFor } from "../guided/plan";
-import { AI_BADGES_SHORT, reasonLabel, WATCH_WINDOW } from "./copy";
+import { AI_BADGES_SHORT, reasonLabel, shownUnavailable, WATCH_WINDOW } from "./copy";
 
 /** A copy of syllablesPerWord from src/guided/copy.test.ts (the fixed counter of DESIGN-V03.md section 6). */
 function syllablesPerWord(text: string): number {
@@ -125,8 +125,12 @@ describe("WATCH_WINDOW copy", () => {
     expect(WATCH_WINDOW.lookEmptyChange.replace("change", "changes")).toBe(WATCH_WINDOW.lookEmptyChanges);
   });
 
-  it("reasonLabel reads the socket-table word for unsigned_build and the v0.2 words otherwise", () => {
+  it("reasonLabel reads the socket-table word for unsigned_build, Spotlight is off for spotlight_off, and the v0.2 words otherwise", () => {
     expect(reasonLabel("unsigned_build")).toBe("Not available in this build");
+    expect(reasonLabel("spotlight_off")).toBe("Spotlight is off");
+    expect(reasonLabel("spotlight_off")).not.toMatch(WATCH_BANNED_PATTERN);
+    expect(shownUnavailable([{ probeId: "probe.library_apps", reason: "spotlight_off" }, { probeId: "probe.listeners", reason: "unsigned_build" }])).toEqual([{ probeId: "probe.listeners", reason: "unsigned_build" }]);
+    expect(shownUnavailable([])).toEqual([]);
     expect(reasonLabel("needs_full_disk_access")).toBe("Needs Full Disk Access");
     expect(reasonLabel("permission_denied")).toBe("Permission was denied");
     expect(reasonLabel("needs_admin")).toBe("Needs an administrator account");

@@ -47,9 +47,10 @@ describe("acceptRules", () => {
     permissionAskedAt: { full_disk_access: AT },
     aiAskedAt: AT,
     accepted: { "TL-MAC-014": AT },
+    reminders: { "TL-MAC-001": "2026-10-16T08:00:00.000Z", "TL-MAC-002": "2026-10-19T08:00:00.000Z" },
   };
 
-  it("writes the date and removes snoozed, laterCount and waiting for those ids only", () => {
+  it("writes the date and removes snoozed, laterCount, waiting and reminders for those ids only", () => {
     const after = acceptRules(before, ["TL-MAC-001"], NOW);
     expect(after).toEqual({
       ...before,
@@ -57,6 +58,7 @@ describe("acceptRules", () => {
       laterCount: { "TL-MAC-002": 1 },
       waiting: { "TL-MAC-026": "2026-10-16T10:00:00.000Z" },
       accepted: { "TL-MAC-014": AT, "TL-MAC-001": NOW },
+      reminders: { "TL-MAC-002": "2026-10-19T08:00:00.000Z" },
     });
     expect(after.pendingRestart).toBe(before.pendingRestart);
     expect(after.permissionAskedAt).toBe(before.permissionAskedAt);
@@ -68,6 +70,7 @@ describe("acceptRules", () => {
     expect(after.snoozed).toEqual({});
     expect(after.laterCount).toEqual({});
     expect(after.waiting).toEqual({ "TL-MAC-026": "2026-10-16T10:00:00.000Z" });
+    expect(after.reminders).toEqual({});
   });
 
   it("returns the same object for an empty list and never mutates the input", () => {

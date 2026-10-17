@@ -1,6 +1,6 @@
 import type { Allowed, ChatCard, ChatCardKind, ChatIntent, GuidedPlan, GuidedStep, RuleId, Severity, WatchItem } from "@talos/core";
 import { intentToCard, stillAllowed } from "@talos/core";
-import { ACCEPT, BATCH, CHAT, END, FISHY, FIX, PAYWALL, PERMISSION, QUESTION, SHOW, WATCH } from "../guided/copy";
+import { ACCEPT, ACTIVITY, BATCH, CHAT, END, FISHY, FIX, PAYWALL, PERMISSION, QUESTION, SHOW, WATCH } from "../guided/copy";
 import { guidedFor, ruleIdsOf, severityFor } from "../guided/plan";
 import type { CardSeed } from "./state";
 
@@ -59,9 +59,25 @@ export function cardFor(intent: ChatIntent, plan: GuidedPlan, allowed: Allowed):
   if (intent.kind === "fix_rule" || intent.kind === "fix_batch" || intent.kind === "show_where") {
     return step === null ? null : seedForStep(step);
   }
+  // DESIGN-AGENT part B: three kinds are app messages, the write-up is its own card, the what-if answers over the rule's step.
+  if (intent.kind === "remind_rule" || intent.kind === "close_watch" || intent.kind === "investigate") return null;
+  if (intent.kind === "write_up") return writeUpCard();
+  if (intent.kind === "what_if") return intent.ruleId === null ? null : whatIfCard(intent.ruleId, plan);
   const severity = intent.ruleId === null ? null : severityFor(intent.ruleId);
   const card = intentToCard(intent, severity);
   return card === null ? null : { card, step, item: null };
+}
+
+/** The write-up card; the controller fills the seed's text. */
+export function writeUpCard(text?: string): CardSeed {
+  return { card: { kind: "write_up", ruleId: null, ruleIds: [], severity: null }, step: null, item: null, ...(text === undefined ? {} : { text }) };
+}
+
+/** The what-if answer's card: the rule's own step (a batch as the batch card), else a Details card for a rule with no step. */
+export function whatIfCard(ruleId: RuleId, plan: GuidedPlan): CardSeed {
+  const step = plan.steps.find((s) => (s.kind === "fix" || s.kind === "show" || s.kind === "batch") && ruleIdsOf(s).includes(ruleId)) ?? null;
+  if (step !== null) return seedForStep(step);
+  return { card: { kind: "details", ruleId, ruleIds: [ruleId], severity: severityFor(ruleId) }, step: null, item: null };
 }
 
 /** The free version's one card per check-up, over the locked ids. */
@@ -96,13 +112,14 @@ export function cardHeadline(seed: CardSeed): string {
       return item === null ? CHAT.watchHeadline : CHAT.actHeadline.replace("{headline}", lowerFirst(FISHY.noticed.headline[item.kind]));
     case "question":
       return QUESTION.ask;
+    case "write_up":
+      return ACTIVITY.chips.writeUp;
     case "accept":
     case "snooze":
     case "details":
     case "explain":
     case "fix":
     case "show":
-    case "write_up":
       if (card.ruleId !== null) return guidedFor(card.ruleId).headline;
       return step !== null && (step.kind === "fix" || step.kind === "show") ? guidedFor(step.ruleId).headline : "";
   }
@@ -206,8 +223,9 @@ export function cardContent(seed: CardSeed, facts: CardFacts): CardContent {
     case "snooze":
       return { ...EMPTY, headline, body: why, primary: FIX.later };
     case "details":
-    case "write_up":
       return { ...EMPTY, headline, body: why, primary: END.details };
+    case "write_up":
+      return { ...EMPTY, headline, body: ACTIVITY.writeUp.lead, primary: ACTIVITY.writeUp.copy };
     case "explain":
       return { ...EMPTY, headline, body: why, primary: null, explainRuleId: card.ruleId };
   }

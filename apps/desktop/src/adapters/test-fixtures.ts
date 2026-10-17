@@ -162,6 +162,6 @@ export const VALID_CHAT = (() => {
   const { allowed } = TEST_CHAT_CALL;
   const showId = allowed.show[0];
   const fixId = allowed.fix[0];
-  const intents = showId !== undefined ? [{ kind: "show_where", ruleId: showId }] : fixId !== undefined ? [{ kind: "fix_rule", ruleId: fixId }] : [];
+  const intents = showId !== undefined ? [{ kind: "show_where", ruleId: showId, signalId: null, when: null }] : fixId !== undefined ? [{ kind: "fix_rule", ruleId: fixId, signalId: null, when: null }] : [];
   return { reply: "Your disk is not locked. Start from the button below.", relatedRuleIds: ["TL-MAC-001"], outsideScope: false, intents } as const;
 })();

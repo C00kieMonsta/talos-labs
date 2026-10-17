@@ -14,10 +14,10 @@ const TERMINAL_OR_COMMAND =
   /\b(terminal|fdesetup|socketfilterfw|spctl|csrutil|sysadminctl|pwpolicy|chmod|launchctl|defaults|tmutil|softwareupdate|kickstart|ssh-keygen|lsof|ls -la)\b/i;
 
 describe("macOS catalog invariants", () => {
-  it("has 31 rules with unique ids TL-MAC-001 to TL-MAC-031 in order", () => {
+  it("has 36 rules with unique ids TL-MAC-001 to TL-MAC-036 in order", () => {
     const ids = MACOS_CATALOG.rules.map((r) => r.id);
-    expect(ids).toHaveLength(31);
-    expect(new Set(ids).size).toBe(31);
+    expect(ids).toHaveLength(36);
+    expect(new Set(ids).size).toBe(36);
     ids.forEach((id, index) => {
       expect(id).toBe(`TL-MAC-${String(index + 1).padStart(3, "0")}`);
       expect(id).toMatch(/^TL-(MAC|WIN|LNX|ANY)-\d{3}$/);
@@ -25,7 +25,7 @@ describe("macOS catalog invariants", () => {
   });
 
   it("pins the catalog version and benchmark edition", () => {
-    expect(MACOS_CATALOG.version).toBe("0.2.0");
+    expect(MACOS_CATALOG.version).toBe("0.3.0");
     expect(MACOS_CATALOG.cisEdition).toBe("CIS Apple macOS 26 Tahoe Benchmark v1.0.0");
   });
 
@@ -91,7 +91,7 @@ describe("macOS catalog invariants", () => {
   });
 
   it("every title is a statement with a finite verb, so the unknown headline reads as a sentence", () => {
-    const FINITE_VERB = /\b(is|are|can|stays|install|update|locks|points|opens|ran)\b/;
+    const FINITE_VERB = /\b(is|are|can|stays|install|update|locks|points|opens|ran|came)\b/;
     for (const rule of MACOS_CATALOG.rules) {
       expect(rule.title, rule.id).toMatch(FINITE_VERB);
       expect(rule.title, rule.id).not.toMatch(/^\S+ (that|which) /);
@@ -182,6 +182,11 @@ describe("macOS catalog invariants", () => {
       "TL-MAC-029": ["high", "developer", null],
       "TL-MAC-030": ["medium", "developer", null],
       "TL-MAC-031": ["high", "developer", null],
+      "TL-MAC-032": ["medium", "sharing", "2.3.1.1"],
+      "TL-MAC-033": ["medium", "remote_access", "2.3.3.6"],
+      "TL-MAC-034": ["medium", "sharing", "2.3.3.7"],
+      "TL-MAC-035": ["medium", "platform", null],
+      "TL-MAC-036": ["medium", "persistence", null],
     };
     for (const rule of MACOS_CATALOG.rules) {
       expect([rule.severity, rule.category, rule.cis], rule.id).toEqual(table[rule.id]);
@@ -190,6 +195,6 @@ describe("macOS catalog invariants", () => {
     for (const rule of MACOS_CATALOG.rules) {
       bySeverity[rule.severity] += 1;
     }
-    expect(bySeverity).toEqual({ critical: 1, high: 13, medium: 9, low: 5, info: 3 });
+    expect(bySeverity).toEqual({ critical: 1, high: 13, medium: 14, low: 5, info: 3 });
   });
 });

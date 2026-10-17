@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ExplainerFailure } from "@talos/core";
 import { AI_UNAVAILABLE_COPY } from "../app/labels";
-import { CHAT, END, EXPLAIN, FISHY, SHOW } from "../guided/copy";
+import { ACTIVITY, CHAT, END, EXPLAIN, FISHY, SHOW, WATCH_ON } from "../guided/copy";
+import { guidedFor } from "../guided/plan";
 import { seedForStep } from "./cards";
+import { walkChecklist } from "./walk";
 import { reduce } from "./reduce";
 import type { ChatAction, ChatMessage, ChatState } from "./state";
 import { initialChatState } from "./state";
@@ -50,6 +52,8 @@ describe("reduce: the opening", () => {
   it("with nothing to fix says so and draws no card; with a diff the since rows come first", () => {
     const nothing = run([openedAction(PLAN_L, { undone: [], plan: { ...PLAN_L, steps: [] } })]);
     expect((nothing.messages[0] as Extract<ChatMessage, { kind: "app" }>).headline).toBe(END.nothing);
+    expect((nothing.messages[0] as Extract<ChatMessage, { kind: "app" }>).body).toBe(END.nextTime);
+    expect((run([openedAction(PLAN_L, { undone: [], plan: { ...PLAN_L, steps: [] }, watchOn: true })]).messages[0] as Extract<ChatMessage, { kind: "app" }>).body).toBe(WATCH_ON.nextTime);
     expect(cards(nothing)).toHaveLength(0);
     const diff = { fixed: ["TL-MAC-002" as const], appeared: ["TL-MAC-029" as const], unreadable: [] };
     const since = run([openedAction(PLAN_L, { diff })]);
@@ -105,7 +109,8 @@ describe("reduce: model turns", () => {
     expect(grown.stream).toEqual({ kind: "streaming", turnId: "t1", since: AT, lastPartialAt: AT + 100 });
     const seed = seedForStep(stepById(PLAN_L, "show:TL-MAC-026"));
     const ready = reduce(grown, { type: "model_ready", at: AT + 200, turnId: "t1", result: { ...REPLY, outsideScope: true }, cards: [seed], related: [seed], lockedMeta: CHAT.moreLockedOne });
-    expect(kinds(ready).slice(-4)).toEqual(["model", "card", "row", "notice"]);
+    // The outside line is the app's own notice under the model block, not part of it.
+    expect(kinds(ready).slice(-5)).toEqual(["model", "notice", "card", "row", "notice"]);
     expect(ready.stream.kind).toBe("idle");
     expect(ready.composer.kind).toBe("ready");
     expect(cards(ready).filter((c) => c.live)).toHaveLength(1);
@@ -163,7 +168,8 @@ describe("reduce: model turns", () => {
           expect(state.composer.kind).toBe("ready");
           expect(notice.text).toBe(EXPLAIN.didNotAnswer.chatgpt);
           expect(notice.wayOut).toEqual({ kind: "chip", label: CHAT.tryAgain, action: "try_again" });
-          expect(person.resend).toBe(true);
+          // The notice's "Try again" is the one way out; the turn draws no "Send again".
+          expect(person.resend).toBe(false);
           break;
         case "too_long":
           expect(notice.text).toBe(CHAT.tooLong);
@@ -225,9 +231,10 @@ describe("reduce: cards, rows, the lock and the watch", () => {
     const resolved = cards(done).find((c) => c.result === "Done. 3 things fixed.");
     expect(resolved?.state).toBe("resolved");
     expect(resolved?.live).toBe(false);
-    // The first row (the disk, demoted by app_answered) stepped up as a new live card at the end.
+    // The row that came with the batch (022) stepped up as a new live card at the end; the opening's disk row stays a row.
     expect(done.messages.at(-1)?.kind).toBe("card");
-    expect(cards(done).find((c) => c.live)?.card.ruleId).toBe("TL-MAC-001");
+    expect(cards(done).find((c) => c.live)?.card.ruleId).toBe("TL-MAC-022");
+    expect(resolved?.outcome).toBe("fixed");
     expect(kinds(done).filter((k) => k === "row")).toHaveLength(1);
     expect(done.announce.text).toBe("Done. 3 things fixed.");
     // A result for a card that is not working or idle is ignored.
@@ -254,7 +261,7 @@ describe("reduce: cards, rows, the lock and the watch", () => {
   });
 
   it("card_stale collapses an idle card and frees live; the lock card shows once and collapses to OK", () => {
-    const stale = reduce(opened, { type: "card_stale", cardId: liveId, line: CHAT.staleDone });
+    const stale = reduce(opened, { type: "card_stale", at: AT, cardId: liveId, line: CHAT.staleDone });
     expect(cards(stale)[0]?.state).toBe("stale");
     expect(stale.live).toBeNull();
     const lock = reduce(stale, { type: "lock_shown", at: AT, ruleIds: ["TL-MAC-003", "TL-MAC-011"] });
@@ -304,12 +311,116 @@ describe("reduce: cards, rows, the lock and the watch", () => {
       { type: "card_started", cardId: "x" },
       { type: "card_result", at: AT, cardId: "x", outcome: "fixed", line: "", rows: [] },
       { type: "row_promoted", at: AT, rowId: "x" },
-      { type: "card_stale", cardId: "x", line: "" },
+      { type: "card_stale", at: AT, cardId: "x", line: "" },
       { type: "lock_dismissed" },
       { type: "brief_ready", at: AT, text: "", provider: "chatgpt" },
       { type: "walk_ended" },
       { type: "cleared" },
     ];
     for (const action of actions) expect(reduce(empty, action), action.type).toStrictEqual(empty);
+  });
+});
+
+describe("reduce: promotion after a settled, failed or stale card", () => {
+  const opened = run([openedAction(PLAN_L)]);
+  const liveId = opened.live as string;
+  const batch = seedForStep(stepById(PLAN_L, "batch"));
+  const share = seedForStep(stepById(PLAN_L, "fix:TL-MAC-022:/Users/alice/Public"));
+  const failed = reduce(reduce(opened, { type: "card_started", cardId: liveId }), { type: "card_result", at: AT, cardId: liveId, outcome: "did_not_change", line: "That did not work.", rows: [], failure: { error: "command_failed", batch: false } });
+
+  it("a failed card takes Do this later or Next as its result and loses its primary", () => {
+    const later = reduce(failed, { type: "card_result", at: AT, cardId: liveId, outcome: "snoozed", line: "OK, I'll remind you another day.", rows: [] });
+    expect(cards(later)[0]?.state).toBe("resolved");
+    expect(cards(later)[0]?.outcome).toBe("snoozed");
+    expect(later.live).toBeNull();
+    expect(reduce(later, { type: "card_result", at: AT, cardId: liveId, outcome: "snoozed", line: "x", rows: [] })).toBe(later);
+  });
+
+  it("a failed card demotes to a row when a new card lands, so one card holds the primary", () => {
+    const next = reduce(failed, { type: "app_answered", at: AT, answer: { headline: null, body: null, label: "answer", cards: [batch] } });
+    expect(next.messages.filter((m) => m.kind === "card" && m.live)).toHaveLength(1);
+    expect(cards(next).filter((c) => c.state === "idle")).toHaveLength(1);
+    expect(next.messages[1]?.kind).toBe("row");
+  });
+
+  it("card_stale promotes the next row and drops rows for the same rule; while walking it leaves live null", () => {
+    const listed = reduce(opened, { type: "app_answered", at: AT, answer: { headline: null, body: null, label: "answer", cards: [batch, share] } });
+    const stale = reduce(listed, { type: "card_stale", at: AT, cardId: listed.live as string, line: CHAT.staleDone });
+    expect(stale.live).not.toBeNull();
+    expect(cards(stale).find((c) => c.live)?.card.ruleId).toBe("TL-MAC-022");
+    expect(cards(stale).find((c) => c.id === listed.live)?.outcome).toBe("stale");
+    const walking = reduce(reduce(opened, { type: "app_answered", at: AT, answer: { headline: null, body: null, label: "answer", cards: [batch, share], walking: true } }), { type: "card_stale", at: AT, cardId: "m4", line: CHAT.staleDone });
+    expect(walking.live).toBeNull();
+    expect(kinds(walking).filter((k) => k === "row")).toHaveLength(2);
+  });
+
+  it("an accept card's result drops the row for the same rule instead of promoting it to a stale card", () => {
+    const accept = reduce(opened, { type: "app_answered", at: AT, answer: { headline: null, body: null, label: "answer", cards: [{ card: { kind: "accept", ruleId: "TL-MAC-001", ruleIds: ["TL-MAC-001"], severity: "critical" }, step: null, item: null }] } });
+    expect(kinds(accept)).toEqual(["app", "row", "app", "card"]);
+    const done = reduce(accept, { type: "card_result", at: AT, cardId: accept.live as string, outcome: "accepted", line: CHAT.accepted, rows: [] });
+    expect(done.live).toBeNull();
+    expect(kinds(done)).toEqual(["app", "app", "card"]);
+  });
+
+  it("watch_noticed while a card works lands as a row; the result promotes the watch row before any older row", () => {
+    const listed = reduce(opened, { type: "app_answered", at: AT, answer: { headline: null, body: null, label: "answer", cards: [batch, share] } });
+    const working = reduce(listed, { type: "card_started", cardId: listed.live as string });
+    const noticed = reduce(working, { type: "watch_noticed", at: AT, item: ACT_ITEM, changedAt: null });
+    expect(noticed.live).toBeNull();
+    expect(noticed.messages.at(-1)?.kind).toBe("row");
+    const done = reduce(noticed, { type: "card_result", at: AT, cardId: listed.live as string, outcome: "fixed", line: "Done.", rows: [] });
+    expect(cards(done).find((c) => c.live)?.card.kind).toBe("watch");
+  });
+
+  it("a related row reads Details: and explain_state announces", () => {
+    const seed = { card: { kind: "details" as const, ruleId: "TL-MAC-026" as const, ruleIds: ["TL-MAC-026" as const], severity: "medium" as const }, step: null, item: null };
+    const ready = run([openedAction(PLAN_L), sent, { type: "model_ready", at: AT, turnId: "t1", result: REPLY, cards: [], related: [seed], lockedMeta: null }]);
+    const row = ready.messages.at(-1);
+    expect(row?.kind === "row" && row.headline).toBe(CHAT.detailsRow.replace("{headline}", guidedFor("TL-MAC-026").headline));
+    expect(reduce(ready, { type: "explain_state", text: EXPLAIN.waiting }).announce.text).toBe(EXPLAIN.waiting);
+  });
+});
+
+/* AGENT part B region: the reminder lead and the "Do them all" checklist (docs/DESIGN-AGENT.md 2c, 2f). */
+describe("reduce: the agent's opening lead and the walk checklist", () => {
+  it("opened with due reminders renders one lead line per id before the headline, and none without", () => {
+    const state = run([openedAction(PLAN_L, { reminders: ["TL-MAC-002", "TL-MAC-001"] })]);
+    const app = state.messages[0];
+    expect(app?.kind === "app" && app.lead).toBe(`${ACTIVITY.remind.due.replace("{headline}", guidedFor("TL-MAC-002").headline)} ${ACTIVITY.remind.due.replace("{headline}", guidedFor("TL-MAC-001").headline)}`);
+    expect(app?.kind === "app" && app.checklist).toBeNull();
+    // The reminded step's card is the live one, ahead of the critical disk.
+    expect(cards(state).find((c) => c.live)?.card.ruleIds).toContain("TL-MAC-002");
+    const plain = run([openedAction(PLAN_L)]);
+    expect(plain.messages[0]?.kind === "app" && plain.messages[0].lead).toBeNull();
+  });
+
+  it("the walk checklist follows the cards: the live row runs, a result ticks it and announces the progress line, a later row reads Another day", () => {
+    const opened = run([openedAction(PLAN_L)]);
+    const steps = undoneOf(PLAN_L);
+    const walking = reduce(opened, { type: "app_answered", at: AT, answer: { headline: CHAT.chips.doThemAll, body: ACTIVITY.plan.lead, label: "walk", checklist: walkChecklist(steps), cards: [seedForStep(stepById(PLAN_L, "batch"))], walking: true } });
+    const walk = () => {
+      const m = walking.messages.find((x) => x.kind === "app" && x.label === "walk");
+      return m?.kind === "app" ? m.checklist : null;
+    };
+    const batchIds = stepById(PLAN_L, "batch");
+    expect(walk()?.of).toBe(walkChecklist(steps).rows.length);
+    expect(walk()?.rows.filter((r) => r.icon === "running").map((r) => r.stepId)).toEqual(batchIds.kind === "batch" ? batchIds.ruleIds.map(() => "batch") : []);
+    const started = reduce(walking, { type: "card_started", cardId: walking.live as string });
+    const rows = batchIds.kind === "batch" ? batchIds.ruleIds.map((ruleId, i) => ({ ruleId, ok: i === 0, text: "x", ...(i === 0 ? {} : { tag: END.didNotChange }) })) : [];
+    const done = reduce(started, { type: "card_result", at: AT, cardId: walking.live as string, outcome: "fixed", line: "Done.", rows });
+    const after = done.messages.find((x) => x.kind === "app" && x.label === "walk");
+    const checklist = after?.kind === "app" ? after.checklist : null;
+    expect(checklist?.done).toBe(1);
+    expect(checklist?.rows[0]?.icon).toBe("ok");
+    expect(checklist?.rows[1]?.icon).toBe("failed");
+    expect(checklist?.rows[1]?.tag).toBe(END.didNotChange);
+    expect(done.announce.text).toBe(`1 of ${checklist?.of} done`);
+    expect(done.messages[0]).toBe(walking.messages[0]);
+    expect(done.walking).toBe(true);
+    const next = reduce(done, { type: "card_appended", at: AT, seed: seedForStep(stepById(PLAN_L, "show:TL-MAC-001")) });
+    const snoozed = reduce(next, { type: "card_result", at: AT, cardId: next.live as string, outcome: "snoozed", line: "OK.", rows: [] });
+    const later = snoozed.messages.find((x) => x.kind === "app" && x.label === "walk");
+    const row = later?.kind === "app" ? later.checklist?.rows.find((r) => r.stepId === "show:TL-MAC-001") : undefined;
+    expect(row).toMatchObject({ icon: "pending", tag: ACTIVITY.rows.anotherDay });
   });
 });

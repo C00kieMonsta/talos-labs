@@ -3,7 +3,7 @@
  * Shared by the Claude and Ollama adapters; no zod here so core stays dependency-free.
  */
 
-import { INTENT_KINDS } from "../chat/intents";
+import { INTENT_KINDS, REMIND_WHENS } from "../chat/intents";
 
 const RULE_ID = { type: "string", minLength: 1, maxLength: 32 } as const;
 
@@ -63,7 +63,7 @@ export const WATCH_JSON_SCHEMA: Record<string, unknown> = {
   required: ["rating", "ratingReason", "basedOn", "probes", "actions"],
   properties: {
     rating: { type: "string", enum: ["calm", "keep_an_eye", "act_now"] },
-    ratingReason: { type: "string", maxLength: 300 },
+    ratingReason: { type: "string", maxLength: 120 },
     basedOn: { type: "array", maxItems: 6, items: WATCH_ID },
     probes: {
       type: "array",
@@ -91,10 +91,12 @@ export const WATCH_JSON_SCHEMA: Record<string, unknown> = {
 const INTENT = {
   type: "object",
   additionalProperties: false,
-  required: ["kind", "ruleId"],
+  required: ["kind", "ruleId", "signalId", "when"],
   properties: {
     kind: { type: "string", enum: [...INTENT_KINDS] },
     ruleId: { type: ["string", "null"], minLength: 1, maxLength: 32 },
+    signalId: { type: ["string", "null"], minLength: 1, maxLength: 48 },
+    when: { type: ["string", "null"], enum: [...REMIND_WHENS, null] },
   },
 } as const;
 

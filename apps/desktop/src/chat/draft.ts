@@ -6,5 +6,12 @@ export interface ChatDraft {
   readonly seq: number;
 }
 
-/** App provides the latest draft; the chat consumes it as draft_received. Null when none arrived. */
-export const ChatDraftContext = createContext<ChatDraft | null>(null);
+export interface ChatDraftSlot {
+  /** The latest draft; null when none arrived or the chat took it. */
+  readonly draft: ChatDraft | null;
+  /** The chat took draft `seq`: App drops it so a remount does not replay it. */
+  consume(seq: number): void;
+}
+
+/** App provides the latest draft; the chat consumes it once as draft_received. */
+export const ChatDraftContext = createContext<ChatDraftSlot>({ draft: null, consume: () => undefined });

@@ -4,7 +4,7 @@ import type { SystemState } from "../domain/system-state";
  * A fully hardened Mac. Every rule passes. Standard user, encrypted keys,
  * Time Machine backed up two hours before collection, Firefox only.
  *
- * Expected with the v0.1 catalog: 31 pass. Deducted 0, score 100, grade good,
+ * Expected with the v0.3 catalog: 36 pass. Deducted 0, score 100, grade good,
  * complete true.
  */
 export const HARDENED: SystemState = {
@@ -28,7 +28,12 @@ export const HARDENED: SystemState = {
     },
     platformIntegrity: {
       status: "ok",
-      data: { execPolicyEnabled: true, systemProtectionEnabled: true },
+      data: {
+        execPolicyEnabled: true,
+        systemProtectionEnabled: true,
+        apps: { status: "ok", data: { bundleCount: 12, checkedCount: 12, flagged: [] } },
+        inserts: { status: "ok", data: { dyldInsertSet: false, loginHookSet: false, launchdConfPresent: false } },
+      },
     },
     malwareProtection: {
       status: "ok",
@@ -81,6 +86,9 @@ export const HARDENED: SystemState = {
         ssh: { serviceLoaded: false, listeningPort: null },
         screenSharing: { serviceLoaded: false, listeningPort: null },
         remoteManagement: { serviceLoaded: false, listeningPort: null },
+        remoteAppleEvents: { serviceLoaded: false, listeningPort: null },
+        internetSharing: false,
+        airdrop: "contacts_only",
       },
     },
     fileSharing: {

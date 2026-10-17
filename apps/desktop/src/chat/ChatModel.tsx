@@ -13,7 +13,6 @@ export function ChatModel({ message }: { message: Model }) {
       <ModelText text={message.text} caret={message.streaming} />
       <p className="chat-badge">{aiBadge(message.provider)}</p>
       {message.stillWaiting && <p className="chat-meta">{CHAT.stillWaiting[waitingKey(message.provider)]}</p>}
-      {!message.streaming && message.outsideScope && <p className="chat-notice">{CHAT.outside}</p>}
     </div>
   );
 }

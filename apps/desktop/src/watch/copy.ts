@@ -51,7 +51,17 @@ export const AI_BADGES_SHORT: Readonly<Record<WatchModelProvider, string>> = {
   apple: "Apple Intelligence on this Mac, not verified",
 };
 
-/** The plain label for a probe the sweep could not read; the socket table of an unsigned build has its own word. */
+/** The one reason the calm window never draws as a row: the tool exists, indexing is off, and a standing line would nag (DESIGN-THREATS-V2 section 3). */
+export const SPOTLIGHT_OFF_LABEL = "Spotlight is off";
+
+/** The plain label for a probe the sweep could not read; the socket table of an unsigned build and Spotlight have their own words. */
 export function reasonLabel(reason: WatchUnavailableReason): string {
-  return reason === "unsigned_build" ? SOCKET_TABLE_LABEL : UNKNOWN_REASON_LABELS[reason];
+  if (reason === "unsigned_build") return SOCKET_TABLE_LABEL;
+  if (reason === "spotlight_off") return SPOTLIGHT_OFF_LABEL;
+  return UNKNOWN_REASON_LABELS[reason];
+}
+
+/** The unavailable rows the window counts and names: everything but Spotlight off. */
+export function shownUnavailable<T extends { readonly reason: WatchUnavailableReason }>(rows: readonly T[]): readonly T[] {
+  return rows.filter((row) => row.reason !== "spotlight_off");
 }

@@ -1,8 +1,9 @@
-//! Gatekeeper from `spctl --status` and SIP from `csrutil status`.
+//! Gatekeeper from `spctl --status`, SIP from `csrutil status`, then the app bundle check and
+//! the library inserts from `apps.rs`, each as a nested section.
 
 use std::sync::atomic::AtomicBool;
 
-use super::{check_exit, run};
+use super::{apps, check_exit, run};
 use crate::collect::{Fail, to_section};
 use crate::exec::Bin;
 use crate::state::{PlatformIntegrity, Section};
@@ -40,6 +41,8 @@ fn inner(cancel: &AtomicBool) -> Result<PlatformIntegrity, Fail> {
     Ok(PlatformIntegrity {
         exec_policy_enabled: Some(exec_policy),
         system_protection_enabled: Some(sip),
+        apps: apps::collect_apps(cancel),
+        inserts: apps::collect_inserts(cancel),
     })
 }
 

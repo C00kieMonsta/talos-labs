@@ -8,7 +8,7 @@ import { formatTime, GRADE_LABELS, WATCH_PROBE_LABELS } from "../app/labels";
 import { Icon } from "../components/Icon";
 import { FISHY, WATCH } from "../guided/copy";
 import { guidedFor } from "../guided/plan";
-import { AI_BADGES_SHORT, reasonLabel, WATCH_WINDOW } from "./copy";
+import { AI_BADGES_SHORT, reasonLabel, shownUnavailable, WATCH_WINDOW } from "./copy";
 import { checkedLabel, nextCheckLabel } from "./relative-time";
 import { useWatchStatus } from "./useWatch";
 
@@ -51,13 +51,19 @@ const UNREADABLE_MAX_AREAS = 3;
 /** The longest areas sentence that stays within the row's three lines (60 px) at the window's font. */
 const UNREADABLE_MAX_CHARS = 110;
 
+/** True when the unreadable row would read the count fallback, which the window draws as the link to "What I watch". */
+export function unavailableIsMixed(state: WatchState): boolean {
+  const probes = shownUnavailable(state.unavailable);
+  return probes.length > 0 && unavailableLine(state) === WATCH_WINDOW.couldNotCheckMixed.replace("{n}", String(probes.length));
+}
+
 /**
  * The calm window's visible unreadable row (docs/DESIGN-WATCH-WINDOW.md section 2): one probe, several with one reason, or
  * several reasons. The row is sized 60 px from Rust, which cannot see the labels, so a sentence over three lines (more than
- * three areas, or over 110 characters) falls back to the count.
+ * three areas, or over 110 characters) falls back to the count. A spotlight_off row is never counted or named.
  */
 export function unavailableLine(state: WatchState): string {
-  const probes = state.unavailable;
+  const probes = shownUnavailable(state.unavailable);
   if (probes.length === 0) return "";
   const reasons = Array.from(new Set(probes.map((probe) => probe.reason)));
   const first = probes[0];
@@ -139,7 +145,7 @@ function MetaLine({ state, now }: { readonly state: WatchState; readonly now: Da
     );
   }
   if (!state.checking && checked === null) return null;
-  const unavailable = state.unavailable.length;
+  const unavailable = shownUnavailable(state.unavailable).length;
   const couldNot = unavailable === 0 ? null : unavailable === 1 ? WATCH.couldNotCheckOne : WATCH.couldNotCheck.replace("{n}", String(unavailable));
   return (
     <p className="watch-meta">
@@ -324,7 +330,13 @@ export function WatchWindow({
       {state !== null && !state.firstRun && <StatusLine state={state} />}
       {state !== null && !state.firstRun && <MetaLine state={state} now={clock} />}
       {paused && state !== null && <p className="watch-paused-line">{WATCH_WINDOW.pausedLine}</p>}
-      {calm && state !== null && state.unavailable.length > 0 && <p className="watch-unreadable">{unavailableLine(state)}</p>}
+      {calm && state !== null && shownUnavailable(state.unavailable).length > 0 && (unavailableIsMixed(state) ? (
+        <button type="button" className="watch-link watch-unreadable" onClick={() => void port.openMain("coverage")}>
+          {unavailableLine(state)}
+        </button>
+      ) : (
+        <p className="watch-unreadable">{unavailableLine(state)}</p>
+      ))}
       {calm && state !== null && (judge !== null ? <ReasonLine judge={judge} /> : <p className="watch-calm-line">{calmLine(state.lastChangeAt, clock)}</p>)}
       {calm && state !== null && <CheckupRow state={state} port={port} />}
       {calm && state !== null && state.ai.enabled && <AskField port={port} />}
