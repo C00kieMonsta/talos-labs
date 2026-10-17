@@ -302,9 +302,23 @@ pub fn set_state(app: &AppHandle, state: &WatchState) {
         }
         return;
     }
-    if app.tray_by_id(TRAY_ID).is_none() && build(app).is_err() {
+    if app.tray_by_id(TRAY_ID).is_none() {
+        // tray-icon creates the item only on the main thread; the cycle and the Settings command
+        // reach here from workers, so the rebuild is queued there and the state applied after it.
+        let handle = app.clone();
+        let state = state.clone();
+        let _ = app.run_on_main_thread(move || {
+            if build(&handle).is_ok() {
+                apply_state(&handle, &state);
+            }
+        });
         return;
     }
+    apply_state(app, state);
+}
+
+/// The icon, tooltip and window height for a state, on an item that exists.
+fn apply_state(app: &AppHandle, state: &WatchState) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return;
     };

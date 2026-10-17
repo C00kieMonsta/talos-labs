@@ -500,7 +500,7 @@ fn on_tray_click(this: &TrayTarget, button: MouseButton) {
 // Talos patch: measure the button itself. The status window is full width on macOS 26 and later,
 // so its frame is the whole menu bar, not the icon.
 fn get_tray_rect(button: &NSView, window: &NSWindow) -> Rect {
-    let in_window = unsafe { button.convertRect_toView(button.bounds(), None) };
+    let in_window = button.convertRect_toView(button.bounds(), None);
     let frame = window.convertRectToScreen(in_window);
     let scale_factor = window.backingScaleFactor();
 
