@@ -329,7 +329,10 @@ export interface UnavailableProbe {
 }
 
 export interface WatchState {
+  /** The person's switch. */
   readonly enabled: boolean;
+  /** The product gate the webview last reported; the watch is active only when enabled and licensed. */
+  readonly licensed: boolean;
   readonly firstRun: boolean;
   /** True from a `--watch` login launch until the main window is first shown; the launch check-up waits for it. */
   readonly hiddenLaunch: boolean;
@@ -388,6 +391,8 @@ export interface WatchMemory {
   readonly actionNotNow: Readonly<Record<string, string>>;
   readonly fishyRanAt: string | null;
   readonly notifiedItems: Readonly<Record<string, string>>;
+  /** The one record that macOS's notification permission has been asked for; written by the controller's requestNotifyPermission on success. */
+  readonly notifyAskedAt: string | null;
 }
 
 /**
@@ -405,8 +410,12 @@ export interface WatchPort {
   setNotify(enabled: boolean): Promise<void>;
   /** The only path to macOS's permission alert. */
   requestNotifyPermission(): Promise<void>;
-  /** The Rust copy of the profile for WatchContext, plus the AI switch and provider choice when known; Rust auto-picks a connected provider without `ai`. */
-  setProfile(profile: ExplainerProfile, ai?: WatchAi): Promise<void>;
+  /**
+   * The Rust copy of the profile for WatchContext, plus the AI switch and provider choice when known;
+   * Rust auto-picks a connected provider without `ai`. `licensed` is the product gate the webview
+   * reports; Rust runs the watch only when enabled and licensed and never verifies a key.
+   */
+  setProfile(profile: ExplainerProfile, ai: WatchAi | undefined, licensed: boolean): Promise<void>;
   acknowledge(signalId: SignalId): Promise<void>;
   answerGate(signalId: SignalId, mine: boolean): Promise<void>;
   snooze(signalId: SignalId): Promise<void>;

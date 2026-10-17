@@ -16,7 +16,7 @@ const GOOD_KEY = `TL1.${"a".repeat(24)}.${"b".repeat(64)}`;
 function mount(install: (key: string) => Promise<LicenseState>, props: { onUnlocked?: () => void; onBuy?: () => void } = {}) {
   const adapters = fakeAdapters();
   adapters.license.install = vi.fn(install);
-  const value = fakeContextValue({ adapters, license: { status: "none" }, gate: { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => true }, scanState: { kind: "idle", report: null, last: null } });
+  const value = fakeContextValue({ adapters, license: { status: "none" }, gate: { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => false, watchLocked: true }, scanState: { kind: "idle", report: null, last: null } });
   render(createElement(StatefulProvider, { value }, createElement(LicenceField, { onBuy: props.onBuy ?? vi.fn(), onUnlocked: props.onUnlocked })));
   return { adapters, value };
 }

@@ -193,6 +193,7 @@ export class DemoWatch implements WatchPort {
     const firstRun = watch === "first-run";
     this.state = {
       enabled: true,
+      licensed: true,
       firstRun,
       hiddenLaunch: false,
       rating,
@@ -296,9 +297,15 @@ export class DemoWatch implements WatchPort {
     recordDemoCall({ kind: "watch_request_notify_permission" });
   }
 
-  async setProfile(profile: ExplainerProfile, _ai?: WatchAi): Promise<void> {
-    recordDemoCall({ kind: "watch_set_profile" });
+  /** A false push settles the state as Rust does (calm, no items); a true push flips the flag and leaves the rest alone. */
+  async setProfile(profile: ExplainerProfile, _ai: WatchAi | undefined, licensed: boolean): Promise<void> {
+    recordDemoCall({ kind: "watch_set_profile", arg: licensed });
     this.profile = { role: profile.role, technical: profile.technical, handlesClientData: profile.handlesClientData, laptopLeavesHome: profile.laptopLeavesHome };
+    if (licensed) {
+      this.state = { ...this.state, licensed: true };
+      return;
+    }
+    this.set({ licensed: false, rating: "calm", items: [], gated: [], unavailable: [] });
   }
 
   async acknowledge(signalId: SignalId): Promise<void> {

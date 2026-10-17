@@ -29,10 +29,14 @@ function plan(overrides: Partial<GuidedPlan> = {}): GuidedPlan {
   return { reportId: "r1", freeFixes: [], steps: [], leftAlone: [], worthALook: [], technical: [], later: [], locked: [], unreadable: 0, ...overrides };
 }
 
-/** The watch is off unless a test says otherwise, so the v0.3 strings hold; `watch` adds a watch controller and the fishy controller. */
-function renderEnd(p: GuidedPlan, fixed: readonly GuidedPlan["later"][number][], report: ScanReport | null = REPORT, options: { watchOn?: boolean; watch?: WatchController; fishy?: FishyController } = {}) {
+/**
+ * The watch is off unless a test says otherwise, so the v0.3 strings hold; `watch` adds a watch controller and the fishy controller.
+ * `watchOn` flips the switch and, unless `licensed` says otherwise, the licence that makes the watch active.
+ */
+function renderEnd(p: GuidedPlan, fixed: readonly GuidedPlan["later"][number][], report: ScanReport | null = REPORT, options: { watchOn?: boolean; licensed?: boolean; watch?: WatchController; fishy?: FishyController } = {}) {
   const settings: AppSettings = { ...DEFAULT_SETTINGS, onboarded: true, watch: { ...DEFAULT_SETTINGS.watch, enabled: options.watchOn ?? false } };
-  const value = fakeContextValue({ adapters: fakeAdapters(), license: { status: "none" }, gate: { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => true }, scanState: { kind: "idle", last: report }, settings });
+  const licensed = options.licensed ?? options.watchOn ?? false;
+  const value = fakeContextValue({ adapters: fakeAdapters(), license: { status: "none" }, gate: { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => false, watchLocked: !licensed }, scanState: { kind: "idle", last: report }, settings });
   const onNext = vi.fn();
   const fishy = options.fishy ?? { ...INERT_FISHY, open: vi.fn() };
   const tree = createElement(WatchControllerContext.Provider, { value: options.watch ?? INERT_WATCH }, createElement(FishyContext.Provider, { value: fishy }, createElement(EndScreen, { plan: p, fixed, onCheckAgain: vi.fn(), onNext })));
@@ -56,8 +60,8 @@ const ACT_ITEM: WatchItem = {
   modelProvider: null,
 };
 
-function watchWith(rating: WatchState["rating"], items: readonly WatchItem[]): WatchController {
-  const state: WatchState = { enabled: true, firstRun: false, hiddenLaunch: false, rating, since: null, lastCheckAt: null, checking: false, cycleIndex: 2, everyMinutes: 60, notify: true, pausedUntil: null, closeWatchUntil: null, unavailable: [], gated: [], items };
+function watchWith(rating: WatchState["rating"], items: readonly WatchItem[], licensed = true): WatchController {
+  const state: WatchState = { enabled: true, licensed, firstRun: false, hiddenLaunch: false, rating, since: null, lastCheckAt: null, checking: false, cycleIndex: 2, everyMinutes: 60, notify: true, pausedUntil: null, closeWatchUntil: null, unavailable: [], gated: [], items };
   return { ...INERT_WATCH, state };
 }
 
@@ -66,7 +70,7 @@ function renderEndWithAi(p: GuidedPlan, options: { availability?: AiAvailability
   const base = fakeContextValue({
     adapters: fakeAdapters(),
     license: { status: "none" },
-    gate: { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => true },
+    gate: { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => false, watchLocked: true },
     scanState: { kind: "idle", last: REPORT },
     settings: { ...DEFAULT_SETTINGS, onboarded: true, watch: { ...DEFAULT_SETTINGS.watch, enabled: false }, explainer: { ...DEFAULT_SETTINGS.explainer, aiEnabled: options.aiEnabled ?? true, provider: options.provider ?? "chatgpt" } },
   });
@@ -261,6 +265,20 @@ describe("EndScreen", () => {
     expect(fishy.open).toHaveBeenCalledWith({ name: "guided" }, "noticed");
     expect(onNext).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: END.checkAgain }).className).toBe("guided-link");
+  });
+
+  it("unlicensed, the switch alone changes nothing: the calm line stays the plan's and an act-now state draws no card", () => {
+    renderEnd(plan(), ["TL-MAC-002"], REPORT, { watchOn: true, licensed: false, watch: watchWith("act_now", [ACT_ITEM], false) });
+    expect(screen.getByText(END.nextTime)).toBeTruthy();
+    expect(screen.queryByText(WATCH_ON.nextTime)).toBeNull();
+    expect(document.querySelector(".guided-next-card")).toBeNull();
+    expect(screen.queryByRole("heading", { level: 1, name: WATCH.act })).toBeNull();
+    expect(document.querySelectorAll(".button-primary").length).toBe(0);
+    cleanup();
+    // A state that still carries items but reports licensed false is treated as empty too.
+    renderEnd(plan(), ["TL-MAC-002"], REPORT, { watchOn: true, licensed: true, watch: watchWith("act_now", [ACT_ITEM], false) });
+    expect(document.querySelector(".guided-next-card")).toBeNull();
+    expect(screen.getByText(WATCH_ON.nextTime)).toBeTruthy();
   });
 
   it("draws the act-now card alone when nothing else is open, and never for keep-an-eye or an act-now state with no item", () => {

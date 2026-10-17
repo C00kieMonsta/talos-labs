@@ -165,8 +165,8 @@ export function toWatchItem(value: unknown): WatchItem | null {
 /** Every field checked; a malformed state is dropped rather than shown. */
 export function toWatchState(value: unknown): WatchState | null {
   if (!isRecord(value)) return null;
-  const { enabled, firstRun, hiddenLaunch, rating, since, lastCheckAt, checking, cycleIndex, everyMinutes, notify, pausedUntil, closeWatchUntil, unavailable, gated, items } = value;
-  if (typeof enabled !== "boolean" || typeof firstRun !== "boolean" || typeof hiddenLaunch !== "boolean" || typeof checking !== "boolean" || typeof notify !== "boolean") return null;
+  const { enabled, licensed, firstRun, hiddenLaunch, rating, since, lastCheckAt, checking, cycleIndex, everyMinutes, notify, pausedUntil, closeWatchUntil, unavailable, gated, items } = value;
+  if (typeof enabled !== "boolean" || typeof licensed !== "boolean" || typeof firstRun !== "boolean" || typeof hiddenLaunch !== "boolean" || typeof checking !== "boolean" || typeof notify !== "boolean") return null;
   if (!oneOf(rating, RATING_ORDER)) return null;
   if (!isIsoOrNull(since) || !isIsoOrNull(lastCheckAt) || !isIsoOrNull(pausedUntil) || !isIsoOrNull(closeWatchUntil)) return null;
   if (!isCount(cycleIndex)) return null;
@@ -186,6 +186,7 @@ export function toWatchState(value: unknown): WatchState | null {
   }
   return {
     enabled,
+    licensed,
     firstRun,
     hiddenLaunch,
     rating: rating as Rating,
@@ -424,16 +425,17 @@ export class TauriWatchAdapter implements WatchPort {
     await this.invoke("watch_request_notify_permission", {});
   }
 
-  async setProfile(profile: ExplainerProfile, ai?: WatchAi): Promise<void> {
+  /** `licensed` is the webview's product gate; Rust persists it and never verifies a key. */
+  async setProfile(profile: ExplainerProfile, ai: WatchAi | undefined, licensed: boolean): Promise<void> {
     this.full();
     const clean = toProfile(profileOnTheWire(profile));
     if (clean === null) throw "invalid_input";
     if (ai === undefined) {
-      await this.invoke("watch_set_profile", { profile: clean });
+      await this.invoke("watch_set_profile", { profile: clean, licensed: licensed === true });
       return;
     }
     const provider = ai.provider !== null && oneOf(ai.provider, PROVIDERS) ? ai.provider : null;
-    await this.invoke("watch_set_profile", { profile: clean, ai: { enabled: ai.enabled === true, provider } });
+    await this.invoke("watch_set_profile", { profile: clean, ai: { enabled: ai.enabled === true, provider }, licensed: licensed === true });
   }
 
   async acknowledge(signalId: SignalId): Promise<void> {

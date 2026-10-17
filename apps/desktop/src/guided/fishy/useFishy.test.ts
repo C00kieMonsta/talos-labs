@@ -36,8 +36,8 @@ const DETAILS: WatchDetails = {
 
 const PLAN: WatchPlan = { planId: "watch-plan-1", actionId: "watch.wifi_off", lines: [{ text: "/usr/sbin/networksetup -setairportpower en0 off", privilege: "admin" }], needsPassword: true, reversible: null, expiresAt: "2026-10-17T13:40:00.000Z" };
 
-function state(items: readonly WatchItem[]): WatchState {
-  return { enabled: true, firstRun: false, hiddenLaunch: false, rating: items.length > 0 ? "act_now" : "calm", since: null, lastCheckAt: null, checking: false, cycleIndex: 3, everyMinutes: 60, notify: true, pausedUntil: null, closeWatchUntil: null, unavailable: [], gated: [], items };
+function state(items: readonly WatchItem[], licensed = true): WatchState {
+  return { enabled: true, licensed, firstRun: false, hiddenLaunch: false, rating: items.length > 0 ? "act_now" : "calm", since: null, lastCheckAt: null, checking: false, cycleIndex: 3, everyMinutes: 60, notify: true, pausedUntil: null, closeWatchUntil: null, unavailable: [], gated: [], items };
 }
 
 /** A watch port with only what the fishy flow touches; every other method rejects. */
@@ -384,6 +384,13 @@ describe("useFishy", () => {
     await waitFor(() => expect(none.hook.result.current.details).not.toBeNull());
     act(() => none.hook.result.current.reveal());
     expect(none.adapters.fixes.reveal).not.toHaveBeenCalled();
+  });
+
+  it("opens with no item when the state reports licensed false, whatever items it carries", () => {
+    const { hook } = setup({ watch: { state: state([ITEM], false) } });
+    act(() => hook.result.current.open(GUIDED, "noticed"));
+    expect(hook.result.current.item).toBeNull();
+    expect(hook.result.current.stage).toBe("noticed");
   });
 
   it("opens with no item when the watch has none, and resets the ransom box and details on every open", async () => {

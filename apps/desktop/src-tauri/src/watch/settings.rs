@@ -1,6 +1,7 @@
 //! `<app data>/watch-settings.json`, mode 0600: the truth for enabled, the interval, the notify
-//! flag and the profile, so the loop runs under `--watch` with no webview and the tray's "Turn
-//! the watch off" sticks. Survives the watch being turned off; only watch.json is deleted then.
+//! flag, the profile and the webview's licence flag, so the loop runs under `--watch` with no
+//! webview and the tray's "Turn the watch off" sticks. Survives the watch being turned off or
+//! the licence going; only watch.json is deleted then.
 
 use std::path::{Path, PathBuf};
 
@@ -40,6 +41,9 @@ pub struct WatchSettingsFile {
     pub enabled: bool,
     pub every_minutes: u32,
     pub notify: bool,
+    /// The webview's product gate; Rust never verifies a key. Absent in pre-change files.
+    #[serde(default)]
+    pub licensed: bool,
     #[serde(default)]
     pub profile: ExplainerProfile,
     #[serde(default)]
@@ -53,6 +57,7 @@ impl Default for WatchSettingsFile {
             enabled: true,
             every_minutes: DEFAULT_INTERVAL,
             notify: true,
+            licensed: false,
             profile: ExplainerProfile::default(),
             ai: WatchAi::default(),
         }
@@ -110,6 +115,7 @@ mod tests {
     fn defaults_are_on_hourly_notify_with_the_neutral_profile() {
         let d = WatchSettingsFile::default();
         assert!(d.enabled && d.notify);
+        assert!(!d.licensed, "a licence is reported, never assumed");
         assert_eq!(d.every_minutes, 60);
         assert_eq!(d.profile, ExplainerProfile::default());
         assert_eq!(
@@ -123,6 +129,27 @@ mod tests {
         assert_eq!(json["version"], 1);
         assert_eq!(json["profile"]["role"], "individual");
         assert_eq!(json["ai"]["provider"], serde_json::Value::Null);
+        assert_eq!(json["licensed"], false);
+    }
+
+    #[test]
+    fn the_licensed_flag_round_trips_and_defaults_to_false_in_a_pre_change_file() {
+        let dir = scratch("licensed");
+        let settings = WatchSettingsFile {
+            licensed: true,
+            ..WatchSettingsFile::default()
+        };
+        save(&dir, &settings).unwrap();
+        assert_eq!(load(&dir), settings);
+        std::fs::write(
+            path(&dir),
+            br#"{"version":1,"enabled":true,"everyMinutes":60,"notify":true}"#,
+        )
+        .unwrap();
+        let loaded = load(&dir);
+        assert!(loaded.enabled && !loaded.licensed);
+        assert_eq!(loaded.version, 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

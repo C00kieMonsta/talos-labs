@@ -8,7 +8,7 @@ import { StatefulProvider, fakeAdapters, fakeConnectController, fakeContextValue
 import type { ExplainState } from "../scan/machine";
 import { DEFAULT_SETTINGS } from "../settings";
 import type { ExplainerProvider } from "../settings";
-import { AI_LOCKED_COPY, AI_UNAVAILABLE_COPY, AiCard, aiCardState, aiUnavailableCopy, useAiCardFlow } from "./AiCard";
+import { AI_UNAVAILABLE_COPY, AiCard, aiCardState, aiUnavailableCopy, useAiCardFlow } from "./AiCard";
 import type { AiCardState } from "./AiCard";
 
 const require = createRequire(import.meta.url);
@@ -26,14 +26,15 @@ const findings = [
 ];
 const report = fakeReport(findings);
 
-/** An unlicensed gate whose only free explanation is TL-MAC-001. */
+/** An unlicensed gate whose only free fix is TL-MAC-001; explanations are never locked. */
 function freeGate(): Gate {
   return {
     licensed: false,
     freeFixes: ["TL-MAC-001"],
     has: () => false,
     fixLocked: (f) => f.ruleId !== "TL-MAC-001",
-    explainLocked: (id) => id !== "TL-MAC-001",
+    explainLocked: () => false,
+    watchLocked: true,
   };
 }
 
@@ -43,7 +44,6 @@ function handlers() {
     onStop: vi.fn(),
     onRetry: vi.fn(),
     onOpenAiSettings: vi.fn(),
-    onBuy: vi.fn(),
     onConnect: vi.fn(),
     onCancelConnect: vi.fn(),
     onSignInAgain: vi.fn(),
@@ -51,7 +51,7 @@ function handlers() {
   };
 }
 
-/** The locked state renders the licence field, which reads the app context. */
+/** The card reads nothing from the context itself; the provider keeps the test tree uniform. */
 function bareContext() {
   return fakeContextValue({ adapters: fakeAdapters(), license: NONE, gate: freeGate(), scanState: { kind: "idle", report: null, last: null } });
 }
@@ -152,15 +152,12 @@ describe("AiCard provider states", () => {
     expect(a.head()?.textContent).toBe("Checking whether Apple Intelligence is available");
   });
 
-  it("signs the ready foot with the provider's badge and keeps the lock with the licence field", () => {
+  it("signs the ready foot with the provider's badge", () => {
     for (const provider of ["apple", "chatgpt", "claude_plan", "claude", "ollama"] as const) {
       const c = card({ kind: "ready" }, provider);
       expect(c.container.querySelector(".ai-card-foot")?.textContent).toBe(AI_BADGES[provider]);
       cleanup();
     }
-    const l = card({ kind: "locked" });
-    expect(l.head()?.textContent).toBe(AI_LOCKED_COPY);
-    expect(screen.getByPlaceholderText("Paste your licence key")).toBeTruthy();
   });
 
   it("has a name on every button in every state", async () => {
@@ -181,7 +178,6 @@ describe("AiCard provider states", () => {
       { kind: "plan_not_eligible" },
       { kind: "provider_unavailable" },
       { kind: "not_offered" },
-      { kind: "locked" },
     ];
     for (const state of states) {
       const c = card(state);
@@ -193,23 +189,22 @@ describe("AiCard provider states", () => {
 });
 
 describe("aiCardState", () => {
-  it("puts availability before the lock and carries until for a limit", () => {
-    expect(aiCardState(null, null, true, "idle")).toEqual({ kind: "probing" });
-    expect(aiCardState("not_connected", null, true, "idle")).toEqual({ kind: "not_connected" });
-    expect(aiCardState("device_not_eligible", null, true, "idle")).toEqual({ kind: "device_not_eligible" });
-    expect(aiCardState("limit_reached", SIX_PM, true, "idle")).toEqual({ kind: "limit_reached", until: SIX_PM });
-    expect(aiCardState("available", null, true, "idle")).toEqual({ kind: "locked" });
-    expect(aiCardState("available", null, false, "idle")).toEqual({ kind: "available_idle" });
-    expect(aiCardState("available", null, false, "streaming")).toEqual({ kind: "streaming" });
-    expect(aiCardState("available", null, false, "ready")).toEqual({ kind: "ready" });
-    expect(aiCardState("off", null, false, "idle")).toEqual({ kind: "available_idle" });
+  it("puts availability first and carries until for a limit", () => {
+    expect(aiCardState(null, null, "idle")).toEqual({ kind: "probing" });
+    expect(aiCardState("not_connected", null, "idle")).toEqual({ kind: "not_connected" });
+    expect(aiCardState("device_not_eligible", null, "idle")).toEqual({ kind: "device_not_eligible" });
+    expect(aiCardState("limit_reached", SIX_PM, "idle")).toEqual({ kind: "limit_reached", until: SIX_PM });
+    expect(aiCardState("available", null, "idle")).toEqual({ kind: "available_idle" });
+    expect(aiCardState("available", null, "streaming")).toEqual({ kind: "streaming" });
+    expect(aiCardState("available", null, "ready")).toEqual({ kind: "ready" });
+    expect(aiCardState("off", null, "idle")).toEqual({ kind: "available_idle" });
   });
 
   it("shows a provider state change reported by a failed call, and a plain failure otherwise", () => {
-    expect(aiCardState("available", null, false, { failed: "needs_sign_in" })).toEqual({ kind: "needs_sign_in" });
-    expect(aiCardState("available", SIX_PM, false, { failed: "limit_reached" })).toEqual({ kind: "limit_reached", until: SIX_PM });
-    expect(aiCardState("available", null, false, { failed: "provider_unavailable" })).toEqual({ kind: "provider_unavailable" });
-    expect(aiCardState("available", null, false, { failed: "timeout" })).toEqual({ kind: "failed", reason: "timeout" });
+    expect(aiCardState("available", null, { failed: "needs_sign_in" })).toEqual({ kind: "needs_sign_in" });
+    expect(aiCardState("available", SIX_PM, { failed: "limit_reached" })).toEqual({ kind: "limit_reached", until: SIX_PM });
+    expect(aiCardState("available", null, { failed: "provider_unavailable" })).toEqual({ kind: "provider_unavailable" });
+    expect(aiCardState("available", null, { failed: "timeout" })).toEqual({ kind: "failed", reason: "timeout" });
   });
 });
 
@@ -234,29 +229,17 @@ function flowContext(input: { availability: AiAvailability | null; until?: strin
 }
 
 describe("useAiCardFlow", () => {
-  it("locks per rule for a finding and licence-wide for the order", () => {
-    render(
-      <StatefulProvider value={flowContext({ availability: "available" })}>
-        <Probe target="TL-MAC-001" />
-      </StatefulProvider>,
-    );
-    expect(document.querySelector(".ai-card")?.getAttribute("data-ai-state")).toBe("available_idle");
-    cleanup();
-    render(
-      <StatefulProvider value={flowContext({ availability: "available" })}>
-        <Probe target="TL-MAC-002" />
-      </StatefulProvider>,
-    );
-    expect(document.querySelector(".ai-card")?.getAttribute("data-ai-state")).toBe("locked");
-    cleanup();
-    render(
-      <StatefulProvider value={flowContext({ availability: "available" })}>
-        <Probe target="prioritise" />
-      </StatefulProvider>,
-    );
-    expect(document.querySelector(".ai-card")?.getAttribute("data-ai-state")).toBe("locked");
-    cleanup();
-    // Availability wins over the lock for the free rule and the locked one alike.
+  it("a connected AI on an unlicensed gate is available_idle for a free rule, a paid rule, prioritise and ask", () => {
+    for (const target of ["TL-MAC-001", "TL-MAC-002", "prioritise", "ask"] as const) {
+      render(
+        <StatefulProvider value={flowContext({ availability: "available" })}>
+          <Probe target={target} />
+        </StatefulProvider>,
+      );
+      expect(document.querySelector(".ai-card")?.getAttribute("data-ai-state"), target).toBe("available_idle");
+      expect(screen.queryByPlaceholderText("Paste your licence key")).toBeNull();
+      cleanup();
+    }
     render(
       <StatefulProvider value={flowContext({ availability: "not_connected" })}>
         <Probe target="TL-MAC-002" />

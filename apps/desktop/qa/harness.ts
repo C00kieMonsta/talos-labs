@@ -196,7 +196,8 @@ const DEMO_LICENSE_KEY_PASTED = `TL1.${"DEMO".repeat(5)}.${"D".repeat(64)}`;
 
 interface DemoCall {
   readonly kind: string;
-  readonly arg?: string;
+  /** An id, a boolean (the licensed flag of watch_set_profile), a number or a list of ids; never a URL or machine text. */
+  readonly arg?: string | number | boolean | readonly string[];
 }
 
 async function demoCalls(page: Page): Promise<DemoCall[]> {
@@ -308,12 +309,36 @@ export async function walk(page: Page, baseUrl: string, visit: Visit): Promise<v
   await visit({ name: "window-inactive" }, async () => {
     await page.evaluate(() => document.querySelector(".shell")?.classList.add("window-inactive"));
   });
-  await visit({ name: "ask-locked" }, async () => {
-    await goto("reset=1&fixture=dev-machine&onboarded=1&delay=0");
+  // AI is free once connected (owner decision 2026-10-17): no licence, ChatGPT connected, the composer and an answer.
+  const FREE_CONNECTED = "reset=1&fixture=dev-machine&onboarded=1&delay=0&provider=chatgpt&ai=available";
+  await visit({ name: "ask-free-connected" }, async () => {
+    await goto(FREE_CONNECTED);
     await runCheckUp(page);
     await nav(page, "Ask");
     await heading(page, "Ask about your report");
-    await page.getByText("AI explanations are part of the full version.").waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.getByPlaceholder("Paste your licence key").count()) !== 0) throw new Error("Ask draws a licence field for an unlicensed person");
+    await page.getByLabel("Your question").fill("Which of these should I do first?");
+    await page.locator("form.ask-form").getByRole("button", { name: "Ask" }).click();
+    await page.locator(".chat-streaming").waitFor({ state: "detached", timeout: STEP_TIMEOUT });
+    await page.locator(".chat-assistant").first().waitFor({ timeout: STEP_TIMEOUT });
+    await page.getByText("Written by ChatGPT. Not verified.").first().waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.getByPlaceholder("Paste your licence key").count()) !== 0) throw new Error("Ask draws a licence field for an unlicensed person");
+  });
+  // A non-free failing finding: the explanation is free, the fix stays behind its lock with the new body.
+  await visit({ name: "explain-free" }, async () => {
+    await goto(FREE_CONNECTED);
+    await runCheckUp(page);
+    await nav(page, "Findings");
+    await heading(page, "Findings");
+    await openCard(page, /Your Mac answers network probes/);
+    const card = page.locator(".ai-card[data-ai-state='available_idle']");
+    await card.waitFor({ timeout: STEP_TIMEOUT });
+    await card.getByRole("button", { name: "Explain this for me" }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator(".ai-card.ai-locked").count()) !== 0) throw new Error("the AI card is locked");
+    const lock = page.getByRole("region", { name: "This fix is part of the full version" });
+    await lock.waitFor({ timeout: STEP_TIMEOUT });
+    await lock.getByText("The three most valuable fixes are free. A licence unlocks every fix, Check again and the menu bar watch.", { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.getByPlaceholder("Paste your licence key").count()) !== 1) throw new Error("one licence field, the fix lock's");
   });
 
   // Dev machine, licensed, on-device AI (fake).
@@ -614,6 +639,11 @@ const MIN_HEIGHT = 600;
 
 /** The pasted demo key, for the paywall step. */
 const GUIDED_KEY = DEMO_LICENSE_KEY_PASTED;
+/** copy.ts PAYWALL.body: the one sentence the free version reads about the watch on the guided path. */
+const PAYWALL_BODY = "The full version does them all and keeps an eye on your Mac from the menu bar.";
+/** Settings.tsx FREE_LINE and PAID_LINE: the Licence section's two lines while unlicensed. */
+const SETTINGS_FREE_LINE = "Free: the check-up, your AI and the three most valuable fixes";
+const SETTINGS_PAID_LINE = "A licence adds every fix, Check again and the menu bar watch, which starts when you paste a key.";
 const DEV = "reset=1&fixture=dev-machine&onboarded=1&delay=0";
 const DEV_LICENSED = `${DEV}&licensed=1`;
 
@@ -1264,9 +1294,24 @@ export async function walkAi(page: Page, baseUrl: string, visit: Visit): Promise
     for (let i = 0; i < 3; i += 1) await link(page, "Do this later");
     await link(page, "Not now");
     await guidedTitle(page, "There are 4 more things to fix.");
-    await page.getByText("The full version does them all, explains everything with your own AI, and lets you ask questions.", { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.getByText(PAYWALL_BODY, { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
     if ((await primaryLabel()) !== "Buy the full version, €24 a year") throw new Error(`the buy button reads "${await primaryLabel()}"`);
     if ((await page.getByText("One payment, yours to keep.").count()) !== 0) throw new Error("the one-payment sentence is gone under the yearly price");
+    await assertGuidedScreen(page);
+  });
+  // The paywall with the AI connected: the sentence names the watch, not the AI; one primary, one link.
+  await visit({ name: "paywall-with-watch" }, async () => {
+    await goto(`${CHATGPT.replace("ai=not_connected", "ai=available")}`);
+    await primary(page, "Let's go");
+    for (let i = 0; i < 3; i += 1) await link(page, "Do this later");
+    await link(page, "Not now");
+    await guidedTitle(page, "There are 4 more things to fix.");
+    await page.getByText(PAYWALL_BODY, { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    const body = (await page.locator(".guided-body").textContent()) ?? "";
+    if (/\bAI\b|ChatGPT|Claude|explain/i.test(body)) throw new Error(`the paywall body mentions the AI: ${body}`);
+    if ((await page.locator(".button-primary").count()) !== 1 || (await primaryLabel()) !== "Buy the full version, €24 a year") throw new Error("one primary, the buy button");
+    const links = page.locator(".guided-link");
+    if ((await links.count()) !== 1 || (await links.first().textContent())?.trim() !== "Not now") throw new Error("one link, Not now");
     await assertGuidedScreen(page);
   });
 
@@ -1373,6 +1418,17 @@ export async function walkAi(page: Page, baseUrl: string, visit: Visit): Promise
   await visit({ name: "overview-ai-connected" }, async () => {
     await goto(`${EXPERT}&ai=available&licensed=1`);
     await runCheckUp(page);
+    await page.getByRole("button", { name: "Suggest an order" }).click();
+    await page.locator(".ai-card[data-ai-state='ready']").waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".ai-card-foot").filter({ hasText: "Written by ChatGPT. Not verified." }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertNoUrlRecorded(page);
+  });
+  // The same card without a licence: the order is free once the AI is connected.
+  await visit({ name: "overview-ai-free" }, async () => {
+    await goto(`${EXPERT}&ai=available`);
+    await runCheckUp(page);
+    if ((await page.getByPlaceholder("Paste your licence key").count()) !== 0) throw new Error("the Overview card draws a licence field");
+    await page.locator(".ai-card[data-ai-state='available_idle']").waitFor({ timeout: STEP_TIMEOUT });
     await page.getByRole("button", { name: "Suggest an order" }).click();
     await page.locator(".ai-card[data-ai-state='ready']").waitFor({ timeout: STEP_TIMEOUT });
     await page.locator(".ai-card-foot").filter({ hasText: "Written by ChatGPT. Not verified." }).waitFor({ timeout: STEP_TIMEOUT });
@@ -1490,7 +1546,9 @@ async function assertDetailsSource(page: Page, step: RegExp): Promise<void> {
 /** The watch window and the "something seems fishy" flow (DESIGN-WATCH.md section 9). */
 export async function walkWatch(page: Page, baseUrl: string, visit: Visit): Promise<void> {
   // Base G: a hardened check-up, which lands on the end screen at once; the watch's act-now card sits there.
-  const G = "reset=1&fixture=hardened&onboarded=1&delay=0";
+  // The watch is part of the full version, so G carries the demo licence; G_FREE is the same Mac without it.
+  const G_FREE = "reset=1&fixture=hardened&onboarded=1&delay=0";
+  const G = `${G_FREE}&licensed=1`;
   const goto = async (query: string) => {
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.goto(`${baseUrl}/?${query}&pace=0`);
@@ -1600,6 +1658,22 @@ export async function walkWatch(page: Page, baseUrl: string, visit: Visit): Prom
     await assertGuidedScreen(page, { primaries: 1, foldLink: false });
     await assertRecorded(page, "watch:notified", "sig.persistence_new");
     await assertNotRecorded(page, "watch_request_notify_permission");
+    await assertRecorded(page, "watch_set_profile", true);
+  });
+
+  // The same Mac without a licence: the webview pushes licensed false, the demo settles like Rust does, and the end screen is calm.
+  await visit({ name: "guided-end-unlicensed-watch" }, async () => {
+    await goto(`${G_FREE}&watch=act`);
+    await page.locator(".guided h1").filter({ hasText: "Nothing needs fixing." }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertRecorded(page, "watch_set_profile", false);
+    if ((await callsOf(page, "watch_set_profile")).some((c) => c.arg === true)) throw new Error("an unlicensed Mac pushed licensed true");
+    if ((await actNowCard().count()) !== 0) throw new Error("the act-now card is drawn for an unlicensed person");
+    if ((await page.locator(".guided-next-card").count()) !== 0) throw new Error("a next card is drawn on the calm hardened end screen");
+    if ((await page.getByText("I'll keep checking from the menu bar.", { exact: true }).count()) !== 0) throw new Error("the watch's calm sentence is drawn while the watch is locked");
+    await page.getByText("I'll check again next time you open me.", { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertNotRecorded(page, "watch_request_notify_permission");
+    await assertGuidedScreen(page, { primaries: 0, foldLink: false });
+    await assertNoUrlRecorded(page);
   });
 
   // Screen 0, the gate. A gated flip never notifies.
@@ -1817,12 +1891,51 @@ export async function walkWatch(page: Page, baseUrl: string, visit: Visit): Prom
     await assertGuidedScreen(page, { primaries: (await actNowCard().count()) === 0 ? 0 : 1, foldLink: false });
   });
 
+  // Settings without a licence: no Watch section, no lock card; the Licence section names the watch in one line.
+  await visit({ name: "settings-watch-locked" }, async () => {
+    await goto(`${G_FREE}&guided=0`);
+    await nav(page, "Settings");
+    await heading(page, "Settings");
+    await assertRecorded(page, "watch_set_profile", false);
+    await assertNotRecorded(page, "watch_request_notify_permission");
+    if ((await page.locator("section[aria-labelledby='watch-heading']").count()) !== 0) throw new Error("the Watch section is drawn without a licence");
+    if ((await page.getByRole("switch", { name: "Keep an eye on my Mac from the menu bar" }).count()) !== 0) throw new Error("the watch switch is drawn without a licence");
+    const first = page.locator(".settings section.settings-section").first();
+    if ((await first.getAttribute("aria-labelledby")) !== "checkup-heading") throw new Error("Check-up comes first without a licence");
+    const licence = page.locator("section[aria-labelledby='licence-heading']");
+    await licence.getByText(SETTINGS_FREE_LINE, { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    await licence.getByText(SETTINGS_PAID_LINE, { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    await licence.getByPlaceholder("Paste your licence key").waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.getByPlaceholder("Paste your licence key").count()) !== 1) throw new Error("one licence field in Settings");
+    if ((await page.getByText(/part of the full version/).count()) !== 0) throw new Error("a lock card is drawn in Settings");
+  });
+  // Pasting a key swaps the sections live: the Watch section appears first with its defaults, and the paste asks for the permission once.
+  await visit({ name: "settings-watch-unlock", volatile: true }, async () => {
+    await page.getByPlaceholder("Paste your licence key").fill(GUIDED_KEY);
+    await page.locator("section[aria-labelledby='watch-heading']").waitFor({ timeout: STEP_TIMEOUT });
+    const first = page.locator(".settings section.settings-section").first();
+    if ((await first.getAttribute("aria-labelledby")) !== "watch-heading") throw new Error("the Watch section comes first once licensed");
+    const section = page.locator("section[aria-labelledby='watch-heading']");
+    if (!(await section.getByRole("switch", { name: "Keep an eye on my Mac from the menu bar" }).isChecked())) throw new Error("the watch is on once licensed");
+    if (await section.getByRole("switch", { name: "Start when I log in" }).isChecked()) throw new Error("start at login is off");
+    if (!(await section.getByRole("radio", { name: "Every hour" }).isChecked())) throw new Error("every hour is the default interval");
+    if (!(await section.getByRole("switch", { name: "Tell me when something needs doing now" }).isChecked())) throw new Error("notify is on by default");
+    await assertRecorded(page, "watch_set_profile", true);
+    await page.waitForFunction(() => ((window as unknown as { __talosDemoCalls?: { kind: string }[] }).__talosDemoCalls ?? []).filter((c) => c.kind === "watch_request_notify_permission").length === 1, undefined, { timeout: STEP_TIMEOUT });
+    if ((await callsOf(page, "watch_request_notify_permission")).length !== 1) throw new Error("the paste that activates the watch asks for the permission exactly once");
+    await assertNotRecorded(page, "autostart_enable");
+    const memory = await watchMemory(page);
+    if (typeof memory?.["notifyAskedAt"] !== "string") throw new Error("the paste records notifyAskedAt in talos.watch");
+    await assertNoUrlRecorded(page);
+  });
+
   // Settings: the Watch section first, two switches, the interval radios, the notify switch, the not-antivirus sentence.
   await visit({ name: "settings-watch" }, async () => {
     await goto(`${G}&guided=0`);
     await nav(page, "Settings");
     await heading(page, "Settings");
     await assertNotRecorded(page, "watch_request_notify_permission");
+    await assertRecorded(page, "watch_set_profile", true);
     const first = page.locator(".settings section.settings-section").first();
     if ((await first.getAttribute("aria-labelledby")) !== "watch-heading") throw new Error("the Watch section comes first in Settings");
     const section = page.locator("section[aria-labelledby='watch-heading']");
@@ -1860,11 +1973,24 @@ export async function walkWatch(page: Page, baseUrl: string, visit: Visit): Prom
     await assertNoUrlRecorded(page);
   });
 
-  // Welcome: the watch sentence, and the one foreground button that asks for the notification permission.
-  await visit({ name: "guided-welcome-watch" }, async () => {
+  // Welcome without a licence: nothing about the watch, the two read lists, no not-antivirus block and no permission button.
+  await visit({ name: "guided-welcome-free" }, async () => {
     await goto("reset=1&fixture=dev-machine&delay=0");
     await guidedTitle(page, "Let's check your Mac.");
-    await page.locator(".guided-body").getByText(/I'll also keep an eye on your settings from the menu bar\. You can switch that off in Settings\.$/).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".guided-body").getByText(/Nothing leaves your Mac\.$/).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator(".guided-body").getByText(/menu bar/).count()) !== 0) throw new Error("the welcome mentions the menu bar without a licence");
+    await link(page, "What do you look at?");
+    await page.locator(".guided-reads").getByRole("heading", { name: "Reads", level: 2 }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".guided-reads").getByRole("heading", { name: "Never reads", level: 2 }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator(".fishy-welcome-watch").count()) !== 0) throw new Error("the not-antivirus block is drawn without a licence");
+    await assertNotRecorded(page, "watch_request_notify_permission");
+    await assertGuidedScreen(page, { foldLink: false });
+  });
+  // Welcome with a licence: the one foreground button that asks for the notification permission.
+  await visit({ name: "guided-welcome-watch" }, async () => {
+    await goto("reset=1&fixture=dev-machine&delay=0&licensed=1");
+    await guidedTitle(page, "Let's check your Mac.");
+    await page.locator(".guided-body").getByText(/Nothing leaves your Mac\.$/).waitFor({ timeout: STEP_TIMEOUT });
     await assertNotRecorded(page, "watch_request_notify_permission");
     await link(page, "What do you look at?");
     const block = page.locator(".fishy-welcome-watch");

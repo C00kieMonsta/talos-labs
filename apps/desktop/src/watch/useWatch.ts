@@ -32,18 +32,21 @@ export interface WatchDeps {
   readonly profile: ExplainerProfile;
   /** The AI switch and consumer provider, so Rust's cycle calls the chosen provider; absent, Rust picks a connected one. */
   readonly ai?: WatchAi;
+  /** The product gate the webview reports; null until the licence has been read, and nothing is pushed while null. */
+  readonly licensed: boolean | null;
   updateSettings(patch: Partial<WatchSettings>): void;
   readonly memory: WatchMemory;
   saveMemory(next: WatchMemory): void;
   readonly now?: () => string;
 }
 
-/** The three keys Rust's watch-settings.json owns; the webview copy follows them. */
-function settingsPatch(state: WatchState, settings: WatchSettings): Partial<WatchSettings> | null {
+/** The three keys Rust's watch-settings.json owns; the webview copy follows them. An unlicensed state also drops the login item. */
+export function settingsPatch(state: WatchState, settings: WatchSettings): Partial<WatchSettings> | null {
   const patch: { -readonly [K in keyof WatchSettings]?: WatchSettings[K] } = {};
   if (state.enabled !== settings.enabled) patch.enabled = state.enabled;
   if (state.everyMinutes !== settings.everyMinutes) patch.everyMinutes = state.everyMinutes;
   if (state.notify !== settings.notify) patch.notify = state.notify;
+  if (!state.licensed && settings.startAtLogin) patch.startAtLogin = false;
   return Object.keys(patch).length === 0 ? null : patch;
 }
 
@@ -66,6 +69,8 @@ export function useWatch(deps: WatchDeps): WatchController {
     const apply = (next: WatchState) => {
       if (!live) return;
       setState(next);
+      // Rust disabled the LaunchAgent when the licence went; the cache follows.
+      if (!next.licensed) setStartAtLogin(false);
       const patch = settingsPatch(next, depsRef.current.settings);
       if (patch !== null) depsRef.current.updateSettings(patch);
     };
@@ -85,15 +90,17 @@ export function useWatch(deps: WatchDeps): WatchController {
     };
   }, [port]);
 
-  // The profile goes to Rust on mount and whenever one of its four fields or the AI choice changes.
+  // The profile goes to Rust once the licence has been read, and whenever one of its four fields, the AI choice or the gate changes.
   const { role, technical, handlesClientData, laptopLeavesHome } = deps.profile;
   const aiEnabled = deps.ai?.enabled;
   const aiProvider = deps.ai?.provider;
+  const { licensed } = deps;
   useEffect(() => {
+    if (licensed === null) return;
     const profile = { role, technical, handlesClientData, laptopLeavesHome };
-    const push = aiEnabled === undefined ? port.setProfile(profile) : port.setProfile(profile, { enabled: aiEnabled, provider: aiProvider ?? null });
-    void push.catch(() => undefined);
-  }, [port, role, technical, handlesClientData, laptopLeavesHome, aiEnabled, aiProvider]);
+    const ai = aiEnabled === undefined ? undefined : { enabled: aiEnabled, provider: aiProvider ?? null };
+    void port.setProfile(profile, ai, licensed).catch(() => undefined);
+  }, [port, role, technical, handlesClientData, laptopLeavesHome, aiEnabled, aiProvider, licensed]);
 
   const write = useCallback((next: WatchMemory) => depsRef.current.saveMemory(next), []);
 
@@ -144,9 +151,15 @@ export function useWatch(deps: WatchDeps): WatchController {
     depsRef.current.updateSettings({ startAtLogin: v });
   }, []);
 
+  // The one record that macOS's alert has been asked for; the welcome button, the Settings switch and the paste share it.
   const requestNotifyPermission = useCallback(async () => {
-    await depsRef.current.port.requestNotifyPermission().catch(() => undefined);
-  }, []);
+    try {
+      await depsRef.current.port.requestNotifyPermission();
+    } catch {
+      return;
+    }
+    write({ ...depsRef.current.memory, notifyAskedAt: now() });
+  }, [now, write]);
 
   const acknowledge = useCallback(
     async (signalId: SignalId) => {

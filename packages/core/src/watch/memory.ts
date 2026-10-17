@@ -10,6 +10,7 @@ export const EMPTY_WATCH_MEMORY: WatchMemory = {
   actionNotNow: {},
   fishyRanAt: null,
   notifiedItems: {},
+  notifyAskedAt: null,
 };
 
 /** "This is fine, I know it" this many times on one signal mutes it until a full check sees a new change. */
@@ -60,6 +61,7 @@ export function parseWatchMemory(raw: unknown): WatchMemory {
     actionNotNow: dateMap(raw["actionNotNow"], isActionId),
     fishyRanAt: isIsoDate(raw["fishyRanAt"]) ? raw["fishyRanAt"] : null,
     notifiedItems: dateMap(raw["notifiedItems"], isSignalId),
+    notifyAskedAt: isIsoDate(raw["notifyAskedAt"]) ? raw["notifyAskedAt"] : null,
   };
 }
 

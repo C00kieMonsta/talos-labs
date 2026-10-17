@@ -15,7 +15,7 @@ afterEach(cleanup);
 const RULES = ["nested-interactive", "button-name", "heading-order", "label", "aria-allowed-attr", "aria-allowed-role", "aria-valid-attr-value", "aria-required-children", "list", "listitem"];
 
 function renderConnect(overrides: Partial<AiConnectController> = {}) {
-  const value = fakeContextValue({ adapters: fakeAdapters(), license: { status: "none" }, gate: { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => true }, scanState: { kind: "idle", last: null } });
+  const value = fakeContextValue({ adapters: fakeAdapters(), license: { status: "none" }, gate: { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => false, watchLocked: true }, scanState: { kind: "idle", last: null } });
   const connect = fakeConnectController({ offered: { chatgpt: false, claude_plan: true, apple: true }, connectable: true, ...overrides });
   return render(createElement(StatefulProvider, { value, connect }, createElement(ConnectScreen)));
 }

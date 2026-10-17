@@ -518,16 +518,24 @@ pub fn watch_request_notify_permission(window: Window, app: AppHandle) -> Result
         .map_err(|e| e.to_string())
 }
 
-/// The profile the context carries, plus the AI switch and provider choice when the webview sends them.
+/// The profile the context carries, plus the AI switch and provider choice when the webview
+/// sends them. `licensed` is the webview's product gate; absent means false. Rust trusts the
+/// last pushed value and never verifies a key. Off a worker thread like `watch_set_enabled`:
+/// the inactive path deletes watch.json and must never hold the main thread.
 #[tauri::command]
-pub fn watch_set_profile(
+pub async fn watch_set_profile(
     window: Window,
     app: AppHandle,
     profile: ExplainerProfile,
     ai: Option<WatchAi>,
+    licensed: Option<bool>,
 ) -> Result<(), String> {
     main_only(&window)?;
-    watch::set_profile(&app, profile, ai)
+    tauri::async_runtime::spawn_blocking(move || {
+        watch::set_profile(&app, profile, ai, licensed.unwrap_or(false))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// "This is fine, I know it": re-baselines the signal. Off the main thread, like every

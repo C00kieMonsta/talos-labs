@@ -26,7 +26,7 @@ interface Harness {
   emit(state: WatchState): void;
 }
 
-function mount(options: { state?: WatchState; settings?: Partial<WatchSettings>; memory?: WatchMemory; port?: Partial<WatchPort>; autostart?: boolean } = {}): Harness {
+function mount(options: { state?: WatchState; settings?: Partial<WatchSettings>; memory?: WatchMemory; port?: Partial<WatchPort>; autostart?: boolean; licensed?: boolean | null } = {}): Harness {
   let listener: ((state: WatchState) => void) | null = null;
   const port = fakeWatchPort(
     {
@@ -47,6 +47,7 @@ function mount(options: { state?: WatchState; settings?: Partial<WatchSettings>;
     port,
     settings: { ...DEFAULT_SETTINGS.watch, ...options.settings },
     profile: PROFILE,
+    licensed: options.licensed === undefined ? true : options.licensed,
     updateSettings,
     memory: options.memory ?? EMPTY_WATCH_MEMORY,
     saveMemory,
@@ -95,7 +96,7 @@ describe("useWatch on mount", () => {
     const h = mount();
     await flush();
     expect(h.port.setProfile).toHaveBeenCalledTimes(1);
-    expect(h.port.setProfile).toHaveBeenCalledWith(PROFILE);
+    expect(h.port.setProfile).toHaveBeenCalledWith(PROFILE, undefined, true);
     h.hook.rerender({ settings: { ...DEFAULT_SETTINGS.watch, everyMinutes: 15 } });
     await flush();
     expect(h.port.setProfile).toHaveBeenCalledTimes(1);
@@ -103,7 +104,7 @@ describe("useWatch on mount", () => {
     h.hook.rerender({ profile: changed });
     await flush();
     expect(h.port.setProfile).toHaveBeenCalledTimes(2);
-    expect(h.port.setProfile).toHaveBeenLastCalledWith(changed);
+    expect(h.port.setProfile).toHaveBeenLastCalledWith(changed, undefined, true);
     expect(h.port.setEnabled).not.toHaveBeenCalled();
     expect(h.port.setNotify).not.toHaveBeenCalled();
   });
@@ -112,14 +113,57 @@ describe("useWatch on mount", () => {
     const h = mount();
     h.hook.rerender({ ai: { enabled: true, provider: "chatgpt" } });
     await flush();
-    expect(h.port.setProfile).toHaveBeenLastCalledWith(PROFILE, { enabled: true, provider: "chatgpt" });
+    expect(h.port.setProfile).toHaveBeenLastCalledWith(PROFILE, { enabled: true, provider: "chatgpt" }, true);
     h.hook.rerender({ ai: { enabled: true, provider: "chatgpt" } });
     await flush();
     expect(h.port.setProfile).toHaveBeenCalledTimes(2);
     h.hook.rerender({ ai: { enabled: false, provider: null } });
     await flush();
     expect(h.port.setProfile).toHaveBeenCalledTimes(3);
-    expect(h.port.setProfile).toHaveBeenLastCalledWith(PROFILE, { enabled: false, provider: null });
+    expect(h.port.setProfile).toHaveBeenLastCalledWith(PROFILE, { enabled: false, provider: null }, true);
+  });
+
+  it("does not push while the licence is unread, pushes once it resolves, and again when it flips", async () => {
+    const h = mount({ licensed: null });
+    await flush();
+    expect(h.port.setProfile).not.toHaveBeenCalled();
+    h.hook.rerender({ licensed: true });
+    await flush();
+    expect(h.port.setProfile).toHaveBeenCalledTimes(1);
+    expect(h.port.setProfile).toHaveBeenLastCalledWith(PROFILE, undefined, true);
+    h.hook.rerender({ licensed: false });
+    await flush();
+    expect(h.port.setProfile).toHaveBeenCalledTimes(2);
+    expect(h.port.setProfile).toHaveBeenLastCalledWith(PROFILE, undefined, false);
+  });
+
+  it("a watch:state with licensed false clears the startAtLogin cache and patches settings", async () => {
+    const h = mount({ autostart: true, settings: { startAtLogin: true } });
+    await flush();
+    expect(h.hook.result.current.startAtLogin).toBe(true);
+    h.updateSettings.mockClear();
+    h.emit(fakeWatchState({ licensed: false }));
+    expect(h.hook.result.current.startAtLogin).toBe(false);
+    expect(h.updateSettings).toHaveBeenCalledWith({ startAtLogin: false });
+    expect(h.port.autostartDisable).not.toHaveBeenCalled();
+    h.updateSettings.mockClear();
+    h.emit(fakeWatchState({ licensed: false }));
+    h.hook.rerender({ settings: { ...DEFAULT_SETTINGS.watch, startAtLogin: false } });
+    h.emit(fakeWatchState({ licensed: false }));
+    expect(h.updateSettings).toHaveBeenLastCalledWith({ startAtLogin: false });
+  });
+
+  it("requestNotifyPermission records notifyAskedAt once the port answers, and not on a rejection", async () => {
+    const h = mount();
+    await flush();
+    await act(() => h.hook.result.current.requestNotifyPermission());
+    expect(h.port.requestNotifyPermission).toHaveBeenCalledTimes(1);
+    expect(h.saveMemory).toHaveBeenCalledTimes(1);
+    expect(h.saveMemory).toHaveBeenCalledWith({ ...EMPTY_WATCH_MEMORY, notifyAskedAt: NOW });
+    const rejecting = mount({ port: { requestNotifyPermission: vi.fn(async () => { throw "denied"; }) } });
+    await flush();
+    await act(() => rejecting.hook.result.current.requestNotifyPermission());
+    expect(rejecting.saveMemory).not.toHaveBeenCalled();
   });
 
   it("follows watch:state and reconciles each one, and survives a failing status()", async () => {

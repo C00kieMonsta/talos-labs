@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { cleanup, render, screen } from "@testing-library/react";
 import type { LicenseState, RuleId, ScanReport } from "@talos/core";
 import { DEV_MACHINE, MACOS_CATALOG, evaluate, freeFixRuleIds } from "@talos/core";
-import { buildGate } from "./gate";
+import { buildGate, watchActive } from "./gate";
 import { AppContext } from "./context";
 import type { AppContextValue } from "./context";
 import { FindingDetail } from "../screens/FindingDetail";
@@ -54,7 +54,7 @@ describe("license gate on DEV_MACHINE", () => {
     }
     expect(gate.fixLocked({ ruleId: "TL-MAC-028", status: "unknown" })).toBe(true);
     expect(gate.has("recheck")).toBe(false);
-    expect(gate.has("explainer")).toBe(false);
+    expect(gate.has("watch")).toBe(false);
   });
 
   it("licensed: nothing is locked", () => {
@@ -63,22 +63,30 @@ describe("license gate on DEV_MACHINE", () => {
     expect(report.findings.some((f) => gate.fixLocked(f))).toBe(false);
     expect(gate.has("all_fixes")).toBe(true);
     expect(gate.has("recheck")).toBe(true);
+    expect(gate.has("watch")).toBe(true);
   });
 
-  it("unlicensed: explanations are free for exactly the free fixes", () => {
-    const gate = buildGate(devReport(), NONE);
-    for (const id of EXPECTED_FREE) expect(gate.explainLocked(id), id).toBe(false);
-    for (const id of REVIEW) expect(gate.explainLocked(id), id).toBe(false);
-    for (const id of EXPECTED_LOCKED) expect(gate.explainLocked(id), id).toBe(true);
-    expect(gate.explainLocked("TL-MAC-028")).toBe(true);
+  it("no explanation is ever locked: free, locked, review and unknown ids, with or without a report, licensed or not", () => {
+    const ids: RuleId[] = [...EXPECTED_FREE, ...EXPECTED_LOCKED, ...REVIEW, "TL-MAC-028"];
+    for (const gate of [buildGate(devReport(), NONE), buildGate(devReport(), VALID), buildGate(null, NONE), buildGate(null, VALID)]) {
+      for (const id of ids) expect(gate.explainLocked(id), id).toBe(false);
+    }
   });
 
-  it("licensed: no explanation is locked; without a report every explanation is locked when unlicensed", () => {
-    const licensed = buildGate(devReport(), VALID);
-    for (const id of [...EXPECTED_FREE, ...EXPECTED_LOCKED]) expect(licensed.explainLocked(id)).toBe(false);
-    const noReport = buildGate(null, NONE);
-    expect(noReport.explainLocked("TL-MAC-001")).toBe(true);
-    expect(buildGate(null, VALID).explainLocked("TL-MAC-001")).toBe(false);
+  it("the watch is locked without a licence and open with one", () => {
+    expect(buildGate(devReport(), NONE).watchLocked).toBe(true);
+    expect(buildGate(null, NONE).watchLocked).toBe(true);
+    expect(buildGate(devReport(), VALID).watchLocked).toBe(false);
+    expect(buildGate(null, VALID).watchLocked).toBe(false);
+  });
+
+  it("watchActive needs the switch and the licence", () => {
+    const on = { watch: { ...DEFAULT_SETTINGS.watch, enabled: true } };
+    const off = { watch: { ...DEFAULT_SETTINGS.watch, enabled: false } };
+    expect(watchActive(on, { watchLocked: false })).toBe(true);
+    expect(watchActive(on, { watchLocked: true })).toBe(false);
+    expect(watchActive(off, { watchLocked: false })).toBe(false);
+    expect(watchActive(off, { watchLocked: true })).toBe(false);
   });
 });
 

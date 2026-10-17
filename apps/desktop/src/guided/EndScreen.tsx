@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import type { FishyKind, GuidedPlan, NextAction, RuleId } from "@talos/core";
 import { MACOS_CATALOG, nextAction } from "@talos/core";
 import { useApp } from "../app/context";
+import { watchActive } from "../app/gate";
 import { ICONS } from "../app/icons";
 import type { IconComponent } from "../app/icons";
 import { Icon } from "../components/Icon";
@@ -130,14 +131,14 @@ export interface EndScreenProps {
 
 /** All done, partial with the grouped rows, nothing to do, or nothing read. The "Do this next" button is the one primary; "Check again" stays the link. */
 export function EndScreen({ plan, fixed, onCheckAgain, onNext, onConnect }: EndScreenProps) {
-  const { router, scan, ai, settings } = useApp();
+  const { router, scan, ai, settings, gate } = useApp();
   const connect = useConnect();
   const { ensureOffered } = connect;
   const watch = useWatchController();
   const fishy = useFishyController();
-  // The watch's act-now item outranks the plan's next step: its card holds the one primary.
-  const actNow = watch.state !== null && watch.state.rating === "act_now" ? (watch.state.items[0] ?? null) : null;
-  const watchOn = settings.watch.enabled;
+  // The watch's act-now item outranks the plan's next step: its card holds the one primary. An unlicensed state has no items.
+  const actNow = watch.state !== null && watch.state.licensed && watch.state.rating === "act_now" ? (watch.state.items[0] ?? null) : null;
+  const watchOn = watchActive(settings, gate);
   useGuidedHero(true, true);
   // The end screen is an AI surface: it asks once which providers are offered and whether one is connected.
   const aiEnabled = settings.explainer.aiEnabled;

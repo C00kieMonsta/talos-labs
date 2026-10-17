@@ -26,7 +26,7 @@ export function ShowStep({ step, state, controller, notice }: { step: ShowStepT;
           }
           primary={{ label: QUESTION.yes, onClick: () => controller.answer("backup_disk", true) }}
           link={{ label: QUESTION.no, onClick: () => controller.answer("backup_disk", false) }}
-          explainRuleId={step.ruleId} onUnlock={controller.goToPaywall}
+          explainRuleId={step.ruleId}
           notice={notice}
         />
       );
@@ -69,7 +69,7 @@ export function ShowStep({ step, state, controller, notice }: { step: ShowStepT;
           }
           primary={{ label: SHOW.button, onClick: () => controller.primary() }}
           link={{ label: FIX.later, onClick: controller.later }}
-          explainRuleId={step.ruleId} onUnlock={controller.goToPaywall}
+          explainRuleId={step.ruleId}
           notice={notice}
         />
       );

@@ -17,13 +17,17 @@ import { SECTION_PROGRESS_LABELS } from "../app/labels";
 const AI_BADGE = AI_BADGES.apple;
 import { GUIDED_SECTION_LABELS, WATCH_SETTINGS } from "../guided/copy";
 import { Welcome } from "./Welcome";
+import { GuidedWelcome } from "../guided/GuidedWelcome";
+import { NOT_ANTIVIRUS, WELCOME } from "../guided/copy";
+import { fakeWatchController } from "../app/testing";
+import { WatchControllerContext } from "../watch/watch-controller";
 import { Findings } from "./Findings";
 import { FindingDetail } from "./FindingDetail";
 import { Overview } from "./Overview";
 import { AI_OFF_COPY, Ask, NEAR_LIMIT_NOTICE } from "./Ask";
-import { AI_LOCKED_COPY, AI_UNAVAILABLE_COPY } from "../components/AiCard";
+import { AI_UNAVAILABLE_COPY } from "../components/AiCard";
 import { PASSWORD_SENTENCE, NO_PASSWORD_SENTENCE } from "../components/fix-copy";
-import { DEV_BUILD_FDA_COPY, Settings, chatgptClientLine, claudeCodeLine } from "./Settings";
+import { DEV_BUILD_FDA_COPY, FREE_LINE, PAID_LINE, Settings, chatgptClientLine, claudeCodeLine } from "./Settings";
 import type { SettingsProps } from "./Settings";
 import { AI_ACTIONS, AI_BADGES, ASK_CONNECT, PRIVACY_SENTENCE, PRIVACY_SENTENCE_REMOTE, PROVIDER_NAMES, YOUR_AI, aiPillWord, providerLines } from "../app/labels";
 import type { Adapters } from "../adapters";
@@ -33,6 +37,24 @@ afterEach(cleanup);
 
 const require = createRequire(import.meta.url);
 const axe = require("axe-core") as { run(ctx: Element, opts: object): Promise<{ violations: { id: string }[] }> };
+
+/** The fixed counter from DESIGN-V03.md section 6, as in guided/copy.test.ts. Errs long on purpose. */
+function syllablesPerWord(text: string): number {
+  const words = text
+    .split(/\s+/)
+    .filter((token) => /[a-z]/i.test(token))
+    .map((token) => token.toLowerCase().replace(/[^a-z]/g, ""))
+    .filter((word) => word.length > 0);
+  if (words.length === 0) return 0;
+  let total = 0;
+  for (const word of words) {
+    const runs = word.match(/[aeiouy]+/g)?.length ?? 0;
+    let count = runs;
+    if (runs > 1 && word.endsWith("e") && !word.endsWith("le")) count -= 1;
+    total += Math.max(1, count);
+  }
+  return total / words.length;
+}
 const AXE_RULES = { runOnly: ["button-name", "nested-interactive", "aria-allowed-role", "aria-valid-attr-value", "label"] };
 
 const NONE: LicenseState = { status: "none" };
@@ -42,7 +64,7 @@ const VALID: LicenseState = {
 };
 
 function stubGate(licensed: boolean): Gate {
-  return { licensed, freeFixes: [], has: () => licensed, fixLocked: () => !licensed, explainLocked: () => !licensed };
+  return { licensed, freeFixes: [], has: () => licensed, fixLocked: () => !licensed, explainLocked: () => false, watchLocked: !licensed };
 }
 
 function rule(id: Rule["id"], title: string, failTitle: string): Rule {
@@ -234,6 +256,37 @@ describe("Welcome", () => {
   });
 });
 
+describe("GuidedWelcome", () => {
+  function renderGuidedWelcome(licensed: boolean) {
+    const watch = fakeWatchController();
+    const value = fakeContextValue({ adapters: fakeAdapters(), license: licensed ? VALID : NONE, gate: stubGate(licensed), scanState: { kind: "idle", report: null, last: null }, settings: { ...DEFAULT_SETTINGS, onboarded: false } });
+    render(createElement(AppContext.Provider, { value }, createElement(WatchControllerContext.Provider, { value: watch }, createElement(GuidedWelcome, { onStart: vi.fn() }))));
+    fireEvent.click(screen.getByRole("button", { name: WELCOME.what }));
+    return { watch };
+  }
+
+  it("unlicensed: the body says nothing about the watch, the two lists open, and no permission button is drawn", () => {
+    const { watch } = renderGuidedWelcome(false);
+    expect(screen.getByText(WELCOME.body)).toBeTruthy();
+    expect(screen.queryByText(/menu bar/)).toBeNull();
+    expect(screen.getByRole("heading", { name: "Reads" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Never reads" })).toBeTruthy();
+    expect(document.querySelector(".fishy-welcome-watch")).toBeNull();
+    expect(screen.queryByText(NOT_ANTIVIRUS)).toBeNull();
+    expect(screen.queryByRole("button", { name: WELCOME.allowNotifications })).toBeNull();
+    expect(watch.requestNotifyPermission).not.toHaveBeenCalled();
+  });
+
+  it("licensed: the not-antivirus block and its button, which asks for the permission through the controller", async () => {
+    const { watch } = renderGuidedWelcome(true);
+    expect(document.querySelector(".fishy-welcome-watch")).not.toBeNull();
+    expect(screen.getByText(NOT_ANTIVIRUS)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: WELCOME.allowNotifications }));
+    await waitFor(() => expect(watch.requestNotifyPermission).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(watch.setNotify).toHaveBeenCalledWith(true));
+  });
+});
+
 describe("Findings", () => {
   it("groups findings, filters by severity, and shows the AI order beside the groups", () => {
     const value = withAi(
@@ -405,14 +458,15 @@ describe("Overview", () => {
     expect(screen.getByText(AI_BADGE)).toBeTruthy();
   });
 
-  it("shows the honest unavailable state for every user and the lock only when the model is available", () => {
+  it("shows the honest unavailable state for every user, and the Overview AI card is available_idle for an unlicensed user with the AI connected", () => {
     render(createElement(AppContext.Provider, { value: readyContext({ state: DEV_MACHINE, license: NONE, ai: "device_not_eligible" }) }, createElement(Overview)));
     expect(screen.getByText(AI_UNAVAILABLE_COPY.device_not_eligible)).toBeTruthy();
-    expect(screen.queryByText(AI_LOCKED_COPY)).toBeNull();
+    expect(document.querySelector(".ai-card")?.getAttribute("data-ai-state")).toBe("device_not_eligible");
     cleanup();
     render(createElement(AppContext.Provider, { value: readyContext({ state: DEV_MACHINE, license: NONE, ai: "available" }) }, createElement(Overview)));
-    expect(screen.getByText(AI_LOCKED_COPY)).toBeTruthy();
-    expect(screen.getByPlaceholderText("Paste your licence key")).toBeTruthy();
+    expect(document.querySelector(".ai-card")?.getAttribute("data-ai-state")).toBe("available_idle");
+    expect(screen.getByRole("button", { name: "Suggest an order" })).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Paste your licence key")).toBeNull();
     cleanup();
     render(createElement(AppContext.Provider, { value: readyContext({ state: DEV_MACHINE, license: NONE, aiEnabled: false }) }, createElement(Overview)));
     expect(document.querySelector(".ai-card")).toBeNull();
@@ -426,7 +480,6 @@ describe("Overview", () => {
     show("not_connected");
     expect(document.querySelector("[data-ai-state='not_connected']")).not.toBeNull();
     expect(screen.getByText(lines.notConnected)).toBeTruthy();
-    expect(screen.queryByText(AI_LOCKED_COPY)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: AI_ACTIONS.connect }));
     expect(connect.open).toHaveBeenCalledWith({ name: "overview" });
     cleanup();
@@ -761,7 +814,7 @@ describe("FindingDetail", () => {
     expect(screen.getByText(/socketfilterfw --setglobalstate on/)).toBeTruthy();
   });
 
-  it("locks the explanation per rule: free for a free fix, locked otherwise, and never when the AI is not connected", () => {
+  it("explains every rule when the AI is connected, free or paid, and never when it is not connected", () => {
     const value = readyContext({ state: DEV_MACHINE, license: NONE });
     const failing = evaluate(DEV_MACHINE, MACOS_CATALOG, { now: NOW, os: "macos" }).findings.filter((f) => f.status === "fail");
     const free = failing.find((f) => value.gate.freeFixes.includes(f.ruleId))?.ruleId as RuleId;
@@ -772,7 +825,11 @@ describe("FindingDetail", () => {
     expect(document.querySelector(".ai-card")?.getAttribute("data-ai-state")).toBe("available_idle");
     cleanup();
     renderDetail(value, paid);
-    expect(document.querySelector(".ai-card")?.getAttribute("data-ai-state")).toBe("locked");
+    expect(document.querySelector(".ai-card")?.getAttribute("data-ai-state")).toBe("available_idle");
+    // The fix stays behind its lock; the explanation does not.
+    expect(screen.getByText("This fix is part of the full version")).toBeTruthy();
+    expect(screen.getByText("The three most valuable fixes are free. A licence unlocks every fix, Check again and the menu bar watch.")).toBeTruthy();
+    expect(document.querySelectorAll("input[placeholder='Paste your licence key']").length).toBe(1);
     cleanup();
     renderDetail(readyContext({ state: DEV_MACHINE, license: NONE, provider: "claude_plan", ai: "not_connected" }), paid);
     expect(document.querySelector(".ai-card")?.getAttribute("data-ai-state")).toBe("not_connected");
@@ -785,7 +842,6 @@ describe("FindingDetail", () => {
     cleanup();
     renderDetail(readyContext({ state: DEV_MACHINE, license: NONE, ai: "model_not_ready" }), "TL-MAC-002");
     expect(screen.getByText(AI_UNAVAILABLE_COPY.model_not_ready)).toBeTruthy();
-    expect(screen.queryByText(AI_LOCKED_COPY)).toBeNull();
   });
 
   it("says when a rechecked item now passes", () => {
@@ -834,7 +890,7 @@ describe("FindingDetail", () => {
 });
 
 describe("Findings suggested order", () => {
-  it("lets a licensed user ask for an AI order from the Findings screen", () => {
+  it("lets any user with the AI on ask for an AI order from the Findings screen", () => {
     const value = readyContext({ state: DEV_MACHINE, license: VALID });
     render(createElement(AppContext.Provider, { value }, createElement(Findings)));
     expect(screen.getByRole("heading", { name: "Suggested order" })).toBeTruthy();
@@ -842,13 +898,19 @@ describe("Findings suggested order", () => {
     expect(value.scan.prioritise).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the list single-column while AI is locked, and shows a prioritise failure inline", () => {
-    const locked = readyContext({ state: DEV_MACHINE, license: NONE });
-    render(createElement(AppContext.Provider, { value: locked }, createElement(Findings)));
+  it("shows the aside for an unlicensed user too, and shows a prioritise failure inline", () => {
+    const unlicensed = readyContext({ state: DEV_MACHINE, license: NONE });
+    render(createElement(AppContext.Provider, { value: unlicensed }, createElement(Findings)));
+    expect(screen.getByRole("heading", { name: "Suggested order" })).toBeTruthy();
+    expect(document.querySelector(".findings-layout.with-aside")).not.toBeNull();
+    expect(screen.queryByPlaceholderText("Paste your licence key")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Suggest an order" }));
+    expect(unlicensed.scan.prioritise).toHaveBeenCalledTimes(1);
+    cleanup();
+    const off = readyContext({ state: DEV_MACHINE, license: NONE, aiEnabled: false });
+    render(createElement(AppContext.Provider, { value: off }, createElement(Findings)));
     expect(screen.queryByRole("heading", { name: "Suggested order" })).toBeNull();
     expect(document.querySelector(".findings-layout.with-aside")).toBeNull();
-    expect(screen.queryByText(AI_LOCKED_COPY)).toBeNull();
-    expect(screen.queryByRole("button", { name: "Suggest an order" })).toBeNull();
     cleanup();
     const failed = readyContext({
       state: DEV_MACHINE,
@@ -883,7 +945,7 @@ describe("Findings suggested order", () => {
 });
 
 describe("Ask", () => {
-  it("says AI is off when the switch is off, and shows the unavailable card or the lock otherwise", () => {
+  it("says AI is off when the switch is off, shows the unavailable card otherwise, and unlicensed with the AI available shows the composer and no licence field", () => {
     const off = fakeContextValue({
       adapters: fakeAdapters(),
       license: NONE,
@@ -900,11 +962,10 @@ describe("Ask", () => {
     expect(screen.getByText(AI_UNAVAILABLE_COPY.device_not_eligible)).toBeTruthy();
     expect(screen.queryByLabelText("Your question")).toBeNull();
     cleanup();
-    const locked = withAi(fakeContextValue({ adapters: fakeAdapters(), license: NONE, gate: stubGate(false), scanState: { kind: "idle", report: null, last: report } }), "available");
-    render(createElement(AppContext.Provider, { value: locked }, createElement(Ask)));
-    expect(screen.getByText(AI_LOCKED_COPY)).toBeTruthy();
-    expect(screen.getByPlaceholderText("Paste your licence key")).toBeTruthy();
-    expect(screen.queryByLabelText("Your question")).toBeNull();
+    const unlicensed = withAi(fakeContextValue({ adapters: fakeAdapters(), license: NONE, gate: stubGate(false), scanState: { kind: "idle", report: null, last: report } }), "available");
+    render(createElement(AppContext.Provider, { value: unlicensed }, createElement(Ask)));
+    expect(screen.getByLabelText("Your question")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Paste your licence key")).toBeNull();
   });
 
   it("shows the connect row above a disabled composer when no AI is connected, and keeps the card for the other states", () => {
@@ -1083,16 +1144,52 @@ describe("Settings", () => {
   }
   function mount(props: Partial<SettingsProps> = {}, input: { settings?: AppSettings; license?: LicenseState; adapters?: Adapters; stateful?: boolean } = {}) {
     const adapters = input.adapters ?? fakeAdapters();
-    const value = fakeContextValue({ adapters, license: input.license ?? NONE, gate: stubGate(false), catalog, settings: input.settings, scanState: { kind: "idle", report: null, last: null } });
+    const license = input.license ?? NONE;
+    const value = fakeContextValue({ adapters, license, gate: stubGate(license.status === "valid"), catalog, settings: input.settings, scanState: { kind: "idle", report: null, last: null } });
     const full = settingsProps(props);
     render(createElement(input.stateful ? StatefulProvider : AppContext.Provider, { value }, createElement(Settings, full)));
     return { value, adapters, props: full };
   }
 
-  it("keeps the seven sections in the design order", () => {
-    mount();
+  it("keeps the seven sections in the design order once licensed", () => {
+    mount({}, { license: VALID });
     const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
     expect(headings).toEqual([WATCH_SETTINGS.title, "Check-up", YOUR_AI.title, "Permissions", "Licence", "Developer mode", "About"]);
+  });
+
+  it("unlicensed Settings has no Watch section and no switch labelled WATCH_SETTINGS.enabled", () => {
+    mount();
+    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(headings).toEqual(["Check-up", YOUR_AI.title, "Permissions", "Licence", "Developer mode", "About"]);
+    expect(document.getElementById("watch-heading")).toBeNull();
+    expect(screen.queryByRole("switch", { name: WATCH_SETTINGS.enabled })).toBeNull();
+    expect(screen.getByText(FREE_LINE)).toBeTruthy();
+    expect(screen.getByText(PAID_LINE)).toBeTruthy();
+    expect(screen.getByPlaceholderText("Paste your licence key")).toBeTruthy();
+  });
+
+  it("the licence lines read under 1.6 syllables per word and carry no banned word", () => {
+    const banned = /\b(finding|findings|severity|CIS|rule|rules|policy|configuration|SSH|launchd|plist|daemon|sudo|Terminal|TCC|stealth|sysadminctl|command|points)\b/i;
+    for (const line of [FREE_LINE, PAID_LINE]) {
+      expect(syllablesPerWord(line), line).toBeLessThanOrEqual(1.6);
+      expect(line).not.toMatch(banned);
+    }
+    expect(PAID_LINE).toBe("A licence adds every fix, Check again and the menu bar watch, which starts when you paste a key.");
+  });
+
+  it("pasting the demo key mounts the Watch section first", async () => {
+    const adapters = fakeAdapters();
+    adapters.license.install = vi.fn(async (key: string): Promise<LicenseState> => (key === "TL1.GOOD" ? VALID : { status: "invalid", reason: "signature" }));
+    mount({}, { adapters, stateful: true });
+    expect(document.getElementById("watch-heading")).toBeNull();
+    const input = screen.getByLabelText("Licence key") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "TL1.GOOD" } });
+    fireEvent.click(screen.getByRole("button", { name: "Activate" }));
+    await waitFor(() => expect(document.getElementById("watch-heading")).not.toBeNull());
+    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(headings[0]).toBe(WATCH_SETTINGS.title);
+    expect(screen.getByRole("switch", { name: WATCH_SETTINGS.enabled })).toBeTruthy();
+    expect(screen.queryByLabelText("Licence key")).toBeNull();
   });
 
   it("drives the Your AI pill from the availability prop, the Apple button from onAiAction, and the switch from the settings", () => {
@@ -1249,7 +1346,8 @@ describe("Settings", () => {
     const adapters = fakeAdapters();
     adapters.license.install = vi.fn(async (key: string): Promise<LicenseState> => (key === "TL1.GOOD" ? VALID : { status: "invalid", reason: "signature" }));
     const { props } = mount({}, { adapters, stateful: true });
-    expect(screen.getByText("Free: the three most valuable fixes")).toBeTruthy();
+    expect(screen.getByText(FREE_LINE)).toBeTruthy();
+    expect(screen.getByText(PAID_LINE).tagName).toBe("SMALL");
     fireEvent.click(screen.getByRole("button", { name: "Buy a licence" }));
     expect(props.onBuy).toHaveBeenCalled();
     const input = screen.getByLabelText("Licence key") as HTMLInputElement;

@@ -35,13 +35,13 @@ The email is never in the key. `tag` is enough to match a leaked key against the
 4. `updatesUntil >= buildDate`. Failure: `build_too_new`.
 5. `lid` not in the revocation set. Failure: `revoked`.
 
-The result is a `LicenseState`: `none`, `invalid` with the reason, or `valid` with the payload. `entitled(state, feature)` is true for every `Feature` when the state is `valid` and false otherwise.
+The result is a `LicenseState`: `none`, `invalid` with the reason, or `valid` with the payload. `entitled(state, feature)` is true for every `Feature` (`all_fixes`, `recheck`, `watch`) when the state is `valid` and false otherwise.
 
 The desktop adapter stores the raw key string in `<app data>/license.key` through Tauri commands and re-verifies it on every launch. No account, no server, no phone-home, no hardware binding.
 
 ## Entering a key
 
-There is no licence form. `LicenceField` (`apps/desktop/src/components/LicenceField.tsx`) is one component rendered inline wherever a lock appears: the fix card, the AI card, Ask, Suggested order and the Licence section of Settings. One input, placeholder "Paste your licence key", `autoFocus` when it replaces a button.
+There is no licence form. `LicenceField` (`apps/desktop/src/components/LicenceField.tsx`) is one component rendered inline wherever a lock appears: the fix card, the paywall step and the Licence section of Settings. One input, placeholder "Paste your licence key", `autoFocus` when it replaces a button.
 
 - Paste detection. On `paste` or `input`, a trimmed value matching `/^TL1\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{60,}$/` is verified after a 300 ms debounce with no button press. A value that does not match keeps an "Activate" button.
 - `checking` disables the field.
@@ -116,7 +116,7 @@ So a key covers every build released within its window, typically twelve months 
 
 ## Free tier
 
-Free, with no key: the full scan, the score and grade, every finding with its title, status, evidence and authored explanation, and the complete fix, including Apply and the away-watch, for the three highest-point failing findings. Ties break by catalog order. The recheck bundled into an Apply or a watch is free too. Fixes for `review` findings are always free and do not count towards the three. FileVault is the only critical rule and always lands in the top three when it fails, so nobody is left unencrypted because they did not pay. Connecting ChatGPT, Claude or On this Mac is free, and so are AI explanations for the same three findings (`gate.explainLocked`): the free explanations follow the free fixes.
+Free, with no key: the full scan, the score and grade, every finding with its title, status, evidence and authored explanation, and the complete fix, including Apply and the away-watch, for the three highest-point failing findings. Ties break by catalog order. The recheck bundled into an Apply or a watch is free too. Fixes for `review` findings are always free and do not count towards the three. FileVault is the only critical rule and always lands in the top three when it fails, so nobody is left unencrypted because they did not pay. Connecting ChatGPT, Claude or On this Mac is free, and so is everything the AI does once connected: explanations for every finding, the suggested order, Ask, the plan and end readings (owner decision 2026-10-17; `gate.explainLocked` is always false).
 
 `freeFixRuleIds(report)` in core computes the free set. The gate is a UI check in `apps/desktop`; core always produces the full report. The guided check-up receives that set once per report and freezes it in the plan (see "The paywall step" above); the gate is a product boundary, not a security one, and the fix engine binds and confirms every rule the same way on both sides of it.
 
@@ -124,7 +124,9 @@ Paid (`Feature`):
 
 - `all_fixes`: the fix for every finding.
 - `recheck`: the manual "Check again" on a finding, for every finding including the three free ones. The automatic recheck after an Apply or a watch is not gated.
-- `explainer`: AI explanations for every finding beyond the free three, the suggested order and follow-up questions in Ask.
+- `watch`: the menu bar watch: the tray item, the timer and its notification; Settings shows no Watch section without it. The webview reports the flag to Rust through `watch_set_profile`; Rust never verifies a key (docs/DESIGN-WATCH.md section 11, note 48).
+
+`explainer` was a `Feature` until 2026-10-17; the AI layer is free once connected (owner decision 2026-10-17).
 
 ## Not in v0.2 or v0.3
 

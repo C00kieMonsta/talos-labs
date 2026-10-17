@@ -136,6 +136,35 @@ describe("guided steps", () => {
     expect(state?.kind === "done" && state.rows.map((r) => r.text)).toEqual([text, text, text]);
   });
 
+  it("an unlicensed partial batch reads the plain could-not-check line even with the watch switch on", async () => {
+    // Unlicensed, with the firewall rules as two of the three free fixes: batch(002, 003).
+    const hardenedUpdates = HARDENED.sections.updates;
+    const sections = {
+      ...DEV_MACHINE.sections,
+      diskEncryption: HARDENED.sections.diskEncryption,
+      ssh: HARDENED.sections.ssh,
+      backup: HARDENED.sections.backup,
+      fileSharing: HARDENED.sections.fileSharing,
+      updates: hardenedUpdates.status === "ok" ? { ...hardenedUpdates, data: { ...hardenedUpdates.data, appStoreAutoUpdate: false } } : hardenedUpdates,
+    };
+    const state = { ...DEV_MACHINE, sections };
+    const ruleIds = ["TL-MAC-002", "TL-MAC-003"] as const;
+    const outcome: BatchOutcome = { ok: true, error: null, items: ruleIds.map((ruleId) => ({ ruleId, status: "done", error: null, step: null })) };
+    const adapters = fakeAdapters({
+      systemState: fakeSystemState(state, { collectSection: vi.fn(async () => { throw new Error("boom"); }) }),
+      fixes: fakeFixPort(fakePlan(), { previewBatch: vi.fn(async () => fakeBatchPlan()), applyBatch: vi.fn(async () => outcome) }),
+    });
+    const h = renderGuided({ adapters, licensed: false, settings: { watch: { ...DEFAULT_SETTINGS.watch, enabled: true } } });
+    await toFirstStep(h);
+    expect(stepId(h)).toBe("batch");
+    await act(async () => {
+      h.hook.result.current.guided.primary();
+    });
+    await waitFor(() => expect(stepState(h)?.kind).toBe("done"));
+    const done = stepState(h);
+    expect(done?.kind === "done" && done.rows.map((r) => r.text)).toEqual([FIX.couldNotCheck, FIX.couldNotCheck]);
+  });
+
   it("auto-advances after 1800 ms under reduced motion and pauses while unfocused", async () => {
     vi.useFakeTimers();
     const passing = { ...DEV_MACHINE, sections: { ...DEV_MACHINE.sections, firewall: HARDENED.sections.firewall } };

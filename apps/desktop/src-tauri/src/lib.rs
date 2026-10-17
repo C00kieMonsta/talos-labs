@@ -36,10 +36,11 @@ pub fn watch_only(args: impl IntoIterator<Item = String>) -> bool {
     args.into_iter().skip(1).any(|arg| arg == WATCH_FLAG)
 }
 
-/// A `--watch` launch opens the tray only while the watch is on. With the watch off there would
-/// be no tray item either, so the launch is treated as a normal one and the main window shows.
-pub fn start_hidden(watch_only: bool, watch_enabled: bool) -> bool {
-    watch_only && watch_enabled
+/// A `--watch` launch opens the tray only while the watch is active (switched on and licensed).
+/// With the watch inactive there would be no tray item either, so the launch is treated as a
+/// normal one and the main window shows.
+pub fn start_hidden(watch_only: bool, watch_active: bool) -> bool {
+    watch_only && watch_active
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -67,11 +68,8 @@ pub fn run() {
         .setup(move |app| {
             tray::build(app.handle())?;
             tray::observe_wake(app.handle());
-            let enabled = app
-                .state::<watch::WatchStore>()
-                .settings(app.handle())
-                .enabled;
-            if start_hidden(watch_only, enabled) {
+            let settings = app.state::<watch::WatchStore>().settings(app.handle());
+            if start_hidden(watch_only, watch::active(&settings)) {
                 // Hide, Accessory and the hidden flag `tray::show_main` reads.
                 tray::hide_main(app.handle());
                 // The webview still boots; it holds its launch check-up until the window shows.
@@ -155,7 +153,7 @@ pub fn run() {
         // The last window closing asks to exit with no code; the tray keeps the process.
         RunEvent::ExitRequested {
             code: None, api, ..
-        } if watch::is_enabled(app) => {
+        } if watch::is_active(app) => {
             api.prevent_exit();
         }
         RunEvent::Reopen { .. } => tray::open_main_plain(app),
@@ -192,5 +190,17 @@ mod tests {
         );
         assert!(!start_hidden(false, true));
         assert!(!start_hidden(false, false));
+        // Active means enabled and licensed: a switched-on but unlicensed file is a normal launch.
+        let unlicensed = watch::settings::WatchSettingsFile {
+            enabled: true,
+            licensed: false,
+            ..watch::settings::WatchSettingsFile::default()
+        };
+        assert!(!start_hidden(true, watch::active(&unlicensed)));
+        let licensed = watch::settings::WatchSettingsFile {
+            licensed: true,
+            ..unlicensed
+        };
+        assert!(start_hidden(true, watch::active(&licensed)));
     }
 }

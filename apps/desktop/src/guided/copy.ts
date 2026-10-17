@@ -15,7 +15,7 @@ export const NOT_ANTIVIRUS = "I'm not antivirus. I read your Mac's settings and 
 
 export const WELCOME = {
   title: "Let's check your Mac.",
-  body: "I'll look at your Mac's safety settings and fix what I can. Nothing leaves your Mac. I'll also keep an eye on your settings from the menu bar. You can switch that off in Settings.",
+  body: "I'll look at your Mac's safety settings and fix what I can. Nothing leaves your Mac.",
   start: "Start",
   what: "What do you look at?",
   back: "Back",
@@ -114,7 +114,7 @@ export const PERMISSION = {
 } as const;
 
 export const PAYWALL = {
-  body: "The full version does them all, explains everything with your own AI, and lets you ask questions.",
+  body: "The full version does them all and keeps an eye on your Mac from the menu bar.",
   buy: "Buy the full version, €24 a year",
   notNow: "Not now",
   thanks: "Thank you.",
@@ -179,8 +179,6 @@ export const EXPLAIN = {
   limitBackAtPrefix: "It comes back at ",
   didNotAnswer: { chatgpt: "ChatGPT didn't answer.", claude_plan: "Claude didn't answer." },
   tryAgain: "Try again",
-  locked: "Explaining everything is in the full version.",
-  unlock: "Unlock",
   badge: AI_BADGES,
   /** The v0.2 Apple Intelligence lines, as on the expert card, when On this Mac cannot explain. */
   apple: AI_UNAVAILABLE_COPY,

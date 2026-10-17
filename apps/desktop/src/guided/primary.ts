@@ -5,6 +5,7 @@ import { startBatch } from "./runBatch";
 import { checkAgain, convertToShow, startFix } from "./runFix";
 import { checkWatch, startShow } from "./runShow";
 import { reopenForPermission, startPermission } from "./runPermission";
+import { watchActive } from "../app/gate";
 import { failureCopy } from "./copy";
 import { paneFor } from "./plan";
 
@@ -27,7 +28,7 @@ export function primaryFor(core: Core, bump: () => void, openPermission: () => v
         return;
       case "fix": {
         if (state.kind === "failed") {
-          const copy = failureCopy(state.error, false, paneFor(step.ruleId) !== null, core.deps.settings.watch.enabled);
+          const copy = failureCopy(state.error, false, paneFor(step.ruleId) !== null, watchActive(core.deps.settings, core.deps.gate));
           if (copy.primary === "next") return next(core);
           if (copy.primary === "show_where") return convertToShow(core, step);
           if (copy.primary === "check_again") return checkAgain(core, step, bump);

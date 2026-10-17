@@ -14,7 +14,7 @@ const axe = require("axe-core") as { run(ctx: Element, opts: object): Promise<{ 
 afterEach(cleanup);
 
 function renderStep(props: Parameters<typeof StepFrame>[0], children?: React.ReactNode) {
-  const value = fakeContextValue({ adapters: fakeAdapters(), license: { status: "none" }, gate: { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => true }, scanState: { kind: "idle", last: null } });
+  const value = fakeContextValue({ adapters: fakeAdapters(), license: { status: "none" }, gate: { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => false, watchLocked: true }, scanState: { kind: "idle", last: null } });
   return render(createElement(AppContext.Provider, { value }, createElement(StepFrame, props, children)));
 }
 
@@ -55,7 +55,7 @@ describe("StepFrame accessibility", () => {
   });
 
   it("shows the Explain disclosure for a provider that is not connected, and hides it only when AI is off", () => {
-    const base = fakeContextValue({ adapters: fakeAdapters(), license: { status: "none" }, gate: { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => true }, scanState: { kind: "idle", last: null } });
+    const base = fakeContextValue({ adapters: fakeAdapters(), license: { status: "none" }, gate: { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => false, watchLocked: true }, scanState: { kind: "idle", last: null } });
     const probe = vi.fn(async () => "not_connected" as const);
     const value = { ...base, settings: { ...base.settings, explainer: { ...base.settings.explainer, provider: "chatgpt" as const } }, ai: { ...base.ai, availability: "not_connected" as const, probe } };
     const { container } = render(createElement(AppContext.Provider, { value }, createElement(StepFrame, { progress: { done: 1, of: 5 }, title: "The firewall is off", explainRuleId: "TL-MAC-001" })));

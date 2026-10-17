@@ -17,6 +17,7 @@ describe("parseWatchMemory", () => {
       actionNotNow: { "act.report": NOW, "sig.firewall": NOW, "act.nope": NOW },
       fishyRanAt: NOW,
       notifiedItems: { "sig.persistence_new": NOW, "act.report": NOW },
+      notifyAskedAt: NOW,
       extra: true,
     });
     expect(parsed).toEqual({
@@ -27,8 +28,16 @@ describe("parseWatchMemory", () => {
       actionNotNow: { "act.report": NOW },
       fishyRanAt: NOW,
       notifiedItems: { "sig.persistence_new": NOW },
+      notifyAskedAt: NOW,
     });
     expect(parseWatchMemory({ version: 1, fishyRanAt: "soon", snoozedSignals: "x" })).toEqual(EMPTY_WATCH_MEMORY);
+  });
+
+  it("a blob written before notifyAskedAt existed parses with null, and a string round-trips", () => {
+    const before = { version: 1, snoozedSignals: {}, normalForMe: {}, acknowledgeCount: {}, actionNotNow: {}, fishyRanAt: null, notifiedItems: {} };
+    expect(parseWatchMemory(before).notifyAskedAt).toBeNull();
+    expect(parseWatchMemory({ ...before, notifyAskedAt: 7 }).notifyAskedAt).toBeNull();
+    expect(parseWatchMemory({ ...before, notifyAskedAt: NOW }).notifyAskedAt).toBe(NOW);
   });
 });
 

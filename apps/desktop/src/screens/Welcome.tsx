@@ -6,9 +6,6 @@ import { ProfileForm } from "../components/ProfileForm";
 export const WELCOME_LEAD =
   "Talos Labs reads your Mac's security settings, compares them with the CIS benchmark, and shows you what to fix. It changes a setting only when you ask it to, and tells you first.";
 
-/** The guided welcome's watch sentence (copy.ts WELCOME.body) in the expert lead's third person. */
-export const WELCOME_WATCH_SENTENCE = "It also keeps an eye on your settings from the menu bar. You can switch that off in Settings.";
-
 export const WELCOME_FOOTNOTE =
   "Explanations are written on this Mac by Apple Intelligence when it is available. Nothing leaves your Mac.";
 
@@ -46,9 +43,7 @@ export function Welcome({
     <main className="screen welcome">
       <header className="welcome-head">
         <h1>A calm check-up for your Mac</h1>
-        <p className="lead">
-          {WELCOME_LEAD} {WELCOME_WATCH_SENTENCE}
-        </p>
+        <p className="lead">{WELCOME_LEAD}</p>
       </header>
 
       <div className="two-col read-columns">

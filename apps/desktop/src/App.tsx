@@ -165,6 +165,8 @@ let continueNote: ContinuePayload | null | undefined;
 export default function App() {
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   const [license, setLicense] = useState<LicenseState>({ status: "none" });
+  // True once license.current() has resolved; a rejected read never pushes a gate to Rust.
+  const [licenseRead, setLicenseRead] = useState(false);
   const [memory, setMemory] = useState<GuidedMemory>(() => loadGuidedMemory());
   const [watchMemory, setWatchMemory] = useState<WatchMemory>(() => loadWatchMemory());
   if (continueNote === undefined) continueNote = readContinue();
@@ -222,7 +224,10 @@ export default function App() {
     });
     void adapters.license
       .current()
-      .then(setLicense)
+      .then((state) => {
+        setLicense(state);
+        setLicenseRead(true);
+      })
       .catch(() => setLicense({ status: "none" }));
   }, [loadLast, launchScan]);
 
@@ -266,7 +271,27 @@ export default function App() {
     });
   }, []);
   // The menu bar watch: Rust holds the truth for enabled, interval and notify; this controller mirrors it into settings.
-  const watch = useWatch({ port: adapters.watch, settings: settings.watch, profile: settings.profile, ai: watchAiFor(settings), updateSettings: updateWatchSettings, memory: watchMemory, saveMemory: saveWatch });
+  const watch = useWatch({
+    port: adapters.watch,
+    settings: settings.watch,
+    profile: settings.profile,
+    ai: watchAiFor(settings),
+    licensed: licenseRead ? gate.licensed : null,
+    updateSettings: updateWatchSettings,
+    memory: watchMemory,
+    saveMemory: saveWatch,
+  });
+  // The paste that activates the watch is the foreground moment that asks macOS for notification permission, once (DESIGN-WATCH.md section 7).
+  const licensedBefore = useRef<boolean | null>(null);
+  const watchNotify = settings.watch.enabled && settings.watch.notify;
+  const notifyAsked = watchMemory.notifyAskedAt !== null;
+  const requestNotify = watch.requestNotifyPermission;
+  useEffect(() => {
+    if (!licenseRead) return;
+    const previous = licensedBefore.current;
+    licensedBefore.current = gate.licensed;
+    if (previous === false && gate.licensed && watchNotify && !notifyAsked) void requestNotify();
+  }, [licenseRead, gate.licensed, watchNotify, notifyAsked, requestNotify]);
   const fishy = useFishy({ watch, adapters, router, settings, ransomNote: demoRansomNote() });
   const guided = useGuided(scan, {
     gate,
@@ -304,7 +329,7 @@ export default function App() {
     if (screen === "settings_watch") {
       router.navigate({ name: "settings" });
       setPendingAnchor("watch");
-    } else if (screen === "noticed" && router.route.name !== "fishy" && (watch.state?.items.length ?? 0) > 0) {
+    } else if (screen === "noticed" && router.route.name !== "fishy" && watch.state?.licensed === true && watch.state.items.length > 0) {
       // A flow already on screen stays: a second entry would land back on the flow after Done.
       fishy.open(router.route, "noticed");
     }

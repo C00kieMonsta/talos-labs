@@ -1,5 +1,6 @@
 import type { GuidedStep } from "@talos/core";
 import { useApp } from "../../app/context";
+import { watchActive } from "../../app/gate";
 import { PassphraseForm } from "../../components/PassphraseSheet";
 import type { GuidedController, StepState } from "../state";
 import { stepProgress } from "../state";
@@ -13,7 +14,7 @@ type FixStepT = Extract<GuidedStep, { kind: "fix" }>;
 const PRIMARY_LABELS = { try_again: FIX.tryAgain, show_where: FIX.showWhere, next: FIX.next, check_again: FIX.checkAgain } as const;
 
 export function FixStep({ step, state, controller, notice }: { step: FixStepT; state: StepState; controller: GuidedController; notice: string | null }) {
-  const { settings, scan } = useApp();
+  const { settings, scan, gate } = useApp();
   const progress = stepProgress(controller);
   const strings = guidedFor(step.ruleId);
   const report = scan.scan.kind === "ready" || scan.scan.kind === "rechecking" ? scan.scan.report : null;
@@ -38,7 +39,7 @@ export function FixStep({ step, state, controller, notice }: { step: FixStepT; s
     case "done":
       return <StepFrame progress={progress} devId={step.ruleId} title={state.line} done link={{ label: FIX.next, onClick: controller.next }} notice={notice} />;
     case "failed": {
-      const copy = failureCopy(state.error, false, paneFor(step.ruleId) !== null, settings.watch.enabled);
+      const copy = failureCopy(state.error, false, paneFor(step.ruleId) !== null, watchActive(settings, gate));
       return (
         <StepFrame progress={progress} devId={step.ruleId} title={copy.title} body={copy.body === null ? null : <p>{copy.body}</p>} primary={{ label: PRIMARY_LABELS[copy.primary], onClick: () => controller.primary() }} link={copy.later ? { label: FIX.later, onClick: controller.later } : null} notice={notice}>
           {settings.developer.enabled && (
@@ -55,13 +56,13 @@ export function FixStep({ step, state, controller, notice }: { step: FixStepT; s
     default:
       if (step.passphrase) {
         return (
-          <StepFrame progress={progress} devId={step.ruleId} title={strings.headline} body={body} link={{ label: FIX.later, onClick: controller.later }} explainRuleId={step.ruleId} onUnlock={controller.goToPaywall} notice={notice}>
+          <StepFrame progress={progress} devId={step.ruleId} title={strings.headline} body={body} link={{ label: FIX.later, onClick: controller.later }} explainRuleId={step.ruleId} notice={notice}>
             <PassphraseForm keyPath={keyPath} submitLabel={FIX.passphrase} onSubmit={(passphrase) => controller.primary(passphrase)} />
           </StepFrame>
         );
       }
       return (
-        <StepFrame progress={progress} devId={step.ruleId} title={strings.headline} body={body} primary={{ label: strings.verb, onClick: () => controller.primary() }} link={{ label: FIX.later, onClick: controller.later }} explainRuleId={step.ruleId} onUnlock={controller.goToPaywall} notice={notice} />
+        <StepFrame progress={progress} devId={step.ruleId} title={strings.headline} body={body} primary={{ label: strings.verb, onClick: () => controller.primary() }} link={{ label: FIX.later, onClick: controller.later }} explainRuleId={step.ruleId} notice={notice} />
       );
   }
 }

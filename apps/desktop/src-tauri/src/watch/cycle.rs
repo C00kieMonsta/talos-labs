@@ -1107,7 +1107,7 @@ pub fn pause_holds(paused: bool, refresh: bool) -> bool {
     paused && !refresh
 }
 
-/// Runs one cycle now. Skips when the watch is off, paused (unless this is a refresh after an
+/// Runs one cycle now. Skips when the watch is inactive (switched off or unlicensed), paused (unless this is a refresh after an
 /// answer), when a scan or fix is in flight, or within 60 s of a manual check (unless this is
 /// the manual check or a refresh after an answer).
 /// A check the person asked for survives a scan or fix in flight and runs when it ends; the
@@ -1118,7 +1118,7 @@ pub fn run_once(app: &AppHandle, now: DateTime<Utc>) {
         return;
     };
     let settings = store.settings(app);
-    if !settings.enabled {
+    if !super::active(&settings) {
         store.manual_requested.store(false, Ordering::SeqCst);
         store.refresh_requested.store(false, Ordering::SeqCst);
         return;
@@ -1284,10 +1284,13 @@ pub fn run_once(app: &AppHandle, now: DateTime<Utc>) {
         now,
         refresh,
     );
-    // The watch may have been turned off while the cycle ran: then nothing is written or shown.
-    let Some(baseline) =
-        store.finish_cycle(dir.as_deref(), || store.settings(app).enabled, baseline)
-    else {
+    // The watch may have been turned off or the licence dropped while the cycle ran: then
+    // nothing is written or shown.
+    let Some(baseline) = store.finish_cycle(
+        dir.as_deref(),
+        || super::active(&store.settings(app)),
+        baseline,
+    ) else {
         return;
     };
     let unavailable = compared.unavailable.clone();

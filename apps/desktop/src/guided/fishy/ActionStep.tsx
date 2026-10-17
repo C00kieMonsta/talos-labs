@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { ActionId, WatchActionId } from "@talos/core";
 import { useApp } from "../../app/context";
+import { watchActive } from "../../app/gate";
 import { StepFrame } from "../StepFrame";
 import { FIX, STATUS, failureCopy } from "../copy";
 import { useFishyController } from "./controller";
@@ -31,11 +32,11 @@ export interface ActionStepProps {
 
 /** A screen whose one primary runs a catalogue row: the password line for admin rows, the status line while it runs, the failure table on error. */
 export function ActionStep({ title, body, actionId, primaryLabel, notNowAction, linkLabel, hasPane, children }: ActionStepProps) {
-  const { settings } = useApp();
+  const { settings, gate } = useApp();
   const fishy = useFishyController();
   const { busy, error } = fishy;
   if (error !== null) {
-    const copy = failureCopy(error, false, hasPane, settings.watch.enabled);
+    const copy = failureCopy(error, false, hasPane, watchActive(settings, gate));
     const onPrimary = copy.primary === "try_again" ? () => void fishy.runAction(actionId) : fishy.next;
     return (
       <StepFrame progress={null} title={copy.title} body={copy.body === null ? null : <p>{copy.body}</p>} primary={{ label: PRIMARY_LABELS[copy.primary], onClick: onPrimary }} link={copy.later ? { label: linkLabel, onClick: () => fishy.notNow(notNowAction) } : null} className="guided-fishy" />

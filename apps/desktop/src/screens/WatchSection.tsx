@@ -18,7 +18,7 @@ export function WatchSection() {
   const watch = useWatchController();
   const { enabled, startAtLogin, everyMinutes, notify } = settings.watch;
   const setNotify = async (next: boolean) => {
-    // The permission alert is asked for here and from the welcome button only, never on mount.
+    // The permission alert is asked for here, from the welcome button and from the paste that activates the watch; the controller records it.
     if (next) await watch.requestNotifyPermission().catch(() => undefined);
     await watch.setNotify(next).catch(() => undefined);
   };

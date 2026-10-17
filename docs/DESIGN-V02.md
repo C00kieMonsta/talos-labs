@@ -463,6 +463,8 @@ One `AiCard` with a 20 px leading icon, one sentence, at most one action, `--bg-
 | `helper_unavailable` | `CircleAlert` | "AI explanations aren't available right now." | Try again |
 | `locked` | `Lock` | "AI explanations are part of the full version." | inline licence field |
 
+Superseded on 2026-10-17: AI is free once connected and the licence buys fixes beyond three, Check again and the menu bar watch; see docs/DESIGN-AI.md and docs/LICENSING.md. The `locked` row and the precedence sentence below no longer apply.
+
 The Overview button calls the existing `prioritise()`; the protocol keeps its three tasks and no summary task is added. Precedence: `device_not_eligible`, `apple_intelligence_not_enabled`, `model_not_ready` and `helper_unavailable` render for every user, licensed or not; `locked` renders only when the state is `available` and the gate says AI is paid, so an unlicensed user on an Intel Mac sees the honest state rather than a lock on something the Mac cannot run.
 
 The Ask nav item appears when the state is `available` (or a Developer-mode provider is set). When the user switches AI off in Settings, the card and Ask are hidden.
@@ -757,7 +759,7 @@ Stays, as one column of macOS-style grouped sections, in this order:
 1. **AI explanations.** One switch, "Explain findings with Apple Intelligence" (`explainer.aiEnabled`, on by default), and a status line with the icon and word for the current state ("Ready", "Model downloading", "Needs Apple Intelligence", "This Mac can't run it", "Not available right now") plus the state's one button when it has one. One sentence: "Runs on this Mac. Only the check-up results are used, never file names, paths or passwords."
 2. **About you.** The profile, collapsed to a one-line summary ("Freelancer, somewhat technical, client data, laptop leaves home") with Edit, which expands the two segmented controls and two switches.
 3. **Permissions.** Two rows, Full Disk Access and Automation, each with a status pill ("Granted", "Not granted", "Not asked yet", "Could not tell") and the same Open or Allow button that starts the flow in section 6.
-4. **Licence.** "Free: the three most valuable fixes" with the `LicenceField` and the Buy link, or "Licensed, personal plan, 1 seat, updates until 2027-10-15" with Remove.
+4. **Licence.** "Free: the three most valuable fixes" with the `LicenceField` and the Buy link, or "Licensed, personal plan, 1 seat, updates until 2027-10-15" with Remove. Superseded on 2026-10-17: AI is free once connected and the licence buys fixes beyond three, Check again and the menu bar watch; see docs/DESIGN-AI.md and docs/LICENSING.md.
 5. **Developer mode.** One switch (`developer.enabled`). When on, a disclosure shows: "Show Terminal commands next to fixes" (`developer.showCommands`, on), "Show the plan expanded in fix sheets" (`developer.showPlanExpanded`, on), provider (On this Mac, Claude API key, Local Ollama), the Keychain API key field, and the model ids with the existing validation. The command block on the fix card and the reversing command in the sheet follow `showCommands`; the "What will run" disclosure follows `showPlanExpanded`.
 6. **About.** Version, catalog version, benchmark edition, build date, licence `lid` and `tag`, and the privacy sentence.
 

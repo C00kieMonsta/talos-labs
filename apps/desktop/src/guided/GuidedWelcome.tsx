@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useApp } from "../app/context";
 import { useWatchController } from "../watch/watch-controller";
 import { useGuidedHero } from "./GuidedShell";
 import { StepFrame } from "./StepFrame";
@@ -8,6 +9,7 @@ import { WELCOME } from "./copy";
 export function GuidedWelcome({ onStart }: { onStart(): void }) {
   const [open, setOpen] = useState(false);
   const watch = useWatchController();
+  const { gate } = useApp();
   useGuidedHero(true, false);
   // The one foreground button that asks macOS for notification permission; the flag is written after the answer.
   const allowNotifications = async () => {
@@ -35,12 +37,14 @@ export function GuidedWelcome({ onStart }: { onStart(): void }) {
               <p>{WELCOME.neverReads}</p>
             </section>
           </div>
-          <div className="fishy-welcome-watch">
-            <p>{WELCOME.notAntivirus}</p>
-            <button type="button" className="button button-small" onClick={() => void allowNotifications()}>
-              {WELCOME.allowNotifications}
-            </button>
-          </div>
+          {!gate.watchLocked && (
+            <div className="fishy-welcome-watch">
+              <p>{WELCOME.notAntivirus}</p>
+              <button type="button" className="button button-small" onClick={() => void allowNotifications()}>
+                {WELCOME.allowNotifications}
+              </button>
+            </div>
+          )}
         </>
       )}
     </StepFrame>

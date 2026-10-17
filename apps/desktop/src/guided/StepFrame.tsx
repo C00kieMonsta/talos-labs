@@ -28,8 +28,6 @@ export interface StepFrameProps {
   readonly link?: StepAction | null;
   /** The "Explain this" disclosure, whenever AI is switched on; the panel itself says when nothing is connected. */
   readonly explainRuleId?: RuleId | null;
-  /** Unlock in the disclosure's locked line: opens the paywall step. */
-  onUnlock?(): void;
   /** A one-line notice from the step before (the watcher cap). */
   readonly notice?: string | null;
   /** A status line with the rust dot and role="status". */
@@ -60,10 +58,10 @@ export function markInteracted(): void {
 
 /** Progress, headline, sentences, one primary button and one text link. Focus moves to the headline on every step. */
 export function StepFrame(props: StepFrameProps) {
-  const { progress, devId, title, titleId, body, children, primary, link, explainRuleId, onUnlock, notice, status, done, mark, className, afterPrimary } = props;
+  const { progress, devId, title, titleId, body, children, primary, link, explainRuleId, notice, status, done, mark, className, afterPrimary } = props;
   const { settings, ai } = useApp();
   const heading = useRef<HTMLHeadingElement>(null);
-  // The disclosure shows whenever AI is on; its body carries the not-connected and locked states itself.
+  // The disclosure shows whenever AI is on; its body carries the not-connected states itself.
   const wantsExplain = explainRuleId !== null && explainRuleId !== undefined && settings.explainer.aiEnabled;
   // The probe is lazy; a step with a disclosure asks once, like the expert AI card does.
   useEffect(() => {
@@ -128,7 +126,7 @@ export function StepFrame(props: StepFrameProps) {
           {link.label}
         </button>
       )}
-      {wantsExplain && explainRuleId !== null && explainRuleId !== undefined && <ExplainPanel ruleId={explainRuleId} onUnlock={onUnlock} />}
+      {wantsExplain && explainRuleId !== null && explainRuleId !== undefined && <ExplainPanel ruleId={explainRuleId} />}
     </div>
   );
 }

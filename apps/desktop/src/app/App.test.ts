@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { DEV_MACHINE, MACOS_CATALOG, evaluate } from "@talos/core";
-import type { WatchItem, WatchOpenScreen, WatchState } from "@talos/core";
+import type { LicenseState, WatchItem, WatchOpenScreen, WatchState } from "@talos/core";
 import { fakeAdapters, fakeWatchPort, fakeWatchState } from "./testing";
 import { FISHY, WATCH_SETTINGS } from "../guided/copy";
 import { resetLaunchGuard } from "../guided/timing";
@@ -75,8 +75,19 @@ vi.mock("../settings", async (importOriginal) => {
   };
 });
 
+const VALID: LicenseState = {
+  status: "valid",
+  payload: { v: 1, lid: "L", product: "talos-desktop", plan: "personal", seats: 1, issuedAt: "2026-01-01", updatesUntil: "2027-01-01", tag: "abcd1234" },
+};
+const GOOD_KEY = `TL1.${"a".repeat(24)}.${"b".repeat(64)}`;
+
 afterEach(() => {
   cleanup();
+  localStorage.clear();
+  vi.mocked(watch.setProfile).mockClear();
+  vi.mocked(watch.requestNotifyPermission).mockClear();
+  vi.mocked(adapters.license.current).mockReset().mockResolvedValue({ status: "none" });
+  vi.mocked(adapters.license.install).mockReset().mockResolvedValue({ status: "invalid", reason: "format" });
   watchState = fakeWatchState();
   guidedFlags.home = false;
   guidedFlags.autoScan = false;
@@ -230,14 +241,76 @@ describe("App", () => {
     await waitFor(() => expect(watch.setProfile).toHaveBeenCalled());
     expect(watch.status).toHaveBeenCalled();
     expect(watch.autostartIsEnabled).toHaveBeenCalled();
-    // Developer mode with the Claude API provider: the AI layer is on in the webview, but the watch has no consumer provider to call.
-    expect(watch.setProfile).toHaveBeenLastCalledWith(expect.objectContaining({ role: "individual" }), { enabled: false, provider: null });
+    // Developer mode with the Claude API provider: the AI layer is on in the webview, but the watch has no consumer provider to call. No licence: false.
+    expect(watch.setProfile).toHaveBeenLastCalledWith(expect.objectContaining({ role: "individual" }), { enabled: false, provider: null }, false);
     expect(watch.setEnabled).not.toHaveBeenCalled();
     expect(watch.setInterval).not.toHaveBeenCalled();
     expect(watch.setNotify).not.toHaveBeenCalled();
     expect(watch.requestNotifyPermission).not.toHaveBeenCalled();
     expect(watch.autostartEnable).not.toHaveBeenCalled();
     expect(openListener).not.toBeNull();
+  });
+
+  it("pushes the gate only once the licence is read: true for a valid licence, nothing while the read is pending, nothing when it rejects", async () => {
+    let resolve: (state: LicenseState) => void = () => undefined;
+    vi.mocked(adapters.license.current).mockImplementationOnce(() => new Promise<LicenseState>((r) => (resolve = r)));
+    const { default: App } = await import("../App");
+    render(createElement(App));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Next three fixes" })).toBeTruthy());
+    await waitFor(() => expect(watch.status).toHaveBeenCalled());
+    await act(async () => undefined);
+    expect(watch.setProfile).not.toHaveBeenCalled();
+    await act(async () => resolve(VALID));
+    await waitFor(() => expect(watch.setProfile).toHaveBeenCalledTimes(1));
+    expect(watch.setProfile).toHaveBeenLastCalledWith(expect.objectContaining({ role: "individual" }), { enabled: false, provider: null }, true);
+    expect(watch.requestNotifyPermission).not.toHaveBeenCalled();
+    cleanup();
+    vi.mocked(watch.setProfile).mockClear();
+    vi.mocked(adapters.license.current).mockRejectedValueOnce("command_failed");
+    render(createElement(App));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Next three fixes" })).toBeTruthy());
+    await waitFor(() => expect(watch.status).toHaveBeenCalled());
+    await act(async () => undefined);
+    expect(watch.setProfile).not.toHaveBeenCalled();
+  });
+
+  it("the paste that licenses asks for notification permission once, a second paste does not, and a boot with a licence never does", async () => {
+    vi.mocked(adapters.license.install).mockResolvedValue(VALID);
+    const { default: App } = await import("../App");
+    render(createElement(App));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Next three fixes" })).toBeTruthy());
+    await waitFor(() => expect(watch.setProfile).toHaveBeenCalledWith(expect.anything(), expect.anything(), false));
+    expect(watch.requestNotifyPermission).not.toHaveBeenCalled();
+    fireEvent.click(document.querySelector(".sidebar-foot button.nav-row") as HTMLElement);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy());
+    expect(document.getElementById("watch-heading")).toBeNull();
+    const paste = async () => {
+      const input = screen.getByLabelText("Licence key") as HTMLInputElement;
+      fireEvent.change(input, { target: { value: GOOD_KEY } });
+      fireEvent.click(screen.getByRole("button", { name: "Activate" }));
+      await waitFor(() => expect(document.getElementById("watch-heading")).not.toBeNull());
+    };
+    await paste();
+    await waitFor(() => expect(watch.requestNotifyPermission).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(watch.setProfile).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), true));
+    expect(JSON.parse(localStorage.getItem("talos.watch") ?? "{}").notifyAskedAt).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(screen.getByLabelText("Licence key")).toBeTruthy());
+    await waitFor(() => expect(watch.setProfile).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), false));
+    await paste();
+    await act(async () => undefined);
+    expect(watch.requestNotifyPermission).toHaveBeenCalledTimes(1);
+  });
+
+  it("a boot with a licence pushes true and never asks for notification permission", async () => {
+    vi.mocked(adapters.license.current).mockResolvedValueOnce(VALID);
+    const { default: App } = await import("../App");
+    render(createElement(App));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Next three fixes" })).toBeTruthy());
+    await waitFor(() => expect(watch.setProfile).toHaveBeenCalled());
+    expect(watch.setProfile).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), true);
+    await act(async () => undefined);
+    expect(watch.requestNotifyPermission).not.toHaveBeenCalled();
   });
 
   it("opens the fishy flow on watch:open noticed when the watch has an item, and the link leads back", async () => {
@@ -261,6 +334,19 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "Next three fixes" })).toBeTruthy());
     expect(screen.queryByRole("heading", { name: FISHY.noticed.headline.persistence })).toBeNull();
     expect(watch.acknowledge).toHaveBeenCalledWith("sig.persistence_new");
+  });
+
+  it("leaves the screen alone on watch:open noticed when the state reports licensed false, whatever it carries", async () => {
+    watchState = fakeWatchState({ licensed: false, rating: "act_now", items: [ACT_ITEM] });
+    const { default: App } = await import("../App");
+    render(createElement(App));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Next three fixes" })).toBeTruthy());
+    await waitFor(() => expect(openListener).not.toBeNull());
+    await act(async () => undefined);
+    act(() => openListener?.({ screen: "noticed" }));
+    await act(async () => undefined);
+    expect(screen.getByRole("heading", { name: "Next three fixes" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: FISHY.noticed.headline.persistence })).toBeNull();
   });
 
   it("leaves the screen alone on watch:open noticed with no item, and on home", async () => {
@@ -314,6 +400,8 @@ describe("App", () => {
   it("goes to the Watch section of Settings on watch:open settings_watch", async () => {
     const scroll = vi.fn();
     Element.prototype.scrollIntoView = scroll;
+    // The tray exists only while licensed, so the anchor is reached on a licensed Mac.
+    vi.mocked(adapters.license.current).mockResolvedValueOnce(VALID);
     const { default: App } = await import("../App");
     render(createElement(App));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Next three fixes" })).toBeTruthy());

@@ -17,6 +17,7 @@ function ago(minutes: number): string {
 
 const CALM: WatchState = {
   enabled: true,
+  licensed: true,
   firstRun: false,
   hiddenLaunch: false,
   rating: "calm",
@@ -259,6 +260,12 @@ describe("WatchWindow, the buttons", () => {
     act(() => fake.push(ACT));
     expect(text(".watch-status-word")).toBe(WATCH.act);
     expect(primaries()).toEqual([WATCH.seeWhatToDo]);
+  });
+
+  it("renders nothing for an unlicensed state", async () => {
+    await renderWindow({ ...ACT, licensed: false });
+    expect(document.querySelector("main.watch")).toBeNull();
+    expect(primaries()).toEqual([]);
   });
 
   it("never draws more than one primary across every state", async () => {

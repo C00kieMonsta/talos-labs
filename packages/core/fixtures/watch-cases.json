@@ -15713,7 +15713,8 @@
           "acknowledgeCount": {},
           "actionNotNow": {},
           "fishyRanAt": null,
-          "notifiedItems": {}
+          "notifiedItems": {},
+          "notifyAskedAt": null
         },
         "recent": [],
         "now": "2026-10-17T12:00:00.000Z",
@@ -18865,7 +18866,8 @@
           },
           "actionNotNow": {},
           "fishyRanAt": null,
-          "notifiedItems": {}
+          "notifiedItems": {},
+          "notifyAskedAt": null
         },
         "recent": [
           {
@@ -22749,7 +22751,8 @@
           "acknowledgeCount": {},
           "actionNotNow": {},
           "fishyRanAt": null,
-          "notifiedItems": {}
+          "notifiedItems": {},
+          "notifyAskedAt": null
         },
         "recent": [],
         "now": "2026-10-17T12:00:00.000Z",
@@ -25172,7 +25175,8 @@
           "acknowledgeCount": {},
           "actionNotNow": {},
           "fishyRanAt": null,
-          "notifiedItems": {}
+          "notifiedItems": {},
+          "notifyAskedAt": null
         },
         "recent": [],
         "now": "2026-10-17T12:00:00.000Z",

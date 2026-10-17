@@ -70,7 +70,9 @@ export function chatgptClientLine(clientId: string | null): string {
   return `${YOUR_AI.chatgptClientLine}: ${clientId ?? YOUR_AI.none}`;
 }
 
-export const FREE_LINE = "Free: the three most valuable fixes";
+export const FREE_LINE = "Free: the check-up, your AI and the three most valuable fixes";
+/** Under FREE_LINE while unlicensed: the one sentence that names the watch (DESIGN-WATCH.md section 11, note 48). */
+export const PAID_LINE = "A licence adds every fix, Check again and the menu bar watch, which starts when you paste a key.";
 export const PERMISSION_TITLES: Readonly<Record<PermissionKind, string>> = {
   full_disk_access: "Full Disk Access",
   automation: "Automation",
@@ -257,6 +259,7 @@ function LicenceSection({ onBuy }: Pick<SettingsProps, "onBuy">) {
       <div className="setting-row">
         <span className="setting-text">
           <strong>{FREE_LINE}</strong>
+          <small>{PAID_LINE}</small>
           {license.status === "invalid" && <small>The stored key is not valid: {LICENSE_INVALID_LABELS[license.reason]}</small>}
         </span>
       </div>
@@ -509,9 +512,10 @@ function licenceLine(license: LicenseState): ReactNode {
 }
 
 export function Settings({ aiAvailability, onAiAction, capabilities, onPermission, onBuy, guided, onChangeAi = noop, canChangeAi = true, onDisconnect = resolved, providerInfo = NO_PROVIDER_INFO }: SettingsProps) {
+  const { gate } = useApp();
   return (
     <div className="screen settings">
-      <WatchSection />
+      {!gate.watchLocked && <WatchSection />}
       <CheckUpSection />
       <YourAiSection aiAvailability={aiAvailability} onAiAction={onAiAction} onChangeAi={onChangeAi} canChange={canChangeAi} onDisconnect={onDisconnect} />
       <PermissionsSection capabilities={capabilities} onPermission={onPermission} />

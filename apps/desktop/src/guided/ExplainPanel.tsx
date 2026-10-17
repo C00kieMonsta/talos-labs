@@ -27,13 +27,11 @@ function remoteOf(provider: ExplainerProvider): ConnectProvider {
 export interface ExplainPanelProps {
   readonly ruleId: RuleId;
   readonly others?: readonly RuleId[];
-  /** Unlock on the locked line: opens the paywall step. Without it the line has no button. */
-  onUnlock?(): void;
 }
 
 /** "Explain this": streams explain(ruleId) through the v0.2 chokepoint. Never on the path; collapses on advance. */
-export function ExplainPanel({ ruleId, others = [], onUnlock }: ExplainPanelProps) {
-  const { scan, ai, gate, settings, adapters } = useApp();
+export function ExplainPanel({ ruleId, others = [] }: ExplainPanelProps) {
+  const { scan, ai, settings, adapters } = useApp();
   const connect = useConnect();
   const { ensureOffered, consumeResume } = connect;
   const [open, setOpen] = useState(false);
@@ -67,13 +65,12 @@ export function ExplainPanel({ ruleId, others = [], onUnlock }: ExplainPanelProp
     const timer = setTimeout(() => void probe(true), limitReprobeMs(until));
     return () => clearTimeout(timer);
   }, [availability, until, probe]);
-  const locked = gate.explainLocked(target);
   // The controller object is rebuilt every render; the request runs when the intent changes, not on each render.
   const explainRef = useRef(scan.explain);
   explainRef.current = scan.explain;
   useEffect(() => {
-    if (open && availability === "available" && !locked) void explainRef.current(target);
-  }, [open, target, availability, locked]);
+    if (open && availability === "available") void explainRef.current(target);
+  }, [open, target, availability]);
   const explain = scan.scan.kind === "ready" || scan.scan.kind === "rechecking" ? scan.scan.explain : { kind: "off" as const };
   const streaming = explain.kind === "running" && explain.target === target;
   const partial = streaming ? explain.partial : null;
@@ -184,18 +181,6 @@ export function ExplainPanel({ ruleId, others = [], onUnlock }: ExplainPanelProp
         <button type="button" className="guided-text-button" onClick={() => void ai.probe(true)}>
           {EXPLAIN.tryAgain}
         </button>
-      </p>
-    );
-  } else if (availability === "available" && locked) {
-    body = (
-      <p className="guided-meta guided-explain-line">
-        {EXPLAIN.locked}
-        {onUnlock !== undefined && " "}
-        {onUnlock !== undefined && (
-          <button type="button" className="guided-text-button" onClick={onUnlock}>
-            {EXPLAIN.unlock}
-          </button>
-        )}
       </p>
     );
   } else if (availability === "available") {

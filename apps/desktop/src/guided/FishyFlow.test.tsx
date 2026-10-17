@@ -21,7 +21,7 @@ const axe = require("axe-core") as { run(ctx: Element, opts: object): Promise<{ 
 
 afterEach(cleanup);
 
-const gate = { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => true };
+const gate = { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => false, watchLocked: true };
 const CHANGED_AT = "2026-10-17T13:32:00.000Z";
 
 const ITEM: WatchItem = {

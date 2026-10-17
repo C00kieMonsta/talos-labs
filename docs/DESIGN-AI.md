@@ -10,7 +10,7 @@ Decisions taken where the brief left room:
 
 - **No AI step in Welcome.** v0.3's three taps to a report stay. The connect screen is offered the first time the person opens "Explain this", as a row on the end screen, and in Settings. It is never on the path: no step waits on it.
 - **One provider at a time.** "Your AI" is one of ChatGPT, Claude or On this Mac. Switching replaces, it does not add. Developer mode keeps the Claude API key and Ollama as extra providers, unchanged.
-- **Connecting is free; explanations follow the free three.** Connecting costs Talos Labs nothing, so the free version may connect and gets explanations for the same three fixes it may apply. The licence unlocks explanations for everything, the suggested order and Ask. This keeps one rule for what is free. The owner has not yet decided what happens after the licence year ends; nothing here depends on that.
+- **Connecting is free, and so is everything the AI does once connected.** The licence buys fixes beyond the free three, Check again and the menu bar watch. Owner decision 2026-10-17, replacing "explanations follow the free three". The owner has not yet decided what happens after the licence year ends; nothing here depends on that.
 - **The sign-in page is always the provider's own, in the browser.** Talos Labs never draws a field for a ChatGPT or Claude password, and never shows an API key field outside Developer mode. For Claude the sign-in belongs to Anthropic's own Claude Code program (section 9); Talos Labs starts it and never sees the result.
 - **Honest about what is not available.** Each provider has policy conditions outside the owner's control (section 9). Both are offered in every build since the two sign-ins were verified live on 2026-10-17. A build that must not offer one sets `TALOS_CHATGPT_OFF` or `TALOS_CLAUDE_PLAN_OFF` to any value at build time; that provider is then shown as "Not available yet", never hidden and never faked.
 
@@ -55,10 +55,9 @@ Free ChatGPT and free Claude plans are not covered by either route. The connect 
 | `provider_unavailable` | the provider could not be reached or answered with an error | chatgpt, claude |
 | `not_offered` | this build cannot offer the provider (section 9) | chatgpt, claude |
 | `device_not_eligible`, `apple_intelligence_not_enabled`, `model_not_ready`, `helper_unavailable` | v0.2, unchanged | apple |
-| `locked` | the gate says this explanation is paid | all, after availability |
 | `off` | the AI switch is off | all |
 
-Precedence is as in v0.2: availability before the lock, so an unlicensed person on a Mac that cannot run Apple Intelligence sees the honest state. `locked` renders only when the state would otherwise be `available`.
+There is no locked state; availability is the only chrome.
 
 Probes: ChatGPT and Claude are probed lazily when the first AI surface mounts, never during onboarding or the scan; while `connecting`, the webview polls `ai_connect_poll` on a flat 2 s interval regardless of window focus, for at most 10 min (`CONNECT_POLL_MS`, `CONNECT_TIMEOUT_MS` in `apps/desktop/src/scan/ai-connect.ts`); the poll is a local read of the Rust job, not a TCC call, so the permission flow's focus schedule is not used. An AI surface that reads `connecting` (a sign-in running, or one cancelled before the worker reported its end) re-probes at the same 2 s rate until the state settles, and one that reads `limit_reached` probes again at `until` (or after 5 min when the provider gave no time), so neither state is ever left stale.
 
@@ -142,9 +141,8 @@ When the state changes under the person, the panel body says so in one line with
 | `limit_reached` | Your ChatGPT allowance is used up for now. It comes back on its own. (with `until`: "It comes back at 18:00.") | none |
 | `provider_unavailable` | ChatGPT didn't answer. | Try again |
 | `not_offered` | ChatGPT isn't available in this version yet. (shown only when no other AI can be connected; otherwise the not-connected body above) | none |
-| `locked` | Explaining everything is in the full version. | Unlock (opens the paywall step) |
 
-The authored explanation (`whyItMatters` from the catalogue) is always shown on the Details screen, so a failed or locked AI never leaves the person with nothing.
+The authored explanation (`whyItMatters` from the catalogue) is always shown on the Details screen, so a failed AI never leaves the person with nothing.
 
 ### End screen row
 
@@ -156,10 +154,10 @@ One `button.guided-end-row` with the kit `extensions` icon. It opens Connect; Co
 
 ### Paywall step
 
-The v0.3 paywall gains the AI line and the price. `£PRICE` becomes `€24 a year`.
+The v0.3 paywall names the watch and the price. `£PRICE` becomes `€24 a year`. The AI is not mentioned: it is free once connected (owner decision 2026-10-17).
 
 > **There are 4 more things to fix.**
-> The full version does them all, explains everything with your own AI, and lets you ask questions.
+> The full version does them all and keeps an eye on your Mac from the menu bar.
 > • (the locked headlines, as in v0.3)
 > [Buy the full version, €24 a year]
 > [Paste your licence key          ]
@@ -234,10 +232,10 @@ Facts checked on 2026-10-16. Both routes have conditions outside the owner's con
 
 ## 10. Copy that must change elsewhere
 
-- `readme.md`: "the AI runs on this Mac" and "Nothing leaves" (section 7); "a desktop app you buy once" and the "Free and paid" section (yearly price, explanations in the full version).
-- `docs/LICENSING.md`: the yearly price; the day-366 behaviour is an open decision.
+- `readme.md`: "the AI runs on this Mac" and "Nothing leaves" (section 7); "a desktop app you buy once" and the "Free and paid" section (yearly price; the AI free once connected, the menu bar watch in the full version). Done 2026-10-17.
+- `docs/LICENSING.md`: the yearly price; `Feature` is `all_fixes`, `recheck`, `watch`; the day-366 behaviour is an open decision. Done 2026-10-17.
 - `docs/SECURITY-MODEL.md`: the two new network destinations and the Keychain item for ChatGPT.
-- Design kit `website/shop.html` and `faq.html`: "one-time purchase", "no subscription", "£0", "Price to be confirmed"; the home page's AI claim ("optional on-device AI"). The kit is the designer's deliverable; these are listed for the owner, not edited here.
+- Design kit `website/shop.html`, `faq.html` and `index.html`: "one-time purchase", "no subscription", "£0", "Price to be confirmed"; the home page's AI claim ("optional on-device AI"). The free list names explanations, the suggested order and Ask with the AI you already use; the full version names the menu bar watch and not the AI. Done 2026-10-17; the kit stays the designer's deliverable.
 - `docs/DESIGN-BRIEF.md` is superseded by the kit and by this document; a note at its top says so.
 
 ## 11. Tests and shots

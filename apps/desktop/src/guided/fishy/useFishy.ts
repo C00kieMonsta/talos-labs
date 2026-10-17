@@ -116,7 +116,9 @@ export function useFishy(deps: FishyDeps): FishyController {
   }, []);
 
   const open = useCallback((returnTo: Route, start?: "gate" | "noticed") => {
-    const top = depsRef.current.watch.state?.items[0] ?? null;
+    // An unlicensed state carries no items for the webview.
+    const state = depsRef.current.watch.state;
+    const top = state !== null && state !== undefined && state.licensed ? (state.items[0] ?? null) : null;
     generation.current += 1;
     detailsAsked.current = false;
     setItem(top);

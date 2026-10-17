@@ -8,7 +8,7 @@ import type { Feature, LicenseState } from "../../src/ports/license-port";
 import { MACOS_CATALOG } from "../../src/rules/macos/index";
 import { ctxFor } from "../helpers";
 
-const FEATURES: readonly Feature[] = ["explainer", "all_fixes", "recheck"];
+const FEATURES: readonly Feature[] = ["all_fixes", "recheck", "watch"];
 
 describe("entitled", () => {
   const valid: LicenseState = {
@@ -31,6 +31,11 @@ describe("entitled", () => {
         expect(entitled(state, feature), `${state.status} ${feature}`).toBe(state.status === "valid");
       }
     }
+  });
+
+  it("explainer is no longer a feature", () => {
+    // @ts-expect-error AI is free once connected (owner decision 2026-10-17).
+    expect(entitled(valid, "explainer")).toBe(true);
   });
 });
 

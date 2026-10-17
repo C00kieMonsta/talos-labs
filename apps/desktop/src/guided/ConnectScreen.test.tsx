@@ -8,7 +8,7 @@ import { CONNECT, CONNECTING, CONNECT_FAILED } from "./copy";
 
 afterEach(cleanup);
 
-const gate = { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => true };
+const gate = { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => false, watchLocked: true };
 const ALL: ConnectOffered = { chatgpt: true, claude_plan: true, apple: true };
 
 function renderConnect(overrides: Partial<AiConnectController> = {}) {

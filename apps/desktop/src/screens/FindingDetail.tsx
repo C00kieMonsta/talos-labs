@@ -166,7 +166,7 @@ export function FindingDetail({ ruleId }: { ruleId: RuleId }) {
         (locked ? (
           <Lock
             title="This fix is part of the full version"
-            body="The three most valuable fixes are free. A licence unlocks every fix, rechecks and AI explanations."
+            body="The three most valuable fixes are free. A licence unlocks every fix, Check again and the menu bar watch."
             action={<LicenceField onBuy={() => void adapters.fixes.openBuyPage()} />}
           />
         ) : (

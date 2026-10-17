@@ -174,7 +174,7 @@ One column of System Settings style groups, in this order:
 1. AI explanations: one switch, a status line ("Ready", "Model downloading", "Needs Apple Intelligence", "This Mac can't run it", "Not available right now"), one sentence on privacy.
 2. About you: a one-line summary ("Freelancer, somewhat technical, client data, laptop leaves home") with Edit.
 3. Permissions: Full Disk Access and Automation, each with a status pill ("Granted", "Not granted", "Not asked yet", "Could not tell") and a button.
-4. Licence: "Free: the three most valuable fixes" with the key field and Buy link, or "Licensed, personal plan, 1 seat, updates until 2027-10-15" with Remove.
+4. Licence: "Free: the three most valuable fixes" with the key field and Buy link, or "Licensed, personal plan, 1 seat, updates until 2027-10-15" with Remove. Superseded on 2026-10-17: AI is free once connected and the licence buys fixes beyond three, Check again and the menu bar watch; see docs/DESIGN-AI.md and docs/LICENSING.md.
 5. Developer mode: one switch, revealing options for Terminal commands, expanded plans, and other AI providers (Claude API key, local Ollama).
 6. About: version, rules catalog version, benchmark edition, build date, licence ids, and "Nothing leaves this Mac. AI explanations are written here by Apple Intelligence."
 
@@ -216,6 +216,8 @@ One line, one icon, at most one action.
 | Model downloading | "Apple Intelligence is still downloading its model. This finishes on its own; keep the Mac on Wi-Fi and plugged in." | none |
 | Helper unavailable | "AI explanations aren't available right now." | Try again |
 | Locked | "AI explanations are part of the full version." | Licence field |
+
+Superseded on 2026-10-17: AI is free once connected and the licence buys fixes beyond three, Check again and the menu bar watch; see docs/DESIGN-AI.md and docs/LICENSING.md. The Locked row no longer applies.
 
 ### Permission card
 States: not granted (why, and one button), watching, granted (shown for half a second, then replaced), reopen needed, macOS is asking (Automation only), could not tell.
@@ -273,6 +275,8 @@ The "developer machine" sample: score 34, At risk, Incomplete. 1 critical, 4 hig
 Also design a clean Mac (everything passes), a fresh Mac with typical gaps, and one where nothing could be read.
 
 ## 13. Free and paid
+
+Superseded on 2026-10-17: AI is free once connected and the licence buys fixes beyond three, Check again and the menu bar watch; see docs/DESIGN-AI.md and docs/LICENSING.md.
 
 - Free: the full check-up, the score, every finding with its explanation and complete fix, and in-app fixing for the three findings worth the most points. Fixes for "Worth a look" items are always free.
 - Paid, one licence key: in-app fixing for everything, "Check again" on a single finding, AI explanations, and Ask.

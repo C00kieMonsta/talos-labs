@@ -20,6 +20,7 @@ describe("watch memory storage", () => {
       actionNotNow: { "act.disconnect_network": NOW },
       fishyRanAt: NOW,
       notifiedItems: { "sig.persistence_new": NOW },
+      notifyAskedAt: NOW,
     };
     saveWatchMemory(memory);
     expect(JSON.parse(localStorage.getItem(WATCH_STORAGE_KEY) ?? "null")).toEqual(memory);
@@ -55,7 +56,16 @@ describe("watch memory storage", () => {
       actionNotNow: { "act.report": NOW },
       fishyRanAt: null,
       notifiedItems: {},
+      notifyAskedAt: null,
     });
+  });
+
+  it("a stored memory from before notifyAskedAt loads with null", () => {
+    localStorage.setItem(
+      WATCH_STORAGE_KEY,
+      JSON.stringify({ version: 1, snoozedSignals: {}, normalForMe: {}, acknowledgeCount: {}, actionNotNow: {}, fishyRanAt: NOW, notifiedItems: {} }),
+    );
+    expect(loadWatchMemory()).toEqual({ ...EMPTY_WATCH_MEMORY, fishyRanAt: NOW, notifyAskedAt: null });
   });
 
   it("saving writes the parsed form, so junk never reaches storage", () => {

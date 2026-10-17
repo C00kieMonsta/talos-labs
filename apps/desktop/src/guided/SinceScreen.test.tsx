@@ -12,7 +12,7 @@ import { FISHY, SINCE } from "./copy";
 
 afterEach(cleanup);
 
-const gate = { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => true };
+const gate = { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => false, watchLocked: true };
 const DIFF: ReportDiff = { fixed: ["TL-MAC-002"], appeared: [], unreadable: [] };
 const PLAN: GuidedPlan = { reportId: "r1", freeFixes: [], steps: [], leftAlone: [], worthALook: [], technical: [], later: [], locked: [], unreadable: 0 };
 

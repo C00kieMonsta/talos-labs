@@ -227,7 +227,7 @@ Before opening Time Machine on step 026, instead of the usual button:
 
 > 5 of 5
 > **There are 4 more things to fix.**
-> The full version does them all. One payment, yours to keep.
+> The full version does them all and keeps an eye on your Mac from the menu bar.
 > • Your Mac answers strangers on the network
 > • App Store apps do not update on their own
 > • A shared folder has no password

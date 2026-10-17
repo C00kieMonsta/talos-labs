@@ -11,7 +11,7 @@ This is the second draft. The first was refuted on the boundary, the product rul
 Decisions taken where the brief left room:
 
 - **One new task, `checkup`, called at two moments.** One call when the check-up lands with a plan and one when the end screen opens after at least one fix. The first feeds the plan screen, the steps and Ask. The second feeds the end screen. Nothing else the app starts on its own. Explain, prioritise and Ask stay person-initiated. `docs/DESIGN-V02.md` line 466 ("the protocol keeps its three tasks and no summary task is added") is re-opened here: that decision was taken when the only AI surface was the Overview card, and the owner's brief asks for text on screens no existing task can feed.
-- **The brief is licensed.** It follows the same predicate as prioritise and Ask, `gate.has("explainer")`. The brief is an explanation of the whole report, so a free brief would give away "explanations for everything" and contradict DESIGN-AI's "explanations follow the free three" and the paywall sentence. The free version keeps what it has: connecting, and explanations for the free three. (Open question 1 offers the owner a free taste limited to the free three.)
+- **The brief is free once an AI is connected.** Its predicate is `settings.explainer.aiEnabled` and availability `available`, no gate, the same as prioritise and Ask since the owner's decision of 2026-10-17 (AI is free once connected; the licence buys fixes beyond the free three, Check again and the menu bar watch). Open question 1 is closed by that decision.
 - **Authored copy stays the floor; the model comments.** No model text becomes a headline, a list row, a button, a control label, or the order of the plan. The plan stays a pure function (DESIGN-V03 decision 1). The model's text sits in a quotation block with the full badge, every time.
 - **A model block never sits above a control.** On every guided screen the block is placed below the primary and the link, or inside the Explain disclosure. Nothing the person could be reaching for moves when a block lands. This is the check-up's form of DESIGN-WATCH's rule that a model sentence never reads as the instruction above a fix button.
 - **The model never speaks as the app.** The app says "I". The model is told to write in the second person only, and every checkup string that contains the app's first person or starts a sentence with an imperative verb is dropped (section 6).
@@ -71,7 +71,7 @@ On a later launch with a non-empty diff, the model is given the diff and the pre
 
 **Fallback.** The screen as built. Nothing is inserted.
 
-**State machine.** `idle`: AI on, licensed, provider `available`, plan has steps, `landed()` ran, no cached reading. `writing`: the call runs; the screen shows nothing for it (no caret, no "Writing", no Stop; the brief has no visible progress on guided screens). `ready`: the block renders. `failed`: any failure, including `rejected_output`, `limit_reached` and `cancelled`; nothing renders, no state line (state lines belong to the disclosure and the AI card, where the person asked). `hidden`: AI off, not licensed, provider not `available`, or `total === 0`. If the person presses "Let's go" before `ready`, the plan screen is gone; the result still lands in the cache and serves moments 2 and 4.
+**State machine.** `idle`: AI on, provider `available`, plan has steps, `landed()` ran, no cached reading. `writing`: the call runs; the screen shows nothing for it (no caret, no "Writing", no Stop; the brief has no visible progress on guided screens). `ready`: the block renders. `failed`: any failure, including `rejected_output`, `limit_reached` and `cancelled`; nothing renders, no state line (state lines belong to the disclosure and the AI card, where the person asked). `hidden`: AI off, provider not `available`, or `total === 0`. If the person presses "Let's go" before `ready`, the plan screen is gone; the result still lands in the cache and serves moments 2 and 4.
 
 **Timing, stated plainly.** The plan is built in `landed()`, which runs from the `presented` effect after `present()`, and `present()` is where `useScan` resets its caches (`useScan.ts:239-245`). The brief therefore starts when the plan screen mounts, not during the pacer's 6 s floor; the first draft's claim that it runs during the floor was wrong. On ChatGPT the reading usually lands while the plan screen is still on view. On Claude Code each call is a codesign verify, a spawn and a structured-output round trip, so the reading usually lands after "Let's go" and is first felt as a step line on a later step or on Ask. On an unchanged launch the reading comes from disk and is on screen at mount on every provider.
 
@@ -141,7 +141,7 @@ The block is requested only when `fixedRuleIds` is non-empty. On "Nothing needs 
 
 The text is shown only when complete, never streamed, so a slow Claude Code spawn never holds "Check again" or the primary (the Cloudscape and Arc findings: stream only where the person is waiting for that text).
 
-**Derived input.** `{ task: "checkup", moment: "end", context, stepRuleIds: [], fixedRuleIds, nextRuleId, previous: null }`. `fixedRuleIds` is `EndScreenProps.fixed` (ids only, `EndScreen.tsx:100-108`). `nextRuleId` is `nextAction(plan, report).ruleId` or null (`packages/core/src/guided/next.ts`); the brief is licensed, so `nextAction` never returns `unlock` for a person who gets a brief. `context` is the current report's derived document, in which the fixed rules are no longer findings, so the model learns what was fixed only from the id list. What the fixes did comes from the catalogue text in the system prompt.
+**Derived input.** `{ task: "checkup", moment: "end", context, stepRuleIds: [], fixedRuleIds, nextRuleId, previous: null }`. `fixedRuleIds` is `EndScreenProps.fixed` (ids only, `EndScreen.tsx:100-108`). `nextRuleId` is `nextAction(plan, report).ruleId` or null (`packages/core/src/guided/next.ts`); for an unlicensed person `nextAction` may return `unlock`, and the brief then has no `nextRuleId`. `context` is the current report's derived document, in which the fixed rules are no longer findings, so the model learns what was fixed only from the id list. What the fixes did comes from the catalogue text in the system prompt.
 
 **Task id and schema.** `checkup`, field `summary`. `stepLines` is requested empty at this moment (the prompts say "return an empty list when stepRuleIds is empty"), and any content in it is ignored by the UI.
 
@@ -151,7 +151,7 @@ The text is shown only when complete, never streamed, so a slow Claude Code spaw
 
 **Fallback.** The end screen as built.
 
-**State machine.** `idle` when the end screen mounts with AI on, licensed, the provider `available`, the title "in good shape" or "safer than it was", and `fixedRuleIds` non-empty. `writing`: nothing shown. `ready`: the block. `failed`: nothing. `hidden`: otherwise.
+**State machine.** `idle` when the end screen mounts with AI on, the provider `available`, the title "in good shape" or "safer than it was", and `fixedRuleIds` non-empty. `writing`: nothing shown. `ready`: the block. `failed`: nothing. `hidden`: otherwise.
 
 ### Moment 4. Ask: the briefing and three questions
 
@@ -188,7 +188,7 @@ In the expert home (`guided.home` false) the guided controller never runs, so no
 
 **Where.** `apps/desktop/src/screens/Overview.tsx` (`AiCard` with the suggested order), `apps/desktop/src/screens/Findings.tsx` and `FindingCard.tsx` for the rank badges.
 
-**What the person sees.** The "Suggest an order" card stays behind its button (one person-initiated call, licensed). Two changes to what it shows: the reason under every ranked row, not only the three "Start with" rows (`SuggestedOrderBody` passes `withReason` true for every row; `priority.reasons` already carries them, `schemas.ts:28-39`); and the order survives a recheck for rules the recheck did not touch. Today `useScan.ts:266-268` drops `order` and `priority` on every recheck, and every guided step rechecks, so the order never survives a check-up. `survivingPriority` (section 6) keeps the order minus rules that left the report or whose `requires` includes the re-read section, and keeps the reasons for the surviving ids.
+**What the person sees.** The "Suggest an order" card stays behind its button (one person-initiated call, free once connected). Two changes to what it shows: the reason under every ranked row, not only the three "Start with" rows (`SuggestedOrderBody` passes `withReason` true for every row; `priority.reasons` already carries them, `schemas.ts:28-39`); and the order survives a recheck for rules the recheck did not touch. Today `useScan.ts:266-268` drops `order` and `priority` on every recheck, and every guided step rechecks, so the order never survives a check-up. `survivingPriority` (section 6) keeps the order minus rules that left the report or whose `requires` includes the re-read section, and keeps the reasons for the surviving ids.
 
 The first draft put the plan reading under the grade line on the score card. Dropped: it was the same paragraph a third time, and the Overview's AI surface is the order card.
 
@@ -282,12 +282,12 @@ The line is `WatchVerdict.ratingReason` from the cycle's one-shot judge (DESIGN-
 - **The plan reading under the Overview's grade line.** Dropped (moment 5).
 - **The brief in the expert home.** Dropped (moment 4).
 - **The urgency word on the guided panel.** Dropped (moment 6).
-- **A free brief.** Dropped (decisions); offered as open question 1.
+- **A free brief limited to the free three.** Moot: the brief is free once connected (owner decision 2026-10-17).
 - **An AI reason line on the plan screen, "I'd start with the firewall because…".** Folded into moment 1. The model comments on the order; it never proposes one, and the UI derives nothing from the sentence.
 - **The fishy flow's expert line.** Dropped. Authored from the playbook with a source, by the owner's rule.
 - **"Explain in simpler words" / "Explain for a friend".** Dropped. A second call per rule, a new control on a guided screen, and the profile's `technical` level already sets the register.
 - **Prefetching the current step's explanation.** Dropped. Five to seven calls per check-up on the dev machine for text behind a disclosure the person may not open.
-- **Automatic prioritisation on the Overview.** Dropped. One more licensed call per check-up; the card's button stays. The order now survives rechecks, which was the real defect.
+- **Automatic prioritisation on the Overview.** Dropped. One more app-started call per check-up; the card's button stays. The order now survives rechecks, which was the real defect.
 - **Model-written follow-up questions after each answer.** Dropped.
 - **A "Don't write this" link on the end screen.** Dropped. It would be a second link under the body (DESIGN-V03 allows one) and the one switch exists.
 - **A "N requests this check-up" counter on the Settings screen.** Moved to Developer mode (moment 7).
@@ -340,7 +340,7 @@ What On this Mac gets:
 - **Moment 1, the plan reading.** Yes. The checkup prompt is the prioritise prompt's size plus the ids and plain names, about 4,300 of 7,000 characters. The on-device prompt asks for two short sentences (the validator cap is 600; the Swift output guide caps `summary` at 300 characters).
 - **Moment 2, step lines.** No. The on-device output is a separate `@Generable struct CheckupOnDeviceOutput { summary }` with no `stepLines` field at all, because guided generation lets the model choose array lengths and a 3B model asked in prose to return an empty list often fills it, and a stream cut by the 600-token cap throws `decodingFailure` in `Generator.run` (`TalosAI.swift:127`), which maps to `rejected_output`. `validateCheckup` treats a missing `stepLines` as empty. Steps on this Mac show the authored copy and the disclosure; this is the graceful reduction.
 - **Moment 3, the close.** Yes, same shape as moment 1.
-- **Moment 4, the briefing and chips.** Yes. Ask stays licensed.
+- **Moment 4, the briefing and chips.** Yes. Ask is free once connected, like the brief.
 - **Moment 5.** The suggested order stays behind its button and emits no partials on this provider, as today.
 - **Moment 6.** Yes, zero cost.
 - **Moment 8.** As DESIGN-WATCH specifies for On this Mac.
@@ -397,7 +397,7 @@ British English throughout. Model text is shown in a model-text block and is not
 
 **Ports and adapters, persistence.** `BriefStore { load(): Promise<StoredBrief | null>; save(brief): Promise<void>; clear(): Promise<void> }`; `file-brief-store.ts` next to `file-report-store.ts`; `clear()` called from Disconnect, provider change, the AI switch off, and Developer Reset.
 
-**Gate.** The brief, the step lines, the briefing on Ask and the end close follow `gate.has("explainer")`, the same predicate as prioritise and Ask. The chips follow `useAiCardFlow("ask")`'s `locked`.
+**Gate.** None. The brief, the step lines, the briefing on Ask and the end close follow `settings.explainer.aiEnabled` and availability `available`, the same predicate as prioritise and Ask; `gate.explainLocked` is always false and `useAiCardFlow` has no `locked`. The chips follow Ask's availability.
 
 **Settings.** One switch stays: `explainer.aiEnabled` off hides every surface in this document. No per-moment switch.
 
@@ -423,7 +423,7 @@ The watch surfaces until DESIGN-WATCH is built (moment 8 is the design for them)
 
 ## 9. Open questions for the owner
 
-1. **A free taste.** The brief is licensed here. If the owner wants the free version to feel the connected AI beyond the free three's explanations, the alternative is a plan brief whose `stepRuleIds` is limited to `plan.freeFixes`, told to comment on those only, with no end brief and no briefing on Ask for the unlicensed. It costs the same one call and keeps the paywall sentence true. The owner decides.
+1. **A free taste.** Decided by the owner on 2026-10-17: the AI is free once connected, so the brief, the step lines, the end close and the briefing on Ask run for the free version too. The limited-to-the-free-three alternative is not built.
 2. **Persisting the reading.** `last-brief.json` is new data at rest: validated, provider-labelled prose about the person's own check-up, next to a report file that already holds far more. The alternative is in-memory only, which costs one call per launch for the same sentence, or skipping unchanged launches, which hides the first reading from the person who just connected. The owner confirms or rejects the file.
 3. **`max_output_tokens` on ChatGPT.** Unchanged; the open question from the limits research stands.
 4. **The Claude Code cost of the person winning.** On Claude Code, opening "Explain this" on the first step while the plan brief spawns loses the reading for that check-up. The alternative is to let the person's request wait behind the brief with the "Writing" state shown, which the design rejects because it makes the person wait for text they did not ask for. The owner may prefer the wait.

@@ -27,6 +27,8 @@ import type { AppSettings } from "../settings";
 import type { AppContextValue } from "./context";
 import type { Gate } from "./gate";
 import type { ScanState } from "../scan/machine";
+import { lastReport } from "../scan/machine";
+import { buildGate } from "./gate";
 import type { AskMessage, ScanController } from "../scan/useScan";
 import { AppContext } from "./context";
 import type { AiConnectController } from "../scan/ai-connect";
@@ -92,6 +94,7 @@ export function fakeAdapters(overrides: Partial<Adapters> = {}, state: SystemSta
 export function fakeWatchState(overrides: Partial<WatchState> = {}): WatchState {
   return {
     enabled: true,
+    licensed: true,
     firstRun: false,
     hiddenLaunch: false,
     rating: "calm",
@@ -255,10 +258,13 @@ export function StatefulProvider({ value, connect, children }: { value: AppConte
   const [settings, setSettings] = useState<AppSettings>(value.settings);
   const [conversation, setConversation] = useState<readonly AskMessage[]>(value.scan.conversation);
   const [draft, setDraft] = useState(value.scan.draft);
+  // A licence written through the context rebuilds the gate, as App does; until then the test's own gate stands.
+  const gate = license === value.license ? value.gate : buildGate(lastReport(value.scan.scan), license);
   const live: AppContextValue = {
     ...value,
     license,
     setLicense,
+    gate,
     settings,
     updateSettings: (patch) => setSettings((prev) => ({ ...prev, ...patch })),
     scan: { ...value.scan, conversation, setConversation, draft, setDraft },

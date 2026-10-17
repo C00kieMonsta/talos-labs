@@ -261,7 +261,11 @@ pub struct UnavailableProbe {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WatchState {
+    /// The person's switch.
     pub enabled: bool,
+    /// The webview's product gate, as last pushed; the watch runs only when both are true.
+    #[serde(default)]
+    pub licensed: bool,
     pub first_run: bool,
     /// True from a `--watch` launch until the main window is first shown.
     pub hidden_launch: bool,
@@ -285,6 +289,7 @@ impl Default for WatchState {
     fn default() -> Self {
         WatchState {
             enabled: false,
+            licensed: false,
             first_run: true,
             hidden_launch: false,
             rating: Rating::Calm,
@@ -414,6 +419,7 @@ impl WatchStore {
             .unwrap_or_default();
         self.update(|s| {
             s.enabled = loaded.enabled;
+            s.licensed = loaded.licensed;
             s.every_minutes = loaded.every_minutes;
             s.notify = loaded.notify;
         });
@@ -433,6 +439,7 @@ impl WatchStore {
         settings::save(&dir, &settings).map_err(|e| e.to_string())?;
         self.update(|s| {
             s.enabled = settings.enabled;
+            s.licensed = settings.licensed;
             s.every_minutes = settings.every_minutes;
             s.notify = settings.notify;
         });
@@ -457,10 +464,10 @@ impl WatchStore {
         *lock(&self.baseline) = Some(baseline);
     }
 
-    /// A command's edit. Skipped while the watch is off, so nothing recreates watch.json after
-    /// a disable.
+    /// A command's edit. Skipped while the watch is inactive, so nothing recreates watch.json
+    /// after a disable or a lost licence.
     pub fn edit(&self, app: &AppHandle, edit: Edit) -> Result<(), String> {
-        if !self.settings(app).enabled {
+        if !active(&self.settings(app)) {
             return Ok(());
         }
         self.apply_edit(data_dir(app).as_deref(), edit)
@@ -495,18 +502,18 @@ impl WatchStore {
     }
 
     /// Replays the queued edits onto the cycle's copy, stores it as the live baseline and
-    /// saves it. `enabled` is read under the lock: with the watch turned off meanwhile nothing
-    /// is written and None comes back.
+    /// saves it. `active` is read under the lock: with the watch turned off or the licence
+    /// gone meanwhile nothing is written and None comes back.
     pub fn finish_cycle(
         &self,
         dir: Option<&Path>,
-        enabled: impl FnOnce() -> bool,
+        active: impl FnOnce() -> bool,
         mut baseline: Baseline,
     ) -> Option<Baseline> {
         let mut cache = lock(&self.baseline);
         let edits = std::mem::take(&mut *lock(&self.edits));
         self.cycle_running.store(false, Ordering::SeqCst);
-        if !enabled() {
+        if !active() {
             return None;
         }
         for edit in edits {
@@ -527,6 +534,30 @@ impl WatchStore {
         }
         *cache = None;
         lock(&self.edits).clear();
+        Ok(())
+    }
+
+    /// The store's half of an inactive settle: watch.json and the baseline go, the requests,
+    /// details, context and verdict are cleared, and the state is reset keeping the switch,
+    /// the interval, the notify flag and the licence flag. Idempotent; a missing watch.json is
+    /// fine.
+    fn settle(&self, dir: Option<&Path>) -> Result<(), String> {
+        // A running cycle sees the watch inactive in `finish_cycle` and writes nothing.
+        self.clear_baseline(dir)?;
+        self.manual_requested.store(false, Ordering::SeqCst);
+        self.refresh_requested.store(false, Ordering::SeqCst);
+        *lock(&self.details) = Vec::new();
+        *lock(&self.last_context) = None;
+        *lock(&self.last_verdict) = None;
+        self.update(|s| {
+            *s = WatchState {
+                enabled: s.enabled,
+                licensed: s.licensed,
+                every_minutes: s.every_minutes,
+                notify: s.notify,
+                ..WatchState::default()
+            };
+        });
         Ok(())
     }
 
@@ -558,6 +589,27 @@ fn publish(app: &AppHandle) {
     let _ = app.emit(cycle::STATE_EVENT, &state);
 }
 
+/// The watch runs when the person's switch is on and the webview reports a licence.
+pub fn active(settings: &WatchSettingsFile) -> bool {
+    settings.enabled && settings.licensed
+}
+
+/// What a settings write did to the active flag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Transition {
+    Start,
+    Stop,
+    Keep,
+}
+
+pub fn transition(before: bool, after: bool) -> Transition {
+    match (before, after) {
+        (false, true) => Transition::Start,
+        (true, false) => Transition::Stop,
+        _ => Transition::Keep,
+    }
+}
+
 /// The interval in force: the setting, or 15 minutes while the close watch runs.
 fn period(app: &AppHandle) -> Duration {
     let store = app.state::<WatchStore>();
@@ -584,16 +636,19 @@ async fn run(app: AppHandle) {
 
 /// Starts the timer task: one cycle per interval, plus one on every wake of the notify. A
 /// missed interval during sleep yields one cycle, not a burst. The first cycle runs at once
-/// when the watch is on.
+/// when the watch is active. Never settles: a licensed Mac with a pre-change file keeps its
+/// login item until the webview pushes the flag.
 pub fn start(app: AppHandle) {
     {
         let store = app.state::<WatchStore>();
         let settings = store.settings(&app);
+        let active = active(&settings);
         store.update(|s| {
             s.enabled = settings.enabled;
-            s.first_run = settings.enabled;
+            s.licensed = settings.licensed;
+            s.first_run = active;
         });
-        if settings.enabled {
+        if active {
             store.notify.notify_one();
         }
         if let Some(dir) = data_dir(&app) {
@@ -708,47 +763,59 @@ pub fn pause(app: &AppHandle, minutes: u32) {
     publish(app);
 }
 
-/// Turns the watch on or off. Off deletes watch.json (and its key) and removes the tray item;
-/// the settings file survives. On runs a cycle at once.
-pub fn set_enabled(app: &AppHandle, enabled: bool) -> Result<(), String> {
-    let store = app.state::<WatchStore>();
-    store.set_settings(app, |s| s.enabled = enabled)?;
-    if enabled {
-        store.update(|s| {
-            s.first_run = true;
-            s.paused_until = None;
-        });
-        store.notify.notify_one();
-    } else {
-        // A running cycle sees the switch off in `finish_cycle` and writes nothing.
-        store.clear_baseline(data_dir(app).as_deref())?;
-        // The login item exists for the watch: it goes with it, so no hidden process starts at login.
-        {
-            use tauri_plugin_autostart::ManagerExt;
-            let _ = app.autolaunch().disable();
-        }
-        store.manual_requested.store(false, Ordering::SeqCst);
-        store.refresh_requested.store(false, Ordering::SeqCst);
-        *lock(&store.details) = Vec::new();
-        *lock(&store.last_context) = None;
-        *lock(&store.last_verdict) = None;
-        store.update(|s| {
-            let every = s.every_minutes;
-            let notify = s.notify;
-            *s = WatchState {
-                enabled: false,
-                every_minutes: every,
-                notify,
-                ..WatchState::default()
-            };
-        });
+/// The watch just became active: a first run, the pause lifted and one cycle at once.
+fn activate(store: &WatchStore) {
+    store.update(|s| {
+        s.first_run = true;
+        s.paused_until = None;
+    });
+    store.notify.notify_one();
+}
+
+/// The settings are inactive after a write: the login item and watch.json go whatever the
+/// previous state was, so a pre-change file or a free Mac loses its stale LaunchAgent on the
+/// first push. Idempotent.
+fn settle_inactive(app: &AppHandle, store: &WatchStore) -> Result<(), String> {
+    store.settle(data_dir(app).as_deref())?;
+    // The login item exists for the watch: it goes with it, so no hidden process starts at login.
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        let _ = app.autolaunch().disable();
+    }
+    Ok(())
+}
+
+/// After a settings write: settles when inactive, activates on a start, publishes, and on a
+/// stop lets the tray hand the window back or end the process.
+fn apply_transition(
+    app: &AppHandle,
+    store: &WatchStore,
+    before: bool,
+    after: bool,
+) -> Result<(), String> {
+    if !after {
+        settle_inactive(app, store)?;
+    }
+    let change = transition(before, after);
+    if change == Transition::Start {
+        activate(store);
     }
     publish(app);
-    if !enabled {
+    if change == Transition::Stop {
         // The tray item is gone: a main window hidden behind it comes back, else the process ends.
         crate::tray::after_watch_off(app);
     }
     Ok(())
+}
+
+/// Turns the person's switch on or off. Inactive settings delete watch.json (and its key) and
+/// remove the tray item; the settings file survives. Active settings run a cycle at once.
+pub fn set_enabled(app: &AppHandle, enabled: bool) -> Result<(), String> {
+    let store = app.state::<WatchStore>();
+    let before = active(&store.settings(app));
+    store.set_settings(app, |s| s.enabled = enabled)?;
+    let after = active(&store.settings(app));
+    apply_transition(app, &store, before, after)
 }
 
 /// One cycle after sleep when more than an interval has passed since the last check.
@@ -773,8 +840,10 @@ pub fn current_state(app: &AppHandle) -> WatchState {
         .unwrap_or_default()
 }
 
-pub fn is_enabled(app: &AppHandle) -> bool {
-    current_state(app).enabled
+/// True while the switch is on and the webview's last push reported a licence.
+pub fn is_active(app: &AppHandle) -> bool {
+    let state = current_state(app);
+    state.enabled && state.licensed
 }
 
 pub fn set_interval(app: &AppHandle, minutes: u32) -> Result<(), String> {
@@ -797,17 +866,25 @@ pub fn set_notify(app: &AppHandle, enabled: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// The profile, the AI choice when sent, and the webview's product gate. A push that flips
+/// the gate starts or stops the watch exactly as the switch does; Rust never verifies a key.
 pub fn set_profile(
     app: &AppHandle,
     profile: ExplainerProfile,
     ai: Option<WatchAi>,
+    licensed: bool,
 ) -> Result<(), String> {
-    app.state::<WatchStore>().set_settings(app, |s| {
+    let store = app.state::<WatchStore>();
+    let before = active(&store.settings(app));
+    store.set_settings(app, |s| {
         s.profile = profile;
         if let Some(ai) = ai {
             s.ai = ai;
         }
-    })
+        s.licensed = licensed;
+    })?;
+    let after = active(&store.settings(app));
+    apply_transition(app, &store, before, after)
 }
 
 /// "This is fine, I know it": re-baseline the signal and its siblings and count the answer;
@@ -1042,6 +1119,118 @@ mod tests {
     }
 
     #[test]
+    fn a_cycle_finishing_after_the_licence_was_dropped_writes_nothing() {
+        let dir =
+            std::env::temp_dir().join(format!("talos-watch-mod-licence-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = WatchStore::default();
+        let mut copy = store.begin_cycle(Some(&dir));
+        let at = DateTime::parse_from_rfc3339("2026-10-17T10:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        copy.last_fix_at = Some(cycle::iso(at));
+        // The licence went while the cycle ran: the settle took the baseline with it.
+        store.settle(Some(&dir)).unwrap();
+        let settings = WatchSettingsFile {
+            enabled: true,
+            licensed: false,
+            ..WatchSettingsFile::default()
+        };
+        assert!(
+            store
+                .finish_cycle(Some(&dir), || active(&settings), copy)
+                .is_none()
+        );
+        assert!(!store.cycle_running.load(Ordering::SeqCst));
+        assert!(
+            !baseline::path(&dir).exists(),
+            "nothing recreated watch.json"
+        );
+        assert_eq!(store.baseline_in(Some(&dir)).last_fix_at, None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_settle_on_an_inactive_store_deletes_the_baseline_and_a_second_one_is_fine() {
+        let dir =
+            std::env::temp_dir().join(format!("talos-watch-mod-settle-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut baseline = Baseline::new();
+        baseline.last_fix_at = Some("2026-10-17T10:00:00.000Z".into());
+        baseline::save(&dir, &baseline).unwrap();
+        assert!(baseline::path(&dir).exists());
+        let store = WatchStore::default();
+        store.put_baseline(baseline);
+        store.manual_requested.store(true, Ordering::SeqCst);
+        store.refresh_requested.store(true, Ordering::SeqCst);
+        store.remember_verdict(
+            WatchVerdict {
+                rating: Rating::ActNow,
+                rating_reason: String::new(),
+                based_on: Vec::new(),
+                probes: Vec::new(),
+                actions: Vec::new(),
+            },
+            Utc::now(),
+        );
+        store.update(|s| {
+            s.enabled = true;
+            s.licensed = false;
+            s.every_minutes = 15;
+            s.notify = false;
+            s.rating = Rating::ActNow;
+            s.cycle_index = 4;
+            s.first_run = false;
+        });
+        store.settle(Some(&dir)).unwrap();
+        assert!(!baseline::path(&dir).exists(), "watch.json is deleted");
+        assert!(!store.manual_requested.load(Ordering::SeqCst));
+        assert!(!store.refresh_requested.load(Ordering::SeqCst));
+        assert!(store.last_verdict_for(Utc::now()).is_none());
+        let state = store.snapshot();
+        assert_eq!(
+            state,
+            WatchState {
+                enabled: true,
+                licensed: false,
+                every_minutes: 15,
+                notify: false,
+                ..WatchState::default()
+            },
+            "the switch, the interval, the notify flag and the licence flag survive"
+        );
+        assert!(lock(&store.baseline).is_none(), "the baseline is forgotten");
+        assert!(store.settle(Some(&dir)).is_ok(), "a second settle is fine");
+        assert!(store.settle(None).is_ok(), "no data folder is fine as well");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_watch_is_active_only_when_switched_on_and_licensed() {
+        let case = |enabled: bool, licensed: bool| {
+            active(&WatchSettingsFile {
+                enabled,
+                licensed,
+                ..WatchSettingsFile::default()
+            })
+        };
+        assert!(!case(false, false));
+        assert!(!case(false, true), "a licence alone does not turn it on");
+        assert!(!case(true, false), "the switch alone does not run it");
+        assert!(case(true, true));
+    }
+
+    #[test]
+    fn a_transition_is_a_start_a_stop_or_a_keep() {
+        assert_eq!(transition(false, false), Transition::Keep);
+        assert_eq!(transition(true, true), Transition::Keep);
+        assert_eq!(transition(false, true), Transition::Start);
+        assert_eq!(transition(true, false), Transition::Stop);
+    }
+
+    #[test]
     fn acknowledging_counts_the_listing_siblings_and_saturates() {
         let mut baseline = Baseline::new();
         Edit::Acknowledge {
@@ -1108,9 +1297,20 @@ mod tests {
     fn the_default_state_is_off_and_first_run() {
         let state = WatchState::default();
         assert!(!state.enabled && state.first_run && !state.hidden_launch);
+        assert!(!state.licensed);
         let json = serde_json::to_value(&state).unwrap();
         assert_eq!(json["everyMinutes"], 60);
         assert_eq!(json["hiddenLaunch"], false);
+        assert_eq!(json["licensed"], false);
+        let licensed = WatchState {
+            licensed: true,
+            ..WatchState::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&licensed).unwrap()["licensed"],
+            true,
+            "the state carries the licence flag to the webview"
+        );
         assert_eq!(json["items"], serde_json::json!([]));
         let store = WatchStore::default();
         assert_eq!(store.snapshot(), state);

@@ -94,6 +94,8 @@ export function WatchWindow({ port, now = () => new Date() }: { readonly port: W
     setClock(nowRef.current());
   }, [state]);
 
+  // The tray item exists only while the watch is active; an unlicensed state has nothing to show.
+  if (state !== null && !state.licensed) return null;
   const primary = state === null || state.firstRun || state.items.length === 0 ? null : state.rating === "act_now" ? WATCH.seeWhatToDo : state.rating === "keep_an_eye" ? WATCH.showMe : null;
 
   return (

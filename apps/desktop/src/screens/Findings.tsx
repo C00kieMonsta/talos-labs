@@ -29,7 +29,7 @@ function bySeverity(a: Finding, b: Finding): number {
 }
 
 export function Findings() {
-  const { scan, router, catalog, settings, gate } = useApp();
+  const { scan, router, catalog, settings } = useApp();
   const report = lastReport(scan.scan);
   // The filters live on the route, so Back from a finding restores them; local state keeps the selects responsive.
   const routed = router.route.name === "findings" ? router.route : null;
@@ -87,8 +87,8 @@ export function Findings() {
 
   const open = (ruleId: RuleId) => router.navigate({ name: "finding", ruleId });
   const reasonFor = (finding: Finding) => (hiddenBySocketTable(report, finding) ? SOCKET_TABLE_LABEL : undefined);
-  // The locked card lives on the Overview; here the list keeps the kit's single column until AI is unlocked.
-  const showAside = settings.explainer.aiEnabled && gate.has("explainer") && (live || order !== null) && report.findings.some((f) => f.status !== "unknown");
+  // The aside shows for anyone with the AI on; the Overview card carries the not-connected states.
+  const showAside = settings.explainer.aiEnabled && (live || order !== null) && report.findings.some((f) => f.status !== "unknown");
 
   return (
     <div className="screen findings">

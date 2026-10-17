@@ -4,7 +4,7 @@ import type { Feature, LicenseState } from "../ports/license-port";
 
 export const FREE_FIX_COUNT = 3;
 
-/** Any valid licence unlocks every feature. plan and seats are informational in v0.1. */
+/** Any valid licence unlocks every feature: all_fixes, recheck and watch. plan and seats are informational in v0.1. */
 export function entitled(state: LicenseState, feature: Feature): boolean {
   void feature;
   return state.status === "valid";

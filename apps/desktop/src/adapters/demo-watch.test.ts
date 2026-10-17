@@ -135,7 +135,7 @@ describe("DemoWatch per ?fishy=, ?fishyGate=, ?fishyWired=, ?watchAi=, ?ransomNo
 
   it("the context is the model document: bounds from the signals, the four profile fields, the closed lists", async () => {
     const port = make({ watch: "act", fishy: "guard" });
-    await port.setProfile({ role: "freelancer", technical: "high", handlesClientData: true, laptopLeavesHome: false, extra: "x" } as never);
+    await port.setProfile({ role: "freelancer", technical: "high", handlesClientData: true, laptopLeavesHome: false, extra: "x" } as never, undefined, true);
     const context = await port.context();
     expect(context).toMatchObject({ schemaVersion: 1, os: "macos", floor: "act_now", ceiling: "act_now", rules: [] });
     expect(context.profile).toEqual({ role: "freelancer", technical: "high", handlesClientData: true, laptopLeavesHome: false });
@@ -143,6 +143,25 @@ describe("DemoWatch per ?fishy=, ?fishyGate=, ?fishyWired=, ?watchAi=, ?ransomNo
     expect(context.recent).toHaveLength(2);
     expect(JSON.stringify(context)).not.toMatch(/\.plist|\/Users|helper/);
     expect((await make().context()).floor).toBe("calm");
+  });
+
+  it("a false push clears the items and flips licensed, and a true push leaves the items alone", async () => {
+    const port = make({ watch: "act" });
+    const states: WatchState[] = [];
+    port.onState((s) => states.push(s));
+    const before = await port.status();
+    expect(before.licensed).toBe(true);
+    expect(before.items.length).toBeGreaterThan(0);
+    const profile = { role: "individual", technical: "low", handlesClientData: false, laptopLeavesHome: true } as const;
+    await port.setProfile(profile, undefined, true);
+    expect(await port.status()).toEqual(before);
+    expect(states).toEqual([]);
+    await port.setProfile(profile, undefined, false);
+    const after = await port.status();
+    expect(after).toMatchObject({ licensed: false, rating: "calm", items: [], gated: [], unavailable: [] });
+    expect(states).toEqual([after]);
+    await port.setProfile(profile, undefined, true);
+    expect(await port.status()).toEqual({ ...after, licensed: true });
   });
 });
 
@@ -156,7 +175,7 @@ describe("DemoWatch recorded calls", () => {
     await port.setInterval(15);
     await port.setNotify(false);
     await port.requestNotifyPermission();
-    await port.setProfile({ role: "individual", technical: "low", handlesClientData: false, laptopLeavesHome: true });
+    await port.setProfile({ role: "individual", technical: "low", handlesClientData: false, laptopLeavesHome: true }, undefined, true);
     await port.snooze("sig.listener_new_ports");
     await port.acknowledge("sig.listener_new_ports");
     await port.openSource("act.report");
@@ -173,7 +192,7 @@ describe("DemoWatch recorded calls", () => {
       { kind: "watch_set_interval", arg: 15 },
       { kind: "watch_set_notify", arg: false },
       { kind: "watch_request_notify_permission" },
-      { kind: "watch_set_profile" },
+      { kind: "watch_set_profile", arg: true },
       { kind: "watch_snooze", arg: "sig.listener_new_ports" },
       { kind: "watch_acknowledge", arg: "sig.listener_new_ports" },
       { kind: "watch_open_source", arg: "act.report" },

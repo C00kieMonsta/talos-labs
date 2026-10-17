@@ -28,7 +28,6 @@ interface Options {
   readonly locked?: boolean;
   readonly connect?: Partial<AiConnectController>;
   readonly others?: readonly (typeof RULE)[];
-  readonly onUnlock?: () => void;
 }
 
 function renderPanel(options: Options = {}) {
@@ -36,13 +35,13 @@ function renderPanel(options: Options = {}) {
   const base = fakeContextValue({
     adapters: fakeAdapters(),
     license: { status: "none" },
-    gate: { licensed: !locked, freeFixes: [], has: () => !locked, fixLocked: () => locked, explainLocked: () => locked },
+    gate: { licensed: !locked, freeFixes: [], has: () => !locked, fixLocked: () => locked, explainLocked: () => false, watchLocked: locked },
     scanState: { kind: "ready", report: REPORT, state: DEV_MACHINE, explain: options.explain ?? { kind: "off" }, lastRecheck: null, fixing: null, watching: null },
     settings: { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: options.provider ?? "chatgpt" } },
   });
   const value: AppContextValue = { ...base, ai: { ...base.ai, availability: options.availability === undefined ? "available" : options.availability, until: options.until ?? null, probe: vi.fn(async () => "available" as const), reprobe: vi.fn(() => () => undefined) } };
   const connect = fakeConnectController({ offered: { chatgpt: true, claude_plan: true, apple: false }, connectable: true, ...options.connect });
-  render(createElement(StatefulProvider, { value, connect }, createElement(ExplainPanel, { ruleId: RULE, others: options.others, onUnlock: options.onUnlock })));
+  render(createElement(StatefulProvider, { value, connect }, createElement(ExplainPanel, { ruleId: RULE, others: options.others })));
   return { value, connect };
 }
 
@@ -164,7 +163,7 @@ describe("ExplainPanel, before anything is connected", () => {
     const base = fakeContextValue({
       adapters: fakeAdapters(),
       license: { status: "none" },
-      gate: { licensed: true, freeFixes: [], has: () => true, fixLocked: () => false, explainLocked: () => false },
+      gate: { licensed: true, freeFixes: [], has: () => true, fixLocked: () => false, explainLocked: () => false, watchLocked: false },
       scanState: { kind: "ready", report: REPORT, state: DEV_MACHINE, explain: { kind: "off" }, lastRecheck: null, fixing: null, watching: null },
       settings: { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: "chatgpt" } },
     });
@@ -219,24 +218,13 @@ describe("ExplainPanel, state lines", () => {
     expect(value.ai.probe).toHaveBeenCalledWith(true);
   });
 
-  it("locked shows the full-version line, and Unlock opens the paywall step instead of drawing a field", () => {
-    const onUnlock = vi.fn();
-    const { value } = renderPanel({ locked: true, onUnlock });
+  it("unlicensed with the AI available streams the explanation", () => {
+    const { value } = renderPanel({ locked: true });
     open();
-    expect(body()).toContain(EXPLAIN.locked);
-    expect(value.scan.explain).not.toHaveBeenCalled();
-    const unlock = screen.getByRole("button", { name: EXPLAIN.unlock });
-    expect(unlock.className).toBe("guided-text-button");
-    fireEvent.click(unlock);
-    expect(onUnlock).toHaveBeenCalledTimes(1);
+    expect(value.scan.explain).toHaveBeenCalledTimes(1);
+    expect(value.scan.explain).toHaveBeenCalledWith(RULE);
     expect(document.querySelector(".guided-licence")).toBeNull();
     expect(document.querySelector("input")).toBeNull();
-    cleanup();
-    // Without a way to the paywall the line stands alone.
-    renderPanel({ locked: true });
-    open();
-    expect(body()).toBe(EXPLAIN.locked);
-    expect(document.querySelectorAll(".guided-explain-body button").length).toBe(0);
   });
 
   it("probes once (cached) after a call fails because the provider's state changed", () => {
@@ -258,7 +246,7 @@ describe("ExplainPanel, state lines", () => {
     const base = fakeContextValue({
       adapters: fakeAdapters(),
       license: { status: "none" },
-      gate: { licensed: true, freeFixes: [], has: () => true, fixLocked: () => false, explainLocked: () => false },
+      gate: { licensed: true, freeFixes: [], has: () => true, fixLocked: () => false, explainLocked: () => false, watchLocked: false },
       scanState: { kind: "ready", report: REPORT, state: DEV_MACHINE, explain, lastRecheck: null, fixing: null, watching: null },
       settings: { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: "chatgpt" } },
     });

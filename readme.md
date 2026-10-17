@@ -97,9 +97,9 @@ The full table with pass conditions and fixes is [docs/RULES.md](docs/RULES.md).
 
 ## Free and paid
 
-Free, before any purchase: the full scan, the score and grade, every finding with its title, status, evidence and explanation, the complete fix (including Apply) for the three highest-point failing findings, connecting your AI, and AI explanations for those same three. Fixes for "worth a look" findings are always free, and so is the recheck bundled into every Apply. FileVault is the only critical rule, so an unencrypted disk is always in the free three.
+Free, before any purchase: the full scan, the score and grade, every finding with its title, status, evidence and explanation, the complete fix (including Apply) for the three highest-point failing findings, connecting your AI, and everything it does once connected: explanations for every finding, the suggested order and Ask. Fixes for "worth a look" findings are always free, and so is the recheck bundled into every Apply. FileVault is the only critical rule, so an unencrypted disk is always in the free three.
 
-Paid, one licence key at €24 a year: fixes for every finding, "Check again" per finding, AI explanations for everything, the suggested order and Ask. What happens after the licence year ends is not decided yet (docs/LICENSING.md).
+Paid, one licence key at €24 a year: fixes for every finding, "Check again" per finding, and the menu bar watch. What happens after the licence year ends is not decided yet (docs/LICENSING.md).
 
 In the check-up the free three are fixed first, and the paywall is one step after them with the key field inline. The free set is frozen when the check-up lands, so fixing one free finding does not unlock the next (DESIGN-V03.md section 1 and section 8).
 

@@ -29,7 +29,7 @@ export type LicenseState =
   | { readonly status: "invalid"; readonly reason: LicenseInvalidReason }
   | { readonly status: "valid"; readonly payload: LicensePayload };
 
-export type Feature = "explainer" | "all_fixes" | "recheck";
+export type Feature = "all_fixes" | "recheck" | "watch";
 
 /** Injected by the adapter so core license policy is testable without crypto. */
 export type SignatureVerifier = (message: Uint8Array, signature: Uint8Array) => boolean;

@@ -12,7 +12,7 @@ import { INTERVAL_LABELS, WatchSection } from "./WatchSection";
 
 afterEach(cleanup);
 
-const gate = { licensed: false, freeFixes: [], has: () => false, fixLocked: () => true, explainLocked: () => true };
+const gate = { licensed: true, freeFixes: [], has: () => true, fixLocked: () => false, explainLocked: () => false, watchLocked: false };
 
 function fakeWatch(overrides: Partial<WatchController> = {}): WatchController {
   return {

@@ -23,6 +23,7 @@ const ITEM = {
 
 const STATE = {
   enabled: true,
+  licensed: true,
   firstRun: false,
   hiddenLaunch: false,
   rating: "act_now",
@@ -202,8 +203,8 @@ describe("TauriWatchAdapter", () => {
     await port.setInterval(15);
     await port.setNotify(true);
     await port.requestNotifyPermission();
-    await port.setProfile({ role: "freelancer", technical: "high", handlesClientData: true, laptopLeavesHome: false, extra: "/Users/x" } as never);
-    await port.setProfile({ role: "freelancer", technical: "high", handlesClientData: true, laptopLeavesHome: false }, { enabled: true, provider: "ollama" as never });
+    await port.setProfile({ role: "freelancer", technical: "high", handlesClientData: true, laptopLeavesHome: false, extra: "/Users/x" } as never, undefined, true);
+    await port.setProfile({ role: "freelancer", technical: "high", handlesClientData: true, laptopLeavesHome: false }, { enabled: true, provider: "ollama" as never }, false);
     await port.acknowledge("sig.persistence_new");
     await port.answerGate("sig.firewall", false);
     await port.snooze("sig.persistence_new");
@@ -224,8 +225,8 @@ describe("TauriWatchAdapter", () => {
       ["watch_set_interval", { minutes: 15 }],
       ["watch_set_notify", { enabled: true }],
       ["watch_request_notify_permission", {}],
-      ["watch_set_profile", { profile: { role: "freelancer", technical: "high", handlesClientData: true, laptopLeavesHome: false } }],
-      ["watch_set_profile", { profile: { role: "freelancer", technical: "high", handlesClientData: true, laptopLeavesHome: false }, ai: { enabled: true, provider: null } }],
+      ["watch_set_profile", { profile: { role: "freelancer", technical: "high", handlesClientData: true, laptopLeavesHome: false }, licensed: true }],
+      ["watch_set_profile", { profile: { role: "freelancer", technical: "high", handlesClientData: true, laptopLeavesHome: false }, ai: { enabled: true, provider: null }, licensed: false }],
       ["watch_acknowledge", { signal: "sig.persistence_new" }],
       ["watch_answer_gate", { signal: "sig.firewall", mine: false }],
       ["watch_snooze", { signal: "sig.persistence_new" }],
@@ -308,6 +309,8 @@ describe("TauriWatchAdapter", () => {
     await Promise.resolve();
     handlers.get("watch:state")?.(STATE);
     handlers.get("watch:state")?.({ enabled: true });
+    // A state without the licensed flag is from another build and is dropped.
+    handlers.get("watch:state")?.({ ...STATE, licensed: undefined });
     handlers.get("watch:notified")?.({ signalId: "sig.firewall" });
     handlers.get("watch:notified")?.({ signalId: "/tmp" });
     handlers.get("watch:open")?.({ screen: "settings_watch" });
@@ -336,7 +339,7 @@ describe("TauriWatchAdapter", () => {
       port.setInterval(60),
       port.setNotify(true),
       port.requestNotifyPermission(),
-      port.setProfile({ role: "individual", technical: "low", handlesClientData: false, laptopLeavesHome: true }),
+      port.setProfile({ role: "individual", technical: "low", handlesClientData: false, laptopLeavesHome: true }, undefined, true),
       port.acknowledge("sig.firewall"),
       port.answerGate("sig.firewall", true),
       port.snooze("sig.firewall"),

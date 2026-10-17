@@ -164,15 +164,16 @@ pub fn checked_ago(last_check_at: Option<&str>, now: DateTime<Utc>) -> Option<St
     })
 }
 
-/// What closing the main window does: hide behind the tray while the watch is on, else quit.
+/// What closing the main window does: hide behind the tray while the watch is active (switched
+/// on and licensed), else quit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CloseAction {
     Hide,
     Exit,
 }
 
-pub fn close_action(watch_enabled: bool) -> CloseAction {
-    if watch_enabled {
+pub fn close_action(watch_active: bool) -> CloseAction {
+    if watch_active {
         CloseAction::Hide
     } else {
         CloseAction::Exit
@@ -233,9 +234,10 @@ fn tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     )
 }
 
-/// Creates the tray item with its icon and menu; a second call while it exists does nothing.
+/// Creates the tray item with its icon and menu; a second call while it exists does nothing,
+/// and an inactive watch (switched off or unlicensed) gets no item.
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
-    if app.tray_by_id(TRAY_ID).is_some() {
+    if !crate::watch::is_active(app) || app.tray_by_id(TRAY_ID).is_some() {
         return Ok(());
     }
     let menu = tray_menu(app)?;
@@ -287,10 +289,10 @@ fn hook_notification_tap(app: &AppHandle) {
     });
 }
 
-/// Swaps the icon and tooltip for the rating; removes the item when the watch is off and
-/// rebuilds it when the watch comes back on.
+/// Swaps the icon and tooltip for the rating; removes the item when the watch is inactive
+/// (switched off or unlicensed) and rebuilds it when both flags come back.
 pub fn set_state(app: &AppHandle, state: &WatchState) {
-    if !state.enabled {
+    if !(state.enabled && state.licensed) {
         // The status item is torn down on the main thread; the cycle calls this from a worker.
         let handle = app.clone();
         let _ = app.run_on_main_thread(move || drop(handle.remove_tray_by_id(TRAY_ID)));
@@ -442,13 +444,13 @@ pub fn on_second_instance(app: &AppHandle, _argv: Vec<String>, _cwd: String) {
     open_main_plain(app);
 }
 
-/// The window events lib.rs forwards: main's close with the watch on hides instead; with the
-/// watch off it ends the process, since the hidden watch window would otherwise keep it alive;
+/// The window events lib.rs forwards: main's close with the watch active hides instead; with the
+/// watch inactive it ends the process, since the hidden watch window would otherwise keep it alive;
 /// the watch window hides on blur unless the blur is the tray click itself.
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
     match (window.label(), event) {
         (MAIN_LABEL, WindowEvent::CloseRequested { api, .. }) => {
-            match close_action(crate::watch::is_enabled(window.app_handle())) {
+            match close_action(crate::watch::is_active(window.app_handle())) {
                 CloseAction::Hide => {
                     api.prevent_close();
                     hide_main(window.app_handle());
@@ -824,9 +826,13 @@ mod tests {
     }
 
     #[test]
-    fn closing_main_hides_with_the_watch_on_and_exits_with_it_off() {
+    fn closing_main_hides_with_the_watch_active_and_exits_with_it_inactive() {
         assert_eq!(close_action(true), CloseAction::Hide);
-        assert_eq!(close_action(false), CloseAction::Exit);
+        assert_eq!(
+            close_action(false),
+            CloseAction::Exit,
+            "switched off or unlicensed: no tray item, so the process ends"
+        );
     }
 
     #[test]

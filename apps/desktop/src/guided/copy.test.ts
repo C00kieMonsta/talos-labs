@@ -63,6 +63,15 @@ describe("guided copy", () => {
     expect(END.explained).toBe("Get things explained");
   });
 
+  it("the paywall and welcome bodies name the watch, not the AI, and read under 1.6 syllables per word", () => {
+    expect(PAYWALL.body).toBe("The full version does them all and keeps an eye on your Mac from the menu bar.");
+    expect(WELCOME.body).toBe("I'll look at your Mac's safety settings and fix what I can. Nothing leaves your Mac.");
+    expect(syllablesPerWord(PAYWALL.body)).toBeLessThanOrEqual(1.6);
+    expect(syllablesPerWord(WELCOME.body)).toBeLessThanOrEqual(1.6);
+    expect("locked" in EXPLAIN).toBe(false);
+    expect("unlock" in EXPLAIN).toBe(false);
+  });
+
   it("overrides the three scanning rows that carried banned words", () => {
     expect(GUIDED_SECTION_LABELS.ssh).toBe("Checking your login keys");
     expect(GUIDED_SECTION_LABELS.passwordPolicy).toBe("Checking password settings");
@@ -105,7 +114,7 @@ describe("watch copy", () => {
       tryAgain: "I'll check again within the hour.",
       couldNotCheck: "I made the change but could not check it. I'll check again within the hour.",
     });
-    expect(WELCOME.body.endsWith(" I'll also keep an eye on your settings from the menu bar. You can switch that off in Settings.")).toBe(true);
+    expect(WELCOME.body).toBe("I'll look at your Mac's safety settings and fix what I can. Nothing leaves your Mac.");
     expect(WELCOME.notAntivirus).toBe(NOT_ANTIVIRUS);
     expect(WELCOME.allowNotifications).toBe("Tell me when something needs doing now");
     expect(NOT_ANTIVIRUS.startsWith("I'm not antivirus.")).toBe(true);

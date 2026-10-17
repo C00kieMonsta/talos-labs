@@ -10,7 +10,6 @@ import { AI_ACTIONS, AI_OPEN_APPLE_SETTINGS, AI_UNAVAILABLE_COPY, EXPLAINER_FAIL
 import type { AppleAiState } from "../app/labels";
 import type { ExplainerProvider } from "../settings";
 import { Icon } from "./Icon";
-import { LicenceField } from "./LicenceField";
 
 export type AiCardKind = "finding" | "overview" | "ask";
 
@@ -30,15 +29,12 @@ export type AiCardState =
   | { kind: "limit_reached"; until: string | null }
   | { kind: "plan_not_eligible" }
   | { kind: "provider_unavailable" }
-  | { kind: "not_offered" }
-  | { kind: "locked" };
+  | { kind: "not_offered" };
 
 type AppleState = AppleAiState;
 type ProviderState = "not_connected" | "connecting" | "needs_sign_in" | "limit_reached" | "plan_not_eligible" | "provider_unavailable" | "not_offered";
 
 export { AI_UNAVAILABLE_COPY };
-
-export const AI_LOCKED_COPY = "AI explanations are part of the full version.";
 
 /** The card line for an unavailable state: the Apple strings as they were, the provider lines with its name filled in. */
 export function aiUnavailableCopy(provider: ExplainerProvider, state: AppleState | ProviderState, until: string | null = null, kind: AiCardKind = "overview"): string {
@@ -76,13 +72,12 @@ const START_LABELS: Readonly<Record<AiCardKind, string>> = {
 const PROVIDER_REASONS: readonly ExplainerFailure[] = ["needs_sign_in", "limit_reached", "provider_unavailable"];
 
 /**
- * The chrome around the model: availability before the lock, then idle, streaming, ready or failed.
- * The unavailable states render for every user; locked only when the model is available and AI is paid.
+ * The chrome around the model: availability first, then idle, streaming, ready or failed.
+ * The unavailable states render for every user; there is no locked state, AI is free once connected.
  */
 export function aiCardState(
   availability: AiAvailability | null,
   until: string | null,
-  locked: boolean,
   activity: "idle" | "streaming" | "ready" | { failed: ExplainerFailure },
 ): AiCardState {
   if (availability === null) return { kind: "probing" };
@@ -92,7 +87,6 @@ export function aiCardState(
     if (activity.failed === "limit_reached") return { kind: "limit_reached", until };
     if (activity.failed === "needs_sign_in" || activity.failed === "provider_unavailable") return { kind: activity.failed };
   }
-  if (locked) return { kind: "locked" };
   if (activity === "idle") return { kind: "available_idle" };
   if (activity === "streaming") return { kind: "streaming" };
   if (activity === "ready") return { kind: "ready" };
@@ -116,7 +110,6 @@ export function AiCard({
   onStop,
   onRetry,
   onOpenAiSettings,
-  onBuy,
   onConnect,
   onCancelConnect,
   onSignInAgain,
@@ -132,7 +125,6 @@ export function AiCard({
   onStop(): void;
   onRetry(): void;
   onOpenAiSettings(): void;
-  onBuy(): void;
   onConnect(): void;
   onCancelConnect(): void;
   onSignInAgain(): void;
@@ -208,8 +200,6 @@ export function AiCard({
         return { icon: "alert", text: lines.providerUnavailable, action: small(AI_ACTIONS.tryAgain, onRetry) };
       case "not_offered":
         return { icon: "ai", text: lines.notOffered, action: small(AI_ACTIONS.chooseAnother, onChooseAnother) };
-      case "locked":
-        return { icon: "lock", text: AI_LOCKED_COPY };
     }
   };
   const l = line();
@@ -228,18 +218,13 @@ export function AiCard({
       )}
       {body}
       {state.kind === "ready" && <p className="ai-card-foot">{aiBadge(provider)}</p>}
-      {state.kind === "locked" && (
-        <div className="ai-card-extra">
-          <LicenceField onBuy={onBuy} />
-        </div>
-      )}
     </section>
   );
 }
 
 type AiCardHandlers = Pick<
   Parameters<typeof AiCard>[0],
-  "onStart" | "onStop" | "onRetry" | "onOpenAiSettings" | "onBuy" | "onConnect" | "onCancelConnect" | "onSignInAgain" | "onChooseAnother"
+  "onStart" | "onStop" | "onRetry" | "onOpenAiSettings" | "onConnect" | "onCancelConnect" | "onSignInAgain" | "onChooseAnother"
 >;
 
 export interface AiCardFlow {
@@ -249,9 +234,9 @@ export interface AiCardFlow {
   readonly handlers: AiCardHandlers;
 }
 
-/** Wires one AI card to the app: lazy probe on mount, re-probe schedules, lock and the explain state for its target. */
+/** Wires one AI card to the app: lazy probe on mount, re-probe schedules and the explain state for its target. */
 export function useAiCardFlow(target: ExplainTarget): AiCardFlow {
-  const { ai, gate, scan, adapters, settings, router } = useApp();
+  const { ai, scan, adapters, settings, router } = useApp();
   const connect = useConnect();
   const { availability, until, probe, reprobe } = ai;
   const provider = settings.explainer.provider;
@@ -301,8 +286,7 @@ export function useAiCardFlow(target: ExplainTarget): AiCardFlow {
     if (target === "prioritise") void scan.prioritise();
     else if (target !== "ask") void scan.explain(target);
   };
-  const locked = target === "prioritise" || target === "ask" ? !gate.has("explainer") : gate.explainLocked(target);
-  const state = aiCardState(availability, until, locked, activity);
+  const state = aiCardState(availability, until, activity);
   return {
     state,
     explain,
@@ -318,7 +302,6 @@ export function useAiCardFlow(target: ExplainTarget): AiCardFlow {
         void adapters.openSettingsPane("apple_intelligence");
         reprobe(REPROBE_SETTINGS_MS);
       },
-      onBuy: () => void adapters.fixes.openBuyPage(),
       onConnect: () => connect.open(router.route),
       onCancelConnect: () => connect.cancel(),
       onSignInAgain: () => connect.signInAgain(router.route),
