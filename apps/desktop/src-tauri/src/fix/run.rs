@@ -7,7 +7,7 @@ use std::sync::atomic::AtomicBool;
 use serde::Serialize;
 use zeroize::Zeroizing;
 
-use super::catalog::{Choice, FixSpec, Precondition, Privilege, Secret, spec_for};
+use super::catalog::{Choice, FixSpec, Precondition, Privilege, Secret, spec_for, watch_spec_for};
 use super::plan::{Bound, Plan, Running};
 use super::{FixChoice, FixError, FixOutcome, inputs, privileged, pty};
 use crate::state::SshKey;
@@ -99,10 +99,60 @@ fn precondition_holds_real(_pre: Precondition) -> bool {
     false
 }
 
+fn fresh_hardware_ports() -> Result<String, FixError> {
+    let tokens: Vec<String> = ["/usr/sbin/networksetup", "-listallhardwareports"]
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+    let out = privileged::read_user(&tokens).map_err(|_| FixError::InvalidChoice)?;
+    if out.status != Some(0) {
+        return Err(FixError::InvalidChoice);
+    }
+    Ok(out.stdout)
+}
+
+/// The folders a watch row may unload from, with whether the plist must be owned by the user.
+fn plist_dirs(spec: &FixSpec) -> Result<Vec<(PathBuf, bool)>, FixError> {
+    match spec.rule {
+        "watch.stop_user_agent" => {
+            let home = dirs::home_dir().ok_or(FixError::InvalidChoice)?;
+            Ok(vec![
+                (home.join("Library/LaunchAgents"), true),
+                (PathBuf::from("/Library/LaunchAgents"), false),
+            ])
+        }
+        "watch.stop_daemon" => Ok(vec![(PathBuf::from("/Library/LaunchDaemons"), false)]),
+        _ => Err(FixError::InvalidChoice),
+    }
+}
+
+/// The plist against every folder the row allows; the first that passes the five checks binds.
+pub(crate) fn bind_plist(
+    spec: &FixSpec,
+    chosen: &str,
+    listing: &[String],
+) -> Result<PathBuf, FixError> {
+    for (dir, owner) in plist_dirs(spec)? {
+        if let Ok(path) = inputs::check_plist_path(chosen, listing, &dir, owner) {
+            return Ok(path);
+        }
+    }
+    Err(FixError::InvalidChoice)
+}
+
 fn bind(spec: &FixSpec, choice: &FixChoice) -> Result<Bound, FixError> {
     let mut bound = Bound::default();
     match (spec.choice, choice) {
         (Choice::None, FixChoice::None) => {}
+        (Choice::Plist, FixChoice::Plist { path }) => {
+            bound.plist_path = Some(bind_plist(spec, path, &super::reveal::fresh_plists())?);
+            // SAFETY: getuid has no preconditions and cannot fail.
+            let uid = unsafe { libc::getuid() };
+            bound.gui_domain = Some(format!("gui/{uid}"));
+        }
+        (Choice::WifiDevice, FixChoice::None) => {
+            bound.wifi_device = Some(inputs::bind_wifi_device(&fresh_hardware_ports()?)?);
+        }
         (Choice::Share, FixChoice::Share { path }) => {
             bound.share_name = Some(inputs::bind_share(path, &fresh_shares()?)?);
         }
@@ -139,6 +189,16 @@ fn read_previous(spec: &FixSpec) -> Option<String> {
 /// Builds a plan: binds every slot from fresh listings and checks the precondition.
 pub fn preview(rule: &str, choice: &FixChoice) -> Result<Plan, FixError> {
     let spec = spec_for(rule).ok_or(FixError::NotInCatalog)?;
+    preview_spec(spec, choice)
+}
+
+/// The watch twin: a WATCH_CATALOG row by its watch.* id.
+pub fn preview_watch(action: &str, choice: &FixChoice) -> Result<Plan, FixError> {
+    let spec = watch_spec_for(action).ok_or(FixError::NotInCatalog)?;
+    preview_spec(spec, choice)
+}
+
+fn preview_spec(spec: &'static FixSpec, choice: &FixChoice) -> Result<Plan, FixError> {
     let bound = bind(spec, choice)?;
     if let Some(pre) = spec.precondition
         && !precondition_holds(pre)
@@ -261,7 +321,100 @@ pub fn prompt_for(spec: &FixSpec) -> String {
         "TL-MAC-020" => "turn Screen Sharing off",
         "TL-MAC-021" => "turn Remote Management off",
         "TL-MAC-022" => "stop sharing a folder with everyone",
+        "watch.wifi_off" => "turn Wi-Fi off",
+        "watch.wifi_on" => "turn Wi-Fi on",
+        "watch.block_incoming" => "block all incoming connections",
+        "watch.allow_incoming" => "allow incoming connections again",
+        "watch.stop_user_agent" | "watch.stop_daemon" => "stop a background program",
         _ => "change a setting",
     };
     format!("Talos Labs wants to {what}.")
+}
+
+#[cfg(test)]
+mod watch_tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+
+    fn tmp(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("talos-fix-run-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.canonicalize().unwrap()
+    }
+
+    #[test]
+    fn stop_rows_refuse_paths_outside_their_folders_absent_from_the_listing_or_symlinked() {
+        let daemon = watch_spec_for("watch.stop_daemon").unwrap();
+        let agent = watch_spec_for("watch.stop_user_agent").unwrap();
+        let elsewhere = tmp("elsewhere");
+        let plist = elsewhere.join("com.example.plist");
+        std::fs::write(&plist, b"<plist/>").unwrap();
+        let text = plist.to_string_lossy().into_owned();
+        assert_eq!(
+            bind_plist(daemon, &text, std::slice::from_ref(&text)),
+            Err(FixError::InvalidChoice),
+            "outside /Library/LaunchDaemons"
+        );
+        assert_eq!(
+            bind_plist(agent, &text, std::slice::from_ref(&text)),
+            Err(FixError::InvalidChoice),
+            "outside both LaunchAgents folders"
+        );
+        assert_eq!(
+            bind_plist(daemon, "/Library/LaunchDaemons/com.apple.nope.plist", &[]),
+            Err(FixError::InvalidChoice),
+            "not in the listing"
+        );
+        let link = elsewhere.join("link.plist");
+        symlink(&plist, &link).unwrap();
+        let link_text = link.to_string_lossy().into_owned();
+        assert_eq!(
+            bind_plist(agent, &link_text, std::slice::from_ref(&link_text)),
+            Err(FixError::InvalidChoice),
+            "symlink"
+        );
+        assert!(
+            matches!(
+                bind(daemon, &FixChoice::Share { path: text.clone() }),
+                Err(FixError::InvalidChoice)
+            ),
+            "the wrong choice kind"
+        );
+        assert!(matches!(
+            bind(
+                watch_spec_for("watch.wifi_off").unwrap(),
+                &FixChoice::Plist { path: text }
+            ),
+            Err(FixError::InvalidChoice)
+        ));
+        assert!(matches!(
+            preview_watch("watch.nope", &FixChoice::None),
+            Err(FixError::NotInCatalog)
+        ));
+        assert!(matches!(
+            preview_watch("TL-MAC-002", &FixChoice::None),
+            Err(FixError::NotInCatalog)
+        ));
+        let _ = std::fs::remove_dir_all(&elsewhere);
+    }
+
+    #[test]
+    fn the_six_prompts_name_the_change() {
+        for id in [
+            "watch.wifi_off",
+            "watch.wifi_on",
+            "watch.block_incoming",
+            "watch.allow_incoming",
+            "watch.stop_user_agent",
+            "watch.stop_daemon",
+        ] {
+            let prompt = prompt_for(watch_spec_for(id).unwrap());
+            assert!(
+                prompt.starts_with("Talos Labs wants to ")
+                    && !prompt.ends_with("change a setting."),
+                "{id}: {prompt}"
+            );
+        }
+    }
 }

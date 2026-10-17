@@ -2,6 +2,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import process from "node:process";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 const host = process.env.TAURI_DEV_HOST;
 
@@ -19,6 +23,13 @@ export default defineConfig(() => ({
 
   define: {
     __BUILD_DATE__: JSON.stringify(buildDate),
+  },
+
+  // Two pages: the main window and the 320 px watch window.
+  build: {
+    rolldownOptions: {
+      input: { main: resolve(here, "index.html"), watch: resolve(here, "watch.html") },
+    },
   },
 
   test: {

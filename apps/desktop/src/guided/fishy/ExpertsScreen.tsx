@@ -1,0 +1,91 @@
+import { useId, useState } from "react";
+import type { ActionId, WatchItem } from "@talos/core";
+import { playbookRow } from "@talos/core";
+import { ICONS } from "../../app/icons";
+import { Icon } from "../../components/Icon";
+import { StepFrame } from "../StepFrame";
+import { FISHY, NEXT } from "../copy";
+import { DetailsDisclosure } from "./DetailsDisclosure";
+import { useFishyController } from "./controller";
+
+export type ExpertRowKey = keyof typeof FISHY.experts.rows;
+
+/** Expert row to playbook row, in screen order. */
+export const EXPERT_ROWS: readonly { readonly key: ExpertRowKey; readonly actionId: ActionId }[] = [
+  { key: "passwords", actionId: "act.change_passwords" },
+  { key: "devices", actionId: "act.review_apple_account_devices" },
+  { key: "twoFactor", actionId: "act.turn_on_2fa" },
+  { key: "restore", actionId: "act.check_backup_before_restore" },
+  { key: "doNotPay", actionId: "act.do_not_pay" },
+  { key: "reinstall", actionId: "act.scan_or_reinstall" },
+  { key: "report", actionId: "act.report" },
+  { key: "update", actionId: "act.update_now" },
+  { key: "lockdown", actionId: "act.lockdown_mode" },
+];
+
+/** The rows shown: the do-not-pay row only after the ransom box, Lockdown Mode in the main list only for people who handle others' data. */
+export function expertRows(ransomNote: boolean, handlesClientData: boolean): { readonly main: readonly ExpertRowKey[]; readonly more: readonly ExpertRowKey[] } {
+  const main = EXPERT_ROWS.map((row) => row.key).filter((key) => (key === "doNotPay" ? ransomNote : key === "lockdown" ? handlesClientData : true));
+  return { main, more: handlesClientData ? [] : ["lockdown"] };
+}
+
+function ExpertRow({ rowKey, item }: { rowKey: ExpertRowKey; item: WatchItem | null }) {
+  const fishy = useFishyController();
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
+  const row = EXPERT_ROWS.find((r) => r.key === rowKey);
+  const actionId = row?.actionId ?? null;
+  const playbook = actionId === null ? undefined : playbookRow(actionId);
+  const copy = FISHY.experts.rows[rowKey];
+  const chosen = item !== null && actionId !== null && item.actionIds.includes(actionId);
+  // Advise rows carry the model's sentence when it picked this row, else the app's own word.
+  const model = playbook?.kind.kind === "advise" ? { sentence: chosen ? item.modelSentence : null, provider: chosen ? item.modelProvider : null } : null;
+  const pane = playbook?.kind.kind === "pane" ? playbook.kind.pane : null;
+  return (
+    <li>
+      <button type="button" className="guided-end-row" aria-label={`${copy.text} ${FISHY.noticed.details}`} aria-expanded={open} aria-controls={open ? panelId : undefined} onClick={() => setOpen((o) => !o)}>
+        <Icon icon={ICONS.steps} size={20} className="guided-end-row-icon" />
+        <span className="guided-end-row-text">{copy.text}</span>
+        <Icon icon={ICONS.chevronRight} size={16} className="guided-end-row-chevron" />
+      </button>
+      {open && (
+        <div id={panelId}>
+          <DetailsDisclosure actionId={actionId} model={model} open>
+            <p>{copy.details}</p>
+            {pane !== null && (
+              <button type="button" className="button button-small" onClick={() => fishy.showPane(pane)}>
+                {NEXT.show}
+              </button>
+            )}
+          </DetailsDisclosure>
+        </div>
+      )}
+    </li>
+  );
+}
+
+/** Screen 5: what experts do next, as rows that open their own Details. One primary, no link. */
+export function ExpertsScreen({ item, handlesClientData }: { item: WatchItem | null; handlesClientData: boolean }) {
+  const fishy = useFishyController();
+  const titleId = useId();
+  const { main, more } = expertRows(fishy.ransomNote, handlesClientData);
+  return (
+    <StepFrame progress={null} title={FISHY.experts.title} titleId={titleId} primary={{ label: FISHY.experts.primary, onClick: fishy.next }} className="guided-fishy guided-fishy-experts">
+      <ul className="guided-end-list" role="list" aria-labelledby={titleId}>
+        {main.map((key) => (
+          <ExpertRow key={key} rowKey={key} item={item} />
+        ))}
+      </ul>
+      {more.length > 0 && (
+        <details className="guided-explain fishy-more">
+          <summary>{FISHY.experts.more}</summary>
+          <ul className="guided-end-list" role="list">
+            {more.map((key) => (
+              <ExpertRow key={key} rowKey={key} item={item} />
+            ))}
+          </ul>
+        </details>
+      )}
+    </StepFrame>
+  );
+}

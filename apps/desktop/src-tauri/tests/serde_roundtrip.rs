@@ -33,9 +33,14 @@ fn json_files(dir: &Path) -> Vec<PathBuf> {
         .filter(|p| p.extension().is_some_and(|e| e == "json"))
         // fix-catalog.json is the fix contract, not a SystemState; tests/fix_catalog_contract.rs reads it.
         // explainer-schemas.json and partial-json-cases.json are AI contracts with their own tests.
+        // playbook.json and watch-cases.json are the watch contracts (tests/playbook_contract.rs, tests/watch_cases_contract.rs).
         .filter(|p| {
             p.file_stem().is_none_or(|s| {
-                s != "fix-catalog" && s != "explainer-schemas" && s != "partial-json-cases"
+                s != "fix-catalog"
+                    && s != "explainer-schemas"
+                    && s != "partial-json-cases"
+                    && s != "playbook"
+                    && s != "watch-cases"
             })
         })
         .collect();

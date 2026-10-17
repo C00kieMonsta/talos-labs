@@ -27,7 +27,7 @@ export function primaryFor(core: Core, bump: () => void, openPermission: () => v
         return;
       case "fix": {
         if (state.kind === "failed") {
-          const copy = failureCopy(state.error, false, paneFor(step.ruleId) !== null);
+          const copy = failureCopy(state.error, false, paneFor(step.ruleId) !== null, core.deps.settings.watch.enabled);
           if (copy.primary === "next") return next(core);
           if (copy.primary === "show_where") return convertToShow(core, step);
           if (copy.primary === "check_again") return checkAgain(core, step, bump);

@@ -214,11 +214,13 @@ fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
 
 #[tauri::command]
 pub async fn ai_provider_status(
+    window: tauri::Window,
     app: AppHandle,
     state: State<'_, Providers>,
     provider: Provider,
     fresh: bool,
 ) -> Result<ProviderStatus, String> {
+    crate::commands::guard::check(&window, crate::commands::guard::Callers::MainOnly)?;
     let dir = data_dir(&app)?;
     let chatgpt = Arc::clone(&state.chatgpt);
     let claude = Arc::clone(&state.claude);
@@ -233,7 +235,11 @@ pub async fn ai_provider_status(
 /// "On this Mac" is hidden on a Mac that cannot run Apple Intelligence, so the Apple engine is
 /// probed here rather than read from its cache: nothing else probes it while another provider is chosen.
 #[tauri::command]
-pub async fn ai_connect_offered(ai: State<'_, super::AiState>) -> Result<OfferedResponse, String> {
+pub async fn ai_connect_offered(
+    window: tauri::Window,
+    ai: State<'_, super::AiState>,
+) -> Result<OfferedResponse, String> {
+    crate::commands::guard::check(&window, crate::commands::guard::Callers::MainOnly)?;
     let engine = ai.engine();
     let apple = tauri::async_runtime::spawn_blocking(move || {
         engine.availability(false) != super::Availability::DeviceNotEligible
@@ -252,10 +258,12 @@ pub async fn ai_connect_offered(ai: State<'_, super::AiState>) -> Result<Offered
 /// the Claude start runs `codesign` before it answers, which must not block the main thread.
 #[tauri::command]
 pub async fn ai_connect_start(
+    window: tauri::Window,
     app: AppHandle,
     state: State<'_, Providers>,
     provider: Provider,
 ) -> Result<ConnectPoll, String> {
+    crate::commands::guard::check(&window, crate::commands::guard::Callers::MainOnly)?;
     let dir = data_dir(&app)?;
     let chatgpt = Arc::clone(&state.chatgpt);
     let claude = Arc::clone(&state.claude);
@@ -274,27 +282,40 @@ pub async fn ai_connect_start(
 }
 
 #[tauri::command]
-pub fn ai_connect_poll(state: State<'_, Providers>, provider: Provider) -> ConnectPoll {
-    match provider {
+pub fn ai_connect_poll(
+    window: tauri::Window,
+    state: State<'_, Providers>,
+    provider: Provider,
+) -> Result<ConnectPoll, String> {
+    crate::commands::guard::check(&window, crate::commands::guard::Callers::MainOnly)?;
+    Ok(match provider {
         Provider::Chatgpt => state.chatgpt.job.poll(),
         Provider::ClaudePlan => state.claude.job.poll(),
-    }
+    })
 }
 
 #[tauri::command]
-pub fn ai_connect_cancel(state: State<'_, Providers>, provider: Provider) {
+pub fn ai_connect_cancel(
+    window: tauri::Window,
+    state: State<'_, Providers>,
+    provider: Provider,
+) -> Result<(), String> {
+    crate::commands::guard::check(&window, crate::commands::guard::Callers::MainOnly)?;
     match provider {
         Provider::Chatgpt => state.chatgpt.job.cancel(),
         Provider::ClaudePlan => state.claude.job.cancel(),
     }
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn ai_disconnect(
+    window: tauri::Window,
     app: AppHandle,
     state: State<'_, Providers>,
     provider: Provider,
 ) -> Result<(), String> {
+    crate::commands::guard::check(&window, crate::commands::guard::Callers::MainOnly)?;
     let dir = data_dir(&app)?;
     let chatgpt = Arc::clone(&state.chatgpt);
     let claude = Arc::clone(&state.claude);
@@ -376,6 +397,33 @@ mod tests {
             Provider::ClaudePlan
         );
         assert!(serde_json::from_str::<Provider>("\"claude\"").is_err());
+    }
+
+    /// What `ai_connect_offered` answers for the two remote rows, against the build's own
+    /// environment: `TALOS_CHATGPT_OFF=1 TALOS_CLAUDE_PLAN_OFF=1 cargo test` sees both off.
+    #[test]
+    fn the_offered_rows_follow_the_build_kill_switches() {
+        let chatgpt = chatgpt_oauth::offered();
+        let claude_plan = claude_code::offered();
+        assert_eq!(chatgpt, std::env::var_os("TALOS_CHATGPT_OFF").is_none());
+        assert_eq!(
+            claude_plan,
+            std::env::var_os("TALOS_CLAUDE_PLAN_OFF").is_none()
+        );
+        let response = serde_json::to_value(OfferedResponse {
+            chatgpt,
+            claude_plan,
+            apple: true,
+        })
+        .unwrap();
+        assert_eq!(
+            response.get("chatgpt"),
+            Some(&serde_json::Value::Bool(chatgpt))
+        );
+        assert_eq!(
+            response.get("claude_plan"),
+            Some(&serde_json::Value::Bool(claude_plan))
+        );
     }
 
     #[test]

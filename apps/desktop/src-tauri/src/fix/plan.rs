@@ -23,6 +23,12 @@ pub struct Bound {
     pub key_format_flags: &'static [&'static str],
     /// 030: the modes before the change, kept so the plan documents its own reversal.
     pub previous_modes: Vec<(PathBuf, String)>,
+    /// watch.stop_*: the plist bound from the fresh listing.
+    pub plist_path: Option<PathBuf>,
+    /// watch.wifi_*: the device bound from the hardware-ports listing.
+    pub wifi_device: Option<String>,
+    /// watch.stop_user_agent: `gui/<uid>`.
+    pub gui_domain: Option<String>,
 }
 
 impl Bound {
@@ -48,6 +54,14 @@ impl Bound {
                 Arg::KeyFormatFlags => {
                     out.extend(self.key_format_flags.iter().map(|t| (*t).to_owned()))
                 }
+                Arg::WifiDevice => out.push(self.wifi_device.clone().unwrap_or_default()),
+                Arg::GuiDomain => out.push(self.gui_domain.clone().unwrap_or_default()),
+                Arg::PlistPath => out.push(
+                    self.plist_path
+                        .as_ref()
+                        .map(|p| p.to_string_lossy().into_owned())
+                        .unwrap_or_default(),
+                ),
             }
         }
         out
@@ -292,5 +306,10 @@ impl PlanStore {
 
     pub fn is_running(&self) -> bool {
         self.running.lock().is_ok_and(|r| r.is_some())
+    }
+
+    /// The watch's stop condition: a fix or a batch is in flight.
+    pub fn is_busy(&self) -> bool {
+        self.is_running()
     }
 }

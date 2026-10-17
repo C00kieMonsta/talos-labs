@@ -351,3 +351,55 @@ Welcome, plan, end partial, end all done, batch confirm, show, paywall, Overview
 - `--fg-tertiary` is held to a 3:1 floor on the canvas in `scripts/contrast.ts`; it is used for icons and 11 px tags only, not checked here.
 - Not exercised: the Tauri window beyond the 20 s launch, `cargo fmt --check`.
 - The demo server on 1493 was stopped. No git commands were run.
+
+## Menu bar watch
+
+Date: 17 October 2026. Round for the menu bar watch (`docs/DESIGN-WATCH.md`): the tray item and the 320 px window, the Rust watch loop, the "something seems fishy" guided flow, the Watch section in Settings, the kill-switch rewrite of the two AI providers, and the ACL manifest over the app commands. Demo mode only for the screens; the Rust side by its own tests. Nothing in this round runs a catalogue action, writes a LaunchAgent, starts a sign-in or touches `~/.claude`, `~/.codex` or the Keychain on this Mac; live checks are read-only probes; at most one dev-build banner, under Terminal's name. The result cells below are from the run on the final tree; the rows not run in this pass say so.
+
+### Checks on the final tree
+
+| Command | Result |
+|---|---|
+| `pnpm --filter @talos/desktop typecheck` | Clean (`tsc --noEmit` on the app and on `qa/tsconfig.json`). |
+| `pnpm -r test` (repo root) | Core 60 files, 613 tests, all passed. Desktop 72 files, 811 tests, all passed. |
+| `cargo test` (apps/desktop/src-tauri) | Lib 361 passed, 8 ignored. Integration tests 24 passed, 2 ignored (`watch_live` and `smoke` stay ignored). |
+| `cargo clippy --all-targets -- -D warnings` (apps/desktop/src-tauri) | Clean. |
+| `pnpm exec tsx scripts/contrast.ts` (apps/desktop) | "all pairs pass". |
+| `pnpm exec tsx qa/axe.ts --only ai` | 0 violations, exit 0. |
+| `cargo fmt --check` (apps/desktop/src-tauri) | Failed on 30 files, all touched or created on this branch (`main` was fmt-clean for the same files). `cargo fmt` was run on the final tree; the check is clean, and clippy and `cargo test` were re-run after it. CI does not run fmt. |
+| `pnpm exec tsx qa/snap.ts --only watch --out qa/screenshots/watch` (port 1430) | 114 shots, exit 0, no layout warning. |
+| `pnpm exec tsx qa/axe.ts --only watch` | 10 violations, 0 serious or critical: `page-has-heading-one` (moderate) on the five 320 px window states in both schemes. The window is a status surface with one status line and no heading by design (DESIGN-WATCH.md section 5). |
+| `pnpm exec tsx qa/snap.ts --out qa/screenshots/watch-full` and `qa/axe.ts` (all four walks) | Not run in this pass; the watch walk only. |
+| `TALOS_CHATGPT_OFF=yes cargo build` and `TALOS_CLAUDE_PLAN_OFF=0 cargo build`, then a plain `cargo build` | Not run in this pass. The `offered()` unit tests ran under the plain build as part of `cargo test`. |
+| `cargo test fetch_downloads_verifies_and_reports_the_version -- --ignored` (throwaway app-data dir) | Not run in this pass. |
+| Real app (`pnpm desktop`, 60 s) | Not run in this pass. No catalogue action, LaunchAgent, sign-in, Keychain item or banner was touched on this Mac. |
+
+### Fixed in this pass
+
+- The apply commands check the catalogue table before the plan runs (`commands::take_single`): a `TL-MAC-*` plan handed to `watch_action_apply`, or a `watch.*` plan handed to `fix_apply`, is refused with `not_in_catalog` and nothing runs; a Rust test pins both directions.
+- The four listing-derived counts (`sig.persistence_new`, `sig.persistence_unsigned`, `sig.persistence_in_temp_or_hidden`, `sig.listener_new_ports`) keep a baseline of 0 after "This is fine", "Yes, that was me" and the 24 h accept, so an acknowledged item no longer returns as a "1 to 0" change for a further day.
+- The three persistence counters count as one pair signal (`signals::pair_group`, `pairGroup` in core): a lone unsigned or dot-folder item is "something to look at" and does not notify; a second listing (a manual DNS server, a new listener) makes it act now.
+- A noise hold (a Talos fix, a validly signed persistence change) lasts one cycle; it no longer hides a change on every later cycle, and a held change never reaches the 24 h accept.
+- A person-triggered refresh (acknowledge, answer, snooze) bypasses the two-cycle hysteresis and the 60 s manual guard, so "This is fine", "Yes, that was me" and "Not now" clear the act-now state at once; `refresh_requested` is now read by `run_once`.
+- The notification candidate is the first item that is neither gated nor snoozed, and gated and snoozed items sort after the others, so a corroborated gate notifies for the corroborating item.
+- "Not now" caps act now unless the unsnoozed signals justify it on their own, covers the listing's siblings, and the declined item sorts last; `DemoWatch.snooze` mirrors it and the harness warning is gone.
+- The 24 h accept skips a snoozed signal, an open gate, a held change and a stand-alone flip in the bad direction (SIP, Gatekeeper, XProtect, a hidden account), which wait for the person.
+- `sig.resolvers`, `sig.established_count` and `sig.backup_age_days` have no kind (Rust and `SIGNAL_KIND`): no item, no headline; the window renders the top item only when the rating is not calm.
+- The notification body carries a full stop between the headline and the tail: "A new program started running on its own. Open me to see what experts suggest."
+- The tray tooltip rounds the elapsed time like the window (`relative-time.ts`): to five minutes, hours from 90 minutes, never "1 hour".
+- The expert Welcome's watch sentence is third person ("It also keeps an eye on your settings from the menu bar."); the guided `WELCOME.body` keeps the spec's first-person sentence.
+- With the watch off, closing the main window ends the process (`tray::close_action`), since the hidden `watch` window would otherwise keep it alive with a Dock icon and no window.
+- `capabilities/default.json` grants `core:window:allow-internal-toggle-maximize`, so the title-strip double-click zoom works again; `tests/capabilities_contract.rs` pins the four core permissions.
+- Docs: SECURITY-MODEL counts four plugins (the opener, Rust-only), drops "per provider" from the daily cap, names `tray::on_second_instance` as the no-logging target and lists the fourth core permission; DESIGN-WATCH lists `watch/settings.rs` and `watch/types.rs`, drops "per provider", and records the listing-level rules and the close-on-watch-off in section 11 (notes 32 and 33); `qa/README.md` records the clean run.
+
+### Read on screen
+
+Folder `apps/desktop/qa/screenshots/watch/`, 114 shots: the five window states at 320 px wide and each state's own height from `tray.rs` `window_height` (170 first run, 150 calm and unreadable, 280 look, 360 act) in both schemes, the end screen's act-now card, the gate, the seven noticed headlines, disconnect and its wired variant, stop and its no-entry variant, eradicate, experts with the ransom and model variants, recover and its wired variant, the end screen after "Not now", Settings' Watch section and the guided welcome, light and dark, 1100 and 900 wide for the main-window shots. Read: one primary per fishy screen and at most one link; a source line under every body that suggests an action; the window's status word and icon together; the `act` window fits the 360 px window with "See what to do" and both footer links visible; "Checked 10 minutes ago" under the status word (the tooltip now says the same); "I couldn't check 3 areas" on `unreadable`; no password field anywhere; no program name, port or path outside the Details disclosure; after "Not now" the end screen reads "Nothing needs fixing." with no act-now card.
+
+### Open
+
+- The `page-has-heading-one` axe note on the 320 px window (moderate, by design; see the table).
+- The three rows marked "Not run in this pass" above: the four-walk harness, the kill-switch builds and the 60 s real-app run.
+- Only on a real Mac, unsigned build (DESIGN-WATCH.md section 9): tray tinting in light and dark, placement under the icon on both displays, hide on blur, the click-while-open case, Cmd+Q through the custom item, sleep and wake ticks, `networksetup -setairportpower` privilege, `launchctl bootout` on a real agent, notification delivery under the Terminal identifier. Not exercised in this round unless the result cell says so.
+- Only on a Developer ID build: the socket table signals, notifications under the app's own name, click-through to the noticed screen.
+- The demo server port used by this round was stopped. No git commands were run.

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { DEV_MACHINE, MACOS_CATALOG, evaluate } from "@talos/core";
 import { DEFAULT_SETTINGS, SETTINGS_STORAGE_KEY, loadSettings } from "../settings";
-import { bootDemo, DEMO_CONTINUE_KEY, DEMO_GUIDED_MEMORY_KEY, parseDemoQuery, previousReportFor, seedSettings } from "./demo-boot";
+import { bootDemo, DEFAULT_WATCH_DEMO, DEMO_CONTINUE_KEY, DEMO_GUIDED_MEMORY_KEY, DEMO_WATCH_MEMORY_KEY, parseDemoQuery, parseWatchDemoQuery, previousReportFor, seedSettings } from "./demo-boot";
 
 afterEach(() => {
   localStorage.clear();
@@ -22,12 +22,15 @@ describe("parseDemoQuery", () => {
       since: false,
       continueGuided: false,
       technical: null,
+      watchDemo: DEFAULT_WATCH_DEMO,
+      watchMemory: null,
     });
+    expect(DEFAULT_WATCH_DEMO).toEqual({ watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false });
   });
 
   it("reads every parameter", () => {
     const flags = parseDemoQuery(
-      "?fixture=hardened&explainer=timeout&delay=50&reset=1&provider=ollama&dev=1&onboarded=1&licensed=1&fix=wrong_password&batch=partial&scan_error=timeout&fix_delay=10&ai=model_not_ready&ai_ready=500&ai_until=2026-10-16T18%3A00%3A00.000Z&connect=closed&connect_delay=0&claude_fetch=1&fda_after=2&automation=denied&bundled=0&poll_after=3&pace=0&guided=0&memory=%7B%22version%22%3A1%7D&since=1&continue=guided&technical=medium",
+      "?fixture=hardened&explainer=timeout&delay=50&reset=1&provider=ollama&dev=1&onboarded=1&licensed=1&fix=wrong_password&batch=partial&scan_error=timeout&fix_delay=10&ai=model_not_ready&ai_ready=500&ai_until=2026-10-16T18%3A00%3A00.000Z&connect=closed&connect_delay=0&claude_fetch=1&fda_after=2&automation=denied&bundled=0&poll_after=3&pace=0&guided=0&memory=%7B%22version%22%3A1%7D&since=1&continue=guided&technical=medium&watch=act&fishy=remote&fishyGate=1&fishyWired=1&watchAi=chatgpt&ransomNote=1&watchMemory=%7B%22version%22%3A1%7D",
     );
     expect(flags).toEqual({
       options: {
@@ -61,7 +64,18 @@ describe("parseDemoQuery", () => {
       since: true,
       continueGuided: true,
       technical: "medium",
+      watchDemo: { watch: "act", fishy: "remote", fishyGate: true, fishyWired: true, watchAi: "chatgpt", ransomNote: true },
+      watchMemory: '{"version":1}',
     });
+  });
+
+  it("parseWatchDemoQuery reads the seven watch params and ignores unknown values", () => {
+    for (const state of ["calm", "look", "act", "unreadable", "first-run"] as const) expect(parseWatchDemoQuery(new URLSearchParams(`watch=${state}`)).watch).toBe(state);
+    for (const kind of ["persistence", "listener", "guard", "remote", "admin", "dns", "backup"] as const) expect(parseWatchDemoQuery(new URLSearchParams(`fishy=${kind}`)).fishy).toBe(kind);
+    for (const ai of ["off", "apple", "chatgpt", "claude", "limit"] as const) expect(parseWatchDemoQuery(new URLSearchParams(`watchAi=${ai}`)).watchAi).toBe(ai);
+    expect(parseWatchDemoQuery(new URLSearchParams("watch=panic&fishy=ransomware&watchAi=gemini&fishyGate=yes&fishyWired=0&ransomNote=2"))).toEqual(DEFAULT_WATCH_DEMO);
+    expect(parseWatchDemoQuery(new URLSearchParams(""))).toEqual(DEFAULT_WATCH_DEMO);
+    expect(parseDemoQuery("?watchMemory=%7B%22version%22%3A1%2C%22fishyRanAt%22%3A%222026-10-16T10%3A00%3A00.000Z%22%7D").watchMemory).toBe('{"version":1,"fishyRanAt":"2026-10-16T10:00:00.000Z"}');
   });
 
   it("takes watch_after as an alias of poll_after and ignores unknown batch, scan_error and technical values", () => {
@@ -199,9 +213,16 @@ describe("bootDemo guided seeds", () => {
     expect(appeared).toHaveLength(1);
   });
 
+  it("stores the watch memory as given under talos.watch", () => {
+    bootDemo("?watchMemory=%7B%22version%22%3A1%7D", localStorage);
+    expect(localStorage.getItem(DEMO_WATCH_MEMORY_KEY)).toBe('{"version":1}');
+    expect(DEMO_WATCH_MEMORY_KEY).toBe("talos.watch");
+  });
+
   it("leaves memory, continue and the previous report alone without the flags", async () => {
     const adapters = bootDemo("?fixture=hardened", localStorage);
     expect(localStorage.getItem(DEMO_GUIDED_MEMORY_KEY)).toBeNull();
+    expect(localStorage.getItem(DEMO_WATCH_MEMORY_KEY)).toBeNull();
     expect(localStorage.getItem(DEMO_CONTINUE_KEY)).toBeNull();
     expect(await adapters.reports.loadLast()).toBeNull();
   });

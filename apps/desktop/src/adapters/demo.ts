@@ -21,12 +21,14 @@ import type {
   SystemStateSections,
 } from "@talos/core";
 import { ALL_UNAVAILABLE, DEV_MACHINE, FRESH_INSTALL, HARDENED, MACOS_CATALOG, SECTION_KEYS, WINDOWS_MINIMAL } from "@talos/core";
+import type { WatchDemoFlags } from "../app/demo-boot";
 import type { ExplainerProvider, ExplainerSettings } from "../settings";
 import type { Adapters } from "./index";
 import { DemoAiConnect, type DemoConnectOutcome } from "./demo-ai-connect";
 import { DemoAppleExplainer, DemoExplainer } from "./demo-explainer";
 import { DemoFixPort, type DemoBatchOutcome, type DemoFixOutcome } from "./demo-fix";
 import { DemoProviderExplainer } from "./demo-provider-explainer";
+import { DemoWatch } from "./demo-watch";
 import { cancelled, recordDemoCall, wait } from "./demo-shared";
 import { NoExplainer } from "./no-explainer";
 
@@ -35,6 +37,7 @@ export { DemoAppleExplainer, DemoExplainer, DEMO_WORD_CHUNK_MS } from "./demo-ex
 export { DemoProviderExplainer } from "./demo-provider-explainer";
 export { DemoFixPort, DEMO_BATCH_OUTCOMES, DEMO_FIX_OUTCOMES, type DemoBatchOutcome, type DemoFixOutcome } from "./demo-fix";
 export { recordDemoCall } from "./demo-shared";
+export { DemoWatch, DEFAULT_WATCH_DELAY_MS, DEMO_WATCH_PLAN_TTL_MS } from "./demo-watch";
 
 /**
  * Fixture-backed adapters so the web build runs in a plain browser for QA.
@@ -88,7 +91,12 @@ export interface DemoOptions {
   readonly connectDelayMs?: number;
   /** The Claude sign-in shows the fetching stage first. */
   readonly claudeFetch?: boolean;
+  /** The watch window and fishy flow state; absent gives a calm, enabled watch with nothing to show. */
+  readonly watchDemo?: WatchDemoFlags;
 }
+
+/** No ?watch= params: the same as DEFAULT_WATCH_DEMO in demo-boot.ts, kept here so demo.ts imports no value from it. */
+const NO_WATCH_DEMO: WatchDemoFlags = { watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false };
 
 export type DemoScanError = "collector_crashed" | "timeout" | "schema_mismatch";
 export const DEMO_SCAN_ERRORS: readonly DemoScanError[] = ["collector_crashed", "timeout", "schema_mismatch"];
@@ -309,5 +317,6 @@ export function createDemoAdapters(options: DemoOptions): Adapters {
       }
     },
     aiConnect,
+    watch: new DemoWatch(options.watchDemo ?? NO_WATCH_DEMO, options.fixDelayMs ?? DEFAULT_FIX_DELAY_MS),
   };
 }

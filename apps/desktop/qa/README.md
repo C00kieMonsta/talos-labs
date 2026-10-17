@@ -69,6 +69,20 @@ App state:
 | `continue` | `guided` | Seeds `talos.continue` with `{ "kind": "guided" }`, the relaunch continuation, so the check-up resumes at the first undone step (v0.3) |
 | `technical` | `medium` | Sets the profile's technical level, which makes the SSH key fixes (029) guided steps (v0.3) |
 
+Watch (DESIGN-WATCH.md section 8; the window is served at `/watch.html` with the same parameters):
+
+| Parameter | Values | Effect |
+|---|---|---|
+| `watch` | `calm`, `look`, `act`, `unreadable`, `first-run` | The watch window state `DemoWatch` serves. `unreadable` carries three unavailable probes with reason `permission_denied`. Absent: a calm, enabled, non-first-run state with no items. `act` also pushes `watch:notified` onto `__talosDemoCalls` at construction |
+| `fishy` | `persistence`, `listener`, `guard`, `remote`, `admin`, `dns`, `backup` | The top item's kind, which picks screen 1's headline and the signal set. Default `persistence` when `watch=act` or `watch=look` |
+| `fishyGate` | `1` | Puts the item in `gated`, so the fishy flow starts on the "Did you just change this?" screen |
+| `fishyWired` | `1` | `WatchDetails.wifiAvailable` is false, so the disconnect and recover screens show the wired variant ("Block incoming connections", "Allow incoming again") |
+| `watchAi` | `off`, `apple`, `chatgpt`, `claude`, `limit` | The badge on Advise rows and whether a model sentence appears. `off` and `limit` give no sentence; `limit` also gives `lastVerdict: null` |
+| `ransomNote` | `1` | Ticks "I saw a message asking for money", so the do-not-pay row appears on the experts screen |
+| `watchMemory` | JSON | Seeds `localStorage["talos.watch"]`, the watch memory (snoozed signals, "This is fine" dates and counts, "Not now" per action, `fishyRanAt`, notified items), stored as given |
+
+`DemoWatch` (`src/adapters/demo-watch.ts`) records `{ kind, arg }` on `window.__talosDemoCalls` for `watch_check_now`, `watch_pause`, `watch_acknowledge`, `watch_answer_gate`, `watch_snooze`, `watch_set_enabled`, `watch_set_interval`, `watch_set_notify`, `watch_set_profile`, `watch_request_notify_permission`, `watch_action_preview` and `watch_action_apply` (with the `watch.*` id), `watch_open_source` (the action id, never a URL), `autostart_enable`, `autostart_disable`, and the `watch:notified` event. `arg` is an id, a boolean or a number; a URL, a path or profile text is never recorded. Plans expire after five minutes like `DemoFixPort`'s.
+
 `pace=0` also collapses the guided auto-advance and flash timers (v0.3).
 
 Example: `http://localhost:1430/?reset=1&fixture=all-unavailable&onboarded=1&delay=0&pace=0`.
@@ -86,10 +100,10 @@ What the demo adapters do (`src/adapters/demo.ts`):
 
 ```sh
 cd apps/desktop
-pnpm exec tsx qa/snap.ts --port 1430 --out qa/screenshots/<name> [--only expert|guided|ai]
+pnpm exec tsx qa/snap.ts --port 1430 --out qa/screenshots/<name> [--only expert|guided|ai|watch]
 ```
 
-Walks the expert screens through the sidebar rows (`guided=0`), then the guided check-up, then the AI-layer screens (`--only` limits the run to one of the three), and saves each screen in light and dark at 1100x760 and 900x600 as `<screen>-<variant>-<scheme>-<width>.png`. Screenshots are full page: the content column is unrolled so the whole screen is visible. The list of files is printed to stdout. `qa/screenshots/` is git-ignored. Shots marked volatile capture a moving state and may differ between runs.
+Walks the expert screens through the sidebar rows (`guided=0`), then the guided check-up, then the AI-layer screens, then the watch window and the fishy flow (`--only` limits the run to one of the four), and saves each screen in light and dark at 1100x760 and 900x600 as `<screen>-<variant>-<scheme>-<width>.png`. Screenshots are full page: the content column is unrolled so the whole screen is visible. A shot with its own `size` (the watch window) is captured at that size only and is not unrolled. The list of files is printed to stdout. `qa/screenshots/` is git-ignored. Shots marked volatile capture a moving state and may differ between runs. Exit 0 is clean, 2 means the walk finished with layout warnings (see the watch section), 1 is a failed assertion or a crash.
 
 The v0.1 shots that survive: Welcome empty and filled, Overview, Findings, a free and a locked finding, Settings with Developer mode off and on, a finding with Terminal commands, Ask locked and answered, an AI explanation and a suggested order, the Couldn't-check cards on `all-unavailable`, Overview on `hardened` and `fresh-install`, Overview and Findings on `windows-minimal`. About is a Settings section now, so the two About shots are part of `settings-reduced` and `settings-licensed`. Back from a finding is the "‹ Findings" button.
 
@@ -138,20 +152,38 @@ Added for the AI layer (DESIGN-AI.md section 11), each in both schemes and both 
 
 AI-layer assertions: every guided shot passes `assertGuidedScreen` (one primary on choose and failed, none on waiting, fetching and done, Cancel the only link on the browser screen and no link on the Claude fetch, primary and link above the fold at 900x600); the Connect screen shows no progress line; the headline, sentence and primary of each failure match DESIGN-AI.md section 4; the end row's `aria-label` is "Get things explained. Connect the AI you already use" with no literal separator and a height of at least 44 px; the row never becomes the "Do this next" card; the progress total does not drop across the connect detour; the Settings pill word and the presence of Disconnect follow the state and no password field is drawn; the Ask row is a real `button.button` and the composer is disabled; each Overview card carries the spec line and its one action (none for `limit_reached`, which prints `.ai-card-until`); `__talosDemoCalls` records `aiConnectStart` with `chatgpt` or `claude_plan`, `aiConnectCancel` on Cancel, `aiDisconnect` on Disconnect, and never a URL.
 
-The harness runs against the demo bundle, where `DemoFixPort` fakes rechecks. Under `tauri dev` the build is unsigned, the kernel withholds the socket table, and every real recheck of rules 019 to 022 comes back `unreadable`, so those four fixes can only be seen to pass on a signed build (`docs/SIGNING.md`).
+Added for the menu bar watch (DESIGN-WATCH.md section 9), axe on all. The window shots load `${baseUrl}/watch.html?watch=<state>&pace=0` and are captured at 320 px wide and the state's own height, the one `tray.rs` `window_height` gives the real window (170 first run, 150 calm and unreadable, 280 look, 360 act; `WATCH_WINDOW_HEIGHTS` in `harness.ts`, `Shot.size`, `captureWholeScreen(..., { fixed: true })`), so a shot shows any clipping the window would. The file name carries the width, `watch-window-<state>-<scheme>-320.png`. The fishy shots use base `G` = `reset=1&fixture=hardened&onboarded=1&delay=0&pace=0`, which lands on the end screen at once, with `watch=act` so the end screen shows the watch's act-now card; every flow is opened from that card's "See what to do", in both schemes and both sizes:
+
+| Group | Shots |
+|---|---|
+| Watch window | `watch-window-calm`, `watch-window-look` (after a "Check now": "Checking now", then "Checked just now"), `watch-window-act`, `watch-window-unreadable` (`watch=unreadable`, the "I couldn't check 3 areas" line with its hover title), `watch-window-first-run` (`watch=first-run`, the timer sentence and "Start me when you log in") |
+| End screen | `guided-end-act-now` (the title reads "Act now" and the sentence under it is the item's headline, never the calm lines; the act-now card in place of "Do this next": the headline, the evidence sentence, "See what to do", the critical cue), `guided-end-after-fine` (back after "This is fine, I know it"), `guided-end-after-fishy` (back after the whole flow; the demo's item is still there, so the title is still "Act now"), `guided-end-after-fishy-not-now` (back after "Not now" on the disconnect screen) |
+| Gate | `guided-fishy-gate` (`fishy=remote&fishyGate=1&watch=act`: "Did you just change this?", primary "No, I didn't", link "Yes, that was me") |
+| Noticed | `guided-fishy-noticed-persistence`, `guided-fishy-noticed-listener`, `guided-fishy-noticed-guard`, `guided-fishy-noticed-remote` (reached through the gate's "No, I didn't"), `guided-fishy-noticed-admin`, `guided-fishy-noticed-dns`, `guided-fishy-noticed-backup` (`fishy=<kind>`, one per headline, Details closed), `guided-fishy-noticed-details` (Details open: the three local lines, the ransom box, Reveal in Finder, the phase line and the source button) |
+| Disconnect | `guided-fishy-disconnect` ("Turn Wi-Fi off"), `guided-fishy-disconnect-wired` (`fishyWired=1`, "Block incoming connections") |
+| Stop | `guided-fishy-stop` ("Stop it", reached by running Wi-Fi off), `guided-fishy-stop-no-entry` (`fishy=listener`, the "Quit the program named in Details" body with "Block incoming connections") |
+| Eradicate and experts | `guided-fishy-eradicate` ("Show me where", reached by running Stop it), `guided-fishy-experts` (the row list, primary "Done", no link), `guided-fishy-experts-details` (the first row open: "Decided by the app itself", the source line, the source button), `guided-fishy-experts-model` (`watchAi=chatgpt`: the model sentence under "Written by ChatGPT. Not verified."), `guided-fishy-experts-ransom` (`fishy=dns&ransomNote=1`, the do-not-pay row present) |
+| Recover | `guided-fishy-recover` ("Turn Wi-Fi on"), `guided-fishy-recover-wired` ("Allow incoming again") |
+| Settings and Welcome | `settings-watch` (the Watch section first in Settings: two switches, the segmented "How often", the notify switch, the not-antivirus sentence), `guided-welcome-watch` (the welcome's watch sentence, the disclosure open on the not-antivirus sentence and the "Tell me when something needs doing now" button, pressed) |
+
+Watch assertions: every fishy shot has exactly one `.button-primary` with the spec's label, the spec's one `.guided-link` or none, no `.guided-progress`, the expected number of `.guided-source` lines (one on every screen that suggests an action, two on the disconnect screen), Details closed unless the shot opens it, and never an `input[type='password']`; the admin rows (Wi-Fi, block incoming, allow incoming) show the password line and the user-level stop row does not; every headline is free of machine text; screen 5's main `.guided-end-list` holds seven rows (eight with the ransom row), no `a`, and no button but the rows themselves, with Lockdown Mode under "More experts suggest"; an open Details shows a `.fishy-phase` line and a `button.fishy-source-button` and no `a`; the watch window is 320 px wide with no sideways overflow, shows one `.button-primary` on `look` and `act` and none on `calm`, `unreadable` and `first-run`, the status icon and word together, a "Checked ..." line, the two footer links, the source and evidence lines on `act` only, and the hover title naming the three unreadable areas; Settings shows the Watch section first with the defaults (watch on, start at login off, every hour, notify on); `__talosDemoCalls` records `watch_action_preview` and `watch_action_apply` with `watch.*` ids (`watch.wifi_off`, `watch.stop_user_agent`, `watch.block_incoming`, `watch.wifi_on`), `watch_open_source` with an action id, `watch_answer_gate`, `watch_acknowledge`, `watch_snooze`, `watch_check_now`, `openSettingsPane` with `login_items`, `autostart_enable` and `autostart_disable` from the Settings switch, `watch_set_notify` and `watch_set_interval` from their controls, `watch:notified` on every `watch=act` page that is not gated and never on `calm`, `look`, `unreadable`, `first-run` or a gated item, never a URL (`assertNoUrlRecorded`), and `watch_request_notify_permission` never on a page load and exactly once after the Settings notify switch turns on or the Welcome button is pressed; `localStorage["talos.watch"]` gains `normalForMe` and `acknowledgeCount` after "This is fine", `actionNotNow` and `snoozedSignals` after "Not now", and `fishyRanAt` after the flow ends.
+
+Layout warnings. Two checks in the watch walk are collected as warnings instead of stopping the walk, so every shot is still written: the 600 px fold on the fishy screens (the primary and the link at 900x600; screen 5 is exempt because its "Done" closes the list, as the end screen's "Check again" does), and the window's content height against that state's height from `tray.rs` `window_height`. A warning is printed as `[qa] warning: ...` when it is raised and again at the end; `snap.ts` then exits 2 (1 is a crash, 0 is clean), and `axe.ts` keeps its own exit code. The run of 2026-10-17 on the final tree raised none: the `act` window's content fits the 360 px window with the footer visible, "This is fine, I know it" sits above the fold with Details open, and after "Not now" the act-now card leaves the end screen, because `DemoWatch.snooze` re-rates the unsnoozed signals by the rules and a lone corroborating signal is "something to look at" (`demo-watch.test.ts` pins it). An earlier run that day raised three (a 27 px footer clip on the `act` window, an 8 px fold miss with Details open, and the "Not now" card); the first two no longer reproduce on this tree and the third was the snooze rule.
+
+The harness runs against the demo bundle, where `DemoFixPort` fakes rechecks. Under `tauri dev` the build is unsigned, the kernel withholds the socket table, and every real recheck of rules 019 to 022 comes back `unreadable`, so those four fixes can only be seen to pass on a signed build (`docs/SIGNING.md`). The same empty socket table makes the watch's listener, remote access and file sharing signals read "I couldn't check" on every tick under `pnpm desktop`, and a dev build's notifications arrive under Terminal's name, so the harness asserts the `watch:notified` event on the demo page instead of a banner.
 
 ## Accessibility
 
 ```sh
 cd apps/desktop
-pnpm exec tsx qa/axe.ts --port 1430 [--only expert|guided|ai]
+pnpm exec tsx qa/axe.ts --port 1430 [--only expert|guided|ai|watch]
 ```
 
-Runs axe-core on the same three walks in light and dark and prints a JSON array of violations (`screen`, `id`, `impact`, `help`, `target`) to stdout. Exits 1 when any violation is serious or critical. Progress goes to stderr, so `> report.json` keeps the JSON clean.
+Runs axe-core on the same four walks in light and dark and prints a JSON array of violations (`screen`, `id`, `impact`, `help`, `target`) to stdout. Exits 1 when any violation is serious or critical. Progress goes to stderr, so `> report.json` keeps the JSON clean.
 
 ## Files
 
-- `harness.ts`: CLI args, the demo server, Chrome, and the three screen walks (`walk`, `walkGuided`, `walkAi`) shared by both scripts.
+- `harness.ts`: CLI args, the demo server, Chrome, and the four screen walks (`walk`, `walkGuided`, `walkAi`, `walkWatch`) shared by both scripts.
 - `snap.ts`, `axe.ts`: the two entry points.
 - `tsconfig.json`: the scripts are typechecked by `pnpm --filter @talos/desktop typecheck`.
 - `scratch/`: git-ignored space for ad-hoc output.

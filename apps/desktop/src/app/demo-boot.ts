@@ -1,5 +1,5 @@
-import type { AiAvailability, AutomationStatus, ExplainerFailure, ExplainerProfile, RuleId, ScanReport } from "@talos/core";
-import { evaluate, MACOS_CATALOG } from "@talos/core";
+import type { AiAvailability, AutomationStatus, ExplainerFailure, ExplainerProfile, FishyKind, RuleId, ScanReport } from "@talos/core";
+import { evaluate, FISHY_KINDS, MACOS_CATALOG } from "@talos/core";
 import type { Adapters } from "../adapters";
 import { createDemoAdapters, DEMO_BATCH_OUTCOMES, DEMO_CONNECT_OUTCOMES, DEMO_FIX_OUTCOMES, DEMO_FIXTURE_NAMES, DEMO_FIXTURES, DEMO_LICENSE_KEY, DEMO_SCAN_ERRORS, withForcedFailures } from "../adapters/demo";
 import type { DemoFixture, DemoOptions } from "../adapters/demo";
@@ -9,6 +9,8 @@ import type { AppSettings, ExplainerProvider } from "../settings";
 /** Mirrors guided/continue.ts and guided/memory.ts; the keys are fixed by DESIGN-V03.md section 7. */
 export const DEMO_CONTINUE_KEY = "talos.continue";
 export const DEMO_GUIDED_MEMORY_KEY = "talos.guided";
+/** Mirrors watch/memory.ts; the key is fixed by DESIGN-WATCH.md section 7. */
+export const DEMO_WATCH_MEMORY_KEY = "talos.watch";
 const TECHNICAL: readonly ExplainerProfile["technical"][] = ["low", "medium", "high"];
 
 /** Demo mode reads its options from the page URL. See apps/desktop/qa/README.md. */
@@ -53,6 +55,29 @@ function isoDate(value: string | null): string | null {
 
 const AUTOMATION: readonly AutomationStatus[] = ["granted", "denied", "not_determined"];
 
+export type WatchDemoState = "calm" | "look" | "act" | "unreadable" | "first-run";
+export type WatchDemoAi = "off" | "apple" | "chatgpt" | "claude" | "limit";
+const WATCH_STATES: readonly WatchDemoState[] = ["calm", "look", "act", "unreadable", "first-run"];
+const WATCH_AI: readonly WatchDemoAi[] = ["off", "apple", "chatgpt", "claude", "limit"];
+
+/** The watch window and fishy flow states the demo serves (DESIGN-WATCH.md section 8, demo params). */
+export interface WatchDemoFlags {
+  /** ?watch= picks the window state; null leaves the calm, enabled, non-first-run default. */
+  readonly watch: WatchDemoState | null;
+  /** ?fishy= picks screen 1's headline and the signal set. */
+  readonly fishy: FishyKind | null;
+  /** ?fishyGate=1 starts on the gate screen. */
+  readonly fishyGate: boolean;
+  /** ?fishyWired=1 sets details.wifiAvailable false. */
+  readonly fishyWired: boolean;
+  /** ?watchAi= picks the badge and whether a model sentence appears. */
+  readonly watchAi: WatchDemoAi | null;
+  /** ?ransomNote=1 shows the do-not-pay row. */
+  readonly ransomNote: boolean;
+}
+
+export const DEFAULT_WATCH_DEMO: WatchDemoFlags = { watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false };
+
 export interface DemoFlags {
   readonly options: DemoOptions;
   /** Clear localStorage before boot. */
@@ -73,6 +98,9 @@ export interface DemoFlags {
   /** continue=guided seeds talos.continue. */
   readonly continueGuided: boolean;
   readonly technical: ExplainerProfile["technical"] | null;
+  readonly watchDemo: WatchDemoFlags;
+  /** JSON for talos.watch, stored as given; the app parses it field by field. */
+  readonly watchMemory: string | null;
 }
 
 function pickOne<T extends string>(value: string | null, allowed: readonly T[]): T | null {
@@ -89,6 +117,18 @@ function count(params: URLSearchParams, name: string): number | null {
   if (raw === null) return null;
   const value = Number(raw);
   return Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+/** The six watch parameters; unknown values fall back to null or false. */
+export function parseWatchDemoQuery(params: URLSearchParams): WatchDemoFlags {
+  return {
+    watch: pickOne(params.get("watch"), WATCH_STATES),
+    fishy: pickOne(params.get("fishy"), FISHY_KINDS),
+    fishyGate: flag(params, "fishyGate"),
+    fishyWired: flag(params, "fishyWired"),
+    watchAi: pickOne(params.get("watchAi"), WATCH_AI),
+    ransomNote: flag(params, "ransomNote"),
+  };
 }
 
 export function parseDemoQuery(search: string): DemoFlags {
@@ -151,6 +191,8 @@ export function parseDemoQuery(search: string): DemoFlags {
     since: flag(params, "since"),
     continueGuided: params.get("continue") === "guided",
     technical,
+    watchDemo: parseWatchDemoQuery(params),
+    watchMemory: params.get("watchMemory"),
   };
 }
 
@@ -185,9 +227,10 @@ export function bootDemo(search: string, storage: Storage | null): Adapters {
   if (seeded !== null) saveSettings(seeded);
   if (flags.pace !== null && typeof window !== "undefined") window.__talosDemoPace = flags.pace;
   if (flags.memory !== null) storage?.setItem(DEMO_GUIDED_MEMORY_KEY, flags.memory);
+  if (flags.watchMemory !== null) storage?.setItem(DEMO_WATCH_MEMORY_KEY, flags.watchMemory);
   if (flags.continueGuided) storage?.setItem(DEMO_CONTINUE_KEY, JSON.stringify({ kind: "guided" }));
   const previousReport = flags.since ? previousReportFor(flags.options.fixture, flags.options.fail ?? []) : null;
-  const adapters = createDemoAdapters({ ...flags.options, previousReport });
+  const adapters = createDemoAdapters({ ...flags.options, previousReport, watchDemo: flags.watchDemo });
   if (flags.licensed) void adapters.license.install(DEMO_LICENSE_KEY);
   return adapters;
 }

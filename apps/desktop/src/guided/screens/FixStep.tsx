@@ -38,7 +38,7 @@ export function FixStep({ step, state, controller, notice }: { step: FixStepT; s
     case "done":
       return <StepFrame progress={progress} devId={step.ruleId} title={state.line} done link={{ label: FIX.next, onClick: controller.next }} notice={notice} />;
     case "failed": {
-      const copy = failureCopy(state.error, false, paneFor(step.ruleId) !== null);
+      const copy = failureCopy(state.error, false, paneFor(step.ruleId) !== null, settings.watch.enabled);
       return (
         <StepFrame progress={progress} devId={step.ruleId} title={copy.title} body={copy.body === null ? null : <p>{copy.body}</p>} primary={{ label: PRIMARY_LABELS[copy.primary], onClick: () => controller.primary() }} link={copy.later ? { label: FIX.later, onClick: controller.later } : null} notice={notice}>
           {settings.developer.enabled && (

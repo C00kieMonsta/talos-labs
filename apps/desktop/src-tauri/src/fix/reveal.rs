@@ -21,8 +21,9 @@ pub fn match_path(chosen: &str, candidates: &[String]) -> Result<PathBuf, FixErr
         .ok_or(FixError::InvalidChoice)
 }
 
+/// Every plist path of a fresh persistence scan; the watch catalogue binds against it too.
 #[cfg(target_os = "macos")]
-fn fresh_plists() -> Vec<String> {
+pub(crate) fn fresh_plists() -> Vec<String> {
     use crate::collect::macos::persistence;
     persistence::collect(&AtomicBool::new(false))
         .as_ok()
@@ -46,7 +47,7 @@ fn fresh_hits() -> Vec<String> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn fresh_plists() -> Vec<String> {
+pub(crate) fn fresh_plists() -> Vec<String> {
     let _ = AtomicBool::new(false);
     Vec::new()
 }

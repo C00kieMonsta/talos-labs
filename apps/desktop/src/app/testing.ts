@@ -17,8 +17,10 @@ import type {
   SystemState,
   SystemStatePort,
   SystemStateSections,
+  WatchPort,
+  WatchState,
 } from "@talos/core";
-import { DEV_MACHINE, MACOS_CATALOG, SECTION_KEYS } from "@talos/core";
+import { DEV_MACHINE, EMPTY_WATCH_MEMORY, MACOS_CATALOG, SECTION_KEYS } from "@talos/core";
 import type { Adapters } from "../adapters";
 import { DEFAULT_SETTINGS } from "../settings";
 import type { AppSettings } from "../settings";
@@ -30,6 +32,8 @@ import { AppContext } from "./context";
 import type { AiConnectController } from "../scan/ai-connect";
 import { AiConnectContext, INERT_CONNECT } from "../scan/ai-connect";
 import { NotOfferedConnect } from "../adapters/ai-connect";
+import type { WatchController } from "../watch/watch-controller";
+import { INERT_WATCH } from "../watch/watch-controller";
 
 /** Test doubles for everything the screens touch. Nothing here reaches Tauri. */
 
@@ -79,6 +83,86 @@ export function fakeAdapters(overrides: Partial<Adapters> = {}, state: SystemSta
     restart: vi.fn(async () => undefined),
     createExplainer: vi.fn(async () => noExplainer),
     aiConnect: new NotOfferedConnect(),
+    watch: fakeWatchPort(),
+    ...overrides,
+  };
+}
+
+/** A calm, enabled, non-first-run watch with nothing to show. */
+export function fakeWatchState(overrides: Partial<WatchState> = {}): WatchState {
+  return {
+    enabled: true,
+    firstRun: false,
+    hiddenLaunch: false,
+    rating: "calm",
+    since: "2026-10-15T09:00:00.000Z",
+    lastCheckAt: "2026-10-15T10:00:00.000Z",
+    checking: false,
+    cycleIndex: 4,
+    everyMinutes: 60,
+    notify: true,
+    pausedUntil: null,
+    closeWatchUntil: null,
+    unavailable: [],
+    gated: [],
+    items: [],
+    ...overrides,
+  };
+}
+
+/** A watch port whose status() answers `state`; every listener is a no-op and every setter resolves. */
+export function fakeWatchPort(overrides: Partial<WatchPort> = {}, state: WatchState = fakeWatchState()): WatchPort {
+  return {
+    status: vi.fn(async () => state),
+    checkNow: vi.fn(async () => undefined),
+    pause: vi.fn(async () => undefined),
+    setEnabled: vi.fn(async () => undefined),
+    setInterval: vi.fn(async () => undefined),
+    setNotify: vi.fn(async () => undefined),
+    requestNotifyPermission: vi.fn(async () => undefined),
+    setProfile: vi.fn(async () => undefined),
+    acknowledge: vi.fn(async () => undefined),
+    answerGate: vi.fn(async () => undefined),
+    snooze: vi.fn(async () => undefined),
+    context: vi.fn(async () => {
+      throw "command_failed";
+    }),
+    details: vi.fn(async () => ({ items: [], wifiAvailable: true })),
+    openMain: vi.fn(async () => undefined),
+    openSource: vi.fn(async () => undefined),
+    actionPreview: vi.fn(async () => {
+      throw "not_in_catalog";
+    }),
+    actionApply: vi.fn(async () => ({ ok: true as const })),
+    autostartEnable: vi.fn(async () => undefined),
+    autostartDisable: vi.fn(async () => undefined),
+    autostartIsEnabled: vi.fn(async () => false),
+    onState: vi.fn(() => () => undefined),
+    onNotified: vi.fn(() => () => undefined),
+    onOpen: vi.fn(() => () => undefined),
+    onShown: vi.fn(() => () => undefined),
+    ...overrides,
+  };
+}
+
+/** INERT_WATCH with every method a vi.fn, so a test can assert what a screen called. */
+export function fakeWatchController(overrides: Partial<WatchController> = {}): WatchController {
+  return {
+    ...INERT_WATCH,
+    memory: EMPTY_WATCH_MEMORY,
+    saveMemory: vi.fn(),
+    checkNow: vi.fn(),
+    pause: vi.fn(),
+    setEnabled: vi.fn(async () => undefined),
+    setInterval: vi.fn(async () => undefined),
+    setNotify: vi.fn(async () => undefined),
+    setStartAtLogin: vi.fn(async () => undefined),
+    requestNotifyPermission: vi.fn(async () => undefined),
+    acknowledge: vi.fn(async () => undefined),
+    answerGate: vi.fn(async () => undefined),
+    notNow: vi.fn(async () => undefined),
+    openSource: vi.fn(),
+    markFishyRan: vi.fn(),
     ...overrides,
   };
 }

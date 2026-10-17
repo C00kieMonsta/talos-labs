@@ -21,6 +21,7 @@ use wait_timeout::ChildExt;
 use super::claude_stream::{self, Parsed};
 use super::engine::{GenerateRequest, StreamPayload, valid_id};
 use super::partial_json;
+use super::protocol::Task;
 use super::provider::{
     CONNECT_DEADLINE, ConnectJob, ConnectOutcome, ConnectPoll, ProviderState, ProviderStatus,
     Stage, lock,
@@ -45,9 +46,16 @@ const AUTH_TTL_OTHER: Duration = Duration::from_secs(10);
 const LIMIT_TTL: Duration = Duration::from_secs(300);
 const DOWNLOAD_LIMIT: u64 = 1024 * 1024 * 1024;
 
-/// Build flag: release builds keep Claude at `not_offered` until the owner's test-account session.
+/// Offered in every build since the sign-in was verified live on 2026-10-17. Setting
+/// `TALOS_CLAUDE_PLAN_OFF` to any value at build time is the kill switch for a build that must
+/// not offer it; the row then reads "Not available yet".
 pub fn offered() -> bool {
-    cfg!(debug_assertions) || option_env!("TALOS_CLAUDE_PLAN_APPROVED") == Some("1")
+    offered_given(option_env!("TALOS_CLAUDE_PLAN_OFF"))
+}
+
+/// The kill switch rule on its own: any value, even empty, turns the provider off.
+pub(crate) fn offered_given(kill_switch: Option<&str>) -> bool {
+    kill_switch.is_none()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -255,14 +263,27 @@ pub fn claude_command(bin: &Verified, dirs: &Dirs, cwd: &Path, args: &[&str]) ->
 /// stable for this account on this Mac, and Claude Code names the cwd in every request.
 pub const RUN_DIR_ROOT: &str = "/private/tmp";
 
+/// Every run dir name: this prefix and sixteen hex digits.
+const RUN_DIR_PREFIX: &str = "talos-claude-";
+const RUN_DIR_HEX: usize = 16;
+
+/// A run dir older than this is not held by any call: the longest hold is the sign-in's
+/// `CONNECT_DEADLINE` (600 s), and an explanation ends at `WHOLE_TIMEOUT` (180 s).
+pub const RUN_DIR_MAX_AGE: Duration = Duration::from_secs(15 * 60);
+
+/// The run dirs this process holds, so a sweep never removes one under a live call.
+static LIVE_RUN_DIRS: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
 /// A fresh 0700 folder under `/private/tmp`, so no ancestor CLAUDE.md, account name or per-user
 /// path is in reach.
 pub struct RunDir(PathBuf);
 
 impl RunDir {
     pub fn create() -> std::io::Result<RunDir> {
-        let dir = PathBuf::from(RUN_DIR_ROOT).join(format!("talos-claude-{}", random_hex(8)));
+        let dir = PathBuf::from(RUN_DIR_ROOT)
+            .join(format!("{RUN_DIR_PREFIX}{}", random_hex(RUN_DIR_HEX / 2)));
         create_private_dir(&dir)?;
+        lock(&LIVE_RUN_DIRS).push(dir.clone());
         Ok(RunDir(dir))
     }
     pub fn path(&self) -> &Path {
@@ -272,8 +293,72 @@ impl RunDir {
 
 impl Drop for RunDir {
     fn drop(&mut self) {
+        lock(&LIVE_RUN_DIRS).retain(|dir| dir != &self.0);
         let _ = std::fs::remove_dir_all(&self.0);
     }
+}
+
+fn is_run_dir_name(name: &str) -> bool {
+    name.strip_prefix(RUN_DIR_PREFIX).is_some_and(|hex| {
+        hex.len() == RUN_DIR_HEX
+            && hex
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    })
+}
+
+/// Removes the run dirs under `root` that a killed or quit process left behind: named like ours,
+/// a real directory (no symlink), owned by this uid, older than `RUN_DIR_MAX_AGE` and not held by
+/// a live call in this process. Returns how many went.
+pub fn sweep_run_dirs(root: &Path, now: std::time::SystemTime) -> usize {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return 0;
+    };
+    // SAFETY: getuid has no preconditions and cannot fail.
+    let uid = unsafe { libc::getuid() };
+    let live = lock(&LIVE_RUN_DIRS).clone();
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if !name.to_str().is_some_and(is_run_dir_name) {
+            continue;
+        }
+        let path = entry.path();
+        if live.contains(&path) {
+            continue;
+        }
+        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !meta.is_dir() || meta.uid() != uid {
+            continue;
+        }
+        let stale = meta
+            .modified()
+            .ok()
+            .and_then(|at| now.duration_since(at).ok())
+            .is_some_and(|age| age >= RUN_DIR_MAX_AGE);
+        if stale && std::fs::remove_dir_all(&path).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
+/// The startup sweep of `/private/tmp`.
+pub fn sweep_stale_run_dirs() {
+    sweep_run_dirs(Path::new(RUN_DIR_ROOT), std::time::SystemTime::now());
+}
+
+/// At `RunEvent::Exit`: `app.exit(0)` ends the process without unwinding the thread that holds
+/// a run dir, so the live ones go too, then the stale ones.
+pub fn sweep_run_dirs_at_exit() {
+    let live = std::mem::take(&mut *lock(&LIVE_RUN_DIRS));
+    for dir in live {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    sweep_stale_run_dirs();
 }
 
 fn random_hex(bytes: usize) -> String {
@@ -333,7 +418,12 @@ fn version_from_file_name(path: &Path) -> Option<Version> {
 
 /// Finds a supported, verified binary: the person's own install first (read-only), then ours.
 pub fn locate(dirs: &Dirs) -> Option<Located> {
-    let home = dirs::home_dir();
+    locate_in(dirs::home_dir().as_deref(), dirs)
+}
+
+/// `locate` with the home folder as a parameter: `None` keeps the person's own install out of
+/// the search, so a test can exercise the fetched copy alone. Real codesign, real `--version`.
+pub(crate) fn locate_in(home: Option<&Path>, dirs: &Dirs) -> Option<Located> {
     let version_of = |bin: &Verified| -> Option<Version> {
         let (stdout, _) = run_capture(
             claude_command(bin, dirs, &dirs.config, &["--version"]),
@@ -343,12 +433,7 @@ pub fn locate(dirs: &Dirs) -> Option<Located> {
         .flatten()?;
         Version::parse(&stdout)
     };
-    locate_with(
-        home.as_deref(),
-        dirs,
-        &|path| verify(path).ok(),
-        &version_of,
-    )
+    locate_with(home, dirs, &|path| verify(path).ok(), &version_of)
 }
 
 pub(crate) fn locate_with(
@@ -746,8 +831,12 @@ pub struct ClaudeCodeInfo {
 
 struct InFlight {
     id: String,
+    task: Task,
     cancel: Arc<AtomicBool>,
 }
+
+/// How long the person's request waits for a cancelled watch call to let go of the slot.
+const YIELD_WAIT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
 struct CachedError {
@@ -1037,13 +1126,48 @@ impl ClaudeCode {
         if !offered() {
             return Err("not_offered".into());
         }
-        if self.busy.swap(true, Ordering::SeqCst) {
-            return Err("busy".into());
-        }
+        self.take_slot(request.task)?;
         let result = self.run(dirs, &request, emit);
         *lock(&self.inflight) = None;
         self.busy.store(false, Ordering::SeqCst);
         result
+    }
+
+    /// True while an explanation or a watch call runs.
+    pub fn is_busy(&self) -> bool {
+        self.busy.load(Ordering::SeqCst)
+    }
+
+    /// Takes the busy slot. The person's request wins over the watch's: an in-flight watch call
+    /// is cancelled and the slot waited for, briefly; anything else answers `busy`.
+    fn take_slot(&self, task: Task) -> Result<(), String> {
+        if !self.busy.swap(true, Ordering::SeqCst) {
+            return Ok(());
+        }
+        if task == Task::Watch || !self.yield_watch() {
+            return Err("busy".into());
+        }
+        Ok(())
+    }
+
+    /// Cancels an in-flight watch call and waits for the slot; false when nothing yielded.
+    fn yield_watch(&self) -> bool {
+        let watch_id = lock(&self.inflight)
+            .as_ref()
+            .filter(|f| f.task == Task::Watch)
+            .map(|f| f.id.clone());
+        let Some(id) = watch_id else {
+            return false;
+        };
+        self.cancel(&id);
+        let deadline = Instant::now() + YIELD_WAIT;
+        while Instant::now() < deadline {
+            if !self.busy.swap(true, Ordering::SeqCst) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        false
     }
 
     fn run(
@@ -1079,6 +1203,7 @@ impl ClaudeCode {
         let cancel = Arc::new(AtomicBool::new(false));
         *lock(&self.inflight) = Some(InFlight {
             id: id.to_owned(),
+            task: request.task,
             cancel: Arc::clone(&cancel),
         });
         let prompt = request.prompt.clone();
@@ -1315,6 +1440,114 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// `option_env!` is read at compile time and cargo rebuilds when it changes, so the test
+    /// binary's own environment says which build this is.
+    #[test]
+    fn the_kill_switch_turns_the_plan_off_for_any_value() {
+        assert!(offered_given(None));
+        assert!(!offered_given(Some("1")));
+        assert!(!offered_given(Some("")));
+        assert!(!offered_given(Some("0")));
+        let switched_off = std::env::var_os("TALOS_CLAUDE_PLAN_OFF").is_some();
+        assert_eq!(offered(), !switched_off);
+        let claude = ClaudeCode::default();
+        let root = temp_root("kill-switch");
+        let dirs = Dirs::under(&root.join("data"));
+        if switched_off {
+            assert_eq!(claude.status(&dirs, true).state, ProviderState::NotOffered);
+            assert!(!claude.info(&dirs).offered);
+            let request = GenerateRequest {
+                id: "ok1".into(),
+                task: super::super::protocol::Task::Explain,
+                instructions: "Explain.".into(),
+                prompt: "{}".into(),
+            };
+            let outcome = claude.generate(&dirs, request, &|_| panic!("nothing streams"));
+            assert_eq!(outcome, Err("not_offered".into()));
+            assert_eq!(Arc::new(claude).start(dirs), Err("not_offered".into()));
+        } else {
+            assert_ne!(claude.status(&dirs, true).state, ProviderState::NotOffered);
+            assert!(claude.info(&dirs).offered);
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The live fetch, run by hand: `cargo test fetch_downloads -- --ignored --nocapture`. It
+    /// downloads Anthropic's stable build into a throwaway app-data dir under the temp dir,
+    /// checks the manifest's sha256 and the Developer ID signature, then finds the copy again
+    /// with the person's own install kept out of the search (`locate_in(None, ..)`) and reads
+    /// its `--version` under the throwaway config dir. Starts no sign-in. The dir is deleted
+    /// at the end.
+    #[test]
+    #[ignore]
+    fn fetch_downloads_verifies_and_reports_the_version() {
+        let root = temp_root("fetch");
+        let dirs = Dirs::under(&root.join("data"));
+        let started = Instant::now();
+        let fetched = fetch(&dirs, &AtomicBool::new(false)).unwrap();
+        let took = started.elapsed();
+        assert_eq!(fetched.source, Source::Fetched);
+        assert!(fetched.version.supported());
+        let target = dirs.versions.join(fetched.version.to_string());
+        assert_eq!(fetched.bin.path(), target);
+        assert!(
+            !dirs
+                .versions
+                .join(format!("{}.part", fetched.version))
+                .exists()
+        );
+        let meta = std::fs::metadata(&target).unwrap();
+        assert_eq!(meta.permissions().mode() & 0o777, 0o755);
+        let size = meta.len();
+        let installed: Installed =
+            serde_json::from_slice(&std::fs::read(&dirs.installed).unwrap()).unwrap();
+        assert_eq!(installed.version, fetched.version.to_string());
+        assert_eq!(installed.path, target);
+        // The requirement names the identifier and the team; the signing identity is read for
+        // the report only.
+        assert!(
+            verify(&target).is_ok(),
+            "a second codesign check passes too"
+        );
+        let details = Command::new("/usr/bin/codesign")
+            .args(["-d", "--verbose=2", "--"])
+            .arg(&target)
+            .output()
+            .unwrap();
+        let details = String::from_utf8_lossy(&details.stderr).into_owned();
+        let identity: Vec<&str> = details
+            .lines()
+            .filter(|l| {
+                l.starts_with("Identifier=")
+                    || l.starts_with("TeamIdentifier=")
+                    || l.starts_with("Authority=")
+            })
+            .collect();
+        // The person's own install is out of the search: only the fetched copy can answer.
+        let again = locate_in(None, &dirs).unwrap();
+        assert_eq!(again.source, Source::Fetched);
+        assert_eq!(again.bin, fetched.bin);
+        assert_eq!(again.version, fetched.version);
+        let (stdout, code) = run_capture(
+            claude_command(&again.bin, &dirs, &dirs.config, &["--version"]),
+            SHORT_TIMEOUT,
+        )
+        .unwrap()
+        .unwrap();
+        std::fs::remove_dir_all(&root).unwrap();
+        eprintln!(
+            "--- fetched {} ({size} bytes) in {took:?}\n{}\n--- --version (exit {code:?}): {} ---",
+            fetched.version,
+            identity.join("\n"),
+            stdout.trim()
+        );
+        assert!(identity.contains(&"Identifier=com.anthropic.claude-code"));
+        assert!(identity.contains(&"TeamIdentifier=Q6L2SF6YDW"));
+        assert_eq!(Version::parse(&stdout), Some(fetched.version), "{stdout}");
+        assert_eq!(code, Some(0));
+        assert!(!root.exists(), "the throwaway dir is gone");
+    }
+
     #[test]
     fn a_failed_login_child_is_unavailable_and_a_clean_one_is_closed() {
         let clean = Command::new("/usr/bin/true").status().unwrap();
@@ -1335,7 +1568,11 @@ mod tests {
             verify(Path::new("/nonexistent/claude")),
             Err(VerifyError::Missing)
         );
-        assert_eq!(verify(&root), Err(VerifyError::Missing), "a folder is not a binary");
+        assert_eq!(
+            verify(&root),
+            Err(VerifyError::Missing),
+            "a folder is not a binary"
+        );
         // Every call runs codesign: a second check of the same copy is rejected the same way.
         assert_eq!(verify(&copy), Err(VerifyError::Rejected));
         let _ = std::fs::remove_dir_all(&root);
@@ -1535,6 +1772,67 @@ mod tests {
     }
 
     #[test]
+    fn the_sweep_removes_a_stale_run_dir_and_leaves_a_fresh_or_live_one() {
+        let root = temp_root("sweep");
+        let now = std::time::SystemTime::now();
+        let old = now - RUN_DIR_MAX_AGE - Duration::from_secs(60);
+        let make = |name: &str, at: std::time::SystemTime| {
+            let dir = root.join(name);
+            create_private_dir(&dir).unwrap();
+            std::fs::File::open(&dir).unwrap().set_modified(at).unwrap();
+            dir
+        };
+        let stale = make("talos-claude-0123456789abcdef", old);
+        let fresh = make("talos-claude-fedcba9876543210", now);
+        let other = make("talos-claude-test-not-a-run-dir", old);
+        let short = make("talos-claude-0123", old);
+        let link = root.join("talos-claude-aaaaaaaaaaaaaaaa");
+        std::os::unix::fs::symlink(&other, &link).unwrap();
+        std::fs::File::open(&link)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        // A dir this process holds is never swept, whatever its age.
+        let live = make("talos-claude-1111111111111111", old);
+        lock(&LIVE_RUN_DIRS).push(live.clone());
+
+        assert_eq!(sweep_run_dirs(&root, now), 1);
+        assert!(!stale.exists(), "the stale dir is gone");
+        assert!(
+            fresh.exists(),
+            "a fresh dir may be under a live call elsewhere"
+        );
+        assert!(other.exists(), "not our name");
+        assert!(short.exists(), "not our name");
+        assert!(link.exists(), "a symlink is never followed");
+        assert!(live.exists(), "held by this process");
+
+        lock(&LIVE_RUN_DIRS).retain(|dir| dir != &live);
+        assert_eq!(sweep_run_dirs(&root, now), 1, "released, it is stale");
+        assert!(!live.exists());
+        assert_eq!(sweep_run_dirs(&root, now), 0);
+        assert_eq!(sweep_run_dirs(&root.join("missing"), now), 0);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn run_dir_names_are_the_prefix_and_sixteen_hex_digits() {
+        assert!(is_run_dir_name("talos-claude-0123456789abcdef"));
+        assert!(!is_run_dir_name("talos-claude-0123456789ABCDEF"));
+        assert!(!is_run_dir_name("talos-claude-0123456789abcde"));
+        assert!(!is_run_dir_name("talos-claude-0123456789abcdefg"));
+        assert!(!is_run_dir_name("talos-claude-test-x"));
+        assert!(!is_run_dir_name("claude-0123456789abcdef"));
+        let run = RunDir::create().unwrap();
+        let name = run.path().file_name().unwrap().to_str().unwrap();
+        assert!(is_run_dir_name(name), "{name}");
+        assert!(lock(&LIVE_RUN_DIRS).contains(&run.path().to_path_buf()));
+        let path = run.path().to_path_buf();
+        drop(run);
+        assert!(!lock(&LIVE_RUN_DIRS).contains(&path));
+    }
+
+    #[test]
     fn status_without_a_binary_is_not_connected_and_errors_are_remembered() {
         let root = temp_root("status");
         let dirs = Dirs::under(&root.join("data"));
@@ -1630,7 +1928,11 @@ mod tests {
             let mut head = [0u8; 4096];
             let _ = stream.read(&mut head);
             let _ = stream.write_all(
-                format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", served.len()).as_bytes(),
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
+                    served.len()
+                )
+                .as_bytes(),
             );
             let _ = stream.write_all(&served);
             let _ = stream.flush();
@@ -1654,7 +1956,11 @@ mod tests {
             let mut head = [0u8; 4096];
             let _ = stream.read(&mut head);
             let _ = stream.write_all(
-                format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", served.len()).as_bytes(),
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
+                    served.len()
+                )
+                .as_bytes(),
             );
             let _ = stream.write_all(&served);
             let _ = stream.flush();

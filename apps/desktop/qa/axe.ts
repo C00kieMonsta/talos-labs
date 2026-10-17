@@ -1,12 +1,12 @@
 import { createRequire } from "node:module";
 import type { Page } from "playwright-core";
 import type { Visit } from "./harness";
-import { SCHEMES, SIZES, ensureServer, launchChrome, parseArgs, parseOnly, settle, unrollPage, walk, walkAi, walkGuided } from "./harness";
+import { SCHEMES, SIZES, WARNINGS, ensureServer, launchChrome, parseArgs, parseOnly, settle, unrollPage, walk, walkAi, walkGuided, walkWatch } from "./harness";
 
 /**
  * Runs axe-core on every screen of the demo build and prints the violations as JSON.
  * Exits 1 when any violation is serious or critical.
- *   cd apps/desktop && pnpm exec tsx qa/axe.ts --port 1430 [--only expert|guided|ai]
+ *   cd apps/desktop && pnpm exec tsx qa/axe.ts --port 1430 [--only expert|guided|ai|watch]
  */
 
 const require = createRequire(import.meta.url);
@@ -65,6 +65,8 @@ async function main(): Promise<number> {
           await reach();
           reached = true;
         }
+        // A shot with its own size (the watch window) is checked at that size.
+        await page.setViewportSize(shot.size ?? SIZES[0] ?? { width: 1100, height: 760 });
         await page.emulateMedia({ colorScheme: scheme });
         await unrollPage(page);
         await settle(page);
@@ -74,6 +76,7 @@ async function main(): Promise<number> {
     if (only === null || only === "expert") await walk(page, server.baseUrl, visit);
     if (only === null || only === "guided") await walkGuided(page, server.baseUrl, visit);
     if (only === null || only === "ai") await walkAi(page, server.baseUrl, visit);
+    if (only === null || only === "watch") await walkWatch(page, server.baseUrl, visit);
     await context.close();
   } finally {
     await browser.close();
@@ -82,6 +85,7 @@ async function main(): Promise<number> {
   console.log(JSON.stringify(violations, null, 2));
   const blocking = violations.filter((v) => v.impact === "serious" || v.impact === "critical");
   console.error(`[qa] ${violations.length} violations, ${blocking.length} serious or critical`);
+  for (const warning of WARNINGS) console.error(`[qa] warning: ${warning}`);
   return blocking.length > 0 ? 1 : 0;
 }
 

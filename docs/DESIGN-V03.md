@@ -465,11 +465,11 @@ Nothing new can run. The webview sends rule ids, as it does today, now in a list
 
 ## 4. Autopilot rules
 
-**When it scans.** On every launch, when `settings.onboarded` and `guided.autoScan` are true, after `loadLast()` has returned so the previous report is held for the diff. The scan does not start twice within 60 s in one process (a ref in `App.tsx`; this covers StrictMode's double effect and a relaunch loop). A relaunch for a permission grant scans too. Never on focus or wake: a window left open for a week shows the same end screen until the app is reopened or "Check again" is pressed. Never while a batch, a fix or a watcher is in flight. The paced schedule from v0.2 is kept; the 6 s floor (4.5 s reduced motion) is the lower bound.
+**When it scans.** On every launch, when `settings.onboarded` and `guided.autoScan` are true, after `loadLast()` has returned so the previous report is held for the diff. The scan does not start twice within 60 s in one process (a ref in `App.tsx`; this covers StrictMode's double effect and a relaunch loop). A relaunch for a permission grant scans too. The main window never scans on focus or wake: a window left open for a week shows the same end screen until the app is reopened or "Check again" is pressed. The menu bar watch ticks on wake (`docs/DESIGN-WATCH.md`). Never while a batch, a fix or a watcher is in flight. The paced schedule from v0.2 is kept; the 6 s floor (4.5 s reduced motion) is the lower bound.
 
 **What counts as a change.** `diffReports(previous, next)` compares `results[].status` per rule id. `fail` to `pass` or `not_applicable` is `fixed`; `pass`, `not_applicable` or `unknown` to `fail` is `appeared`; `fail` to `unknown` is `unreadable`. `review` changes and score deltas are not announced. A rule in `memory.pendingRestart` that now passes counts as `fixed` and is removed from the list; one that still fails is a step again. With no previous report the diff is empty.
 
-**No nagging.** A rule snoozed by "Do this later" is not a step for 7 days and after three Laters never again (until it is fixed elsewhere); the backup question snoozes 026 for 30 days; the paywall for 14 days per "Not now"; the permission step for 30 days per "Not now"; a watcher that hit the 10 min cap marks the rule `waiting` for 24 hours. The "since last time" screen only appears when the diff is non-empty. No notifications, no menu bar agent, no background scans. The app speaks only when it is opened.
+**No nagging.** A rule snoozed by "Do this later" is not a step for 7 days and after three Laters never again (until it is fixed elsewhere); the backup question snoozes 026 for 30 days; the paywall for 14 days per "Not now"; the permission step for 30 days per "Not now"; a watcher that hit the 10 min cap marks the rule `waiting` for 24 hours. The "since last time" screen only appears when the diff is non-empty. The menu bar watch (`docs/DESIGN-WATCH.md`) is the one exception, decided on purpose: while it is on, the app re-reads settings on a timer, shows one of three states in the menu bar, and may notify once when something needs doing now. The main window still speaks only when it is opened, and the watch never fixes anything on its own.
 
 **Memory.** `localStorage["talos.guided"]`, parsed field by field with fallbacks like `parseSettings`:
 
@@ -730,7 +730,7 @@ Assertions: exactly one `.button-primary` and at most one `.guided-link` on ever
 
 ## 9. Out of scope
 
-- Scanning while the app is closed, a menu bar agent, notifications, scheduled scans; "next time you open me" is literal.
+- Scanning files, real-time protection, notifications for anything but the watch's "act now"; the menu bar watch re-reads settings only (`docs/DESIGN-WATCH.md`), and "next time you open me" is literal for the main window with the watch off.
 - A privileged helper or Touch ID in place of the password dialog; streaming per-line progress out of `do shell script`; undo beyond the per-rule reversal line already in the expert sheet.
 - Guided steps for 005, 014, 017, 018, 024, 028, 031 and for `review` findings; an Automation permission step; batching 022 or 029.
 - In-app FileVault, SIP, password policy, account creation, `softwareupdate -ia` and `tmutil startbackup`; an in-app login-password field for 012.

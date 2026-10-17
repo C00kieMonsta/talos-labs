@@ -36,10 +36,10 @@ export function parseArgs(argv: readonly string[], defaults: CliArgs): CliArgs {
   return { port, out: resolve(out) };
 }
 
-export type WalkName = "expert" | "guided" | "ai";
-const WALK_NAMES: readonly WalkName[] = ["expert", "guided", "ai"];
+export type WalkName = "expert" | "guided" | "ai" | "watch";
+const WALK_NAMES: readonly WalkName[] = ["expert", "guided", "ai", "watch"];
 
-/** `--only expert|guided|ai` limits a script to one walk; absent, every walk runs. */
+/** `--only expert|guided|ai|watch` limits a script to one walk; absent, every walk runs. */
 export function parseOnly(argv: readonly string[]): WalkName | null {
   const index = argv.indexOf("--only");
   const raw = index >= 0 ? argv[index + 1] : argv.find((arg) => arg.startsWith("--only="))?.slice("--only=".length);
@@ -138,6 +138,8 @@ export interface Shot {
   readonly name: string;
   /** The screen changes with time; reach it again before every capture. */
   readonly volatile?: boolean;
+  /** A fixed window size instead of the two app sizes: the 320 px watch window. */
+  readonly size?: { readonly width: number; readonly height: number };
 }
 
 /** Called once per screen. `reach` performs the steps that lead to it and may be called again when the shot is volatile. */
@@ -585,7 +587,7 @@ export async function settle(page: Page): Promise<void> {
  * height first. Chromium's beyond-viewport capture (fullPage: true) sometimes paints a stale band
  * of the page top at the bottom of the image; this path never uses it.
  */
-export async function captureWholeScreen(page: Page, size: { width: number; height: number }, scheme: Scheme, file: string): Promise<void> {
+export async function captureWholeScreen(page: Page, size: { width: number; height: number }, scheme: Scheme, file: string, options: { fixed?: boolean } = {}): Promise<void> {
   await page.setViewportSize(size);
   await page.emulateMedia({ colorScheme: scheme });
   // Park the pointer so the row under the last click is not captured in its hover state.
@@ -593,7 +595,8 @@ export async function captureWholeScreen(page: Page, size: { width: number; heig
   await unrollPage(page);
   await settle(page);
   const height = await page.evaluate(() => document.documentElement.scrollHeight);
-  if (height > size.height) {
+  // A fixed window (the watch) is captured at its own size, clipping and all.
+  if (options.fixed !== true && height > size.height) {
     await page.setViewportSize({ width: size.width, height });
     await settle(page);
   }
@@ -623,14 +626,14 @@ async function focus(page: Page): Promise<void> {
 }
 
 /** Every guided shot: exactly one primary and at most one link, both above the 600 px fold at 900x600. The end screens keep "Check again" under the groups, so `foldLink: false` lets it scroll. */
-export async function assertGuidedScreen(page: Page, options: { primaries?: number; foldLink?: boolean } = {}): Promise<void> {
+export async function assertGuidedScreen(page: Page, options: { primaries?: number; foldLink?: boolean; fold?: boolean } = {}): Promise<void> {
   const want = options.primaries ?? 1;
   const primaries = await page.locator(".guided .button-primary").count();
   if (primaries !== want) throw new Error(`expected ${want} primary button(s), found ${primaries}`);
   const links = await page.locator(".guided .guided-link").count();
   if (links > 1) throw new Error(`expected at most one guided link, found ${links}`);
   const size = page.viewportSize();
-  if (size !== null && size.height <= MIN_HEIGHT) {
+  if (options.fold !== false && size !== null && size.height <= MIN_HEIGHT) {
     if (primaries > 0) await assertAboveFold(page.locator(".guided .button-primary").first(), "the primary button");
     if (links > 0 && options.foldLink !== false) await assertAboveFold(page.locator(".guided .guided-link").first(), "the link");
   }
@@ -1373,6 +1376,503 @@ export async function walkAi(page: Page, baseUrl: string, visit: Visit): Promise
     await page.getByRole("button", { name: "Suggest an order" }).click();
     await page.locator(".ai-card[data-ai-state='ready']").waitFor({ timeout: STEP_TIMEOUT });
     await page.locator(".ai-card-foot").filter({ hasText: "Written by ChatGPT. Not verified." }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertNoUrlRecorded(page);
+  });
+}
+
+/** The watch window is 320 px wide and at most 360 px tall (DESIGN-WATCH.md section 5). */
+export const WATCH_WINDOW_SIZE = { width: 320, height: 360 } as const;
+/** Height to content per state, as tray.rs `window_height` sizes the real window: 170 first run, 150 calm, 280 look, 360 act. */
+const WATCH_WINDOW_HEIGHTS = { calm: 150, look: 280, act: 360, unreadable: 150, "first-run": 170 } as const;
+
+/** The window states the demo serves, the status word and the one primary each shows (DESIGN-WATCH.md section 5). */
+const WATCH_WINDOW_STATES = [
+  { state: "calm", status: "Nothing changed", primary: null },
+  { state: "look", status: "One thing to look at", primary: "Show me" },
+  { state: "act", status: "Act now", primary: "See what to do" },
+  { state: "unreadable", status: "Nothing changed", primary: null },
+  { state: "first-run", status: null, primary: null },
+] as const;
+
+/** Screen 1's headline per kind (DESIGN-WATCH.md section 6). */
+const FISHY_HEADLINES = {
+  persistence: "A new program started running on its own",
+  listener: "A new program is waiting for calls from the network",
+  guard: "A built-in safety guard was switched off",
+  remote: "Remote access to your Mac was turned on",
+  admin: "A new admin account was added",
+  dns: "The way your Mac finds websites changed",
+  backup: "Your backups were switched off",
+} as const;
+
+const NOT_ANTIVIRUS = "I'm not antivirus. I read your Mac's settings and the list of programs that start on their own, then tell you when something changed. I never read your files. macOS's own virus checks do that part.";
+const EVIDENCE = "I have not deleted anything. The file is still there for an expert to look at.";
+const NOTICED_SOURCE = "SANS calls this identification, the step after preparation.";
+const ADMIN_PASSWORD_LINE = "Your Mac will ask for your password.";
+
+/** Layout facts the walk reports without stopping; snap and axe print them, and the QA report lists them. */
+export const WARNINGS: string[] = [];
+
+function warn(message: string): void {
+  WARNINGS.push(message);
+  console.error(`[qa] warning: ${message}`);
+}
+
+/** The recorded calls of one kind. */
+async function callsOf(page: Page, kind: string): Promise<DemoCall[]> {
+  return (await demoCalls(page)).filter((c) => c.kind === kind);
+}
+
+/** The demo recorded `kind`, with `arg` when given. */
+async function assertRecorded(page: Page, kind: string, arg?: string | boolean | number): Promise<void> {
+  const calls = await demoCalls(page);
+  if (!calls.some((c) => c.kind === kind && (arg === undefined || c.arg === arg))) throw new Error(`no ${kind}${arg === undefined ? "" : ` with ${String(arg)}`} recorded: ${JSON.stringify(calls)}`);
+}
+
+/** The demo never recorded `kind`: the permission alert is asked for only after a button press. */
+async function assertNotRecorded(page: Page, kind: string): Promise<void> {
+  if ((await callsOf(page, kind)).length !== 0) throw new Error(`${kind} was recorded: ${JSON.stringify(await demoCalls(page))}`);
+}
+
+/** The watch memory in localStorage, parsed; null when nothing was written. */
+async function watchMemory(page: Page): Promise<Record<string, unknown> | null> {
+  const raw = await page.evaluate(() => localStorage.getItem("talos.watch"));
+  return raw === null ? null : (JSON.parse(raw) as Record<string, unknown>);
+}
+
+/**
+ * Every fishy screen: one primary with the given label, the one link or none, no progress line,
+ * the given number of source lines, Details closed unless asked, and never a password field.
+ */
+async function assertFishyScreen(page: Page, want: { primary: string; link: string | null; sources: number; detailsOpen?: boolean; fold?: boolean }): Promise<void> {
+  // The 600 px fold rule is checked here as a collected warning, so the whole walk still runs and snap exits 2 at the end.
+  // Screen 5 is a list whose "Done" closes it, like the end screen's "Check again", so it passes fold: false.
+  await assertGuidedScreen(page, { primaries: 1, fold: false });
+  const size = page.viewportSize();
+  if (want.fold !== false && size !== null && size.height <= MIN_HEIGHT) {
+    const where = `${want.detailsOpen === true ? "with Details open " : ""}at ${size.width}x${size.height}`;
+    const primaryBox = await page.locator(".guided .button-primary").first().boundingBox();
+    if (primaryBox !== null && primaryBox.y + primaryBox.height > MIN_HEIGHT) warn(`${where}, the primary "${want.primary}" ends ${Math.round(primaryBox.y + primaryBox.height - MIN_HEIGHT)} px under the fold`);
+    if (want.link !== null) {
+      const box = await page.locator(".guided .guided-link").first().boundingBox();
+      if (box !== null && box.y + box.height > MIN_HEIGHT) warn(`${where}, the link "${want.link}" ends ${Math.round(box.y + box.height - MIN_HEIGHT)} px under the fold`);
+    }
+  }
+  const primary = (await page.locator(".guided .button-primary").first().textContent())?.trim();
+  if (primary !== want.primary) throw new Error(`the primary reads "${primary}", expected "${want.primary}"`);
+  const links = page.locator(".guided .guided-link");
+  const linkCount = await links.count();
+  if (want.link === null) {
+    if (linkCount !== 0) throw new Error(`expected no link, found ${linkCount}`);
+  } else {
+    const label = (await links.first().textContent())?.trim();
+    if (linkCount !== 1 || label !== want.link) throw new Error(`the link reads "${label}" (${linkCount} links), expected "${want.link}"`);
+  }
+  if ((await page.locator(".guided-progress").count()) !== 0) throw new Error("a fishy screen shows no progress line");
+  const sources = await page.locator(".guided .guided-source").count();
+  if (sources !== want.sources) throw new Error(`expected ${want.sources} source line(s), found ${sources}`);
+  const open = await page.locator(".guided .fishy-details[open]").count();
+  if (open !== (want.detailsOpen === true ? 1 : 0)) throw new Error(`expected Details ${want.detailsOpen === true ? "open" : "closed"}, found ${open} open`);
+  if ((await page.locator("input[type='password']").count()) !== 0) throw new Error("a fishy screen never draws a password field");
+}
+
+/** The source rows of an open Details: the phase line and the source button that opens the URL from Rust by action id. */
+async function assertDetailsSource(page: Page, step: RegExp): Promise<void> {
+  const details = page.locator(".guided .fishy-details[open]").first();
+  await details.locator(".fishy-phase").waitFor({ timeout: STEP_TIMEOUT });
+  const button = details.locator("button.fishy-source-button");
+  await button.waitFor({ timeout: STEP_TIMEOUT });
+  const text = (await button.textContent()) ?? "";
+  if (!step.test(text)) throw new Error(`the source button reads "${text}", expected ${step}`);
+  if ((await details.locator("a").count()) !== 0) throw new Error("Details carries no inline link; the URL opens from Rust");
+}
+
+/** The watch window and the "something seems fishy" flow (DESIGN-WATCH.md section 9). */
+export async function walkWatch(page: Page, baseUrl: string, visit: Visit): Promise<void> {
+  // Base G: a hardened check-up, which lands on the end screen at once; the watch's act-now card sits there.
+  const G = "reset=1&fixture=hardened&onboarded=1&delay=0";
+  const goto = async (query: string) => {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await page.goto(`${baseUrl}/?${query}&pace=0`);
+  };
+  const actNowCard = () => page.locator(".guided-next-card.guided-next-watch");
+  /** The end screen with the act-now card (its title is the watch's "Act now"), then its one primary into the flow. */
+  const openFishy = async (query: string) => {
+    await goto(`${G}&${query}`);
+    await guidedTitle(page, "Act now");
+    await actNowCard().locator(".button-primary").click();
+  };
+  /** The main expert list's rows; the Lockdown row under "More experts suggest" is a second list. */
+  const expertRows = () => page.locator(".guided-fishy-experts .guided-end-list").first().locator(":scope > li > button.guided-end-row");
+  /** Runs the screen's catalogue row and waits for the next screen; the demo records the preview and the apply. */
+  const runPrimary = async (label: string, actionId: string, nextTitle: string | RegExp) => {
+    await primary(page, label);
+    await guidedTitle(page, nextTitle);
+    await assertRecorded(page, "watch_action_preview", actionId);
+    await assertRecorded(page, "watch_action_apply", actionId);
+    await assertNoUrlRecorded(page);
+  };
+
+  // The 320 px window, one shot per state, at the height Rust gives that state.
+  for (const row of WATCH_WINDOW_STATES) {
+    const size = { width: WATCH_WINDOW_SIZE.width, height: WATCH_WINDOW_HEIGHTS[row.state] };
+    await visit({ name: `watch-window-${row.state}`, size }, async () => {
+      await page.setViewportSize(size);
+      await page.goto(`${baseUrl}/watch.html?watch=${row.state}&pace=0`);
+      const main = page.locator("main.watch:not([aria-busy])");
+      await main.waitFor({ timeout: STEP_TIMEOUT });
+      await assertNotRecorded(page, "watch_request_notify_permission");
+      const box = await main.boundingBox();
+      if (box === null || Math.round(box.width) !== WATCH_WINDOW_SIZE.width) throw new Error(`the window is ${box?.width} px wide, expected ${WATCH_WINDOW_SIZE.width}`);
+      const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+      if (scrollWidth > WATCH_WINDOW_SIZE.width) throw new Error(`the window overflows sideways: ${scrollWidth} px`);
+      // Rust sizes the window per state (tray.rs window_height), so content taller than that height is clipped; the shot shows it as the window does.
+      const height = await page.evaluate(() => document.documentElement.scrollHeight);
+      if (height > size.height) warn(`the ${row.state} window content is ${height} px tall, over the ${size.height} px window; the bottom ${height - size.height} px is clipped`);
+      // Row 1 and the primary.
+      const primaries = page.locator(".watch .button-primary");
+      if ((await primaries.count()) !== (row.primary === null ? 0 : 1)) throw new Error(`${row.state} shows ${await primaries.count()} primary button(s)`);
+      if (row.primary !== null) await primaries.filter({ hasText: row.primary }).waitFor({ timeout: STEP_TIMEOUT });
+      if (row.status === null) {
+        if ((await page.locator(".watch-status").count()) !== 0) throw new Error("the first-run window has no status line");
+        await page.locator(".watch-first-run-text").filter({ hasText: "I'll check your settings on a timer and tell you when something changed." }).waitFor({ timeout: STEP_TIMEOUT });
+        await page.locator(".watch-first-run .watch-link").filter({ hasText: "Start me when you log in" }).waitFor({ timeout: STEP_TIMEOUT });
+        if ((await page.locator(".watch-meta").count()) !== 0) throw new Error("the first-run window has no checked line before the first tick");
+      } else {
+        await page.locator(".watch-status[role='status']").filter({ hasText: row.status }).waitFor({ timeout: STEP_TIMEOUT });
+        if ((await page.locator(".watch-status .watch-status-icon").count()) !== 1) throw new Error("the status line carries its icon");
+        await page.locator(".watch-meta").filter({ hasText: /^Checked (just now|\d+ minutes ago|\d+ hours ago)/ }).waitFor({ timeout: STEP_TIMEOUT });
+      }
+      // Row 5: the two footer links.
+      const footer = page.locator(".watch-footer .watch-link");
+      if ((await footer.count()) !== 2) throw new Error("the footer holds two links");
+      await footer.filter({ hasText: "Open Talos Labs" }).waitFor({ timeout: STEP_TIMEOUT });
+      await footer.filter({ hasText: "Check now" }).waitFor({ timeout: STEP_TIMEOUT });
+      // Per state.
+      if (row.state === "act") {
+        await page.locator(".watch-status-act").waitFor({ timeout: STEP_TIMEOUT });
+        await page.locator(".watch-item-headline").filter({ hasText: FISHY_HEADLINES.persistence }).waitFor({ timeout: STEP_TIMEOUT });
+        await page.locator(".watch-item-source").filter({ hasText: "Experts would cut it off first. CISA's ransomware checklist, step 1." }).waitFor({ timeout: STEP_TIMEOUT });
+        await page.locator(".watch-item-evidence").filter({ hasText: EVIDENCE }).waitFor({ timeout: STEP_TIMEOUT });
+        await assertRecorded(page, "watch:notified", "sig.persistence_new");
+      } else {
+        await assertNotRecorded(page, "watch:notified");
+        if ((await page.locator(".watch-item-source").count()) !== 0) throw new Error("only act now carries the source line");
+      }
+      if (row.state === "look") {
+        await page.locator(".watch-item-headline").filter({ hasText: FISHY_HEADLINES.persistence }).waitFor({ timeout: STEP_TIMEOUT });
+        await page.locator(".watch-item-why").filter({ hasText: "Bad software often starts this way." }).waitFor({ timeout: STEP_TIMEOUT });
+        // "Check now" runs a demo tick: the spinner line, then "Checked just now".
+        await footer.filter({ hasText: "Check now" }).click();
+        await page.locator(".watch-meta-checking").filter({ hasText: "Checking now" }).waitFor({ timeout: STEP_TIMEOUT });
+        await page.locator(".watch-meta-checking").waitFor({ state: "detached", timeout: STEP_TIMEOUT });
+        await page.locator(".watch-meta").filter({ hasText: "Checked just now" }).waitFor({ timeout: STEP_TIMEOUT });
+        await assertRecorded(page, "watch_check_now");
+      }
+      if (row.state === "calm" || row.state === "unreadable") {
+        if ((await page.locator(".watch-item").count()) !== 0) throw new Error(`${row.state} lists no item`);
+      }
+      if (row.state === "unreadable") {
+        const line = page.locator(".watch-meta-unavailable").filter({ hasText: "I couldn't check 3 areas" });
+        await line.waitFor({ timeout: STEP_TIMEOUT });
+        const title = (await line.getAttribute("title")) ?? "";
+        if (title.split("\n").length !== 3 || !/network services/.test(title)) throw new Error(`the hover title names the three areas and their reason: "${title}"`);
+      } else if ((await page.locator(".watch-meta-unavailable").count()) !== 0) throw new Error(`${row.state} reads nothing as unavailable`);
+      await assertNoUrlRecorded(page);
+      await page.setViewportSize(SIZES[0] ?? WATCH_WINDOW_SIZE);
+    });
+  }
+
+  // The main window's end screen: the act-now card holds the one primary, and nothing above it reads calm.
+  await visit({ name: "guided-end-act-now" }, async () => {
+    await goto(`${G}&watch=act`);
+    await guidedTitle(page, "Act now");
+    await page.locator(".guided-body").getByText(`${FISHY_HEADLINES.persistence}.`, { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator(".guided h1").filter({ hasText: "Nothing needs fixing." }).count()) !== 0) throw new Error("the calm title sits above the act-now card");
+    if ((await page.getByText("I'll keep checking from the menu bar.", { exact: true }).count()) !== 0) throw new Error("the calm sentence sits above the act-now card");
+    const card = actNowCard();
+    await card.waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator(".guided-next-card").count()) !== 1) throw new Error("one next card, the watch's");
+    if (!((await card.getAttribute("class")) ?? "").includes("guided-next-critical")) throw new Error("the act-now card carries the critical cue");
+    await card.locator(".guided-next-headline").filter({ hasText: FISHY_HEADLINES.persistence }).waitFor({ timeout: STEP_TIMEOUT });
+    await card.locator(".guided-next-why").filter({ hasText: EVIDENCE }).waitFor({ timeout: STEP_TIMEOUT });
+    await card.locator(".button-primary").filter({ hasText: "See what to do" }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertGuidedScreen(page, { primaries: 1, foldLink: false });
+    await assertRecorded(page, "watch:notified", "sig.persistence_new");
+    await assertNotRecorded(page, "watch_request_notify_permission");
+  });
+
+  // Screen 0, the gate. A gated flip never notifies.
+  await visit({ name: "guided-fishy-gate" }, async () => {
+    await openFishy("watch=act&fishy=remote&fishyGate=1");
+    await guidedTitle(page, "Did you just change this?");
+    await page.locator(".guided-body").getByText(/^Remote access to your Mac was turned on at \d{2}:\d{2}\.$/).waitFor({ timeout: STEP_TIMEOUT });
+    await assertFishyScreen(page, { primary: "No, I didn't", link: "Yes, that was me", sources: 0 });
+    await assertNotRecorded(page, "watch:notified");
+  });
+  // Screen 1, one per headline. remote is reached through the gate's "No, I didn't".
+  for (const kind of Object.keys(FISHY_HEADLINES) as (keyof typeof FISHY_HEADLINES)[]) {
+    await visit({ name: `guided-fishy-noticed-${kind}` }, async () => {
+      if (kind === "remote") {
+        await openFishy("watch=act&fishy=remote&fishyGate=1");
+        await guidedTitle(page, "Did you just change this?");
+        await primary(page, "No, I didn't");
+        await assertRecorded(page, "watch_answer_gate", "sig.remote_access_on");
+      } else {
+        await openFishy(`watch=act&fishy=${kind}`);
+        await assertRecorded(page, "watch:notified");
+      }
+      await guidedTitle(page, FISHY_HEADLINES[kind]);
+      await page.locator(".guided-body").getByText(/^I noticed this at \d{2}:\d{2}\. It was not there at the last check\. I have not deleted anything\.$/).waitFor({ timeout: STEP_TIMEOUT });
+      await page.locator(".guided-source").filter({ hasText: NOTICED_SOURCE }).waitFor({ timeout: STEP_TIMEOUT });
+      await assertFishyScreen(page, { primary: "See what to do", link: "This is fine, I know it", sources: 1 });
+      // The program's name and folder sit under Details only, so the headline never carries them.
+      const h1 = (await page.locator(".guided h1").first().textContent()) ?? "";
+      if (/[/.]/.test(h1)) throw new Error(`the headline carries machine text: ${h1}`);
+    });
+  }
+  await visit({ name: "guided-fishy-noticed-details" }, async () => {
+    await openFishy("watch=act&fishy=persistence");
+    await guidedTitle(page, FISHY_HEADLINES.persistence);
+    await page.locator(".fishy-details > summary").click();
+    const lines = page.locator(".fishy-details[open] .fishy-detail-lines li");
+    if ((await lines.count()) !== 3) throw new Error(`Details lists the label, the file and the program: ${await lines.count()} lines`);
+    await page.locator(".fishy-details[open] .fishy-evidence").filter({ hasText: EVIDENCE }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".fishy-details[open] .fishy-ransom input[type='checkbox']").waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".fishy-details[open] .fishy-reveal").waitFor({ timeout: STEP_TIMEOUT });
+    await assertDetailsSource(page, /^NIST SP 800-61/);
+    await page.locator(".fishy-details[open] button.fishy-source-button").click();
+    await assertRecorded(page, "watch_open_source", "act.note_what_you_saw");
+    await assertNoUrlRecorded(page);
+    await assertFishyScreen(page, { primary: "See what to do", link: "This is fine, I know it", sources: 1, detailsOpen: true });
+  });
+  await visit({ name: "guided-end-after-fine" }, async () => {
+    // "This is fine, I know it" re-baselines the top signal and goes back; the memory holds the id and the date.
+    // The demo's act state carries a second, corroborating signal, so its card stays for that one (demo-watch.test.ts pins it).
+    await link(page, "This is fine, I know it");
+    await guidedTitle(page, "Nothing needs fixing.");
+    await assertRecorded(page, "watch_acknowledge", "sig.persistence_new");
+    const memory = await watchMemory(page);
+    const normal = (memory?.["normalForMe"] ?? {}) as Record<string, string>;
+    if (!/^\d{4}-/.test(normal["sig.persistence_new"] ?? "")) throw new Error(`normalForMe was not written: ${JSON.stringify(memory)}`);
+    if ((memory?.["acknowledgeCount"] as Record<string, number> | undefined)?.["sig.persistence_new"] !== 1) throw new Error(`acknowledgeCount was not written: ${JSON.stringify(memory)}`);
+    await assertGuidedScreen(page, { primaries: (await actNowCard().count()) === 0 ? 0 : 1, foldLink: false });
+  });
+
+  // Screens 2 to 6 on the persistence item: disconnect, stop, keep it from starting again, experts, back to normal.
+  await visit({ name: "guided-fishy-disconnect" }, async () => {
+    await openFishy("watch=act&fishy=persistence");
+    await primary(page, "See what to do");
+    await guidedTitle(page, "First, cut it off from the internet");
+    await page.locator(".guided-body").getByText("I'll turn Wi-Fi off. Nothing else changes, and you can turn it back on from here. This may not stop everything, but experts say do it first and do not wait.", { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".guided-source").filter({ hasText: "CISA's ransomware checklist, step 1. NIST SP 800-61 (2012 edition), section 3.3.1." }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".guided-body").getByText("Do not switch the Mac off. Experts keep it running so the trace is not lost.", { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".guided-source").filter({ hasText: "CISA's ransomware checklist, step 2." }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".guided-meta-line").filter({ hasText: ADMIN_PASSWORD_LINE }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertFishyScreen(page, { primary: "Turn Wi-Fi off", link: "Not now", sources: 2 });
+    await assertNotRecorded(page, "watch_action_preview");
+  });
+  await visit({ name: "guided-fishy-stop" }, async () => {
+    await runPrimary("Turn Wi-Fi off", "watch.wifi_off", "Stop the program");
+    await page.locator(".guided-body").getByText("I'll stop it from running. I won't delete anything, so an expert can still look at it.", { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".guided-source").filter({ hasText: "CISA's ransomware checklist, step 11. NIST SP 800-61 (2012 edition), section 3.3.2." }).waitFor({ timeout: STEP_TIMEOUT });
+    // A user-level row: no password line.
+    if ((await page.locator(".guided-meta-line").filter({ hasText: ADMIN_PASSWORD_LINE }).count()) !== 0) throw new Error("stopping a user agent needs no password");
+    await assertFishyScreen(page, { primary: "Stop it", link: "Not now", sources: 1 });
+  });
+  await visit({ name: "guided-fishy-eradicate" }, async () => {
+    await runPrimary("Stop it", "watch.stop_user_agent", "Keep it from starting again");
+    await page.locator(".guided-body").getByText('Under "Allow in the Background", switch off the item you do not recognise. I\'ll show you which one.', { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".guided-source").filter({ hasText: "NIST SP 800-61 (2025), RS.MI-02. Apple's Personal Safety checklist, step 6." }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertFishyScreen(page, { primary: "Show me where", link: "I'll do it later", sources: 1 });
+  });
+  await visit({ name: "guided-fishy-experts" }, async () => {
+    await primary(page, "Show me where");
+    await guidedTitle(page, "What experts do next");
+    await assertRecorded(page, "openSettingsPane", "login_items");
+    await assertRecorded(page, "watch_check_now");
+    await assertNoUrlRecorded(page);
+    await assertFishyScreen(page, { primary: "Done", link: null, sources: 0, fold: false });
+    // Seven rows for a person who handles no client data; Lockdown Mode waits under the disclosure; no inline link or button beyond the rows.
+    const rows = expertRows();
+    if ((await rows.count()) !== 7) throw new Error(`expected 7 expert rows, found ${await rows.count()}`);
+    if ((await page.locator(".guided-fishy-experts .guided-end-list a").count()) !== 0) throw new Error("the expert list holds no inline link");
+    const buttons = page.locator(".guided-fishy-experts .guided-end-list button");
+    for (let i = 0; i < (await buttons.count()); i += 1) {
+      const className = (await buttons.nth(i).getAttribute("class")) ?? "";
+      if (!className.includes("guided-end-row")) throw new Error(`an inline button sits in the expert list: ${className}`);
+    }
+    if ((await rows.filter({ hasText: "If a message asks for money, do not pay." }).count()) !== 0) throw new Error("the do-not-pay row waits for the ransom box");
+    await page.locator(".fishy-more > summary").filter({ hasText: "More experts suggest" }).waitFor({ timeout: STEP_TIMEOUT });
+    // The shared end-row component: the same 40 px floor assertEndScreen applies.
+    for (const row of await rows.all()) {
+      const box = await row.boundingBox();
+      if (box !== null && box.height < 40) throw new Error(`an expert row is ${box.height} px tall, under 40`);
+    }
+  });
+  await visit({ name: "guided-fishy-experts-details" }, async () => {
+    // A row opens its Details under itself: the source line, the badge, and the source button; the URL opens from Rust by id.
+    const first = expertRows().first();
+    await first.click();
+    if ((await first.getAttribute("aria-expanded")) !== "true") throw new Error("the row reports aria-expanded");
+    const details = page.locator(".guided-fishy-experts .fishy-details[open]");
+    await details.getByText("CISA's ransomware checklist, step 17, and Apple's Apple Account guidance. Doing it from another device is our advice, not a quote.", { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    await details.locator(".guided-explain-badge").filter({ hasText: "Decided by the app itself" }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await details.locator(".fishy-model").count()) !== 0) throw new Error("no model sentence with AI off");
+    await assertDetailsSource(page, /^CISA #StopRansomware v3\.0, Part 2, step 17$/);
+    await details.locator("button.fishy-source-button").click();
+    await assertRecorded(page, "watch_open_source", "act.change_passwords");
+    await assertNoUrlRecorded(page);
+    await assertFishyScreen(page, { primary: "Done", link: null, sources: 0, detailsOpen: true, fold: false });
+  });
+  await visit({ name: "guided-fishy-recover" }, async () => {
+    await primary(page, "Done");
+    await guidedTitle(page, "When you're done, turn Wi-Fi back on");
+    await page.locator(".guided-body").getByText("I'll keep watching more closely for a day.", { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".guided-source").filter({ hasText: "NIST SP 800-61 (2025), RC.RP-04. SANS says the same." }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".guided-meta-line").filter({ hasText: ADMIN_PASSWORD_LINE }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertFishyScreen(page, { primary: "Turn Wi-Fi on", link: "Not now", sources: 1 });
+  });
+  await visit({ name: "guided-end-after-fishy" }, async () => {
+    // Wi-Fi back on ends the flow: the memory records that it ran, and the end screen is back. The
+    // demo's item is still there (no step removed it), so the screen still reads "Act now" above the card.
+    await runPrimary("Turn Wi-Fi on", "watch.wifi_on", "Act now");
+    const memory = await watchMemory(page);
+    if (!/^\d{4}-/.test(String(memory?.["fishyRanAt"] ?? ""))) throw new Error(`fishyRanAt was not written: ${JSON.stringify(memory)}`);
+    await assertGuidedScreen(page, { primaries: 1, foldLink: false });
+  });
+
+  // The variants: a wired Mac, a listener with no start-up entry, the ransom row, a model sentence, "Not now".
+  await visit({ name: "guided-fishy-disconnect-wired" }, async () => {
+    await openFishy("watch=act&fishy=persistence&fishyWired=1");
+    await primary(page, "See what to do");
+    await guidedTitle(page, "First, cut it off from the internet");
+    await page.locator(".guided-body").getByText("Unplug the network cable. Then I'll block all incoming connections. Some things you use may stop working until you allow them again.", { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertFishyScreen(page, { primary: "Block incoming connections", link: "Not now", sources: 2 });
+  });
+  await visit({ name: "guided-fishy-recover-wired" }, async () => {
+    await runPrimary("Block incoming connections", "watch.block_incoming", "Stop the program");
+    await runPrimary("Stop it", "watch.stop_user_agent", "Keep it from starting again");
+    await primary(page, "Show me where");
+    await guidedTitle(page, "What experts do next");
+    await primary(page, "Done");
+    await guidedTitle(page, "When you're done, turn Wi-Fi back on");
+    await assertFishyScreen(page, { primary: "Allow incoming again", link: "Not now", sources: 1 });
+  });
+  await visit({ name: "guided-fishy-stop-no-entry" }, async () => {
+    await openFishy("watch=act&fishy=listener");
+    await guidedTitle(page, FISHY_HEADLINES.listener);
+    await page.locator(".fishy-details > summary").click();
+    const lines = page.locator(".fishy-details[open] .fishy-detail-lines li");
+    if ((await lines.count()) !== 2) throw new Error(`Details lists the port and the process: ${await lines.count()} lines`);
+    await lines.filter({ hasText: /^Port \d+$/ }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator(".fishy-details[open] .fishy-reveal").count()) !== 0) throw new Error("no start-up entry, so nothing to reveal");
+    await primary(page, "See what to do");
+    await guidedTitle(page, "First, cut it off from the internet");
+    await runPrimary("Turn Wi-Fi off", "watch.wifi_off", "Stop the program");
+    await page.locator(".guided-body").getByText("Quit the program named in Details. I can't stop it for you, because it has no start-up entry I can switch off.", { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertFishyScreen(page, { primary: "Block incoming connections", link: "Not now", sources: 1 });
+  });
+  await visit({ name: "guided-fishy-experts-ransom" }, async () => {
+    // A flip with no start-up entry goes straight from disconnect to the experts; the ransom box adds the do-not-pay row.
+    await openFishy("watch=act&fishy=dns&ransomNote=1");
+    await guidedTitle(page, FISHY_HEADLINES.dns);
+    await page.locator(".fishy-details > summary").click();
+    if (!(await page.locator(".fishy-details[open] .fishy-ransom input[type='checkbox']").isChecked())) throw new Error("ransomNote=1 ticks the box");
+    await primary(page, "See what to do");
+    await guidedTitle(page, "First, cut it off from the internet");
+    await runPrimary("Turn Wi-Fi off", "watch.wifi_off", "What experts do next");
+    const rows = expertRows();
+    if ((await rows.count()) !== 8) throw new Error(`expected 8 expert rows with the ransom row, found ${await rows.count()}`);
+    await rows.filter({ hasText: "If a message asks for money, do not pay." }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertFishyScreen(page, { primary: "Done", link: null, sources: 0, fold: false });
+  });
+  await visit({ name: "guided-fishy-experts-model" }, async () => {
+    // With ChatGPT connected the chosen Advise row carries the model's sentence under its badge; the sentence is never above a fix button.
+    await openFishy("watch=act&fishy=dns&watchAi=chatgpt");
+    await primary(page, "See what to do");
+    await runPrimary("Turn Wi-Fi off", "watch.wifi_off", "What experts do next");
+    await expertRows().first().click();
+    const details = page.locator(".guided-fishy-experts .fishy-details[open]");
+    await details.locator(".fishy-model").waitFor({ timeout: STEP_TIMEOUT });
+    await details.locator(".guided-explain-badge").filter({ hasText: "Written by ChatGPT. Not verified." }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertFishyScreen(page, { primary: "Done", link: null, sources: 0, detailsOpen: true, fold: false });
+  });
+  await visit({ name: "guided-end-after-fishy-not-now" }, async () => {
+    // "Not now" on the disconnect screen snoozes the item for 14 days: the state drops to look and the card goes.
+    await openFishy("watch=act&fishy=persistence");
+    await primary(page, "See what to do");
+    await guidedTitle(page, "First, cut it off from the internet");
+    await link(page, "Not now");
+    await guidedTitle(page, "Nothing needs fixing.");
+    await assertRecorded(page, "watch_snooze", "sig.persistence_new");
+    await assertNotRecorded(page, "watch_action_preview");
+    const memory = await watchMemory(page);
+    const notNow = (memory?.["actionNotNow"] ?? {}) as Record<string, string>;
+    if (!/^\d{4}-/.test(notNow["act.disconnect_network"] ?? "")) throw new Error(`actionNotNow was not written: ${JSON.stringify(memory)}`);
+    const snoozed = (memory?.["snoozedSignals"] ?? {}) as Record<string, string>;
+    if (!/^\d{4}-/.test(snoozed["sig.persistence_new"] ?? "")) throw new Error(`snoozedSignals was not written: ${JSON.stringify(memory)}`);
+    // DESIGN-WATCH section 5: no act-now state survives a "Not now". The demo's act state holds a second item, which keeps the card.
+    if ((await actNowCard().count()) !== 0) warn('after "Not now", the act-now card is still on the end screen (the demo snoozes one item of two; demo-watch.test.ts pins it)');
+    await assertGuidedScreen(page, { primaries: (await actNowCard().count()) === 0 ? 0 : 1, foldLink: false });
+  });
+
+  // Settings: the Watch section first, two switches, the interval radios, the notify switch, the not-antivirus sentence.
+  await visit({ name: "settings-watch" }, async () => {
+    await goto(`${G}&guided=0`);
+    await nav(page, "Settings");
+    await heading(page, "Settings");
+    await assertNotRecorded(page, "watch_request_notify_permission");
+    const first = page.locator(".settings section.settings-section").first();
+    if ((await first.getAttribute("aria-labelledby")) !== "watch-heading") throw new Error("the Watch section comes first in Settings");
+    const section = page.locator("section[aria-labelledby='watch-heading']");
+    await section.getByRole("heading", { name: "Watch", level: 2 }).waitFor({ timeout: STEP_TIMEOUT });
+    const enabled = section.getByRole("switch", { name: "Keep an eye on my Mac from the menu bar" });
+    const login = section.getByRole("switch", { name: "Start when I log in" });
+    const notify = section.getByRole("switch", { name: "Tell me when something needs doing now" });
+    if (!(await enabled.isChecked())) throw new Error("the watch is on by default");
+    if (await login.isChecked()) throw new Error("start at login is off by default");
+    if (!(await notify.isChecked())) throw new Error("notify is on by default");
+    await section.getByText("With this off, Talos Labs only checks when you open it.").waitFor({ timeout: STEP_TIMEOUT });
+    await section.getByText("Adds Talos Labs under Allow in the Background in System Settings. You can switch it off there too.").waitFor({ timeout: STEP_TIMEOUT });
+    await section.getByText("Only for things that need doing now. Never about the full version or AI.").waitFor({ timeout: STEP_TIMEOUT });
+    const radios = section.getByRole("radio");
+    if ((await radios.count()) !== 3) throw new Error("three interval radios");
+    for (const label of ["Every 15 minutes", "Every hour", "Every 4 hours"]) await section.getByRole("radio", { name: label }).waitFor({ timeout: STEP_TIMEOUT });
+    if (!(await section.getByRole("radio", { name: "Every hour" }).isChecked())) throw new Error("every hour is the default interval");
+    await section.getByText(NOT_ANTIVIRUS, { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator("input[type='password']").count()) !== 0) throw new Error("a password field is drawn in Settings");
+    // The switches reach the port: start at login on and off again, notify off and on again (the on asks for the permission once).
+    await login.check();
+    await assertRecorded(page, "autostart_enable");
+    await login.uncheck();
+    await assertRecorded(page, "autostart_disable");
+    await notify.uncheck();
+    await assertRecorded(page, "watch_set_notify", false);
+    await assertNotRecorded(page, "watch_request_notify_permission");
+    await notify.check();
+    await assertRecorded(page, "watch_set_notify", true);
+    if ((await callsOf(page, "watch_request_notify_permission")).length !== 1) throw new Error("the permission is asked for once, when the notify switch turns on");
+    await section.getByRole("radio", { name: "Every 15 minutes" }).check();
+    await assertRecorded(page, "watch_set_interval", 15);
+    await section.getByRole("radio", { name: "Every hour" }).check();
+    await assertRecorded(page, "watch_set_interval", 60);
+    await assertNoUrlRecorded(page);
+  });
+
+  // Welcome: the watch sentence, and the one foreground button that asks for the notification permission.
+  await visit({ name: "guided-welcome-watch" }, async () => {
+    await goto("reset=1&fixture=dev-machine&delay=0");
+    await guidedTitle(page, "Let's check your Mac.");
+    await page.locator(".guided-body").getByText(/I'll also keep an eye on your settings from the menu bar\. You can switch that off in Settings\.$/).waitFor({ timeout: STEP_TIMEOUT });
+    await assertNotRecorded(page, "watch_request_notify_permission");
+    await link(page, "What do you look at?");
+    const block = page.locator(".fishy-welcome-watch");
+    await block.getByText(NOT_ANTIVIRUS, { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    await block.getByRole("button", { name: "Tell me when something needs doing now" }).click();
+    await assertRecorded(page, "watch_request_notify_permission");
+    await assertRecorded(page, "watch_set_notify", true);
+    await assertGuidedScreen(page, { foldLink: false });
     await assertNoUrlRecorded(page);
   });
 }

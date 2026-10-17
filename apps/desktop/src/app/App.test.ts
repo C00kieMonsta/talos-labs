@@ -1,13 +1,54 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { DEV_MACHINE, MACOS_CATALOG, evaluate } from "@talos/core";
-import { fakeAdapters } from "./testing";
+import type { WatchItem, WatchOpenScreen, WatchState } from "@talos/core";
+import { fakeAdapters, fakeWatchPort, fakeWatchState } from "./testing";
+import { FISHY, WATCH_SETTINGS } from "../guided/copy";
+import { resetLaunchGuard } from "../guided/timing";
+
+// The guided switches the settings mock reads; the launch-scan tests turn them on.
+const guidedFlags = vi.hoisted(() => ({ home: false, autoScan: false }));
 
 const report = evaluate(DEV_MACHINE, MACOS_CATALOG, { now: "2026-10-15T10:00:00.000Z", os: "macos" });
+const ACT_ITEM: WatchItem = {
+  signalId: "sig.persistence_new",
+  kind: "persistence",
+  severity: "high",
+  points: 6,
+  change: "appeared",
+  changedAt: "2026-10-17T13:32:00.000Z",
+  gated: false,
+  snoozedUntil: null,
+  hasStartupEntry: true,
+  isListener: false,
+  actionIds: ["act.disconnect_network"],
+  modelSentence: null,
+  modelProvider: null,
+};
+// What status() answers; tests swap it before rendering. The watch:open and main:shown listeners are captured so a test can emit.
+let watchState: WatchState = fakeWatchState();
+let openListener: ((event: { screen: WatchOpenScreen }) => void) | null = null;
+let shownListener: ((event: { screen: WatchOpenScreen }) => void) | null = null;
+const watch = fakeWatchPort({
+  status: vi.fn(async () => watchState),
+  onOpen: vi.fn((listener: (event: { screen: WatchOpenScreen }) => void) => {
+    openListener = listener;
+    return () => {
+      openListener = null;
+    };
+  }),
+  onShown: vi.fn((listener: (event: { screen: WatchOpenScreen }) => void) => {
+    shownListener = listener;
+    return () => {
+      shownListener = null;
+    };
+  }),
+});
 const adapters = fakeAdapters({
   reports: { saveLast: vi.fn(async () => undefined), loadLast: vi.fn(async () => report) },
+  watch,
 });
 
 vi.mock("../adapters", () => ({ createAdapters: () => adapters }));
@@ -25,8 +66,8 @@ vi.mock("../settings", async (importOriginal) => {
     loadSettings: () => ({
       ...original.DEFAULT_SETTINGS,
       onboarded: true,
-      // These tests cover the expert home; the guided check-up has its own tests under src/guided.
-      guided: { home: false, autoScan: false },
+      // Most tests cover the expert home; the guided check-up has its own tests under src/guided.
+      guided: { ...guidedFlags },
       explainer: { ...original.DEFAULT_SETTINGS.explainer, provider: "claude" },
       developer: { ...original.DEFAULT_SETTINGS.developer, enabled: true },
     }),
@@ -34,7 +75,20 @@ vi.mock("../settings", async (importOriginal) => {
   };
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  watchState = fakeWatchState();
+  guidedFlags.home = false;
+  guidedFlags.autoScan = false;
+});
+
+/** The guided home with the launch check-up on, the 60 s guard cleared and the collect count at zero. */
+function armLaunchScan(): void {
+  guidedFlags.home = true;
+  guidedFlags.autoScan = true;
+  resetLaunchGuard();
+  vi.mocked(adapters.systemState.collect).mockClear();
+}
 
 describe("App", () => {
   it("boots onto the Overview with the stored report and the free fixes", async () => {
@@ -167,5 +221,107 @@ describe("App", () => {
     await waitFor(() => expect(screen.queryByText(/You cancelled the check-up/)).toBeNull());
     expect(screen.getByRole("heading", { name: "Next three fixes" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Rescan" })).toBeTruthy();
+  });
+
+  it("mounts the watch controller: status() and autostartIsEnabled() once, the profile pushed with the AI choice, and no setter on its own", async () => {
+    const { default: App } = await import("../App");
+    render(createElement(App));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Next three fixes" })).toBeTruthy());
+    await waitFor(() => expect(watch.setProfile).toHaveBeenCalled());
+    expect(watch.status).toHaveBeenCalled();
+    expect(watch.autostartIsEnabled).toHaveBeenCalled();
+    // Developer mode with the Claude API provider: the AI layer is on in the webview, but the watch has no consumer provider to call.
+    expect(watch.setProfile).toHaveBeenLastCalledWith(expect.objectContaining({ role: "individual" }), { enabled: false, provider: null });
+    expect(watch.setEnabled).not.toHaveBeenCalled();
+    expect(watch.setInterval).not.toHaveBeenCalled();
+    expect(watch.setNotify).not.toHaveBeenCalled();
+    expect(watch.requestNotifyPermission).not.toHaveBeenCalled();
+    expect(watch.autostartEnable).not.toHaveBeenCalled();
+    expect(openListener).not.toBeNull();
+  });
+
+  it("opens the fishy flow on watch:open noticed when the watch has an item, and the link leads back", async () => {
+    watchState = fakeWatchState({ rating: "act_now", items: [ACT_ITEM] });
+    const { default: App } = await import("../App");
+    render(createElement(App));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Next three fixes" })).toBeTruthy());
+    await waitFor(() => expect(watch.status).toHaveBeenCalled());
+    await waitFor(() => expect(openListener).not.toBeNull());
+    // The controller holds the state only after status() resolved; give it a turn.
+    await act(async () => undefined);
+    act(() => openListener?.({ screen: "noticed" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: FISHY.noticed.headline.persistence })).toBeTruthy());
+    expect(document.querySelectorAll(".button-primary").length).toBe(1);
+    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+    // A second noticed while the flow is on screen (the window's button pressed again, a tap on the banner) adds no second entry.
+    act(() => openListener?.({ screen: "noticed" }));
+    await act(async () => undefined);
+    expect(screen.getByRole("heading", { name: FISHY.noticed.headline.persistence })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: FISHY.noticed.link }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Next three fixes" })).toBeTruthy());
+    expect(screen.queryByRole("heading", { name: FISHY.noticed.headline.persistence })).toBeNull();
+    expect(watch.acknowledge).toHaveBeenCalledWith("sig.persistence_new");
+  });
+
+  it("leaves the screen alone on watch:open noticed with no item, and on home", async () => {
+    const { default: App } = await import("../App");
+    render(createElement(App));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Next three fixes" })).toBeTruthy());
+    await waitFor(() => expect(openListener).not.toBeNull());
+    await act(async () => undefined);
+    act(() => openListener?.({ screen: "noticed" }));
+    act(() => openListener?.({ screen: "home" }));
+    await act(async () => undefined);
+    expect(screen.getByRole("heading", { name: "Next three fixes" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: FISHY.noticed.headline.persistence })).toBeNull();
+  });
+
+  it("holds the launch check-up on a hidden --watch launch until the window is shown on home", async () => {
+    armLaunchScan();
+    watchState = fakeWatchState({ hiddenLaunch: true });
+    const { default: App } = await import("../App");
+    render(createElement(App));
+    await waitFor(() => expect(watch.status).toHaveBeenCalled());
+    await waitFor(() => expect(shownListener).not.toBeNull());
+    await act(async () => undefined);
+    expect(adapters.systemState.collect).not.toHaveBeenCalled();
+    // A notification tap lands on the fishy flow or the end screen, not on a fresh check-up.
+    act(() => shownListener?.({ screen: "noticed" }));
+    await act(async () => undefined);
+    expect(adapters.systemState.collect).not.toHaveBeenCalled();
+    act(() => shownListener?.({ screen: "home" }));
+    await waitFor(() => expect(adapters.systemState.collect).toHaveBeenCalledTimes(1));
+  });
+
+  it("runs the launch check-up again when the hidden window is shown, as closing it no longer ends the process", async () => {
+    armLaunchScan();
+    // The launch scan ends at once so the second start is not refused as a scan in flight.
+    vi.mocked(adapters.systemState.collect).mockRejectedValueOnce("cancelled");
+    const { default: App } = await import("../App");
+    render(createElement(App));
+    await waitFor(() => expect(adapters.systemState.collect).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(shownListener).not.toBeNull());
+    await act(async () => undefined);
+    // The same show within 60 s of the launch is not a second scan.
+    act(() => shownListener?.({ screen: "home" }));
+    await act(async () => undefined);
+    expect(adapters.systemState.collect).toHaveBeenCalledTimes(1);
+    resetLaunchGuard();
+    act(() => shownListener?.({ screen: "home" }));
+    await waitFor(() => expect(adapters.systemState.collect).toHaveBeenCalledTimes(2));
+  });
+
+  it("goes to the Watch section of Settings on watch:open settings_watch", async () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    const { default: App } = await import("../App");
+    render(createElement(App));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Next three fixes" })).toBeTruthy());
+    await waitFor(() => expect(openListener).not.toBeNull());
+    act(() => openListener?.({ screen: "settings_watch" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy());
+    expect(screen.getByRole("heading", { level: 2, name: WATCH_SETTINGS.title })).toBeTruthy();
+    expect(document.getElementById("watch-heading")).toBeTruthy();
+    await waitFor(() => expect(scroll).toHaveBeenCalled());
   });
 });

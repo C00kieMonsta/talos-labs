@@ -4,8 +4,8 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -46,7 +46,12 @@ pub const SECRET_NAMES: [&str; 5] = [
     SECRET_EXPIRES_AT,
 ];
 /// The items a sign-out removes. The issued client id stays: it names this app on this Mac, not the person, and a new sign-in reuses it instead of registering again.
-pub const SECRET_TOKEN_NAMES: [&str; 4] = [SECRET_ACCESS, SECRET_REFRESH, SECRET_SCOPE, SECRET_EXPIRES_AT];
+pub const SECRET_TOKEN_NAMES: [&str; 4] = [
+    SECRET_ACCESS,
+    SECRET_REFRESH,
+    SECRET_SCOPE,
+    SECRET_EXPIRES_AT,
+];
 
 /// Refresh when the access token expires within this.
 pub const REFRESH_MARGIN: Duration = Duration::from_secs(60);
@@ -63,9 +68,16 @@ const SIGN_IN_GONE: [&str; 5] = [
     "refresh_token_reused",
 ];
 
-/// Build flag: release builds keep ChatGPT at `not_offered` until OpenAI issues an approval.
+/// Offered in every build since the sign-in was verified live on 2026-10-17. Setting
+/// `TALOS_CHATGPT_OFF` to any value at build time is the kill switch for a build that must not
+/// offer it; the row then reads "Not available yet".
 pub fn offered() -> bool {
-    cfg!(debug_assertions) || option_env!("TALOS_CHATGPT_APPROVED") == Some("1")
+    offered_given(option_env!("TALOS_CHATGPT_OFF"))
+}
+
+/// The kill switch rule on its own: any value, even empty, turns the provider off.
+pub(crate) fn offered_given(kill_switch: Option<&str>) -> bool {
+    kill_switch.is_none()
 }
 
 // ---------- storage ----------
@@ -593,6 +605,8 @@ pub struct HttpReply {
 pub trait Http {
     fn post_form(&self, url: &str, form: &[(&str, &str)]) -> Option<HttpReply>;
     fn get_bearer(&self, url: &str, token: &str) -> Option<HttpReply>;
+    /// A JSON POST with a bearer token: the watch's Responses call. Same cap and timeout.
+    fn post_json_bearer(&self, url: &str, token: &str, body: &Value) -> Option<HttpReply>;
 }
 
 pub struct Ureq;
@@ -635,6 +649,18 @@ impl Http for Ureq {
             .header("Accept", "application/json")
             .header("Authorization", format!("Bearer {token}"))
             .call()
+            .ok()?;
+        reply_of(response)
+    }
+
+    fn post_json_bearer(&self, url: &str, token: &str, body: &Value) -> Option<HttpReply> {
+        let text = serde_json::to_string(body).ok()?;
+        let response = agent()
+            .post(url)
+            .header("Accept", "application/json")
+            .header("Content-Type", "application/json")
+            .header("Authorization", format!("Bearer {token}"))
+            .send(text.as_bytes())
             .ok()?;
         reply_of(response)
     }
@@ -770,13 +796,21 @@ pub fn exchange(
     })
 }
 
-/// A current access token: the stored one, or a refreshed one when it is about to expire.
+/// One refresh at a time. OpenAI rotates refresh tokens, so two callers sending the same one
+/// (the webview's `chatgpt_token` and the watch's cycle) would have the second answered
+/// `refresh_token_reused`, which reads as the sign-in being gone.
+static REFRESH_LOCK: Mutex<()> = Mutex::new(());
+
+/// A current access token: the stored one, or a refreshed one when it is about to expire. The
+/// store is read under the refresh lock, so a caller that waited sees the tokens the first
+/// caller saved and does not refresh again.
 pub fn current_tokens(
     store: &dyn Store,
     http: &dyn Http,
     now: DateTime<Utc>,
     force_refresh: bool,
 ) -> Result<Tokens, TokenError> {
+    let _one_at_a_time = REFRESH_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let tokens = load_tokens(store)
         .map_err(|_| TokenError::ProviderUnavailable)?
         .ok_or(TokenError::NotConnected)?;
@@ -1060,10 +1094,12 @@ impl ChatGpt {
 
 #[tauri::command]
 pub async fn chatgpt_token(
+    window: tauri::Window,
     app: tauri::AppHandle,
     state: tauri::State<'_, super::provider::Providers>,
     force_refresh: bool,
 ) -> Result<TokenResponse, String> {
+    crate::commands::guard::check(&window, crate::commands::guard::Callers::MainOnly)?;
     let dir = crate::commands::app_data_dir(&app)?;
     let chatgpt = Arc::clone(&state.chatgpt);
     tauri::async_runtime::spawn_blocking(move || {
@@ -1077,8 +1113,10 @@ pub async fn chatgpt_token(
 
 #[tauri::command]
 pub async fn chatgpt_info(
+    window: tauri::Window,
     state: tauri::State<'_, super::provider::Providers>,
 ) -> Result<ChatGptInfo, String> {
+    crate::commands::guard::check(&window, crate::commands::guard::Callers::MainOnly)?;
     let chatgpt = Arc::clone(&state.chatgpt);
     tauri::async_runtime::spawn_blocking(move || chatgpt.info(&Keychain))
         .await
@@ -1091,6 +1129,7 @@ mod tests {
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::net::TcpStream;
+    use std::sync::atomic::AtomicUsize;
 
     #[derive(Default)]
     struct MemoryStore {
@@ -1153,6 +1192,10 @@ mod tests {
             self.bearers.borrow_mut().push(token.to_owned());
             self.next()
         }
+        fn post_json_bearer(&self, _url: &str, token: &str, _body: &Value) -> Option<HttpReply> {
+            self.bearers.borrow_mut().push(token.to_owned());
+            self.next()
+        }
     }
 
     fn at(text: &str) -> DateTime<Utc> {
@@ -1174,6 +1217,29 @@ mod tests {
         )
         .unwrap();
         store.writes.borrow_mut().clear();
+    }
+
+    /// `option_env!` is read at compile time and cargo rebuilds when it changes, so the test
+    /// binary's own environment says which build this is.
+    #[test]
+    fn the_kill_switch_turns_chatgpt_off_for_any_value() {
+        assert!(offered_given(None));
+        assert!(!offered_given(Some("1")));
+        assert!(!offered_given(Some("")));
+        assert!(!offered_given(Some("0")));
+        let switched_off = std::env::var_os("TALOS_CHATGPT_OFF").is_some();
+        assert_eq!(offered(), !switched_off);
+        let store = MemoryStore::default();
+        let chatgpt = ChatGpt::default();
+        assert_eq!(chatgpt.info(&store).offered, !switched_off);
+        let dir = std::env::temp_dir().join(format!("talos-chatgpt-off-{}", std::process::id()));
+        let state = chatgpt.status(&store, &dir, false).state;
+        if switched_off {
+            assert_eq!(state, ProviderState::NotOffered);
+        } else {
+            assert_eq!(state, ProviderState::NotConnected, "an empty store");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1451,7 +1517,10 @@ mod tests {
         store.delete(SECRET_EXPIRES_AT).unwrap();
         assert!(load_tokens(&store).unwrap().is_none());
         assert_eq!(store.map.borrow().len(), 1, "the tokens are deleted");
-        assert!(store.map.borrow().contains_key(SECRET_CLIENT_ID), "the client id stays");
+        assert!(
+            store.map.borrow().contains_key(SECRET_CLIENT_ID),
+            "the client id stays"
+        );
     }
 
     #[test]
@@ -1514,7 +1583,11 @@ mod tests {
                 TokenError::NeedsSignIn,
                 "{body}"
             );
-            assert_eq!(store.map.borrow().len(), 1, "{body}: only the client id stays");
+            assert_eq!(
+                store.map.borrow().len(),
+                1,
+                "{body}: only the client id stays"
+            );
             assert!(store.map.borrow().contains_key(SECRET_CLIENT_ID));
         }
         let store = MemoryStore::default();
@@ -1548,6 +1621,102 @@ mod tests {
             current_tokens(&store, &FakeHttp::default(), now, false).unwrap_err(),
             TokenError::NotConnected
         );
+    }
+
+    /// A thread-safe store and a slow refresh, so two callers overlap on purpose.
+    #[derive(Default)]
+    struct SharedStore {
+        map: Mutex<HashMap<String, String>>,
+        deletes: AtomicUsize,
+    }
+
+    impl Store for SharedStore {
+        fn get(&self, name: &str) -> Result<Option<String>, String> {
+            Ok(self.map.lock().unwrap().get(name).cloned())
+        }
+        fn set(&self, name: &str, value: &str) -> Result<(), String> {
+            self.map
+                .lock()
+                .unwrap()
+                .insert(name.to_owned(), value.to_owned());
+            Ok(())
+        }
+        fn delete(&self, name: &str) -> Result<(), String> {
+            self.deletes.fetch_add(1, Ordering::SeqCst);
+            self.map.lock().unwrap().remove(name);
+            Ok(())
+        }
+    }
+
+    /// The first refresh takes 200 ms and rotates; a second one would be `refresh_token_reused`.
+    #[derive(Default)]
+    struct SlowRotatingHttp {
+        posts: AtomicUsize,
+    }
+
+    impl Http for SlowRotatingHttp {
+        fn post_form(&self, _url: &str, form: &[(&str, &str)]) -> Option<HttpReply> {
+            let n = self.posts.fetch_add(1, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(200));
+            let sent = form
+                .iter()
+                .find(|(k, _)| *k == "refresh_token")
+                .map(|(_, v)| *v);
+            if n == 0 && sent == Some("ref1") {
+                return Some(HttpReply {
+                    status: 200,
+                    body: Zeroizing::new(r#"{"access_token":"acc2","refresh_token":"ref2","expires_in":3600,"scope":"openid","token_type":"Bearer"}"#.into()),
+                });
+            }
+            Some(HttpReply {
+                status: 400,
+                body: Zeroizing::new(
+                    r#"{"error":{"code":"refresh_token_reused","message":"x"}}"#.into(),
+                ),
+            })
+        }
+        fn get_bearer(&self, _url: &str, _token: &str) -> Option<HttpReply> {
+            None
+        }
+        fn post_json_bearer(&self, _url: &str, _token: &str, _body: &Value) -> Option<HttpReply> {
+            None
+        }
+    }
+
+    #[test]
+    fn two_overlapping_callers_refresh_once_and_nobody_is_signed_out() {
+        let now = at("2026-10-16T12:00:00Z");
+        let store = SharedStore::default();
+        save_tokens(
+            &store,
+            &Tokens {
+                access: Zeroizing::new("acc1".into()),
+                refresh: Zeroizing::new("ref1".into()),
+                client_id: "oaiapp_abc".into(),
+                scope: SCOPES.into(),
+                expires_at: "2026-10-16T11:00:00Z".into(),
+            },
+        )
+        .unwrap();
+        let http = SlowRotatingHttp::default();
+        let outcomes: Vec<Result<Tokens, TokenError>> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..2)
+                .map(|_| scope.spawn(|| current_tokens(&store, &http, now, false)))
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        for outcome in &outcomes {
+            let tokens = outcome.as_ref().expect("both callers get tokens");
+            assert_eq!(tokens.access.as_str(), "acc2");
+            assert_eq!(tokens.refresh.as_str(), "ref2");
+        }
+        assert_eq!(
+            http.posts.load(Ordering::SeqCst),
+            1,
+            "one refresh POST for two callers"
+        );
+        assert_eq!(store.deletes.load(Ordering::SeqCst), 0, "no clear_tokens");
+        assert_eq!(store.get(SECRET_REFRESH).unwrap().as_deref(), Some("ref2"));
     }
 
     #[test]
@@ -1632,9 +1801,18 @@ mod tests {
         old.host_id = random_hex(16);
         write_host_state(&dir, &old).unwrap();
         let migrated = ensure_host_state(&dir).unwrap().host_id;
-        assert!(valid_host_id(&migrated) && migrated != old.host_id, "{migrated}");
-        assert!(!valid_host_id("urn:uuid:ABCDEF12-3456-4789-8ABC-DEF012345678"), "upper case is refused");
-        assert!(!valid_host_id("6ba7b810-9dad-11d1-80b4-00c04fd430c8"), "the prefix is required");
+        assert!(
+            valid_host_id(&migrated) && migrated != old.host_id,
+            "{migrated}"
+        );
+        assert!(
+            !valid_host_id("urn:uuid:ABCDEF12-3456-4789-8ABC-DEF012345678"),
+            "upper case is refused"
+        );
+        assert!(
+            !valid_host_id("6ba7b810-9dad-11d1-80b4-00c04fd430c8"),
+            "the prefix is required"
+        );
         let tokens = || Tokens {
             access: Zeroizing::new("acc".into()),
             refresh: Zeroizing::new("ref".into()),
@@ -1753,7 +1931,11 @@ mod tests {
             chatgpt.token(&store, &http, &dir, false).unwrap_err(),
             TokenError::NeedsSignIn
         );
-        assert_eq!(store.map.borrow().len(), 1, "the stale tokens are cleared, the client id stays");
+        assert_eq!(
+            store.map.borrow().len(),
+            1,
+            "the stale tokens are cleared, the client id stays"
+        );
         assert!(store.map.borrow().contains_key(SECRET_CLIENT_ID));
         assert_eq!(
             chatgpt.status(&store, &dir, false).state,

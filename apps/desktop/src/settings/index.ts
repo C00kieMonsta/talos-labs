@@ -1,5 +1,8 @@
-import type { AiAvailability, ExplainerProfile } from "@talos/core";
-import { CHATGPT_MODEL_PATTERN, DEFAULT_CHATGPT_MODEL } from "@talos/core";
+import type { AiAvailability, ExplainerProfile, WatchInterval } from "@talos/core";
+import { CHATGPT_MODEL_PATTERN, DEFAULT_CHATGPT_MODEL, WATCH_INTERVALS } from "@talos/core";
+
+export { WATCH_INTERVALS };
+export type { WatchInterval };
 
 /**
  * Where AI help comes from. "apple" runs on this Mac; "chatgpt" and "claude_plan" are the
@@ -33,12 +36,24 @@ export interface GuidedSettings {
   autoScan: boolean;
 }
 
+/**
+ * The menu bar watch. A cache of Rust's watch-settings.json for enabled, everyMinutes and notify,
+ * reconciled by useWatch on mount; startAtLogin mirrors the autostart plugin.
+ */
+export interface WatchSettings {
+  enabled: boolean;
+  startAtLogin: boolean;
+  everyMinutes: WatchInterval;
+  notify: boolean;
+}
+
 export interface AppSettings {
   explainer: ExplainerSettings;
   profile: ExplainerProfile;
   onboarded: boolean;
   developer: DeveloperSettings;
   guided: GuidedSettings;
+  watch: WatchSettings;
 }
 
 export const SETTINGS_STORAGE_KEY = "talos.settings";
@@ -63,6 +78,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   onboarded: false,
   developer: { enabled: false, showCommands: true, showPlanExpanded: true },
   guided: { home: true, autoScan: true },
+  watch: { enabled: true, startAtLogin: false, everyMinutes: 60, notify: true },
 };
 
 export const PROVIDERS = ["apple", "chatgpt", "claude_plan", "claude", "ollama"] as const satisfies readonly ExplainerProvider[];
@@ -106,6 +122,11 @@ function pickBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
+/** A number from a closed list, else the fallback. */
+export function pickNumber<T extends number>(value: unknown, allowed: readonly T[], fallback: T): T {
+  return typeof value === "number" && (allowed as readonly number[]).includes(value) ? (value as T) : fallback;
+}
+
 /** Every field falls back to its default, so an old or damaged value never breaks the app. */
 export function parseSettings(raw: unknown): AppSettings {
   const root = isRecord(raw) ? raw : {};
@@ -114,6 +135,8 @@ export function parseSettings(raw: unknown): AppSettings {
   const developer = isRecord(root["developer"]) ? root["developer"] : {};
   // v0.2 stored no guided block; both switches default on.
   const guided = isRecord(root["guided"]) ? root["guided"] : {};
+  // v0.3 stored no watch block; the watch defaults on.
+  const watch = isRecord(root["watch"]) ? root["watch"] : {};
   const d = DEFAULT_SETTINGS;
   // v0.1 stored a top-level developerMode boolean.
   const developerEnabled = pickBoolean(developer["enabled"], pickBoolean(root["developerMode"], d.developer.enabled));
@@ -146,6 +169,12 @@ export function parseSettings(raw: unknown): AppSettings {
     guided: {
       home: pickBoolean(guided["home"], d.guided.home),
       autoScan: pickBoolean(guided["autoScan"], d.guided.autoScan),
+    },
+    watch: {
+      enabled: pickBoolean(watch["enabled"], d.watch.enabled),
+      startAtLogin: pickBoolean(watch["startAtLogin"], d.watch.startAtLogin),
+      everyMinutes: pickNumber(watch["everyMinutes"], WATCH_INTERVALS, d.watch.everyMinutes),
+      notify: pickBoolean(watch["notify"], d.watch.notify),
     },
   };
 }

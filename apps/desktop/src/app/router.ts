@@ -14,7 +14,9 @@ export type Route =
   | { name: "ask" }
   | { name: "settings" }
   /** The AI connect screen in the guided shell. returnTo records where it was opened from; leaving is router.back(). */
-  | { name: "connect"; returnTo: Route };
+  | { name: "connect"; returnTo: Route }
+  /** The "something seems fishy" flow in the guided shell. start picks the gate or the noticed screen; leaving is router.back(). */
+  | { name: "fishy"; returnTo: Route; start?: "gate" | "noticed" };
 
 export type RouteName = Route["name"];
 
