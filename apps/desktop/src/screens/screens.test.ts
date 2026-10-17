@@ -13,7 +13,7 @@ import type { ExplainerProvider } from "../settings";
 import type { ExplainState, FixingState, LastRecheck, ReadyState, SingleFixingState, WatchingState } from "../scan/machine";
 import type { PacerView, RowState } from "../scan/useScanPacer";
 import { Scanning, PROMPTING_ROW_COPY } from "./Scanning";
-import { SECTION_PROGRESS_LABELS } from "../app/labels";
+import { EXPLAINER_FAILURE_LABELS, SECTION_PROGRESS_LABELS } from "../app/labels";
 const AI_BADGE = AI_BADGES.apple;
 import { GUIDED_SECTION_LABELS, WATCH_SETTINGS } from "../guided/copy";
 import { Welcome } from "./Welcome";
@@ -1103,6 +1103,23 @@ describe("Ask", () => {
     expect(box.readOnly).toBe(false);
   });
 
+  it("keeps the composer open while another finding's explanation streams and says why a question has to wait", async () => {
+    const from = { byRule: {}, order: null, priority: null };
+    const value = readyContext({ state: DEV_MACHINE, license: VALID, explain: { kind: "running", target: "TL-MAC-026", partial: null, answerPartial: null, from } });
+    value.scan.ask = vi.fn(async () => ({ ok: false as const, reason: "busy" as const }));
+    render(createElement(StatefulProvider, { value }, createElement(Ask)));
+    const box = screen.getByLabelText("Your question") as HTMLInputElement;
+    expect(box.readOnly).toBe(false);
+    expect(document.querySelector("form.ask-form")?.getAttribute("aria-busy")).toBe("false");
+    expect(screen.queryByText("Thinking about your question.")).toBeNull();
+    fireEvent.change(box, { target: { value: "What first?" } });
+    const ask = screen.getByRole("button", { name: "Ask" }) as HTMLButtonElement;
+    expect(ask.disabled).toBe(false);
+    fireEvent.click(ask);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(EXPLAINER_FAILURE_LABELS.busy));
+    expect(box.readOnly).toBe(false);
+  });
+
   it("streams the answer with a caret and a Stop button while the machine says ask is running", () => {
     const from = { byRule: {}, order: null, priority: null };
     const value = withAi(
@@ -1114,6 +1131,19 @@ describe("Ask", () => {
     expect(document.querySelector(".chat-streaming .caret")).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Stop" }));
     expect(value.scan.stopExplain).toHaveBeenCalled();
+  });
+
+  it("keeps the composer after a failed answer so the next question can be asked, and keeps the card for provider states", () => {
+    const failed = readyContext({ state: DEV_MACHINE, license: VALID, explain: { kind: "failed", reason: "network", target: "ask", byRule: {}, order: null, priority: null } });
+    render(createElement(StatefulProvider, { value: failed }, createElement(Ask)));
+    expect(screen.getByLabelText("Your question")).toBeTruthy();
+    expect((screen.getByLabelText("Your question") as HTMLInputElement).disabled).toBe(false);
+    expect(document.querySelector(".ai-card")).toBeNull();
+    cleanup();
+    const signedOut = readyContext({ state: DEV_MACHINE, license: VALID, provider: "chatgpt", explain: { kind: "failed", reason: "needs_sign_in", target: "ask", byRule: {}, order: null, priority: null } });
+    render(createElement(StatefulProvider, { value: signedOut }, createElement(Ask)));
+    expect(document.querySelector("[data-ai-state='needs_sign_in']")).not.toBeNull();
+    expect(screen.queryByLabelText("Your question")).toBeNull();
   });
 
   it("announces a failed answer as an alert, but not a cancel", async () => {

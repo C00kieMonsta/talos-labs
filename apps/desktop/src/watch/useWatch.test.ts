@@ -153,6 +153,24 @@ describe("useWatch on mount", () => {
     expect(h.updateSettings).toHaveBeenLastCalledWith({ startAtLogin: false });
   });
 
+  it("re-reads the login item when a watch:state flips licensed from false to true, and not on a repeat", async () => {
+    const h = mount({ autostart: true, settings: { startAtLogin: true }, state: fakeWatchState({ licensed: false }) });
+    await flush();
+    expect(h.port.autostartIsEnabled).toHaveBeenCalledTimes(1);
+    h.emit(fakeWatchState({ licensed: false }));
+    expect(h.hook.result.current.startAtLogin).toBe(false);
+    h.updateSettings.mockClear();
+    h.hook.rerender({ settings: { ...DEFAULT_SETTINGS.watch, startAtLogin: false } });
+    h.emit(fakeWatchState({ licensed: true }));
+    await flush();
+    expect(h.port.autostartIsEnabled).toHaveBeenCalledTimes(2);
+    expect(h.hook.result.current.startAtLogin).toBe(true);
+    expect(h.updateSettings).toHaveBeenCalledWith({ startAtLogin: true });
+    h.emit(fakeWatchState({ licensed: true }));
+    await flush();
+    expect(h.port.autostartIsEnabled).toHaveBeenCalledTimes(2);
+  });
+
   it("requestNotifyPermission records notifyAskedAt once the port answers, and not on a rejection", async () => {
     const h = mount();
     await flush();

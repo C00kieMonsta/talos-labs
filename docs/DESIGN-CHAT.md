@@ -118,7 +118,7 @@ Dev machine, licensed, ChatGPT, plan reading cached:
 
 The headline and body are `planText(plan)` unchanged. On a later launch with a diff, the "since last time" rows come first as a list in the same app message ("Since last time." as a meta line, then the diff rows the Since screen draws today), then the plan sentence. With nothing to fix: "Nothing needs fixing." and the chips "Show me the list" and "Check again". With nothing readable: `END.unreadableAll` and the Full Disk Access card when the plan holds the permission step.
 
-The model block is DESIGN-AI-PRESENCE moment 1's `summary`, from `last-brief.json` when the key matches, else nothing. It is never a placeholder and never a spinner. If the brief is running at open (a new plan, licensed), the opening renders without it and the block lands under the body when `brief_ready` fires; the chips and composer do not move because the block sits above them in the same message and the transcript is scrolled to the bottom. Until DESIGN-AI-PRESENCE's `checkup` task exists in the tree, the block never appears and the opening is the authored sentence alone.
+The model block is DESIGN-AI-PRESENCE moment 1's `summary`, from `last-brief.json` when the key matches, else nothing. It is never a placeholder and never a spinner. If the brief is running at open (a new plan, an AI connected), the opening renders without it and the block lands under the body when `brief_ready` fires; the chips and composer do not move because the block sits above them in the same message and the transcript is scrolled to the bottom. Until DESIGN-AI-PRESENCE's `checkup` task exists in the tree, the block never appears and the opening is the authored sentence alone.
 
 ### Chips
 

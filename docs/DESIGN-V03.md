@@ -240,7 +240,7 @@ Before opening Time Machine on step 026, instead of the usual button:
 
 ### AI explain
 
-On every batch, fix and show-me-where step, when `aiUsable` is true, the body ends with a small disclosure "Explain this". Open, it streams `explain(ruleId)` through the v0.2 chokepoint into a panel under the sentences (the batch step explains the first rule in the list and offers the others as plain text buttons inside the panel), with a "Stop" link while streaming. It collapses on advance. It is never on the path: no step waits on it. Locked AI (free tier) hides the disclosure; the paywall step already covers the full version.
+On every batch, fix and show-me-where step, when `aiUsable` is true, the body ends with a small disclosure "Explain this". Open, it streams `explain(ruleId)` through the v0.2 chokepoint into a panel under the sentences (the batch step explains the first rule in the list and offers the others as plain text buttons inside the panel), with a "Stop" link while streaming. It collapses on advance. It is never on the path: no step waits on it. The disclosure follows the switch and availability only; it is never licensed.
 
 ### End states
 

@@ -723,6 +723,8 @@ Running states inside the sheet: "Waiting for macOS to check your password", "Ru
 
 `gate.fixLocked` is unchanged: the three highest-point failing findings and every review finding get the full card, including apply and the away-watch. A locked finding shows no Apply, no deep link and no plan, only the lock card with the inline licence field and the Buy link. The recheck bundled into an apply or a watch is free; the manual "Check again", AI explanations and Ask stay paid. Rust does not know about licences; the gate is a product gate, not a security boundary.
 
+Superseded on 2026-10-17: AI is free once connected and the licence buys fixes beyond three, Check again and the menu bar watch; see docs/DESIGN-AI.md and docs/LICENSING.md. "AI explanations and Ask stay paid" no longer applies.
+
 ## 6. Permissions and onboarding flows
 
 ### Full Disk Access
@@ -749,6 +751,8 @@ Welcome, "Start check-up", Scanning (the Automation prompt handled in place), Ov
 ### Licence entry
 
 `LicenceField` is one component, rendered inline in every lock card (fix card, AI card, Ask, Suggested order) and in the Settings Licence section. One input, `autoFocus` when it replaces a button, placeholder "Paste your licence key". On `paste` or `input`, a trimmed value matching `/^TL1\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{60,}$/` is verified after a 300 ms debounce with no button press; otherwise "Activate" is available. `checking` disables the field. `valid`: `CircleCheck` "Licensed. Updates until 2027-10-15", then after 800 ms the lock is replaced by the content it hid (the fix card, the AI card) and focus moves to it; the sidebar pill turns "Licensed". `invalid`: the existing reason labels under the field, `role="alert"`, focus stays. "Buy a licence" calls `open_buy_page` and the field stays where it is so the key can be pasted on return; the caption reads "Opens the Talos Labs shop in your browser. Your key arrives by email; paste it here." That web link is the one unavoidable step outside the app.
+
+Superseded on 2026-10-17: AI is free once connected and the licence buys fixes beyond three, Check again and the menu bar watch; see docs/DESIGN-AI.md and docs/LICENSING.md. The AI card, Ask and Suggested order no longer carry a lock card, so the field renders only in the fix card and in Settings.
 
 ## 7. Settings reduction
 

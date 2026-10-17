@@ -17,17 +17,17 @@ Every request from the owner, in the order it was made, with its state. Updated 
 | 11 | 2026-10-17 | The top bar must run in the background with regular checks against defence strategies | done (hourly cycle, playbook-grounded fishy flow); the window's content is being redesigned under #15 | docs/DESIGN-WATCH.md |
 | 12 | 2026-10-17 | Chat-first home when an AI is connected; no chat without one | designed, not built | docs/DESIGN-CHAT.md |
 | 13 | 2026-10-17 | "I know, leave it alone" per finding, e.g. disk encryption | designed, not built | docs/DESIGN-ACCEPT.md |
-| 14 | 2026-10-17 | Ask locked while Claude is connected | explained; owner decided AI is free once connected and the licence buys fixes, rechecks and the watch; real signing key shipped and a licence issued to the owner | in progress: workflow applying the gate; commit 37c55c7 for the key |
+| 14 | 2026-10-17 | Ask locked while Claude is connected | explained; owner decided AI is free once connected and the licence buys fixes, rechecks and the watch; real signing key shipped and a licence issued to the owner | done: AI free once connected, the licence buys fixes beyond the free three, Check again and the watch; key in 37c55c7 |
 | 15 | 2026-10-17 | The menu bar window is not nice or useful; it needs AI | designed, not built | docs/DESIGN-WATCH-WINDOW.md |
 | 16 | 2026-10-17 | In general the AI magic is missing | in progress: #10, #12, #13 and #15 are the pieces; build starts when the gate workflow has stopped editing the tree | this ledger |
 | 17 | 2026-10-17 | Keep track of every task; nothing left undone | done, this file | docs/TASKS.md |
 | 18 | 2026-10-17 | Import any UI element worth reusing from the Mineral kit | done: the prototype was already ported class for class (docs/DESIGN-MINERAL.md section 1); added the site hero's rings as `Hero kind="rings"` (available, not mounted) and the editable DMG and app-icon sources | apps/desktop/src/components/Hero.tsx, apps/desktop/brand/mineral/README.md |
 | 19 | 2026-10-17 | The top bar app is not showing any more | explained: the watch is licence-only since #14 and this Mac had no key pasted; a key was issued for the owner (session talos-labs-95, /tmp/talos-owner-licence.txt), and the one from #14 works too | watch-settings.json `licensed`, tray.rs `set_state` |
-| 20 | 2026-10-17 | A better chat interface, like a modern agent-driven app | in progress: design workflow (session talos-labs-95); build next, with #12 | docs/DESIGN-CHAT-UI.md with docs/DESIGN-CHAT.md |
-| 21 | 2026-10-17 | More playful interactions | in progress: design workflow (talos-labs-95) | docs/DESIGN-PLAYFUL.md |
-| 22 | 2026-10-17 | More threat-detection strategies | in progress: design workflow (talos-labs-95) | docs/DESIGN-THREATS-V2.md |
-| 23 | 2026-10-17 | More agentic capabilities | in progress: design workflow (talos-labs-95) | docs/DESIGN-AGENT.md |
-| 24 | 2026-10-17 | Interpretation of daily checks | in progress: design workflow (talos-labs-95) | docs/DESIGN-DAILY.md |
+| 20 | 2026-10-17 | A better chat interface, like a modern agent-driven app | designed, build next with #12 (talos-labs-95); index docs/DESIGN-ITERATION-4.md | docs/DESIGN-CHAT-UI.md with docs/DESIGN-CHAT.md |
+| 21 | 2026-10-17 | More playful interactions | designed; building (talos-labs-95, first in the build order) | docs/DESIGN-PLAYFUL.md |
+| 22 | 2026-10-17 | More threat-detection strategies | designed, not built; proposed for the watch owner session after #13 and #15 | docs/DESIGN-THREATS-V2.md |
+| 23 | 2026-10-17 | More agentic capabilities | designed; part A (activity timeline) building (talos-labs-95), part B after the chat | docs/DESIGN-AGENT.md |
+| 24 | 2026-10-17 | Interpretation of daily checks | designed, not built; after THREATS, same session | docs/DESIGN-DAILY.md |
 
 ## Standing items the owner must do or decide
 

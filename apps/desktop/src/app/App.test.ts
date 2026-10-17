@@ -425,7 +425,9 @@ describe("fixInFlight", () => {
     expect(fixInFlight(ready())).toBe(false);
     for (const phase of ["confirm", "waiting_for_password", "running", "rechecking"] as const) expect(fixInFlight(ready({ fixing: fixing(phase) })), phase).toBe(true);
     for (const phase of ["done", "failed"] as const) expect(fixInFlight(ready({ fixing: fixing(phase) })), phase).toBe(false);
-    expect(fixInFlight(ready({ watching: { ruleId: "TL-MAC-026", since: "2026-10-17T12:00:00.000Z", stale: false } as never }))).toBe(true);
+    expect(fixInFlight(ready({ watching: { ruleId: "TL-MAC-026", since: "2026-10-17T12:00:00.000Z", stale: false, passedAt: null } as never }))).toBe(true);
+    // A watcher that already passed is finished; the reopen launch scan may run.
+    expect(fixInFlight(ready({ watching: { ruleId: "TL-MAC-026", since: "2026-10-17T12:00:00.000Z", stale: false, passedAt: "2026-10-17T12:05:00.000Z" } as never }))).toBe(false);
     expect(fixInFlight({ kind: "rechecking", report, state: DEV_MACHINE, key: "security", explain: { kind: "off" }, watching: null } as never)).toBe(true);
   });
 });

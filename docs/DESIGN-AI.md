@@ -181,7 +181,7 @@ The header sentence: "Questions are answered from this report only. Answered by 
 | `provider_unavailable` | "ChatGPT didn't answer." | Try again |
 | `not_offered` | "ChatGPT isn't available in this version yet." | Choose another |
 
-The v0.2 rows for the Apple states, `available_idle`, `streaming`, `ready`, `failed` and `locked` are unchanged. "Connect my AI" and "Choose another" open the Connect screen in the guided shell and return to the Overview afterwards.
+The v0.2 rows for the Apple states, `available_idle`, `streaming`, `ready` and `failed` are unchanged. "Connect my AI" and "Choose another" open the Connect screen in the guided shell and return to the Overview afterwards.
 
 ## 5. Settings: "Your AI"
 

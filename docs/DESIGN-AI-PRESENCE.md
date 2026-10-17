@@ -28,7 +28,7 @@ Facts about the tree and the providers were checked on 2026-10-17; the measureme
 ## 1. Principles
 
 - **Felt, never in the way.** The model's text appears where the person already is, with no extra tap. It never adds a control to a guided screen, never changes a count, never shifts a step, never moves a button, and never delays a screen. A screen renders complete without it and gains a block when it lands.
-- **Authored copy is the floor.** Every moment has an authored fallback that is what the person sees with AI off, not connected, not licensed, limited, failed or rejected. The fallback is never a placeholder, a spinner or a "could not write" line on a guided screen. The model's block is either there or absent.
+- **Authored copy is the floor.** Every moment has an authored fallback that is what the person sees with AI off, not connected, limited, failed or rejected. The fallback is never a placeholder, a spinner or a "could not write" line on a guided screen. The model's block is either there or absent.
 - **Every model text is labelled.** The provider's name and "Not verified" sit under every block (section 5). This follows Apple's iOS 18.3 change after the BBC summary incident: labelled, never native-looking (engadget, macworld). The block is rendered through `ModelText` (text nodes only) and never as authored copy. The badge line is authored only; no model value sits inside it.
 - **Below the controls.** DESIGN-V03's rule holds: one headline, at most two authored sentences, one primary, at most one link, the Explain disclosure. DESIGN-V03 section 1 gains one sentence: "A guided screen may carry one model block, below the link or inside the disclosure, never above a control." The block is content, not a control.
 - **Budget per check-up.** The app starts at most three calls on its own per landed plan (section 3). Everything else is person-initiated and the provider's `limit_reached` is the stop, as DESIGN-AI section 8 says. The plan reading is cached across launches and nothing is re-asked on a re-render, a revisit or a recheck that did not touch the rule.
@@ -180,7 +180,7 @@ Dropped from the first draft: model-written questions (model text as a control l
 
 **Fallback.** The chips alone, or the authored hint when there is no report.
 
-**State machine.** `hidden` when AI off, not connected, Ask `locked` (`useAiCardFlow`, `AiCard.tsx:296-304`), or no summary in the cache; the chips still render whenever Ask is usable. `writing` while the plan brief runs: the one static line "Reading your check-up." under the header (Ask is where the person waits for the text, so a line is fair here; it is `role="status"`, with no Stop because it is the brief). `ready`: the briefing and the chips. `failed`: the chips alone.
+**State machine.** `hidden` when AI off, not connected, or no summary in the cache; the chips still render whenever Ask is usable. `writing` while the plan brief runs: the one static line "Reading your check-up." under the header (Ask is where the person waits for the text, so a line is fair here; it is `role="status"`, with no Stop because it is the brief). `ready`: the briefing and the chips. `failed`: the chips alone.
 
 In the expert home (`guided.home` false) the guided controller never runs, so no plan is landed and no brief exists. Ask then shows the chips without the briefing. The first draft had the Overview request a brief from a plan the person never sees; that is dropped, because the summary would then be the only ordering statement on a screen that shows no app-decided order.
 
@@ -369,7 +369,7 @@ British English throughout. Model text is shown in a model-text block and is not
 
 **Nothing new on the plan screen, the steps or the end screen** beyond the model block itself; their authored strings are unchanged.
 
-**Privacy sentences.** DESIGN-AI section 7's sentences stay true: the brief sends the same short summary plus id lists and two numbers. The Connect screen sentence ("I send it a short summary of the check-up, never your files, passwords or your computer's name.") covers it. The readme's "Your AI" paragraph gains one clause: "and, with the full version, a short reading of each check-up written by your AI appears on the plan, at the end and on Ask." The readme's "Your check-up and your fixes never leave this Mac" paragraph gains: "The last reading is kept on this Mac next to the last report, and goes when you disconnect."
+**Privacy sentences.** DESIGN-AI section 7's sentences stay true: the brief sends the same short summary plus id lists and two numbers. The Connect screen sentence ("I send it a short summary of the check-up, never your files, passwords or your computer's name.") covers it. The readme's "Your AI" paragraph gains one clause: "and, once an AI is connected, a short reading of each check-up written by your AI appears on the plan, at the end and on Ask." The readme's "Your check-up and your fixes never leave this Mac" paragraph gains: "The last reading is kept on this Mac next to the last report, and goes when you disconnect."
 
 ## 6. Contracts
 

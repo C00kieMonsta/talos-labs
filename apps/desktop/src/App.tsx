@@ -70,7 +70,7 @@ function inTauri(): boolean {
 export function fixInFlight(state: ScanState): boolean {
   if (state.kind === "rechecking") return true;
   if (state.kind !== "ready") return false;
-  if (state.watching !== null) return true;
+  if (state.watching !== null && state.watching.passedAt === null) return true;
   return state.fixing !== null && state.fixing.phase !== "done" && state.fixing.phase !== "failed";
 }
 

@@ -81,25 +81,30 @@ export function useWatch(deps: WatchDeps): WatchController {
   // Mount: status(), then onState; each state read reconciles the three Rust-owned keys.
   useEffect(() => {
     let live = true;
+    const readAutostart = () =>
+      port.autostartIsEnabled().then(
+        (enabled) => {
+          if (!live) return;
+          setStartAtLogin(enabled);
+          if (enabled !== depsRef.current.settings.startAtLogin) depsRef.current.updateSettings({ startAtLogin: enabled });
+        },
+        () => undefined,
+      );
     const apply = (next: WatchState) => {
       if (!live) return;
+      const previous = stateRef.current;
       stateRef.current = next;
       setState(next);
       // Rust disabled the LaunchAgent when the licence went; the cache follows.
       if (!next.licensed) setStartAtLogin(false);
       const patch = settingsPatch(next, depsRef.current.settings);
       if (patch !== null) depsRef.current.updateSettings(patch);
+      // A licence that follows an unlicensed state may find the login item still on, so read it again.
+      if (next.licensed && previous !== null && !previous.licensed) void readAutostart();
     };
     const off = port.onState(apply);
     port.status().then(apply, () => undefined);
-    port.autostartIsEnabled().then(
-      (enabled) => {
-        if (!live) return;
-        setStartAtLogin(enabled);
-        if (enabled !== depsRef.current.settings.startAtLogin) depsRef.current.updateSettings({ startAtLogin: enabled });
-      },
-      () => undefined,
-    );
+    void readAutostart();
     return () => {
       live = false;
       off();

@@ -99,8 +99,10 @@ export function Ask() {
   const badge = aiBadge(flow.provider);
   const streaming = flow.explain.kind === "running" && flow.explain.target === "ask";
   const partial = streaming ? (flow.explain.answerPartial ?? "") : null;
-  const busy = flow.explain.kind === "running" || waiting;
-  const usable = flow.state.kind === "available_idle" || flow.state.kind === "streaming" || flow.state.kind === "ready";
+  // Only Ask's own call locks the composer; a question sent during another explanation gets the inline busy sentence.
+  const busy = streaming || waiting;
+  // A failed answer keeps the form: the error sits inline and the next question resets the state.
+  const usable = flow.state.kind === "available_idle" || flow.state.kind === "streaming" || flow.state.kind === "ready" || flow.state.kind === "failed";
 
   useEffect(() => {
     return () => latest.current.setDraft(latest.current.question);

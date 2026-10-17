@@ -45,7 +45,7 @@ There is no licence form. `LicenceField` (`apps/desktop/src/components/LicenceFi
 
 - Paste detection. On `paste` or `input`, a trimmed value matching `/^TL1\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{60,}$/` is verified after a 300 ms debounce with no button press. A value that does not match keeps an "Activate" button.
 - `checking` disables the field.
-- `valid`: "Licensed. Updates until <updatesUntil>" for 800 ms, then the lock is replaced by the content it hid (the fix card, the AI card) and focus moves to it. The sidebar pill reads "Licensed".
+- `valid`: "Licensed. Updates until <updatesUntil>" for 800 ms, then the lock is replaced by the content it hid (the fix card, the recheck) and focus moves to it. The sidebar pill reads "Licensed".
 - `invalid`: the reason labels from the table above sit under the field with `role="alert"`; focus stays in the field.
 - "Buy a licence" calls the `open_buy_page` command, which opens one fixed URL chosen in Rust, `https://taloslabs.si/shop`; the webview never passes a URL. The field stays where it is so the key can be pasted on return. The caption reads "Opens the Talos Labs shop in your browser. Your key arrives by email; paste it here." That web link is the one step outside the app.
 
