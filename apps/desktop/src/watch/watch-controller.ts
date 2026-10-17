@@ -26,7 +26,7 @@ export interface WatchController {
   /** "This is fine, I know it": normalForMe plus the acknowledge count, then the port re-baselines. */
   acknowledge(signalId: SignalId): Promise<void>;
   answerGate(signalId: SignalId, mine: boolean): Promise<void>;
-  /** "Not now": actionNotNow for 14 days plus the port's snooze on the item. */
+  /** "Not now": actionNotNow for 14 days plus the port's snooze on the item and every other act-now item, so none survives it. */
   notNow(actionId: ActionId, signalId: SignalId): Promise<void>;
   openSource(actionId: ActionId): void;
   markFishyRan(): void;

@@ -914,15 +914,28 @@ pub fn answer_gate(app: &AppHandle, signal: SignalId, mine: bool) -> Result<(), 
     Ok(())
 }
 
-/// "Not now": caps the item at keep_an_eye for 14 days.
+/// The signals a "Not now" snoozes: the one it was pressed on, plus every other item that
+/// justifies act now (neither gated nor snoozed), so no act-now state survives it (section 5).
+pub fn snooze_targets(state: &WatchState, signal: SignalId) -> Vec<SignalId> {
+    let mut targets = vec![signal];
+    if state.rating != Rating::ActNow {
+        return targets;
+    }
+    for item in &state.items {
+        if !item.gated && item.snoozed_until.is_none() && !targets.contains(&item.signal_id) {
+            targets.push(item.signal_id);
+        }
+    }
+    targets
+}
+
+/// "Not now": caps the item, and every other act-now item, at keep_an_eye for 14 days.
 pub fn snooze(app: &AppHandle, signal: SignalId) -> Result<(), String> {
-    app.state::<WatchStore>().edit(
-        app,
-        Edit::Snooze {
-            signal,
-            at: Utc::now(),
-        },
-    )?;
+    let store = app.state::<WatchStore>();
+    let at = Utc::now();
+    for target in snooze_targets(&store.snapshot(), signal) {
+        store.edit(app, Edit::Snooze { signal: target, at })?;
+    }
     request_refresh(app);
     Ok(())
 }
@@ -1037,6 +1050,70 @@ mod tests {
             Some(OpenScreen::SettingsWatch)
         );
         assert!(Rating::ActNow > Rating::Calm);
+    }
+
+    fn item(signal_id: SignalId, kind: FishyKind, gated: bool, snoozed: bool) -> WatchItem {
+        WatchItem {
+            signal_id,
+            kind,
+            severity: Severity::High,
+            points: 6,
+            change: Change::Appeared,
+            changed_at: Some("2026-10-17T12:00:00.000Z".into()),
+            gated,
+            snoozed_until: snoozed.then(|| "2026-10-31T12:00:00.000Z".to_owned()),
+            has_startup_entry: false,
+            is_listener: false,
+            action_ids: Vec::new(),
+            model_sentence: None,
+            model_provider: None,
+        }
+    }
+
+    #[test]
+    fn a_not_now_snoozes_every_act_now_item_and_only_the_pressed_one_otherwise() {
+        let items = vec![
+            item(SignalId::PersistenceNew, FishyKind::Persistence, false, false),
+            item(SignalId::ListenerNewPorts, FishyKind::Listener, false, false),
+            item(SignalId::RemoteAccessOn, FishyKind::Remote, true, false),
+            item(SignalId::Firewall, FishyKind::Guard, false, true),
+        ];
+        let act = WatchState {
+            rating: Rating::ActNow,
+            items: items.clone(),
+            ..WatchState::default()
+        };
+        assert_eq!(
+            snooze_targets(&act, SignalId::PersistenceNew),
+            vec![SignalId::PersistenceNew, SignalId::ListenerNewPorts],
+            "the gated and the already snoozed items are left alone"
+        );
+        assert_eq!(
+            snooze_targets(&act, SignalId::ListenerNewPorts),
+            vec![SignalId::ListenerNewPorts, SignalId::PersistenceNew],
+            "the pressed item comes first and is never repeated"
+        );
+        let look = WatchState {
+            rating: Rating::KeepAnEye,
+            items,
+            ..WatchState::default()
+        };
+        assert_eq!(
+            snooze_targets(&look, SignalId::PersistenceNew),
+            vec![SignalId::PersistenceNew]
+        );
+        // Through the baseline: both listings end up snoozed with their siblings.
+        let store = WatchStore::default();
+        let at = Utc::now();
+        for target in snooze_targets(&act, SignalId::PersistenceNew) {
+            store
+                .apply_edit(None, Edit::Snooze { signal: target, at })
+                .unwrap();
+        }
+        let live = store.baseline_in(None);
+        assert!(live.snoozed.contains_key(&SignalId::PersistenceNew));
+        assert!(live.snoozed.contains_key(&SignalId::ListenerNewPorts));
+        assert!(!live.snoozed.contains_key(&SignalId::RemoteAccessOn));
     }
 
     #[test]

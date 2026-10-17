@@ -51,6 +51,20 @@ export function settingsPatch(state: WatchState, settings: WatchSettings): Parti
 }
 
 /**
+ * The signals a "Not now" snoozes: the item it was pressed on, plus every other item that
+ * justifies act now (neither gated nor snoozed), so no act-now state survives it (DESIGN-WATCH
+ * section 5).
+ */
+export function snoozeTargets(state: WatchState | null, signalId: SignalId): readonly SignalId[] {
+  const targets: SignalId[] = [signalId];
+  if (state === null || state.rating !== "act_now") return targets;
+  for (const item of state.items) {
+    if (!item.gated && item.snoozedUntil === null && !targets.includes(item.signalId)) targets.push(item.signalId);
+  }
+  return targets;
+}
+
+/**
  * The watch controller for App. On mount it reads status() and autostartIsEnabled() and
  * writes what Rust holds back into settings, and pushes the profile; it never changes the
  * watch on its own. Every setter calls the port first and writes settings only on success.
@@ -59,6 +73,7 @@ export function useWatch(deps: WatchDeps): WatchController {
   const depsRef = useRef(deps);
   depsRef.current = deps;
   const [state, setState] = useState<WatchState | null>(null);
+  const stateRef = useRef<WatchState | null>(null);
   const [startAtLogin, setStartAtLogin] = useState<boolean | null>(null);
   const now = useCallback(() => depsRef.current.now?.() ?? new Date().toISOString(), []);
   const { port } = deps;
@@ -68,6 +83,7 @@ export function useWatch(deps: WatchDeps): WatchController {
     let live = true;
     const apply = (next: WatchState) => {
       if (!live) return;
+      stateRef.current = next;
       setState(next);
       // Rust disabled the LaunchAgent when the licence went; the cache follows.
       if (!next.licensed) setStartAtLogin(false);
@@ -191,12 +207,14 @@ export function useWatch(deps: WatchDeps): WatchController {
       const { memory } = depsRef.current;
       const at = now();
       const until = new Date(Date.parse(at) + AI_ASK_AGAIN_MS).toISOString();
+      // Every act-now item goes with it, so no act-now state survives a "Not now".
+      const targets = snoozeTargets(stateRef.current, signalId);
       write({
         ...memory,
         actionNotNow: { ...memory.actionNotNow, [actionId]: at },
-        snoozedSignals: { ...memory.snoozedSignals, [signalId]: until },
+        snoozedSignals: { ...memory.snoozedSignals, ...Object.fromEntries(targets.map((id) => [id, until])) },
       });
-      await depsRef.current.port.snooze(signalId).catch(() => undefined);
+      await Promise.all(targets.map((id) => depsRef.current.port.snooze(id).catch(() => undefined)));
     },
     [now, write],
   );

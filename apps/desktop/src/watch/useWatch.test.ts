@@ -5,7 +5,7 @@ import { EMPTY_WATCH_MEMORY, isMuted } from "@talos/core";
 import { fakeWatchPort, fakeWatchState } from "../app/testing";
 import { DEFAULT_SETTINGS } from "../settings";
 import type { WatchSettings } from "../settings";
-import { useWatch, useWatchStatus } from "./useWatch";
+import { snoozeTargets, useWatch, useWatchStatus } from "./useWatch";
 import type { WatchDeps } from "./useWatch";
 
 const NOW = "2026-10-17T12:00:00.000Z";
@@ -251,7 +251,46 @@ describe("useWatch memory", () => {
       snoozedSignals: { "sig.persistence_new": "2026-10-31T12:00:00.000Z" },
     });
     expect(h.port.snooze).toHaveBeenCalledWith("sig.persistence_new");
+    expect(h.port.snooze).toHaveBeenCalledTimes(1);
     expect(h.port.setEnabled).not.toHaveBeenCalled();
+  });
+
+  it("notNow on an act-now state snoozes every item that justifies it, skipping gated and already snoozed ones", async () => {
+    const item = (signalId: WatchState["items"][number]["signalId"], over: Partial<WatchState["items"][number]> = {}): WatchState["items"][number] => ({
+      signalId,
+      kind: "persistence",
+      severity: "high",
+      points: 6,
+      change: "appeared",
+      changedAt: NOW,
+      gated: false,
+      snoozedUntil: null,
+      hasStartupEntry: true,
+      isListener: false,
+      actionIds: ["act.disconnect_network"],
+      modelSentence: null,
+      modelProvider: null,
+      ...over,
+    });
+    const items = [item("sig.persistence_new"), item("sig.listener_new_ports", { kind: "listener" }), item("sig.remote_access_on", { kind: "remote", gated: true }), item("sig.firewall", { kind: "guard", snoozedUntil: "2026-10-20T00:00:00.000Z" })];
+    const h = mount({ state: fakeWatchState({ rating: "act_now", items }) });
+    await flush();
+    expect(snoozeTargets(h.hook.result.current.state, "sig.persistence_new")).toEqual(["sig.persistence_new", "sig.listener_new_ports"]);
+    await act(() => h.hook.result.current.notNow("act.disconnect_network", "sig.persistence_new"));
+    expect(h.saveMemory).toHaveBeenCalledWith({
+      ...EMPTY_WATCH_MEMORY,
+      actionNotNow: { "act.disconnect_network": NOW },
+      snoozedSignals: { "sig.persistence_new": "2026-10-31T12:00:00.000Z", "sig.listener_new_ports": "2026-10-31T12:00:00.000Z" },
+    });
+    expect(h.port.snooze).toHaveBeenCalledTimes(2);
+    expect(h.port.snooze).toHaveBeenCalledWith("sig.persistence_new");
+    expect(h.port.snooze).toHaveBeenCalledWith("sig.listener_new_ports");
+  });
+
+  it("notNow on a look state snoozes only the item it was pressed on", () => {
+    const state = fakeWatchState({ rating: "keep_an_eye", items: [] });
+    expect(snoozeTargets(state, "sig.persistence_new")).toEqual(["sig.persistence_new"]);
+    expect(snoozeTargets(null, "sig.persistence_new")).toEqual(["sig.persistence_new"]);
   });
 
   it("answerGate writes normalForMe only for Yes, and always reaches the port", async () => {
