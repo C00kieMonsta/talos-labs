@@ -37,9 +37,11 @@ interface TalosDemoCall {
     | "watch_action_preview"
     | "watch_action_apply"
     | "watch_open_source"
+    | "watch_open_main"
     | "autostart_enable"
     | "autostart_disable"
-    | "watch:notified";
+    | "watch:notified"
+    | "chat";
   /** A rule, signal, action or watch.* id, a boolean or a number; never a URL, a path or profile text. */
   readonly arg?: string | number | boolean | readonly string[];
   readonly prompt?: string;
@@ -50,4 +52,6 @@ interface Window {
   __talosDemoCalls?: TalosDemoCall[];
   /** Demo mode only: scales the Scanning reveal schedule; 0 collapses it. */
   __talosDemoPace?: number;
+  /** Demo mode only: chat_divider=1 dates the chat's opening this far back, so the next message draws the time divider. */
+  __talosDemoChat?: { readonly openingAgoMs: number };
 }

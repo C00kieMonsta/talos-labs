@@ -3,6 +3,8 @@ import { evaluate, FISHY_KINDS, MACOS_CATALOG, RATING_ORDER } from "@talos/core"
 import type { Adapters } from "../adapters";
 import { createDemoAdapters, DEMO_BATCH_OUTCOMES, DEMO_CONNECT_OUTCOMES, DEMO_FIX_OUTCOMES, DEMO_FIXTURE_NAMES, DEMO_FIXTURES, DEMO_LICENSE_KEY, DEMO_SCAN_ERRORS, withForcedFailures } from "../adapters/demo";
 import type { DemoFixture, DemoOptions, ForcedFailure } from "../adapters/demo";
+import { DEMO_CHAT_REPLIES } from "../adapters/demo-explainer";
+import type { DemoChatOptions } from "../adapters/demo-explainer";
 import { isDeveloperProvider, loadSettings, PROVIDERS, saveSettings } from "../settings";
 import type { AppSettings, ExplainerProvider } from "../settings";
 
@@ -119,6 +121,42 @@ export interface DemoFlags {
   readonly watchDemo: WatchDemoFlags;
   /** JSON for talos.watch, stored as given; the app parses it field by field. */
   readonly watchMemory: string | null;
+  /** The chat params (DESIGN-CHAT-UI section 5): the canned reply and failure go to the fakes through options.chat. */
+  readonly chatDemo: ChatDemoFlags;
+}
+
+/** How long before the opening `chat_divider=1` dates it: eleven minutes, past the ten minute divider. */
+export const CHAT_DIVIDER_AGO_MS = 11 * 60_000;
+
+export interface ChatDemoFlags {
+  /** ?chat_divider=1 dates the opening eleven minutes back, so the next message draws the time divider. */
+  readonly divider: boolean;
+  /** ?watch_open=chat&question=<text> replays a watch:open draft after boot through the watch port's onOpen. */
+  readonly watchOpenQuestion: string | null;
+}
+
+export const DEFAULT_CHAT_DEMO: ChatDemoFlags = { divider: false, watchOpenQuestion: null };
+
+/** The chat_* params into the fakes' options; absent gives the "disk" reply and no failure. */
+export function parseChatDemoQuery(params: URLSearchParams): { readonly options: DemoChatOptions | null; readonly flags: ChatDemoFlags } {
+  const reply = pickOne(params.get("chat_reply"), DEMO_CHAT_REPLIES);
+  const fail = pickOne(params.get("chat_fail"), EXPLAINER_FAILURES);
+  const failAfter = count(params, "chat_fail_after");
+  const firstPartial = count(params, "chat_first_partial");
+  const options: DemoChatOptions = {
+    ...(reply !== null ? { reply } : {}),
+    ...(fail !== null ? { fail } : {}),
+    ...(failAfter !== null ? { failAfter } : {}),
+    ...(firstPartial !== null ? { firstPartialMs: firstPartial } : {}),
+  };
+  const question = params.get("question");
+  return {
+    options: Object.keys(options).length === 0 ? null : options,
+    flags: {
+      divider: flag(params, "chat_divider"),
+      watchOpenQuestion: params.get("watch_open") === "chat" && question !== null && question.trim().length > 0 ? question.slice(0, 500) : null,
+    },
+  };
 }
 
 function pickOne<T extends string>(value: string | null, allowed: readonly T[]): T | null {
@@ -180,6 +218,7 @@ export function parseDemoQuery(search: string): DemoFlags {
     .split(",")
     .map((id) => FORCED_FAILURES.get(id))
     .filter((id): id is ForcedFailure => id !== undefined);
+  const chatDemo = parseChatDemoQuery(params);
   return {
     options: {
       fixture,
@@ -201,6 +240,7 @@ export function parseDemoQuery(search: string): DemoFlags {
       ...(bundled ? {} : { bundled }),
       ...(pollAfter !== null ? { pollAfter } : {}),
       ...(fail.length > 0 ? { fail } : {}),
+      ...(chatDemo.options !== null ? { chat: chatDemo.options } : {}),
     },
     reset: flag(params, "reset"),
     licensed: flag(params, "licensed"),
@@ -216,7 +256,27 @@ export function parseDemoQuery(search: string): DemoFlags {
     technical,
     watchDemo: parseWatchDemoQuery(params),
     watchMemory: params.get("watchMemory"),
+    chatDemo: chatDemo.flags,
   };
+}
+
+/**
+ * The watch window's draft contract (DESIGN-WATCH-WINDOW "Commands"): watch:open { screen: "chat", question } replayed once,
+ * a tick after the app subscribes, through a wrapper over the watch port, so demo-watch.ts is untouched until the real emit lands.
+ */
+export function withWatchOpenReplay(adapters: Adapters, question: string): Adapters {
+  const watch = adapters.watch;
+  const replayed: Adapters["watch"] = Object.assign(Object.create(Object.getPrototypeOf(watch) as object) as Adapters["watch"], watch, {
+    onOpen(listener: Parameters<Adapters["watch"]["onOpen"]>[0]) {
+      const off = watch.onOpen(listener);
+      const timer = setTimeout(() => listener({ screen: "chat", question } as unknown as Parameters<typeof listener>[0]), 0);
+      return () => {
+        clearTimeout(timer);
+        off();
+      };
+    },
+  });
+  return { ...adapters, watch: replayed };
 }
 
 /** The fixture's report with two passing rules failing and one failing rule passing, so the diff shows 2 fixed and 1 appeared. */
@@ -253,7 +313,9 @@ export function bootDemo(search: string, storage: Storage | null): Adapters {
   if (flags.watchMemory !== null) storage?.setItem(DEMO_WATCH_MEMORY_KEY, flags.watchMemory);
   if (flags.continueGuided) storage?.setItem(DEMO_CONTINUE_KEY, JSON.stringify({ kind: "guided" }));
   const previousReport = flags.since ? previousReportFor(flags.options.fixture, flags.options.fail ?? []) : null;
-  const adapters = createDemoAdapters({ ...flags.options, previousReport, watchDemo: flags.watchDemo });
+  if (flags.chatDemo.divider && typeof window !== "undefined") window.__talosDemoChat = { openingAgoMs: CHAT_DIVIDER_AGO_MS };
+  const built = createDemoAdapters({ ...flags.options, previousReport, watchDemo: flags.watchDemo });
+  const adapters = flags.chatDemo.watchOpenQuestion === null ? built : withWatchOpenReplay(built, flags.chatDemo.watchOpenQuestion);
   if (flags.licensed) void adapters.license.install(DEMO_LICENSE_KEY);
   return adapters;
 }

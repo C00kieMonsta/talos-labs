@@ -1,7 +1,9 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { FixProgress, WatchContext, WatchDetails, WatchState } from "@talos/core";
 import { ACTION_IDS, MODEL_PROBE_IDS } from "@talos/core";
-import { FORBIDDEN_WINDOW, TauriWatchAdapter, toWatchContext, toWatchDetails, toWatchItem, toWatchPlan, toWatchState } from "./tauri-watch";
+import { cleanQuestion, FORBIDDEN_WINDOW, TauriWatchAdapter, toOpenEvent, toWatchContext, toWatchDetails, toWatchItem, toWatchPlan, toWatchState } from "./tauri-watch";
 
 const NOW = "2026-10-17T12:00:00.000Z";
 
@@ -38,6 +40,14 @@ const STATE = {
   unavailable: [{ probeId: "probe.listeners", reason: "permission_denied" }],
   gated: ["sig.firewall"],
   items: [ITEM],
+  nextCheckAt: "2026-10-17T12:48:00.000Z",
+  lastChangeAt: "2026-10-14T12:00:00.000Z",
+  ai: { enabled: true, provider: "chatgpt" },
+  judge: { provider: "chatgpt", at: "2026-10-17T11:48:00.000Z", rating: "act_now", reason: "A new start-up program and a new open port appeared within the same hour." },
+  recentCount: 2,
+  rulesSince: { reportId: "r-1", appeared: 1 },
+  report: { reportId: "r-1", scannedAt: "2026-10-17T10:00:00.000Z", score: 72, grade: "fair" },
+  next: { reportId: "r-1", ruleId: "TL-MAC-001", kind: "fix" },
 };
 
 const CONTEXT = {
@@ -90,7 +100,11 @@ describe("toWatchState", () => {
   it("rejects every malformed field", () => {
     expect(toWatchState(null)).toBeNull();
     expect(toWatchState([])).toBeNull();
-    for (const key of Object.keys(STATE) as (keyof typeof STATE)[]) expect(toWatchState(without(STATE, key)), key).toBeNull();
+    const optional: readonly string[] = ["judge", "rulesSince", "report", "next"];
+    for (const key of Object.keys(STATE) as (keyof typeof STATE)[]) {
+      if (optional.includes(key)) continue;
+      expect(toWatchState(without(STATE, key)), key).toBeNull();
+    }
     expect(toWatchState({ ...STATE, rating: "red" })).toBeNull();
     expect(toWatchState({ ...STATE, everyMinutes: 30 })).toBeNull();
     expect(toWatchState({ ...STATE, cycleIndex: -1 })).toBeNull();
@@ -104,6 +118,91 @@ describe("toWatchState", () => {
     expect(toWatchState({ ...STATE, items: [{ ...ITEM, modelSentence: "x".repeat(301) }] })).toBeNull();
     expect(toWatchState({ ...STATE, items: [{ ...ITEM, points: 1.5 }] })).toBeNull();
     expect(toWatchItem({ ...ITEM, snoozedUntil: 5 })).toBeNull();
+    expect(toWatchState({ ...STATE, unavailable: [{ probeId: "probe.listeners", reason: "unsigned_build" }] })?.unavailable).toEqual([{ probeId: "probe.listeners", reason: "unsigned_build" }]);
+  });
+
+  it("requires the three plain new fields and the ai object", () => {
+    expect(toWatchState({ ...STATE, nextCheckAt: "soon" })).toBeNull();
+    expect(toWatchState({ ...STATE, lastChangeAt: 0 })).toBeNull();
+    expect(toWatchState({ ...STATE, recentCount: -1 })).toBeNull();
+    expect(toWatchState({ ...STATE, recentCount: 1.5 })).toBeNull();
+    expect(toWatchState({ ...STATE, ai: null })).toBeNull();
+    expect(toWatchState({ ...STATE, ai: { enabled: "yes", provider: null } })).toBeNull();
+    expect(toWatchState({ ...STATE, ai: { enabled: true, provider: "ollama" } })).toBeNull();
+    expect(toWatchState({ ...STATE, nextCheckAt: null, lastChangeAt: null, recentCount: 0, ai: { enabled: false, provider: null } })).toMatchObject({ nextCheckAt: null, lastChangeAt: null, recentCount: 0, ai: { enabled: false, provider: null } });
+  });
+
+  it("reads judge, rulesSince, report and next as null on absence or malformation, never failing the state", () => {
+    const bare = toWatchState({ ...STATE, judge: undefined, rulesSince: undefined, report: undefined, next: undefined });
+    expect(bare).toMatchObject({ rating: "act_now", judge: null, rulesSince: null, report: null, next: null });
+    expect(toWatchState({ ...STATE, judge: { ...STATE.judge, reason: "" } })?.judge).toBeNull();
+    expect(toWatchState({ ...STATE, judge: { ...STATE.judge, reason: "x".repeat(121) } })?.judge).toBeNull();
+    expect(toWatchState({ ...STATE, judge: { ...STATE.judge, reason: "x".repeat(120) } })?.judge?.reason).toHaveLength(120);
+    expect(toWatchState({ ...STATE, judge: { ...STATE.judge, provider: "ollama" } })?.judge).toBeNull();
+    expect(toWatchState({ ...STATE, judge: { ...STATE.judge, rating: "red" } })?.judge).toBeNull();
+    expect(toWatchState({ ...STATE, judge: { ...STATE.judge, at: "yesterday" } })?.judge).toBeNull();
+    expect(toWatchState({ ...STATE, judge: "fine" })?.judge).toBeNull();
+    expect(toWatchState({ ...STATE, rulesSince: { reportId: "r-1", appeared: -1 } })?.rulesSince).toBeNull();
+    expect(toWatchState({ ...STATE, report: { ...STATE.report, score: 101 } })?.report).toBeNull();
+    expect(toWatchState({ ...STATE, report: { ...STATE.report, score: 7.5 } })?.report).toBeNull();
+    expect(toWatchState({ ...STATE, report: { ...STATE.report, grade: "great" } })?.report).toBeNull();
+    expect(toWatchState({ ...STATE, report: { ...STATE.report, scannedAt: "yesterday" } })?.report).toBeNull();
+    expect(toWatchState({ ...STATE, report: { ...STATE.report, score: null, grade: null } })?.report).toEqual({ ...STATE.report, score: null, grade: null });
+    expect(toWatchState({ ...STATE, next: { ...STATE.next, kind: "run" } })?.next).toBeNull();
+    expect(toWatchState({ ...STATE, next: { ...STATE.next, ruleId: "/etc/hosts" } })?.next).toBeNull();
+  });
+
+  it("a bad reportId drops only that field", () => {
+    const badReport = toWatchState({ ...STATE, report: { ...STATE.report, reportId: "bad id!" } });
+    expect(badReport?.report).toBeNull();
+    expect(badReport?.next).toEqual(STATE.next);
+    expect(badReport?.rulesSince).toEqual(STATE.rulesSince);
+    const badSince = toWatchState({ ...STATE, rulesSince: { reportId: "x".repeat(65), appeared: 1 } });
+    expect(badSince?.rulesSince).toBeNull();
+    expect(badSince?.report).toEqual(STATE.report);
+    const badNext = toWatchState({ ...STATE, next: { ...STATE.next, reportId: "" } });
+    expect(badNext?.next).toBeNull();
+    expect(badNext?.report).toEqual(STATE.report);
+  });
+
+  it("nulls next for a rule id outside the catalogue and keeps the rest of the state", () => {
+    const foreign = toWatchState({ ...STATE, next: { reportId: "r-1", ruleId: "TL-WIN-001", kind: "fix" } });
+    expect(foreign).not.toBeNull();
+    expect(foreign?.next).toBeNull();
+    expect(foreign?.report).toEqual(STATE.report);
+    expect(foreign?.judge).toEqual(STATE.judge);
+  });
+});
+
+describe("cleanQuestion and toOpenEvent", () => {
+  it("folds CR and LF to spaces, strips other control characters and trims", () => {
+    expect(cleanQuestion(" hi\nthere ")).toBe("hi there");
+    expect(cleanQuestion("a\r\nb")).toBe("a b");
+    expect(cleanQuestion("a\u0007b\u007Fc")).toBe("abc");
+    expect(cleanQuestion("\t  \n")).toBe("");
+    expect(cleanQuestion("caf\u00e9 \ud83d\ude00")).toBe("caf\u00e9 \ud83d\ude00");
+  });
+
+  it("delivers the screen alone, the screen with a string question, and drops the rest", () => {
+    expect(toOpenEvent({ screen: "chat" })).toEqual({ screen: "chat" });
+    expect(toOpenEvent({ screen: "chat", question: "What changed?" })).toEqual({ screen: "chat", question: "What changed?" });
+    expect(toOpenEvent({ screen: "connect" })).toEqual({ screen: "connect" });
+    expect(toOpenEvent({ screen: "chat", question: 7 })).toBeNull();
+    expect(toOpenEvent({ screen: "chat", question: null })).toBeNull();
+    expect(toOpenEvent({ screen: "chat", question: "x".repeat(501) })).toBeNull();
+    expect(toOpenEvent({ screen: "chat", question: "x".repeat(500) })).toEqual({ screen: "chat", question: "x".repeat(500) });
+    expect(toOpenEvent({ screen: "shell" })).toBeNull();
+    expect(toOpenEvent("home")).toBeNull();
+    expect(Object.keys(toOpenEvent({ screen: "home" }) ?? {})).toEqual(["screen"]);
+  });
+
+  it("no line of the adapter, the window or App.tsx logs a question", () => {
+    for (const file of ["tauri-watch.ts", "../watch/WatchWindow.tsx", "../App.tsx"]) {
+      const lines = readFileSync(join(__dirname, file), "utf8").split("\n");
+      for (const line of lines) {
+        if (/question/i.test(line)) expect(line, `${file}: ${line.trim()}`).not.toMatch(/console\./);
+      }
+    }
   });
 });
 
@@ -242,6 +341,68 @@ describe("TauriWatchAdapter", () => {
     ]);
     // No URL ever crosses the wire; the one path is the plist choice Rust re-binds against its own listing.
     expect(JSON.stringify(invoke.mock.calls)).not.toMatch(/https?:/);
+  });
+
+  it("setProfile sends next as { kind: none } for null, the three ids for a row, nothing without it, and refuses a bad id", async () => {
+    const invoke = fakeInvoke();
+    const port = new TauriWatchAdapter({ invoke, listen: vi.fn(async () => () => undefined) });
+    const profile = { role: "individual", technical: "low", handlesClientData: false, laptopLeavesHome: true } as const;
+    await port.setProfile(profile, undefined, true, undefined, null);
+    await port.setProfile(profile, undefined, true, ["TL-MAC-001"], { reportId: "r-1", ruleId: "TL-MAC-001", kind: "show" });
+    await port.setProfile(profile, undefined, true);
+    await expect(port.setProfile(profile, undefined, true, undefined, { reportId: "bad id!", ruleId: "TL-MAC-001", kind: "fix" })).rejects.toBe("invalid_input");
+    await expect(port.setProfile(profile, undefined, true, undefined, { reportId: "r-1", ruleId: "/etc/hosts" as never, kind: "fix" })).rejects.toBe("invalid_input");
+    await expect(port.setProfile(profile, undefined, true, undefined, { reportId: "r-1", ruleId: "TL-MAC-001", kind: "run" as never })).rejects.toBe("invalid_input");
+    expect(invoke.mock.calls).toEqual([
+      ["watch_set_profile", { profile, licensed: true, next: { kind: "none" } }],
+      ["watch_set_profile", { profile, licensed: true, accepted: ["TL-MAC-001"], next: { kind: "show", reportId: "r-1", ruleId: "TL-MAC-001" } }],
+      ["watch_set_profile", { profile, licensed: true }],
+    ]);
+    expect(Object.keys((invoke.mock.calls[2] as unknown[])[1] as object)).not.toContain("next");
+  });
+
+  it("openMain cleans the question, refuses it outside chat, and pins the 500-unit boundary", async () => {
+    const invoke = fakeInvoke();
+    const port = new TauriWatchAdapter({ invoke, listen: vi.fn(async () => () => undefined), limited: true });
+    await port.openMain("chat", " hi\nthere ");
+    await port.openMain("chat", "   ");
+    await port.openMain("connect");
+    await port.openMain("chat", "x".repeat(500));
+    await port.openMain("chat", "\ud83d\ude00".repeat(250));
+    await expect(port.openMain("home", "hi")).rejects.toBe("invalid_input");
+    await expect(port.openMain("noticed", "")).rejects.toBe("invalid_input");
+    await expect(port.openMain("chat", "x".repeat(501))).rejects.toBe("invalid_input");
+    await expect(port.openMain("chat", "\ud83d\ude00".repeat(251))).rejects.toBe("invalid_input");
+    await expect(port.openMain("chat", 7 as never)).rejects.toBe("invalid_input");
+    expect(invoke.mock.calls).toEqual([
+      ["watch_open_main", { screen: "chat", question: "hi there" }],
+      ["watch_open_main", { screen: "chat" }],
+      ["watch_open_main", { screen: "connect" }],
+      ["watch_open_main", { screen: "chat", question: "x".repeat(500) }],
+      ["watch_open_main", { screen: "chat", question: "\ud83d\ude00".repeat(250) }],
+    ]);
+  });
+
+  it("watch:open and main:shown carry the question when given and drop a non-string one", async () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const listen = vi.fn(async (event: string, cb: (payload: unknown) => void) => {
+      handlers.set(event, cb);
+      return () => undefined;
+    });
+    const port = new TauriWatchAdapter({ invoke: fakeInvoke(), listen });
+    const opened: unknown[] = [];
+    const shown: unknown[] = [];
+    port.onOpen((e) => opened.push(e));
+    port.onShown((e) => shown.push(e));
+    await Promise.resolve();
+    handlers.get("watch:open")?.({ screen: "chat", question: "What changed?" });
+    handlers.get("watch:open")?.({ screen: "chat" });
+    handlers.get("watch:open")?.({ screen: "chat", question: ["x"] });
+    handlers.get("watch:open")?.({ screen: "connect" });
+    handlers.get("main:shown")?.({ screen: "chat", question: "Why?" });
+    handlers.get("main:shown")?.({ screen: "home" });
+    expect(opened).toEqual([{ screen: "chat", question: "What changed?" }, { screen: "chat" }, { screen: "connect" }]);
+    expect(shown).toEqual([{ screen: "chat", question: "Why?" }, { screen: "home" }]);
   });
 
   it("setProfile sends the accepted ids cleaned when given, and no accepted key when not", async () => {

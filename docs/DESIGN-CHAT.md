@@ -650,6 +650,16 @@ Measured baseline (DESIGN-AI-PRESENCE section 3, dev fixture): frozen system pro
 
 `{ name: "chat" }` added, `{ name: "ask" }` removed, `returnTo` on `connect` and `fishy` may be `chat`.
 
+### As built (2026-10-17)
+
+- `memory.aiLastAvailable` is written by a new hook, `apps/desktop/src/scan/useAiLastAvailable.ts`, mounted by `App.tsx`, not by `useAiAvailability`; the core helper is `aiAvailableRecently(memory, provider, now)` with `AI_LAST_AVAILABLE_TTL_MS`.
+- The step machinery is reached through `ChatBridge` on `GuidedController.chat` (`apps/desktop/src/guided/state.ts`, built by `guided/chat-bridge.ts`): `run`, `settle`, `observeShow`, `checkAgain`, `later`, `accept`, `unlock`, `stepByStep`, `leaveChat`, `toChat`, `rescan`. The chat phase is `{ kind: "chat"; plan; diff; active; walking; resumed }`; `runFix.ts`, `runBatch.ts` and `runShow.ts` expose pure readers (`readFixOutcome`, `readBatchOutcome`, `readShowOutcome`) that the walk-through and the bridge share. `rebuilt()` keeps every step the chat has shown as the passed prefix, so a card's id survives a report change; `stepByStep` orders the settled steps first so the progress line is right.
+- `leaveChat()` with a card in flight opens that step in the walk-through in its working or watching state, so Core settles it there; with nothing in flight it goes to the plan, or the end when nothing is undone. Disconnect reaches it from the Settings route.
+- The expert sidebar's "Chat" and the `chat` route: `App.tsx` renders the guided screens on both the `guided` and `chat` routes; on the `chat` route with a plan on screen and the AI usable it calls `toChat()`, otherwise the plan screen shows (no chat without a connected AI).
+- `clampChatHistory(history, target)` takes `"remote" | "on_device"`, not a provider; `exchangeLabel(person, strings)` takes the two authored words; demo calls are recorded as `{ kind: "chat", prompt }`, never an object in `arg`.
+- The chat-home switch sits under Check-up in Settings (`CHECKUP_SETTINGS.chatHome`), as this section says; the Claude sentence is `YOUR_AI.claudeSlow` under the Claude pill.
+- The watch window's draft arrives through `ChatDraftContext` (`apps/desktop/src/chat/draft.ts`), provided by `App.tsx` from `watch:open { screen: "chat", question }` and held until the chat is on screen; the demo replays it through `withWatchOpenReplay` in `demo-boot.ts`. `chat_watch_at` and `check_delay` wait for the watch session's `demo-watch.ts`.
+
 ### Settings
 
 `guided.chatHome: boolean`, default `true`, row "Start with the chat when my AI is connected" under Check-up, with the sentence "Off shows the step-by-step check-up first. The chat stays one tap away." No other new setting. `explainer.aiEnabled` stays the one switch that removes every AI surface, the chat included.

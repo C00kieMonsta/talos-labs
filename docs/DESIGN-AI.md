@@ -44,6 +44,8 @@ Free ChatGPT and free Claude plans are not covered by either route. The connect 
 
 `AiAvailability` (v0.2) grows so one `AiCard`, one Explain disclosure and one Settings row serve every provider.
 
+As built with the chat (2026-10-17): the probe starts with the scan, and the home does not wait for it. `useAiLastAvailable` (`apps/desktop/src/scan/useAiLastAvailable.ts`) writes `memory.aiLastAvailable` on every settled probe (set on `available`, cleared on `not_connected`, `needs_sign_in`, `plan_not_eligible`, `not_offered`, `off`, AI off and a provider change, left alone on the passing states), and `landed()` reads the stored result to pick the chat or the plan (`docs/DESIGN-CHAT.md` section 2).
+
 | state | meaning | who reports it |
 |---|---|---|
 | `available` | ready to explain | all |

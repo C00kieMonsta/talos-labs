@@ -11,6 +11,8 @@ import { resetLaunchGuard } from "../guided/timing";
 
 // The guided switches the settings mock reads; the launch-scan tests turn them on.
 const guidedFlags = vi.hoisted(() => ({ home: false, autoScan: false, chatHome: true }));
+// The recovery test makes the finding screen throw; every other test gets the real one.
+const throwFlags = vi.hoisted(() => ({ finding: false }));
 
 const report = evaluate(DEV_MACHINE, MACOS_CATALOG, { now: "2026-10-15T10:00:00.000Z", os: "macos" });
 const ACT_ITEM: WatchItem = {
@@ -30,11 +32,11 @@ const ACT_ITEM: WatchItem = {
 };
 // What status() answers; tests swap it before rendering. The watch:open and main:shown listeners are captured so a test can emit.
 let watchState: WatchState = fakeWatchState();
-let openListener: ((event: { screen: WatchOpenScreen }) => void) | null = null;
+let openListener: ((event: { screen: WatchOpenScreen; question?: string }) => void) | null = null;
 let shownListener: ((event: { screen: WatchOpenScreen }) => void) | null = null;
 const watch = fakeWatchPort({
   status: vi.fn(async () => watchState),
-  onOpen: vi.fn((listener: (event: { screen: WatchOpenScreen }) => void) => {
+  onOpen: vi.fn((listener: (event: { screen: WatchOpenScreen; question?: string }) => void) => {
     openListener = listener;
     return () => {
       openListener = null;
@@ -53,17 +55,22 @@ const adapters = fakeAdapters({
 });
 
 vi.mock("../adapters", () => ({ createAdapters: () => adapters }));
-// Ask stands in for any screen that throws while rendering.
-vi.mock("../screens/Ask", () => ({
-  Ask: () => {
-    throw new Error("boom");
-  },
-}));
+// The finding screen stands in for any expert screen that throws while rendering, behind a flag.
+vi.mock("../screens/FindingDetail", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../screens/FindingDetail")>();
+  return {
+    ...original,
+    FindingDetail: (props: Parameters<typeof original.FindingDetail>[0]) => {
+      if (throwFlags.finding) throw new Error("boom");
+      return createElement(original.FindingDetail, props);
+    },
+  };
+});
 vi.mock("../settings", async (importOriginal) => {
   const original = await importOriginal<typeof import("../settings")>();
   return {
     ...original,
-    // Developer mode with Claude makes the Ask row show without an on-device probe.
+    // Developer mode with Claude makes the Chat row show without an on-device probe.
     loadSettings: () => ({
       ...original.DEFAULT_SETTINGS,
       onboarded: true,
@@ -92,6 +99,7 @@ afterEach(() => {
   watchState = fakeWatchState();
   guidedFlags.home = false;
   guidedFlags.autoScan = false;
+  throwFlags.finding = false;
 });
 
 /** The guided home with the launch check-up on, the 60 s guard cleared and the collect count at zero. */
@@ -110,7 +118,8 @@ describe("App", () => {
     expect(adapters.reports.loadLast).toHaveBeenCalled();
     expect(adapters.license.current).toHaveBeenCalled();
     expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Ask" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Chat" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Ask" })).toBeNull();
     const titles = Array.from(document.querySelectorAll(".finding-card-title")).map((n) => n.textContent);
     expect(titles.length).toBe(3);
     expect(titles[0]).toBe("Your disk is not encrypted");
@@ -206,7 +215,8 @@ describe("App", () => {
       const { default: App } = await import("../App");
       render(createElement(App));
       await waitFor(() => expect(screen.getByRole("heading", { name: "Next three fixes" })).toBeTruthy());
-      fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+      throwFlags.finding = true;
+      fireEvent.click(document.querySelector("a.finding-card-title") as HTMLAnchorElement);
       const heading = await screen.findByRole("heading", { name: "This screen could not be shown" });
       expect(document.activeElement).toBe(heading);
       expect(screen.getByText(/Something went wrong while drawing this screen/)).toBeTruthy();
@@ -396,6 +406,24 @@ describe("App", () => {
     resetLaunchGuard();
     act(() => shownListener?.({ screen: "home" }));
     await waitFor(() => expect(adapters.systemState.collect).toHaveBeenCalledTimes(2));
+  });
+
+  it("opens the chat in the guided shell on watch:open chat and holds the question as a draft; connect opens the Connect screen", async () => {
+    const { default: App } = await import("../App");
+    render(createElement(App));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Next three fixes" })).toBeTruthy());
+    await waitFor(() => expect(openListener).not.toBeNull());
+    act(() => openListener?.({ screen: "chat", question: "why does the firewall matter" }));
+    await waitFor(() => expect(document.querySelector(".guided-shell")).toBeTruthy());
+    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+    // No report was scanned, so no chat can open and nothing was asked of a model; the draft waits in App.
+    expect(document.querySelector(".chat-composer")).toBeNull();
+    act(() => openListener?.({ screen: "connect" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Which AI do you use?" })).toBeTruthy());
+    // A second connect while the screen is up adds no second entry.
+    act(() => openListener?.({ screen: "connect" }));
+    await act(async () => undefined);
+    expect(screen.getAllByRole("heading", { name: "Which AI do you use?" }).length).toBe(1);
   });
 
   it("goes to the Watch section of Settings on watch:open settings_watch", async () => {

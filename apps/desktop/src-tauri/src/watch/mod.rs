@@ -699,7 +699,12 @@ impl WatchStore {
         Ok(())
     }
 
-    pub fn remember_verdict(&self, verdict: WatchVerdict, at: DateTime<Utc>, provider: ModelProvider) {
+    pub fn remember_verdict(
+        &self,
+        verdict: WatchVerdict,
+        at: DateTime<Utc>,
+        provider: ModelProvider,
+    ) {
         *lock(&self.last_verdict) = Some(LastVerdict {
             verdict,
             at,
@@ -1688,7 +1693,14 @@ mod tests {
             ..WatchSettingsFile::default()
         };
         let profile = ExplainerProfile::default();
-        assert!(!apply_profile(&mut settings, profile, None, true, None, None));
+        assert!(!apply_profile(
+            &mut settings,
+            profile,
+            None,
+            true,
+            None,
+            None
+        ));
         assert_eq!(settings.accepted, stored, "None keeps the stored list");
         assert!(settings.licensed, "the gate still follows the push");
         apply_profile(&mut settings, profile, None, true, Some(Vec::new()), None);
@@ -1747,7 +1759,11 @@ mod tests {
         };
         let profile = ExplainerProfile::default();
         apply_profile(&mut settings, profile, None, true, None, None);
-        assert_eq!(settings.next, Some(row.clone()), "absent keeps the stored row");
+        assert_eq!(
+            settings.next,
+            Some(row.clone()),
+            "absent keeps the stored row"
+        );
         apply_profile(&mut settings, profile, None, true, None, Some(None));
         assert_eq!(settings.next, None, "`none` clears it");
         let other = NextRow {
@@ -1806,7 +1822,11 @@ mod tests {
         assert_eq!(clean_next(wire("fix", None, Some("TL-MAC-001"))), bad);
         assert_eq!(clean_next(wire("fix", Some("r-1"), None)), bad);
         let json: NextWire = serde_json::from_value(serde_json::json!({ "kind": "none" })).unwrap();
-        assert_eq!(json, wire("none", None, None), "the ids are optional on the wire");
+        assert_eq!(
+            json,
+            wire("none", None, None),
+            "the ids are optional on the wire"
+        );
         let json: NextWire = serde_json::from_value(
             serde_json::json!({ "kind": "fix", "reportId": "r-1", "ruleId": "TL-MAC-001" }),
         )
@@ -1825,10 +1845,7 @@ mod tests {
             bad,
             "a question goes with chat only"
         );
-        assert_eq!(
-            clean_question(OpenScreen::Connect, Some("hi".into())),
-            bad
-        );
+        assert_eq!(clean_question(OpenScreen::Connect, Some("hi".into())), bad);
         assert_eq!(ok("  What changed?  "), Ok(Some("What changed?".into())));
         assert_eq!(
             ok(" hi\r\nthere\n"),
@@ -1843,7 +1860,11 @@ mod tests {
         assert_eq!(ok(&"a".repeat(500)), Ok(Some("a".repeat(500))));
         assert_eq!(ok(&"a".repeat(501)), bad);
         let smile = "\u{1F600}".repeat(250);
-        assert_eq!(ok(&smile), Ok(Some(smile.clone())), "250 non-BMP: 500 units");
+        assert_eq!(
+            ok(&smile),
+            Ok(Some(smile.clone())),
+            "250 non-BMP: 500 units"
+        );
         assert_eq!(ok(&"\u{1F600}".repeat(251)), bad, "251 non-BMP: 502 units");
         assert_eq!(MAX_QUESTION_UNITS, 500);
     }
@@ -1919,7 +1940,10 @@ mod tests {
             "a corrupt string never pins the window"
         );
         assert!(ends_pause(false, true));
-        assert!(!ends_pause(true, true), "a wake runs the skip and cycle logic");
+        assert!(
+            !ends_pause(true, true),
+            "a wake runs the skip and cycle logic"
+        );
         assert!(!ends_pause(false, false));
         assert!(!ends_pause(true, false));
     }
@@ -2037,22 +2061,12 @@ mod tests {
         assert_eq!(json["rulesSince"], serde_json::Value::Null);
         assert_eq!(json["report"], serde_json::Value::Null);
         assert_eq!(json["next"], serde_json::Value::Null);
-        let keys: Vec<&str> = json.as_object().unwrap().keys().map(String::as_str).collect();
-        let tail = &keys[keys.len() - 9..];
-        assert_eq!(
-            tail,
-            [
-                "items",
-                "nextCheckAt",
-                "lastChangeAt",
-                "ai",
-                "judge",
-                "recentCount",
-                "rulesSince",
-                "report",
-                "next"
-            ],
-            "the new fields follow items in the contract's order"
+        let text = serde_json::to_string(&state).unwrap();
+        assert!(
+            text.ends_with(
+                "\"items\":[],\"nextCheckAt\":null,\"lastChangeAt\":null,\"ai\":{\"enabled\":true,\"provider\":null},\"judge\":null,\"recentCount\":0,\"rulesSince\":null,\"report\":null,\"next\":null}"
+            ),
+            "the new fields follow items in the contract's order: {text}"
         );
         let old: WatchState = serde_json::from_value(serde_json::json!({
             "enabled": true, "firstRun": false, "hiddenLaunch": false, "rating": "calm",

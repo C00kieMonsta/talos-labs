@@ -1,6 +1,8 @@
 import type { Allowed, ChatCall, ChatResult, ExplainOptions, ExplainerFailure, ExplainerPort, ExplainerProfile, ExplainerResult, GuidedMemory, GuidedPlan, GuidedStep, ScanReport, WatchItem } from "@talos/core";
 import { DEV_MACHINE, EMPTY_GUIDED_MEMORY, MACOS_CATALOG, buildAllowed, buildGuidedPlan, evaluate, freeFixRuleIds } from "@talos/core";
+import { vi } from "vitest";
 import { noExplainer } from "../app/testing";
+import type { ChatBridge, ChatSettled } from "../guided/state";
 import type { ChatAction, ChatState } from "./state";
 import { initialChatState, reduce } from "./state";
 
@@ -92,4 +94,48 @@ export function scriptedExplainer(script: ScriptedChat = {}) {
     },
   };
   return { port, calls, settle: () => release?.() };
+}
+
+/** A ChatBridge over a fixed plan: every mutation is a vi.fn, `settled` is what settle() answers next, `done` the settled step ids. */
+export function fakeBridge(plan: GuidedPlan, overrides: Partial<ChatBridge> = {}) {
+  const control = { settled: null as ChatSettled | null, done: [] as string[], watchingSince: null as string | null };
+  const undone = () => plan.steps.filter((s) => s.kind !== "paywall" && !control.done.includes(s.id));
+  const bridge: ChatBridge = {
+    plan,
+    diff: null,
+    resumed: false,
+    active: null,
+    walking: false,
+    fixed: [],
+    leftAlone: [],
+    get doneStepIds() {
+      return control.done;
+    },
+    permission: "not_determined",
+    undone,
+    nextUndone: () => undone()[0] ?? null,
+    atEnd: () => undone().length === 0,
+    run: vi.fn(),
+    checkAgain: vi.fn(async () => null),
+    settle: vi.fn(() => {
+      const s = control.settled;
+      control.settled = null;
+      return s;
+    }),
+    observeShow: vi.fn(() => null),
+    watchingSince: () => control.watchingSince,
+    later: vi.fn(() => []),
+    accept: vi.fn(),
+    answerNo: vi.fn(),
+    leaveAlone: vi.fn(),
+    snoozePaywall: vi.fn(),
+    unlock: vi.fn(() => []),
+    setWalking: vi.fn(),
+    stepByStep: vi.fn(),
+    leaveChat: vi.fn(),
+    toChat: vi.fn(),
+    rescan: vi.fn(),
+    ...overrides,
+  };
+  return { bridge, control };
 }

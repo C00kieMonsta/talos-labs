@@ -257,6 +257,90 @@ fn the_tray_tooltip_words_are_pinned_to_the_window_copy() {
     );
 }
 
+/// The four window keys are emitted by core in parallel with this build: each pin returns
+/// quietly while its key is absent and bites once it lands.
+fn key_or_skip(f: &Value, key: &str) -> Option<Value> {
+    let value = f.get(key)?;
+    if value.is_null() {
+        return None;
+    }
+    Some(value.clone())
+}
+
+#[test]
+fn the_banned_words_are_pinned_in_order() {
+    use talos_desktop_lib::watch::validate::BANNED_WORDS;
+    let f = fixture_or_skip!();
+    let Some(words) = key_or_skip(&f, "bannedWords") else {
+        eprintln!("skipped: bannedWords not yet emitted");
+        return;
+    };
+    let words: Vec<String> = parse(&words);
+    assert_eq!(words, BANNED_WORDS.map(str::to_owned).to_vec());
+}
+
+#[test]
+fn every_window_sentence_case_agrees() {
+    use talos_desktop_lib::watch::validate::safe_window_sentence;
+    let f = fixture_or_skip!();
+    let Some(cases) = key_or_skip(&f, "windowSentences") else {
+        eprintln!("skipped: windowSentences not yet emitted");
+        return;
+    };
+    let cases = cases.as_array().unwrap();
+    assert!(cases.len() >= 15, "{} cases", cases.len());
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let text = case["text"].as_str().unwrap();
+        let rating: Rating = parse(&case["rating"]);
+        let kept = case["kept"].as_bool().unwrap();
+        assert_eq!(
+            safe_window_sentence(text, rating),
+            kept,
+            "{name}: {text:?} on {}",
+            rating.as_str()
+        );
+    }
+}
+
+#[test]
+fn every_height_case_agrees_with_the_row_sum() {
+    use talos_desktop_lib::tray::window_height;
+    use talos_desktop_lib::watch::WatchState;
+    let f = fixture_or_skip!();
+    let Some(cases) = key_or_skip(&f, "heights") else {
+        eprintln!("skipped: heights not yet emitted");
+        return;
+    };
+    let cases = cases.as_array().unwrap();
+    assert!(cases.len() >= 16, "{} cases", cases.len());
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let state: WatchState = serde_json::from_value(case["state"].clone())
+            .unwrap_or_else(|err| panic!("{name}: the state does not parse: {err}"));
+        let height = case["height"].as_f64().unwrap();
+        assert_eq!(window_height(&state), height, "{name}");
+    }
+}
+
+#[test]
+fn every_report_row_case_agrees() {
+    use talos_desktop_lib::watch::context::report_row;
+    let f = fixture_or_skip!();
+    let Some(cases) = key_or_skip(&f, "reportRows") else {
+        eprintln!("skipped: reportRows not yet emitted");
+        return;
+    };
+    let cases = cases.as_array().unwrap();
+    assert!(cases.len() >= 9, "{} cases", cases.len());
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let row = report_row(&case["report"]);
+        let built = serde_json::to_value(row).unwrap();
+        assert_eq!(built, case["row"], "{name}");
+    }
+}
+
 #[test]
 fn the_notification_body_is_pinned_to_the_copy() {
     let f = fixture_or_skip!();

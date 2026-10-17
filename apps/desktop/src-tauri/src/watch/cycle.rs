@@ -25,8 +25,8 @@ use super::rate::{Hysteresis, apply_hysteresis, bounds_for, rate_watch, top_item
 use super::settings::WatchSettingsFile;
 use super::signals::{self, CodesignOutcome, kind_of};
 use super::types::{
-    GateAnswer, ReadingKind, RuleChange, SignalReading, WatchContext, WatchCycle,
-    WatchDetailsItem, WatchLastVerdict, WatchVerdict,
+    GateAnswer, ReadingKind, RuleChange, SignalReading, WatchContext, WatchCycle, WatchDetailsItem,
+    WatchLastVerdict, WatchVerdict,
 };
 use super::validate;
 use super::{
@@ -3113,28 +3113,40 @@ mod tests {
             &input(&with_item, &settings, T1, &all_unsigned),
         );
         assert_eq!(context.floor, Rating::KeepAnEye);
-        // The call that the change opened, ten minutes before this tick.
-        baseline.last_model_call_at = Some("2026-10-17T12:50:00.000Z".into());
+        assert_eq!(baseline.last_change_at.as_deref(), Some(T1));
+        // The call the change opened, made on that same tick.
+        baseline.last_model_call_at = Some(T1.into());
+        let ten_minutes_on = at("2026-10-17T13:10:00.000Z");
         assert!(
-            !model_gate(&baseline, &context, &settings, at(T1), false),
+            !model_gate(&baseline, &context, &settings, ten_minutes_on, false),
             "floor keep_an_eye and a call 10 minutes old: closed"
         );
         assert!(
-            model_gate(&baseline, &context, &settings, at(T1), true),
+            model_gate(&baseline, &context, &settings, ten_minutes_on, true),
             "a follow-up opens it once"
         );
         assert!(
-            !model_gate(&baseline, &context, &settings, at(T1), false),
+            !model_gate(&baseline, &context, &settings, ten_minutes_on, false),
             "the next cycle, with nothing pending, is closed again"
         );
-        baseline.last_model_call_at = Some("2026-10-17T07:00:00.000Z".into());
         assert!(
-            model_gate(&baseline, &context, &settings, at(T1), false),
+            model_gate(
+                &baseline,
+                &context,
+                &settings,
+                at("2026-10-17T19:00:00.000Z"),
+                false
+            ),
             "at six hours it opens"
         );
-        baseline.last_model_call_at = Some("2026-10-17T07:00:01.000Z".into());
         assert!(
-            !model_gate(&baseline, &context, &settings, at(T1), false),
+            !model_gate(
+                &baseline,
+                &context,
+                &settings,
+                at("2026-10-17T18:59:59.000Z"),
+                false
+            ),
             "a second short of six hours stays closed"
         );
         assert_eq!(LOOK_RECALL_MS, 6 * 60 * 60 * 1000);
@@ -3226,7 +3238,11 @@ mod tests {
             false,
         );
         assert_eq!(conclusion.rating, Rating::ActNow);
-        let kept = judge_line(Some((&verdict, ModelProvider::Apple)), conclusion.rating, T1);
+        let kept = judge_line(
+            Some((&verdict, ModelProvider::Apple)),
+            conclusion.rating,
+            T1,
+        );
         assert_eq!(
             kept,
             Some(JudgeLine {
@@ -3237,7 +3253,11 @@ mod tests {
             })
         );
         assert_eq!(
-            judge_line(Some((&verdict, ModelProvider::Apple)), Rating::KeepAnEye, T1),
+            judge_line(
+                Some((&verdict, ModelProvider::Apple)),
+                Rating::KeepAnEye,
+                T1
+            ),
             None,
             "a verdict whose rating is not the shown one draws nothing"
         );
@@ -3255,12 +3275,17 @@ mod tests {
         let store = WatchStore::default();
         store.remember_verdict(verdict, at(T1), ModelProvider::Apple);
         assert_eq!(
-            store.last_verdict_for(at(T2)).map(|v| (v.rating, v.minutes_ago)),
+            store
+                .last_verdict_for(at(T2))
+                .map(|v| (v.rating, v.minutes_ago)),
             Some((Rating::ActNow, 60))
         );
         assert_eq!(store.last_verdict_provider(), Some(ModelProvider::Apple));
         store.update(|s| s.judge = None);
-        assert!(store.last_verdict_for(at(T2)).is_some(), "survives a cleared line");
+        assert!(
+            store.last_verdict_for(at(T2)).is_some(),
+            "survives a cleared line"
+        );
     }
 
     #[test]
@@ -3268,7 +3293,7 @@ mod tests {
         let settings = WatchSettingsFile::default();
         let mut baseline = Baseline::new();
         let outcomes = sweep(vec![], true);
-        let r1 = serde_json::json!({ "schemaVersion": 1, "reportId": "r-1", "scannedAt": T0, "results": [{ "ruleId": "TL-MAC-002", "status": "fail" }], "findings": [], "score": { "value": 72, "grade": "fair" } });
+        let r1 = serde_json::json!({ "schemaVersion": 1, "reportId": "r-1", "scannedAt": T0, "results": [{ "ruleId": "TL-MAC-002", "status": "fail" }, { "ruleId": "TL-MAC-003", "status": "pass" }], "findings": [], "score": { "value": 72, "grade": "fair" } });
         let mut i = input(&outcomes, &settings, T0, &all_valid);
         i.report = Some(&r1);
         prepare(&mut baseline, &i);
@@ -3285,7 +3310,11 @@ mod tests {
         i.report = Some(&r2);
         let (context, _) = prepare(&mut baseline, &i);
         assert_eq!(
-            context.rules.iter().filter(|r| r.change == RuleChange::Appeared).count(),
+            context
+                .rules
+                .iter()
+                .filter(|r| r.change == RuleChange::Appeared)
+                .count(),
             1
         );
         assert_eq!(

@@ -293,6 +293,8 @@ export class DemoExplainer implements ExplainerPort {
 
   /** One partial then done, after the delay; the canned reply runs through the real validator. */
   async chat(call: ChatCall, options?: ExplainOptions<ChatResult>): Promise<ExplainerResult<ChatResult>> {
+    // The question only; the harness counts chat calls and asserts no context text was recorded.
+    recordDemoCall({ kind: "chat", prompt: call.input.question });
     const chat = this.chatOptions;
     if (chat.fail !== undefined && chat.fail !== null) return { ok: false, reason: chat.fail };
     const result = await this.settle(() => this.canned.chat(call.input, chat.reply ?? "disk"), chatPartialOptions(options) as ExplainOptions<Record<string, unknown>>);
@@ -424,6 +426,8 @@ export class DemoAppleExplainer implements ExplainerPort {
 
   /** Streams the ask shape word by word, as this Mac does; partials reach the chat as { reply }, no intents. */
   async chat(call: ChatCall, options?: ExplainOptions<ChatResult>): Promise<ExplainerResult<ChatResult>> {
+    // The question only; the harness counts chat calls and asserts no context text was recorded.
+    recordDemoCall({ kind: "chat", prompt: call.input.question });
     const chat = this.options.chat ?? {};
     if (chat.fail !== undefined && chat.fail !== null && !(typeof chat.failAfter === "number" && chat.failAfter > 0)) return { ok: false, reason: chat.fail };
     if ((await this.availability()) !== "available") return { ok: false, reason: "unavailable" };

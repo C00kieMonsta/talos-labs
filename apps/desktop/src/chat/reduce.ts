@@ -70,7 +70,7 @@ function appMessage(id: string, at: number, answer: AppAnswer, since: ReportDiff
     groups: answer.groups ?? [],
     since,
     reading: null,
-    source: answer.source ?? null,
+    sourceLine: answer.source ?? null,
     label: answer.label,
   };
 }
@@ -277,7 +277,14 @@ export function reduce(state: ChatState, action: ChatAction): ChatState {
       const { answer } = action;
       const [id, s1] = alloc(state);
       let next = push(s1, appMessage(id, action.at, answer));
-      next = landCards(next, action.at, answer.cards ?? []);
+      if (answer.rowsOnly === true) {
+        for (const seed of answer.cards ?? []) {
+          const [rid, s] = alloc(next);
+          next = push(s, rowMessage(rid, action.at, seed));
+        }
+      } else {
+        next = landCards(next, action.at, answer.cards ?? []);
+      }
       if (answer.walking === true) next = { ...next, walking: true };
       return announce(next, answer.headline ?? answer.body ?? "");
     }

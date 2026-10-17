@@ -61,7 +61,7 @@ export function Guided({ controller, onWelcomeStart }: { controller: GuidedContr
     case "end":
       return <EndScreen plan={phase.plan} fixed={phase.fixed} onCheckAgain={controller.start} onNext={controller.doNext} onConnect={() => connect.open({ name: "guided" })} />;
     case "chat":
-      return <ChatScreen />;
+      return <ChatScreen bridge={controller.chat} />;
     case "step": {
       const step = phase.plan.steps[phase.index];
       if (step === undefined) return null;

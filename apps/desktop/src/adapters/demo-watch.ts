@@ -16,7 +16,10 @@ import type {
   WatchDetailsItem,
   WatchInterval,
   WatchItem,
+  WatchJudge,
   WatchModelProvider,
+  WatchNext,
+  WatchOpenEvent,
   WatchOpenScreen,
   WatchPlan,
   WatchPort,
@@ -42,10 +45,21 @@ const NEUTRAL_PROFILE: ExplainerProfile = { role: "individual", technical: "low"
 
 /** Why the three socket-table probes read unavailable on an ad-hoc build. */
 const UNREADABLE_PROBES: WatchState["unavailable"] = [
-  { probeId: "probe.listeners", reason: "permission_denied" },
-  { probeId: "probe.remote_access", reason: "permission_denied" },
-  { probeId: "probe.file_sharing", reason: "permission_denied" },
+  { probeId: "probe.listeners", reason: "unsigned_build" },
+  { probeId: "probe.remote_access", reason: "unsigned_build" },
+  { probeId: "probe.file_sharing", reason: "unsigned_build" },
 ];
+
+/** The judge's line per rating (docs/DESIGN-WATCH-WINDOW.md contract J); each passes safeWindowSentence, pinned in demo-watch.test.ts. */
+export const DEMO_REASONS: Readonly<Record<Rating, string>> = {
+  calm: "The one thing still open is your unlocked disk, and it matters most on a laptop that leaves the house.",
+  keep_an_eye: "Two start-up changes in a day is more than this Mac usually sees.",
+  act_now: "A new start-up program and a new open port appeared within the same hour.",
+};
+
+const DEMO_REPORT_ID = "demo-report";
+/** The delay before a watch_flip when watch_flip_after is absent. */
+export const DEFAULT_FLIP_AFTER_MS = 1000;
 
 interface DemoSignal {
   readonly signalId: SignalId;
@@ -137,6 +151,29 @@ function providerFor(ai: WatchDemoFlags["watchAi"]): WatchModelProvider | null {
   }
 }
 
+/** watch-settings.json ai as the flags describe it: off and absent keep a provider chosen with the switch off; limit is ChatGPT at its cap. */
+function aiFor(flags: WatchDemoFlags): WatchAi {
+  if (flags.watch === "not-connected") return { enabled: false, provider: null };
+  const ai = flags.watchAi;
+  if (ai === "off" || ai === null) return { enabled: false, provider: "chatgpt" };
+  return { enabled: true, provider: ai === "limit" ? "chatgpt" : providerFor(ai) };
+}
+
+/** A judge line for the rating when the flags allow one: ChatGPT and Claude in every rating, Apple Intelligence never on calm. */
+function judgeFor(flags: WatchDemoFlags, rating: Rating, at: string): WatchJudge | null {
+  if (!flags.watchReason || flags.watch === "not-connected") return null;
+  const provider = providerFor(flags.watchAi);
+  if (provider === null) return null;
+  if (provider === "apple" && rating === "calm") return null;
+  return { provider, at: new Date(Date.parse(at) - 12 * 60_000).toISOString(), rating, reason: DEMO_REASONS[rating] };
+}
+
+function ratingFor(watch: WatchDemoFlags["watch"]): Rating {
+  if (watch === "act") return "act_now";
+  if (watch === "look" || watch === "look-empty") return "keep_an_eye";
+  return "calm";
+}
+
 /** The playbook rows the signal triggers, in catalogue order, at or under the rating. */
 function actionIdsFor(signalId: SignalId, rating: Rating): ActionId[] {
   return PLAYBOOK.filter((row) => row.triggers.includes(signalId) && rank(row.floor) <= rank(rating)).map((row) => row.id);
@@ -171,7 +208,7 @@ export class DemoWatch implements WatchPort {
   private counter = 0;
   private readonly stateListeners = new Set<(state: WatchState) => void>();
   private readonly notifiedListeners = new Set<(event: { readonly signalId: SignalId }) => void>();
-  private readonly openListeners = new Set<(event: { readonly screen: WatchOpenScreen }) => void>();
+  private readonly openListeners = new Set<(event: WatchOpenEvent) => void>();
 
   constructor(
     readonly flags: WatchDemoFlags,
@@ -190,8 +227,11 @@ export class DemoWatch implements WatchPort {
     const gatedId = flags.fishyGate && set.length > 0 ? (set[0] as DemoSignal).signalId : null;
     this.signals = toSignals(set, gatedId);
     const at = this.now();
-    const rating: Rating = watch === "act" ? "act_now" : watch === "look" ? "keep_an_eye" : "calm";
+    const rating = ratingFor(watch);
     const firstRun = watch === "first-run";
+    const items = this.itemsFor(rating, at);
+    const report = firstRun || watch === "no-report" ? null : { reportId: DEMO_REPORT_ID, scannedAt: new Date(Date.parse(at) - 2 * 60 * 60_000).toISOString(), score: 72, grade: "fair" as const };
+    const next: WatchNext | null = flags.watchNext && report !== null ? { reportId: DEMO_REPORT_ID, ruleId: "TL-MAC-001", kind: "fix" } : null;
     this.state = {
       enabled: true,
       licensed: flags.licensed,
@@ -204,17 +244,40 @@ export class DemoWatch implements WatchPort {
       cycleIndex: firstRun ? 0 : 4,
       everyMinutes: 60,
       notify: true,
-      pausedUntil: null,
+      pausedUntil: watch === "paused" ? new Date(Date.parse(at) + 60 * 60_000).toISOString() : null,
       closeWatchUntil: null,
       unavailable: watch === "unreadable" ? UNREADABLE_PROBES : [],
       gated: gatedId === null ? [] : [gatedId],
-      items: this.itemsFor(rating, at),
+      items,
+      nextCheckAt: firstRun ? null : new Date(Date.parse(at) + 48 * 60_000).toISOString(),
+      lastChangeAt: firstRun ? null : new Date(Date.parse(at) - 3 * DAY_MS).toISOString(),
+      ai: aiFor(flags),
+      judge: firstRun ? null : judgeFor(flags, rating, at),
+      recentCount: watch === "look-empty" ? 1 : items.length,
+      rulesSince: watch === "look-empty" ? { reportId: DEMO_REPORT_ID, appeared: 1 } : null,
+      report,
+      next,
     };
     // Rust emits watch:notified on the transition into act now, and only while the watch is active; the harness asserts the record.
     if (watch === "act" && gatedId === null && flags.licensed) {
       const top = this.state.items[0];
       if (top !== undefined) recordDemoCall({ kind: "watch:notified", arg: top.signalId });
     }
+    // The flip for qa/motion.ts: the rating and the items change after the delay, so the status crossfade can be measured.
+    if (flags.watchFlip !== null) {
+      const target = flags.watchFlip;
+      setTimeout(() => this.flipTo(target), flags.watchFlipAfter ?? DEFAULT_FLIP_AFTER_MS);
+    }
+  }
+
+  /** Re-rates to `rating` with the signal set that justifies it; the judge follows the rating when one was drawn. */
+  private flipTo(rating: Rating): void {
+    const set = rating === "act_now" ? SIGNAL_SETS[this.kind] : rating === "keep_an_eye" ? SIGNAL_SETS[this.kind].slice(0, 1) : [];
+    this.signals = toSignals(set, null);
+    const at = this.now();
+    const items = this.itemsFor(rating, at);
+    const judge = this.state.judge === null ? null : { ...this.state.judge, rating, reason: DEMO_REASONS[rating] };
+    this.set({ rating, items, gated: [], judge, recentCount: items.length });
   }
 
   private itemsFor(rating: Rating, at: string): WatchItem[] {
@@ -298,15 +361,15 @@ export class DemoWatch implements WatchPort {
     recordDemoCall({ kind: "watch_request_notify_permission" });
   }
 
-  /** A false push settles the state as Rust does (calm, no items); a true push flips the flag and leaves the rest alone. The accepted ids are taken and never recorded, like Rust. */
-  async setProfile(profile: ExplainerProfile, _ai: WatchAi | undefined, licensed: boolean, _accepted?: readonly RuleId[]): Promise<void> {
+  /** A false push settles the state as Rust does (calm, no items); a true push flips the flag and leaves the rest alone. The accepted ids and the next row are taken and never recorded, like Rust. */
+  async setProfile(profile: ExplainerProfile, _ai: WatchAi | undefined, licensed: boolean, _accepted?: readonly RuleId[], _next?: WatchNext | null): Promise<void> {
     recordDemoCall({ kind: "watch_set_profile", arg: licensed });
     this.profile = { role: profile.role, technical: profile.technical, handlesClientData: profile.handlesClientData, laptopLeavesHome: profile.laptopLeavesHome };
     if (licensed) {
       this.state = { ...this.state, licensed: true };
       return;
     }
-    this.set({ licensed: false, rating: "calm", items: [], gated: [], unavailable: [] });
+    this.set({ licensed: false, rating: "calm", items: [], gated: [], unavailable: [], judge: null });
   }
 
   async acknowledge(signalId: SignalId): Promise<void> {
@@ -361,8 +424,11 @@ export class DemoWatch implements WatchPort {
     return { items, wifiAvailable: this.wifiAvailable };
   }
 
-  async openMain(screen: WatchOpenScreen): Promise<void> {
-    for (const listener of this.openListeners) listener({ screen });
+  /** The screen is recorded; the question reaches the listeners only and is never recorded. */
+  async openMain(screen: WatchOpenScreen, question?: string): Promise<void> {
+    recordDemoCall({ kind: "watch_open_main", arg: screen });
+    const event: WatchOpenEvent = question === undefined ? { screen } : { screen, question };
+    for (const listener of this.openListeners) listener(event);
   }
 
   async openSource(actionId: ActionId): Promise<void> {
@@ -439,7 +505,7 @@ export class DemoWatch implements WatchPort {
     return () => this.notifiedListeners.delete(listener);
   }
 
-  onOpen(listener: (event: { readonly screen: WatchOpenScreen }) => void): () => void {
+  onOpen(listener: (event: WatchOpenEvent) => void): () => void {
     this.openListeners.add(listener);
     return () => this.openListeners.delete(listener);
   }

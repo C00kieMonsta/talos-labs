@@ -1,4 +1,4 @@
 import type { Route } from "../app/router";
 
-/** The chat route; the app lane adds { name: "chat" } to Route and this cast goes. */
-export const CHAT_ROUTE: Route = { name: "chat" } as unknown as Route;
+/** The chat route, for the composer's sign-in link and the connect and fishy flows' returnTo. */
+export const CHAT_ROUTE: Route = { name: "chat" };

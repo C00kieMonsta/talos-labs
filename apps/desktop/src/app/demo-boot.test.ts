@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { DEV_MACHINE, MACOS_CATALOG, evaluate } from "@talos/core";
 import { DEFAULT_SETTINGS, SETTINGS_STORAGE_KEY, loadSettings } from "../settings";
-import { bootDemo, DEFAULT_WATCH_DEMO, DEMO_CONTINUE_KEY, DEMO_GUIDED_MEMORY_KEY, DEMO_WATCH_MEMORY_KEY, parseDemoQuery, parseWatchDemoQuery, previousReportFor, seedSettings } from "./demo-boot";
+import { bootDemo, CHAT_DIVIDER_AGO_MS, DEFAULT_CHAT_DEMO, DEFAULT_WATCH_DEMO, DEMO_CONTINUE_KEY, DEMO_GUIDED_MEMORY_KEY, DEMO_WATCH_MEMORY_KEY, parseDemoQuery, parseWatchDemoQuery, previousReportFor, seedSettings } from "./demo-boot";
 
 afterEach(() => {
   localStorage.clear();
@@ -24,6 +24,7 @@ describe("parseDemoQuery", () => {
       technical: null,
       watchDemo: DEFAULT_WATCH_DEMO,
       watchMemory: null,
+      chatDemo: DEFAULT_CHAT_DEMO,
     });
     expect(DEFAULT_WATCH_DEMO).toEqual({ watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false, licensed: false, watchReason: true, watchNext: true, watchFlip: null, watchFlipAfter: null });
   });
@@ -66,6 +67,7 @@ describe("parseDemoQuery", () => {
       technical: "medium",
       watchDemo: { watch: "act", fishy: "remote", fishyGate: true, fishyWired: true, watchAi: "chatgpt", ransomNote: true, licensed: true, watchReason: false, watchNext: false, watchFlip: "act_now", watchFlipAfter: 250 },
       watchMemory: '{"version":1}',
+      chatDemo: DEFAULT_CHAT_DEMO,
     });
   });
 
@@ -251,5 +253,39 @@ describe("parseDemoQuery fail=", () => {
     expect(parseDemoQuery("?fail=099").options.fail).toBeUndefined();
     expect(parseDemoQuery("?fail=001,099").options.fail).toEqual(["TL-MAC-001"]);
     expect(parseDemoQuery("?fail=constructor,__proto__,001").options.fail).toEqual(["TL-MAC-001"]);
+  });
+});
+
+describe("parseDemoQuery chat params", () => {
+  it("reads chat_reply, chat_fail, chat_fail_after and chat_first_partial into options.chat, and ignores unknown values", () => {
+    const flags = parseDemoQuery("?chat_reply=urgent&chat_fail=limit_reached&chat_fail_after=3&chat_first_partial=9000");
+    expect(flags.options.chat).toEqual({ reply: "urgent", fail: "limit_reached", failAfter: 3, firstPartialMs: 9000 });
+    expect(parseDemoQuery("?chat_reply=nope&chat_fail=later").options.chat).toBeUndefined();
+    expect(parseDemoQuery("?chat_reply=long").options.chat).toEqual({ reply: "long" });
+  });
+
+  it("reads chat_divider and the watch_open=chat draft, and never a question without watch_open=chat", () => {
+    expect(parseDemoQuery("?chat_divider=1").chatDemo).toEqual({ divider: true, watchOpenQuestion: null });
+    expect(parseDemoQuery("?watch_open=chat&question=why").chatDemo).toEqual({ divider: false, watchOpenQuestion: "why" });
+    expect(parseDemoQuery("?question=why").chatDemo).toEqual(DEFAULT_CHAT_DEMO);
+    expect(parseDemoQuery("?watch_open=chat&question=%20").chatDemo.watchOpenQuestion).toBeNull();
+  });
+
+  it("bootDemo sets the divider hint and replays the watch:open chat draft once through onOpen", async () => {
+    delete window.__talosDemoChat;
+    const adapters = bootDemo("?reset=1&chat_divider=1&watch_open=chat&question=why%20does%20it%20matter", localStorage);
+    expect(window.__talosDemoChat).toEqual({ openingAgoMs: CHAT_DIVIDER_AGO_MS });
+    const events: { screen: string; question?: string }[] = [];
+    const off = adapters.watch.onOpen((event) => events.push(event));
+    await new Promise((r) => setTimeout(r, 5));
+    expect(events).toEqual([{ screen: "chat", question: "why does it matter" }]);
+    off();
+    delete window.__talosDemoChat;
+    const plain = bootDemo("?reset=1", localStorage);
+    expect(window.__talosDemoChat).toBeUndefined();
+    const none: unknown[] = [];
+    plain.watch.onOpen((event) => none.push(event));
+    await new Promise((r) => setTimeout(r, 5));
+    expect(none).toEqual([]);
   });
 });

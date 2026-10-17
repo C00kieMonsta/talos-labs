@@ -53,7 +53,7 @@ struct ActionOut {
 struct WatchVerdictOut {
   @Guide(.anyOf(["calm", "keep_an_eye", "act_now"]))
   var rating: String
-  @Guide(description: "One short sentence, no commands, no paths, no ports.")
+  @Guide(description: "One sentence of at most 120 characters, no commands, no paths, no ports, never as the app, never safe or protected.")
   var ratingReason: String
   @Guide(.maximumCount(6))
   var basedOn: [String]

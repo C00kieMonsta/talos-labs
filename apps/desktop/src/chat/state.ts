@@ -57,7 +57,8 @@ export type ChatMessage =
       readonly since: ReportDiff | null;
       /** DESIGN-DAILY is not built: always null. */
       readonly reading: null;
-      readonly source: string | null;
+      /** A quieter line after the body (the watch's source line). */
+      readonly sourceLine: string | null;
       readonly label: ChatLabel;
     }
   | { readonly id: string; readonly kind: "person"; readonly at: number; readonly text: string; readonly source: "typed" | "chip"; readonly stopped: boolean; readonly resend: boolean }
@@ -132,6 +133,8 @@ export interface AppAnswer {
   readonly label: ChatLabel;
   /** "Do them all": the first card is live and the walk advances after each tick. */
   readonly walking?: boolean;
+  /** "Show me the list": every card lands as a row and none is live. */
+  readonly rowsOnly?: boolean;
 }
 
 /** The events of docs/DESIGN-CHAT-UI.md section 4, every payload. `at` is Date.now() so the reducer stays pure. */

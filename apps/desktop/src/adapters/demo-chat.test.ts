@@ -80,7 +80,8 @@ describe("DemoProviderExplainer.chat", () => {
     expect(partials.length).toBeGreaterThan(10);
     for (const partial of partials) expect(Object.keys(partial)).toEqual(["reply"]);
     expect(partials[0]?.reply).toBe("Your");
-    expect(window.__talosDemoCalls ?? []).toEqual([]);
+    // The question only is recorded, never the context (docs/DESIGN-CHAT-UI.md section 5).
+    expect(window.__talosDemoCalls ?? []).toEqual([{ kind: "chat", prompt: "Why does the disk matter?" }]);
   });
 
   it("inject keeps one card and too_many keeps three; the reply text stays", async () => {
@@ -98,7 +99,7 @@ describe("DemoProviderExplainer.chat", () => {
     const result = await run(provider({ reply: "app_voice" }).chat(CALL, { onPartial: (p) => partials.push(p) }));
     expect(result).toEqual({ ok: false, reason: "rejected_output" });
     expect(partials).toEqual([]);
-    expect(window.__talosDemoCalls).toEqual([{ kind: "aiCancel" }]);
+    expect(window.__talosDemoCalls).toEqual([{ kind: "chat", prompt: expect.any(String) }, { kind: "aiCancel" }]);
   });
 
   it("fail stops the turn before any partial; failAfter streams that many partials first; firstPartialMs holds the first word", async () => {

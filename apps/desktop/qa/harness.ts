@@ -36,10 +36,10 @@ export function parseArgs(argv: readonly string[], defaults: CliArgs): CliArgs {
   return { port, out: resolve(out) };
 }
 
-export type WalkName = "expert" | "guided" | "ai" | "watch" | "accept";
-const WALK_NAMES: readonly WalkName[] = ["expert", "guided", "ai", "watch", "accept"];
+export type WalkName = "expert" | "guided" | "ai" | "watch" | "accept" | "chat";
+const WALK_NAMES: readonly WalkName[] = ["expert", "guided", "ai", "watch", "accept", "chat"];
 
-/** `--only expert|guided|ai|watch|accept` limits a script to one walk; absent, every walk runs. */
+/** `--only expert|guided|ai|watch|accept|chat` limits a script to one walk; absent, every walk runs. */
 export function parseOnly(argv: readonly string[]): WalkName | null {
   const index = argv.indexOf("--only");
   const raw = index >= 0 ? argv[index + 1] : argv.find((arg) => arg.startsWith("--only="))?.slice("--only=".length);
@@ -311,18 +311,20 @@ export async function walk(page: Page, baseUrl: string, visit: Visit): Promise<v
   });
   // AI is free once connected (owner decision 2026-10-17): no licence, ChatGPT connected, the composer and an answer.
   const FREE_CONNECTED = "reset=1&fixture=dev-machine&onboarded=1&delay=0&provider=chatgpt&ai=available";
-  await visit({ name: "ask-free-connected" }, async () => {
+  await visit({ name: "chat-from-sidebar" }, async () => {
+    // The expert sidebar's "Chat" opens the chat in the guided shell on the same plan; "Details" leads back to the Overview.
     await goto(FREE_CONNECTED);
     await runCheckUp(page);
-    await nav(page, "Ask");
-    await heading(page, "Ask about your report");
-    if ((await page.getByPlaceholder("Paste your licence key").count()) !== 0) throw new Error("Ask draws a licence field for an unlicensed person");
-    await page.getByLabel("Your question").fill("Which of these should I do first?");
-    await page.locator("form.ask-form").getByRole("button", { name: "Ask" }).click();
-    await page.locator(".chat-streaming").waitFor({ state: "detached", timeout: STEP_TIMEOUT });
-    await page.locator(".chat-assistant").first().waitFor({ timeout: STEP_TIMEOUT });
-    await page.getByText("Written by ChatGPT. Not verified.").first().waitFor({ timeout: STEP_TIMEOUT });
-    if ((await page.getByPlaceholder("Paste your licence key").count()) !== 0) throw new Error("Ask draws a licence field for an unlicensed person");
+    await nav(page, "Chat");
+    await page.locator(".guided-shell .chat").waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator("aside.sidebar").count()) !== 0) throw new Error("the chat is drawn in the expert shell");
+    if ((await page.getByPlaceholder("Paste your licence key").count()) !== 0) throw new Error("the chat draws a licence field for an unlicensed person");
+    await page.locator(".chat-composer").waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".guided-strip-link").filter({ hasText: /^Details$/ }).click();
+    await heading(page, "Overview");
+    await nav(page, "Chat");
+    await page.locator(".guided-shell .chat").waitFor({ timeout: STEP_TIMEOUT });
+    await assertNoUrlRecorded(page);
   });
   // A non-free failing finding: the explanation is free, the fix stays behind its lock with the new body.
   await visit({ name: "explain-free" }, async () => {
@@ -342,19 +344,6 @@ export async function walk(page: Page, baseUrl: string, visit: Visit): Promise<v
   });
 
   // Dev machine, licensed, on-device AI (fake).
-  await visit({ name: "ask-streaming", volatile: true }, async () => {
-    await goto(LICENSED);
-    await runCheckUp(page);
-    await nav(page, "Ask");
-    await heading(page, "Ask about your report");
-    await page.getByLabel("Your question").fill("Which of these should I do first?");
-    await page.locator("form.ask-form").getByRole("button", { name: "Ask" }).click();
-    await page.locator(".chat-streaming").getByRole("button", { name: "Stop" }).waitFor({ timeout: STEP_TIMEOUT });
-  });
-  await visit({ name: "ask-answered" }, async () => {
-    await page.locator(".chat-streaming").waitFor({ state: "detached", timeout: STEP_TIMEOUT });
-    await page.locator(".chat-assistant").first().waitFor({ timeout: STEP_TIMEOUT });
-  });
   // The explanation is cached once it lands, so every capture starts from a fresh report.
   await visit({ name: "ai-streaming", volatile: true }, async () => {
     await goto(LICENSED);
@@ -1356,38 +1345,26 @@ export async function walkAi(page: Page, baseUrl: string, visit: Visit): Promise
     await page.locator("section[aria-labelledby='ai-heading']").getByRole("button", { name: "Change" }).click();
     await guidedTitle(page, "Which AI do you use?");
   });
-  await visit({ name: "ask-not-connected" }, async () => {
+  await visit({ name: "chat-expert-not-connected" }, async () => {
+    // ChatGPT chosen but not connected: the sidebar row is there, and the chat is not the home: the plan screen opens with no Chat strip link.
     await goto(`${EXPERT}&ai=not_connected`);
     await runCheckUp(page);
-    await nav(page, "Ask");
-    await heading(page, "Ask about your report");
-    await page.getByText("Questions are answered from this report only. Answered by ChatGPT. Not verified.").waitFor({ timeout: STEP_TIMEOUT });
-    const row = page.locator(".ask-connect-row");
-    await row.getByText("Connect your AI to ask questions.").waitFor({ timeout: STEP_TIMEOUT });
-    await row.locator("button.button").filter({ hasText: /^Connect$/ }).waitFor({ timeout: STEP_TIMEOUT });
-    if (!(await page.getByLabel("Your question").isDisabled())) throw new Error("the composer is disabled until an AI is connected");
-    await page.locator("form.ask-form.ask-form-disabled[aria-disabled='true']").waitFor({ timeout: STEP_TIMEOUT });
-  });
-  await visit({ name: "connect-from-ask" }, async () => {
-    // The row's Connect opens the guided Connect screen; Not now lands back on Ask.
-    await page.locator(".ask-connect-row").getByRole("button", { name: "Connect" }).click();
-    await guidedTitle(page, "Which AI do you use?");
+    await nav(page, "Chat");
+    await guidedTitle(page, /I found \d+ things to fix\./);
     await assertGuidedScreen(page);
-    await link(page, "Not now");
-    await heading(page, "Ask about your report");
-    await page.locator(".ask-connect-row").getByRole("button", { name: "Connect" }).click();
-    await guidedTitle(page, "Which AI do you use?");
+    if ((await page.locator(".chat").count()) !== 0) throw new Error("the chat opened without a connected AI");
+    if ((await page.locator(".guided-strip-link").filter({ hasText: /^Chat$/ }).count()) !== 0) throw new Error("the strip offers Chat without a connected AI");
+    await assertNoUrlRecorded(page);
   });
-  await visit({ name: "ask-connected" }, async () => {
+  await visit({ name: "chat-expert-connected" }, async () => {
     await goto(`${EXPERT}&ai=available&licensed=1`);
     await runCheckUp(page);
-    await nav(page, "Ask");
-    await heading(page, "Ask about your report");
-    await page.getByLabel("Your question").fill("Which of these should I do first?");
-    await page.locator("form.ask-form").getByRole("button", { name: "Ask" }).click();
-    await page.locator(".chat-streaming").waitFor({ state: "detached", timeout: STEP_TIMEOUT });
-    await page.locator(".chat-assistant").first().waitFor({ timeout: STEP_TIMEOUT });
-    await page.getByText("Written by ChatGPT. Not verified.").first().waitFor({ timeout: STEP_TIMEOUT });
+    await nav(page, "Chat");
+    await page.locator(".guided-shell .chat").waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".chat-headline").filter({ hasText: /I found \d+ things to fix\./ }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator(".guided-model").count()) !== 0) throw new Error("the opening draws a model block with no brief on disk");
+    await page.locator(".chat-composer").waitFor({ timeout: STEP_TIMEOUT });
+    await assertNoUrlRecorded(page);
   });
   for (const row of OVERVIEW_AI_STATES) {
     await visit({ name: `overview-ai-${row.ai.replace(/_/g, "-")}` }, async () => {
@@ -1436,19 +1413,34 @@ export async function walkAi(page: Page, baseUrl: string, visit: Visit): Promise
   });
 }
 
-/** The watch window is 320 px wide and at most 360 px tall (DESIGN-WATCH.md section 5). */
-export const WATCH_WINDOW_SIZE = { width: 320, height: 360 } as const;
-/** Height to content per state, as tray.rs `window_height` sizes the real window: 170 first run, 150 calm, 280 look, 360 act. */
-const WATCH_WINDOW_HEIGHTS = { calm: 150, look: 280, act: 360, unreadable: 150, "first-run": 170 } as const;
+/** The watch window is 320 px wide and at most 420 px tall (DESIGN-WATCH-WINDOW.md section 2, "Heights"). */
+export const WATCH_WINDOW_SIZE = { width: 320, height: 420 } as const;
 
-/** The window states the demo serves, the status word and the one primary each shows (DESIGN-WATCH.md section 5). */
-const WATCH_WINDOW_STATES = [
-  { state: "calm", status: "Nothing changed", primary: null },
-  { state: "look", status: "One thing to look at", primary: "Show me" },
-  { state: "act", status: "Act now", primary: "See what to do" },
-  { state: "unreadable", status: "Nothing changed", primary: null },
-  { state: "first-run", status: null, primary: null },
+/**
+ * The fourteen window shots (DESIGN-WATCH-WINDOW.md section 7): the demo query, the height the sum rule gives the state
+ * (src/watch/height.ts, pinned to the shared fixture), the status word and the one primary or none.
+ */
+const WATCH_WINDOW_SHOTS = [
+  { name: "watch-window-calm", query: "watch=calm&watchAi=chatgpt&watchReason=0", height: 280, status: "Nothing changed", primary: null },
+  { name: "watch-window-calm-reason", query: "watch=calm&watchAi=chatgpt", height: 332, status: "Nothing changed", primary: null },
+  { name: "watch-window-calm-apple", query: "watch=calm&watchAi=apple", height: 280, status: "Nothing changed", primary: null },
+  { name: "watch-window-calm-no-ai", query: "watch=calm&watchAi=off", height: 228, status: "Nothing changed", primary: null },
+  { name: "watch-window-calm-not-connected", query: "watch=not-connected", height: 288, status: "Nothing changed", primary: null },
+  { name: "watch-window-calm-unreadable", query: "watch=unreadable&watchAi=chatgpt", height: 400, status: "Nothing changed", primary: null },
+  { name: "watch-window-calm-no-report", query: "watch=no-report&watchAi=chatgpt&watchReason=0", height: 252, status: "Nothing changed", primary: null },
+  { name: "watch-window-look", query: "watch=look&watchAi=chatgpt&watchReason=0", height: 316, status: "One thing to look at", primary: "Show me" },
+  { name: "watch-window-look-reason", query: "watch=look&watchAi=chatgpt", height: 396, status: "One thing to look at", primary: "Show me" },
+  { name: "watch-window-look-empty", query: "watch=look-empty&watchAi=chatgpt", height: 324, status: "Something to look at", primary: "Show me" },
+  { name: "watch-window-act", query: "watch=act&watchAi=chatgpt&watchReason=0", height: 324, status: "Act now", primary: "See what to do" },
+  { name: "watch-window-act-reason", query: "watch=act&watchAi=chatgpt", height: 404, status: "Act now", primary: "See what to do" },
+  { name: "watch-window-first-run", query: "watch=first-run", height: 170, status: null, primary: null },
+  { name: "watch-window-paused", query: "watch=paused", height: 152, status: "Paused until", primary: null },
 ] as const;
+
+/** The shots whose query leaves the judge's line on (contract J: the -reason shots, and the unreadable and look-empty states, whose heights carry the 72 px row); every other shot draws none. */
+const WATCH_REASON_SHOTS: readonly string[] = ["watch-window-calm-reason", "watch-window-calm-unreadable", "watch-window-look-reason", "watch-window-look-empty", "watch-window-act-reason"];
+/** The calm shots with an AI: the ask field is present on these and on no other shot. */
+const WATCH_FIELD_SHOTS: readonly string[] = ["watch-window-calm", "watch-window-calm-reason", "watch-window-calm-apple", "watch-window-calm-unreadable", "watch-window-calm-no-report"];
 
 /** Screen 1's headline per kind (DESIGN-WATCH.md section 6). */
 const FISHY_HEADLINES = {
@@ -1571,12 +1563,13 @@ export async function walkWatch(page: Page, baseUrl: string, visit: Visit): Prom
     await assertNoUrlRecorded(page);
   };
 
-  // The 320 px window, one shot per state, at the height Rust gives that state.
-  for (const row of WATCH_WINDOW_STATES) {
-    const size = { width: WATCH_WINDOW_SIZE.width, height: WATCH_WINDOW_HEIGHTS[row.state] };
-    await visit({ name: `watch-window-${row.state}`, size }, async () => {
+  // The 320 px window, one shot per state, at the height the sum rule gives that state.
+  for (const row of WATCH_WINDOW_SHOTS) {
+    const size = { width: WATCH_WINDOW_SIZE.width, height: row.height };
+    const calmShot = row.name.startsWith("watch-window-calm");
+    await visit({ name: row.name, size }, async () => {
       await page.setViewportSize(size);
-      await page.goto(`${baseUrl}/watch.html?watch=${row.state}&pace=0`);
+      await page.goto(`${baseUrl}/watch.html?${row.query}&pace=0`);
       const main = page.locator("main.watch:not([aria-busy])");
       await main.waitFor({ timeout: STEP_TIMEOUT });
       await assertNotRecorded(page, "watch_request_notify_permission");
@@ -1584,13 +1577,26 @@ export async function walkWatch(page: Page, baseUrl: string, visit: Visit): Prom
       if (box === null || Math.round(box.width) !== WATCH_WINDOW_SIZE.width) throw new Error(`the window is ${box?.width} px wide, expected ${WATCH_WINDOW_SIZE.width}`);
       const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
       if (scrollWidth > WATCH_WINDOW_SIZE.width) throw new Error(`the window overflows sideways: ${scrollWidth} px`);
-      // Rust sizes the window per state (tray.rs window_height), so content taller than that height is clipped; the shot shows it as the window does.
+      // Rust sizes the window by the same sum rule (tray.rs window_height), so content taller than that height is clipped; the shot shows it as the window does.
       const height = await page.evaluate(() => document.documentElement.scrollHeight);
-      if (height > size.height) warn(`the ${row.state} window content is ${height} px tall, over the ${size.height} px window; the bottom ${height - size.height} px is clipped`);
-      // Row 1 and the primary.
+      if (height > size.height) warn(`the ${row.name} content is ${height} px tall, over the ${size.height} px window; the bottom ${height - size.height} px is clipped`);
+      // One primary or none, no hover title anywhere, never the evidence sentence, and a badge on every model line.
       const primaries = page.locator(".watch .button-primary");
-      if ((await primaries.count()) !== (row.primary === null ? 0 : 1)) throw new Error(`${row.state} shows ${await primaries.count()} primary button(s)`);
+      if ((await primaries.count()) > 1) throw new Error(`${row.name} shows ${await primaries.count()} primary buttons`);
+      if ((await primaries.count()) !== (row.primary === null ? 0 : 1)) throw new Error(`${row.name} shows ${await primaries.count()} primary button(s)`);
       if (row.primary !== null) await primaries.filter({ hasText: row.primary }).waitFor({ timeout: STEP_TIMEOUT });
+      if ((await page.locator("main.watch [title]").count()) !== 0) throw new Error(`${row.name} carries a hover title`);
+      if ((await page.locator(".watch-item-evidence").count()) !== 0) throw new Error(`${row.name} draws the evidence sentence`);
+      const modelLines = page.locator(".watch .guided-model-line");
+      const modelCount = await modelLines.count();
+      for (let i = 0; i < modelCount; i += 1) {
+        const badge = modelLines.nth(i).locator(".guided-model-badge");
+        if ((await badge.count()) !== 1 || !(await badge.isVisible())) throw new Error(`${row.name}: a model line has no visible badge`);
+        if (!/not verified$/.test(((await badge.textContent()) ?? "").trim())) throw new Error(`${row.name}: the badge reads "${await badge.textContent()}"`);
+      }
+      const wantReason = WATCH_REASON_SHOTS.includes(row.name);
+      if ((modelCount !== 0) !== wantReason) throw new Error(`${row.name} draws ${modelCount} model line(s), expected ${wantReason ? 1 : 0}`);
+      // The status word and the meta line.
       if (row.status === null) {
         if ((await page.locator(".watch-status").count()) !== 0) throw new Error("the first-run window has no status line");
         await page.locator(".watch-first-run-text").filter({ hasText: "I'll check your settings on a timer and tell you when something changed." }).waitFor({ timeout: STEP_TIMEOUT });
@@ -1599,43 +1605,104 @@ export async function walkWatch(page: Page, baseUrl: string, visit: Visit): Prom
       } else {
         await page.locator(".watch-status[role='status']").filter({ hasText: row.status }).waitFor({ timeout: STEP_TIMEOUT });
         if ((await page.locator(".watch-status .watch-status-icon").count()) !== 1) throw new Error("the status line carries its icon");
-        await page.locator(".watch-meta").filter({ hasText: /^Checked (just now|\d+ minutes ago|\d+ hours ago)/ }).waitFor({ timeout: STEP_TIMEOUT });
+        await page.locator(".watch-meta-checked").filter({ hasText: /^Checked (just now|\d+ minutes ago|\d+ hours ago)$/ }).waitFor({ timeout: STEP_TIMEOUT });
       }
-      // Row 5: the two footer links.
+      // The two footer links.
       const footer = page.locator(".watch-footer .watch-link");
       if ((await footer.count()) !== 2) throw new Error("the footer holds two links");
       await footer.filter({ hasText: "Open Talos Labs" }).waitFor({ timeout: STEP_TIMEOUT });
       await footer.filter({ hasText: "Check now" }).waitFor({ timeout: STEP_TIMEOUT });
+      // The ask field: calm with an AI only. The Connect line: not-connected only.
+      const field = page.locator(".watch-ask-input");
+      if ((await field.count()) !== (WATCH_FIELD_SHOTS.includes(row.name) ? 1 : 0)) throw new Error(`${row.name} shows ${await field.count()} ask field(s)`);
+      const connect = page.locator(".watch-connect");
+      if ((await connect.count()) !== (row.name === "watch-window-calm-not-connected" ? 1 : 0)) throw new Error(`${row.name} shows ${await connect.count()} Connect line(s)`);
+      if (calmShot) {
+        if ((await page.locator(".watch-item").count()) !== 0) throw new Error(`${row.name} lists no item`);
+        await page.locator(".watch-meta-next").filter({ hasText: /^(Next check (in \d+ minutes|in about an hour|in \d+ hours|soon)|Checking every 15 minutes until)/ }).waitFor({ timeout: STEP_TIMEOUT });
+        const upNext = page.locator(".watch-up-next");
+        if (row.name === "watch-window-calm-no-report") {
+          await page.locator(".watch-checkup-score").filter({ hasText: "Waiting for your first check-up." }).waitFor({ timeout: STEP_TIMEOUT });
+          if ((await upNext.count()) !== 0) throw new Error("no Up next without a report");
+        } else {
+          await page.locator(".watch-checkup-score").filter({ hasText: "Last check-up: 72, Fair." }).waitFor({ timeout: STEP_TIMEOUT });
+        }
+        if (row.name === "watch-window-calm-reason") {
+          await upNext.filter({ hasText: "Up next: Your disk is not locked" }).waitFor({ timeout: STEP_TIMEOUT });
+          if ((await upNext.locator("span[aria-hidden='true']").count()) !== 1) throw new Error("the Up next chevron is aria-hidden");
+        }
+        if (row.name === "watch-window-calm-apple") {
+          await page.locator(".watch-calm-line").filter({ hasText: "No change in 3 days." }).waitFor({ timeout: STEP_TIMEOUT });
+        }
+        if (row.name === "watch-window-calm-unreadable") {
+          const line = page.locator(".watch-unreadable");
+          await line.waitFor({ timeout: STEP_TIMEOUT });
+          const text = (await line.textContent()) ?? "";
+          if (!/Not available in this build/.test(text) || !/network services/.test(text)) throw new Error(`the unreadable row names the areas and the reason: "${text}"`);
+          if ((await page.locator(".watch-meta-unavailable").count()) !== 0) throw new Error("calm carries the unreadable row, not the count");
+        } else if ((await page.locator(".watch-unreadable").count()) !== 0) throw new Error(`${row.name} reads nothing as unavailable`);
+        if (row.name === "watch-window-calm-not-connected") {
+          await connect.filter({ hasText: "Connect your AI to ask me things from here." }).waitFor({ timeout: STEP_TIMEOUT });
+          await connect.locator("button.watch-link").filter({ hasText: "Connect my AI" }).waitFor({ timeout: STEP_TIMEOUT });
+        }
+      }
+      if (row.name === "watch-window-calm") {
+        // Enter in the field opens the main window on the chat with the draft; the demo records the screen, never the text.
+        await field.fill("What changed?");
+        await field.press("Enter");
+        await assertRecorded(page, "watch_open_main", "chat");
+        if ((await field.inputValue()) !== "") throw new Error("the field is cleared after Enter");
+        if (JSON.stringify(await demoCalls(page)).includes("What changed")) throw new Error("the question was recorded");
+      }
       // Per state.
-      if (row.state === "act") {
+      if (row.name.startsWith("watch-window-act")) {
         await page.locator(".watch-status-act").waitFor({ timeout: STEP_TIMEOUT });
         await page.locator(".watch-item-headline").filter({ hasText: FISHY_HEADLINES.persistence }).waitFor({ timeout: STEP_TIMEOUT });
         await page.locator(".watch-item-source").filter({ hasText: "Experts would cut it off first. CISA's ransomware checklist, step 1." }).waitFor({ timeout: STEP_TIMEOUT });
-        await page.locator(".watch-item-evidence").filter({ hasText: EVIDENCE }).waitFor({ timeout: STEP_TIMEOUT });
         await assertRecorded(page, "watch:notified", "sig.persistence_new");
+        if ((await page.locator(".watch-ask-why").count()) !== 0) throw new Error("act now has no ask link");
       } else {
         await assertNotRecorded(page, "watch:notified");
         if ((await page.locator(".watch-item-source").count()) !== 0) throw new Error("only act now carries the source line");
       }
-      if (row.state === "look") {
+      if (row.name === "watch-window-act-reason") {
+        // The reason line sits under the primary, outside the item.
+        if ((await page.locator(".watch-item .guided-model-line").count()) !== 0) throw new Error("the act-now reason line sits under the primary, not in the item");
+        const primaryBox = await primaries.first().boundingBox();
+        const reasonBox = await modelLines.first().boundingBox();
+        if (primaryBox === null || reasonBox === null || reasonBox.y < primaryBox.y + primaryBox.height) throw new Error("the act-now reason line is above the primary");
+      }
+      if (row.name === "watch-window-look" || row.name === "watch-window-look-reason") {
         await page.locator(".watch-item-headline").filter({ hasText: FISHY_HEADLINES.persistence }).waitFor({ timeout: STEP_TIMEOUT });
         await page.locator(".watch-item-why").filter({ hasText: "Bad software often starts this way." }).waitFor({ timeout: STEP_TIMEOUT });
+        await page.locator("button.watch-ask-why").filter({ hasText: "Ask why this matters" }).waitFor({ timeout: STEP_TIMEOUT });
+      }
+      if (row.name === "watch-window-look-reason") {
+        if ((await page.locator(".watch-item .guided-model-line").count()) !== 1) throw new Error("the look reason line sits inside the item, under the why");
+        await page.locator("button.watch-ask-why").click();
+        await assertRecorded(page, "watch_open_main", "chat");
+        if (JSON.stringify(await demoCalls(page)).includes("Why does")) throw new Error("the question was recorded");
+      }
+      if (row.name === "watch-window-look") {
         // "Check now" runs a demo tick: the spinner line, then "Checked just now".
         await footer.filter({ hasText: "Check now" }).click();
         await page.locator(".watch-meta-checking").filter({ hasText: "Checking now" }).waitFor({ timeout: STEP_TIMEOUT });
         await page.locator(".watch-meta-checking").waitFor({ state: "detached", timeout: STEP_TIMEOUT });
-        await page.locator(".watch-meta").filter({ hasText: "Checked just now" }).waitFor({ timeout: STEP_TIMEOUT });
+        await page.locator(".watch-meta-checked").filter({ hasText: "Checked just now" }).waitFor({ timeout: STEP_TIMEOUT });
         await assertRecorded(page, "watch_check_now");
       }
-      if (row.state === "calm" || row.state === "unreadable") {
-        if ((await page.locator(".watch-item").count()) !== 0) throw new Error(`${row.state} lists no item`);
+      if (row.name === "watch-window-look-empty") {
+        if ((await page.locator(".watch-item").count()) !== 0) throw new Error("look-empty lists no item");
+        await page.locator(".watch-look-empty").filter({ hasText: "At your last check-up, 1 new thing to fix." }).waitFor({ timeout: STEP_TIMEOUT });
+        await page.locator("button.watch-ask-why").filter({ hasText: "Ask why this matters" }).waitFor({ timeout: STEP_TIMEOUT });
       }
-      if (row.state === "unreadable") {
-        const line = page.locator(".watch-meta-unavailable").filter({ hasText: "I couldn't check 3 areas" });
-        await line.waitFor({ timeout: STEP_TIMEOUT });
-        const title = (await line.getAttribute("title")) ?? "";
-        if (title.split("\n").length !== 3 || !/network services/.test(title)) throw new Error(`the hover title names the three areas and their reason: "${title}"`);
-      } else if ((await page.locator(".watch-meta-unavailable").count()) !== 0) throw new Error(`${row.state} reads nothing as unavailable`);
+      if (row.name === "watch-window-paused") {
+        await page.locator(".watch-status-word").filter({ hasText: /^Paused until \d\d:\d\d$/ }).waitFor({ timeout: STEP_TIMEOUT });
+        await page.locator(".watch-paused-line").filter({ hasText: "I'll check again when the hour is up." }).waitFor({ timeout: STEP_TIMEOUT });
+        for (const selector of [".watch-item", ".watch-checkup", ".watch-calm-line", ".watch-ask", ".watch-meta-next"]) {
+          if ((await page.locator(selector).count()) !== 0) throw new Error(`a paused window draws no ${selector}`);
+        }
+      }
       await assertNoUrlRecorded(page);
       await page.setViewportSize(SIZES[0] ?? WATCH_WINDOW_SIZE);
     });
@@ -2223,4 +2290,364 @@ export async function walkAccept(page: Page, baseUrl: string, visit: Visit): Pro
     if ((await body.locator("[data-rule-id]").count()) === 0) throw new Error("the suggested order is empty");
     await assertNoUrlRecorded(page);
   });
+}
+
+/** The chat's class names (docs/DESIGN-CHAT-UI.md section 2); the walk reads nothing the model wrote. */
+const CHAT_PLACEHOLDER = "Ask me, or tell me what to do.";
+const CHAT_GUARD = "I can't read file paths or typed instructions. Say it in words and I'll answer.";
+const CHAT_COULD_NOT_USE = "I couldn't use that answer. Try asking another way.";
+const CHAT_TOO_LONG = "That was too much for this Mac in one go. Ask a shorter question.";
+const CHAT_OUTSIDE = "That's outside what the check-up covers.";
+const CHAT_STILL_WAITING = "Still waiting for ChatGPT.";
+const CHATGPT_BADGE = "Written by ChatGPT. Not verified.";
+const APPLE_BADGE = "Written on this Mac by Apple Intelligence. Not verified.";
+const CHAT_HOME_SWITCH = "Start with the chat when my AI is connected";
+const CHAT_WATCH_PRIMARY = "See what to do";
+const CHAT_WATCH_LINK = "This is fine, I know it";
+
+/** The chat's composer field: the textarea labelled Message. */
+function composer(page: Page) {
+  return page.locator(".chat-composer textarea");
+}
+
+async function sendText(page: Page, text: string): Promise<void> {
+  await composer(page).fill(text);
+  await composer(page).press("Enter");
+}
+
+async function chip(page: Page, label: string): Promise<void> {
+  await page.locator("button.chat-chip").filter({ hasText: new RegExp(`^${label.replace(/[?]/g, "\\\\?")}$`) }).click();
+}
+
+/** A card of the given kind in the transcript; the newest when several exist. */
+function card(page: Page, kind?: string) {
+  return page.locator(kind === undefined ? ".chat-card" : `.chat-card[data-kind="${kind}"]`).last();
+}
+
+/**
+ * Every chat shot: at most one primary and one link per card; exactly `primaries` primaries inside the transcript (one while a
+ * card is idle, none while it works); none in the composer; every model block carries a badge; one live region on the page, the
+ * status element outside the transcript; the newest primary above the 600 px fold; activity rows each with a state word and at most
+ * one running, and no spinner beside the word "your password"; `calls` chat calls recorded; never a URL.
+ */
+async function assertChatScreen(page: Page, options: { primaries?: number; calls?: number; fold?: boolean } = {}): Promise<void> {
+  const cards = page.locator(".chat-card");
+  for (let i = 0; i < (await cards.count()); i += 1) {
+    const c = cards.nth(i);
+    if ((await c.locator(".button-primary").count()) > 1) throw new Error(`card ${i} draws more than one primary`);
+    if ((await c.locator(".guided-link").count()) > 1) throw new Error(`card ${i} draws more than one link`);
+  }
+  const want = options.primaries ?? 1;
+  const primaries = await page.locator(".chat .button-primary").count();
+  if (primaries !== want) throw new Error(`expected ${want} primary button(s) in the transcript, found ${primaries}`);
+  if ((await page.locator(".chat-composer .button-primary").count()) !== 0) throw new Error("the composer draws a primary");
+  const models = page.locator(".guided-model");
+  for (let i = 0; i < (await models.count()); i += 1) {
+    if ((await models.nth(i).locator(".chat-badge").count()) !== 1) throw new Error(`model block ${i} has no badge`);
+  }
+  const live = page.locator('[aria-live]:not([aria-live="off"]), [role="status"], [role="log"], [role="alert"]');
+  if ((await live.count()) !== 1) throw new Error(`expected one live region, found ${await live.count()}`);
+  if ((await live.first().getAttribute("class"))?.includes("chat-status") !== true) throw new Error("the one live region is not the chat status element");
+  if ((await page.locator(".chat .chat-status").count()) !== 0) throw new Error("the status element sits inside the transcript");
+  const size = page.viewportSize();
+  if (options.fold !== false && primaries > 0 && size !== null && size.height <= MIN_HEIGHT) await assertAboveFold(page.locator(".chat .button-primary").last(), "the newest card's primary");
+  const rows = page.locator(".chat-activity-row");
+  if ((await rows.locator('[data-state="running"]').count()) > 1 || (await page.locator('.chat-activity-row[data-state="running"]').count()) > 1) throw new Error("more than one activity row is running");
+  for (let i = 0; i < (await rows.count()); i += 1) {
+    const row = rows.nth(i);
+    const word = (await row.locator(".activity-word").textContent())?.trim() ?? "";
+    if (word.length === 0) throw new Error(`activity row ${i} has no state word`);
+    if (word === "your password" && (await row.locator(".spin").count()) !== 0) throw new Error("a spinner turns beside the word your password");
+  }
+  if (options.calls !== undefined) {
+    const chatCalls = (await demoCalls(page)).filter((c) => c.kind === "chat").length;
+    if (chatCalls !== options.calls) throw new Error(`expected ${options.calls} chat call(s), recorded ${chatCalls}`);
+  }
+  await assertNoUrlRecorded(page);
+}
+
+/** The model block finished: no caret, the badge under it. */
+async function modelReady(page: Page, badge: string = CHATGPT_BADGE): Promise<void> {
+  await page.locator(".guided-model .chat-badge").filter({ hasText: badge }).last().waitFor({ timeout: STEP_TIMEOUT });
+  await page.locator(".guided-model .caret").waitFor({ state: "detached", timeout: STEP_TIMEOUT });
+}
+
+/** The chat home (docs/DESIGN-CHAT.md section 8, docs/DESIGN-CHAT-UI.md section 7), light and dark, both sizes, axe on all. */
+export async function walkChat(page: Page, baseUrl: string, visit: Visit): Promise<void> {
+  // Base C: ChatGPT connected and remembered as available, so the chat is the home as the paced scan lands; pace=0 collapses every timer.
+  const stored = encodeURIComponent(JSON.stringify({ version: 1, aiLastAvailable: { provider: "chatgpt", at: new Date().toISOString() } }));
+  const C = `reset=1&fixture=dev-machine&onboarded=1&delay=0&provider=chatgpt&ai=available&memory=${stored}`;
+  const C_LICENSED = `${C}&licensed=1`;
+  const goto = async (query: string, options: { reducedMotion?: boolean; paced?: boolean } = {}) => {
+    await page.emulateMedia({ reducedMotion: options.reducedMotion === true ? "reduce" : "no-preference" });
+    await page.goto(`${baseUrl}/?${query}${options.paced === true ? "" : "&pace=0"}`);
+  };
+  const opening = async (query: string, options: { reducedMotion?: boolean; paced?: boolean } = {}) => {
+    await goto(query, options);
+    await page.locator(".guided-shell .chat").waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".chat-headline").first().waitFor({ timeout: STEP_TIMEOUT });
+  };
+  const skipped = (name: string, why: string) => console.error(`[qa] skipped ${name}: ${why}`);
+
+  await visit({ name: "chat-opening" }, async () => {
+    await opening(C);
+    // The dev machine has a critical step, so the opening is the urgent variant: the line, the urgent card live, three chips.
+    await page.locator(".chat-headline").filter({ hasText: /I found \d+ things to fix\./ }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".chat .guided-urgent").filter({ hasText: "One of these is urgent." }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator(".guided-model").count()) !== 0) throw new Error("the opening draws a model block with no brief on disk");
+    if ((await page.locator("button.chat-chip").count()) !== 3) throw new Error(`expected three chips on the urgent opening, found ${await page.locator("button.chat-chip").count()}`);
+    if ((await page.locator("button.chat-chip").filter({ hasText: "What is urgent?" }).count()) !== 0) throw new Error("the urgent opening still offers the urgent chip");
+    if ((await composer(page).getAttribute("placeholder")) !== CHAT_PLACEHOLDER) throw new Error("the composer placeholder is wrong");
+    const strip = page.locator(".guided-strip .guided-strip-link");
+    if ((await strip.count()) !== 3) throw new Error(`the strip holds ${await strip.count()} links, expected three`);
+    if ((await page.locator(".guided-strip .icon-button").count()) !== 0) throw new Error("the strip holds an icon-only control");
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-opening-since" }, async () => {
+    await opening(`${C}&since=1`);
+    await page.locator(".chat").getByText("Since last time.", { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-opening-nothing" }, async () => {
+    await opening(`reset=1&fixture=hardened&onboarded=1&delay=0&provider=chatgpt&ai=available&memory=${stored}`);
+    await page.locator(".chat-headline").filter({ hasText: "Nothing needs fixing." }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator("button.chat-chip").count()) !== 2) throw new Error("the empty opening offers two chips");
+    await assertChatScreen(page, { primaries: 0, calls: 0 });
+  });
+  await visit({ name: "chat-opening-free" }, async () => {
+    // No licence: the composer is present and enabled; the lock concerns fixes only (owner decision 2026-10-17).
+    await opening(C);
+    if (await composer(page).isDisabled()) throw new Error("the free version's composer is disabled");
+    if ((await page.getByPlaceholder("Paste your licence key").count()) !== 0) throw new Error("the opening draws a licence field");
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-reduced-motion" }, async () => {
+    await opening(C, { reducedMotion: true });
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-dev-calls" }, async () => {
+    await opening(`${C}&dev=1`);
+    await page.locator(".chat-foot").getByText("Calls this check-up: 0", { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-strip" }, async () => {
+    // "Step by step" enters the walk-through at the first undone step; its strip offers "Chat" back.
+    await opening(C);
+    await page.locator(".guided-strip-link").filter({ hasText: /^Step by step$/ }).click();
+    await page.locator(".guided-progress").waitFor({ timeout: STEP_TIMEOUT });
+    await assertGuidedScreen(page);
+    await page.locator(".guided-strip-link").filter({ hasText: /^Chat$/ }).waitFor({ timeout: STEP_TIMEOUT });
+  });
+  await visit({ name: "guided-strip-step-by-step" }, async () => {
+    await page.locator(".guided-strip-link").filter({ hasText: /^Chat$/ }).click();
+    await page.locator(".guided-shell .chat").waitFor({ timeout: STEP_TIMEOUT });
+    // The opening and its live card land an effect after the screen mounts.
+    await page.locator(".chat-headline").first().waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".chat .button-primary").first().waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-batch-card" }, async () => {
+    await opening(C_LICENSED);
+    await chip(page, "Fix what you can");
+    await card(page, "batch").waitFor({ timeout: STEP_TIMEOUT });
+    await card(page, "batch").getByRole("button", { name: "Fix these for me" }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-activity-batch", volatile: true }, async () => {
+    // The admin block is one row that holds "your password" with the key icon, no spinner, until macOS answers.
+    await opening(`${C_LICENSED}&fix_delay=60000`);
+    await chip(page, "Fix what you can");
+    await card(page, "batch").getByRole("button", { name: "Fix these for me" }).click();
+    await page.locator('.chat-activity-row[data-state="running"]').waitFor({ timeout: STEP_TIMEOUT });
+    const word = (await page.locator('.chat-activity-row[data-state="running"] .activity-word').textContent())?.trim();
+    if (word !== "your password") throw new Error(`the running row reads "${word}"`);
+    await assertChatScreen(page, { primaries: 0, calls: 0 });
+  });
+  await visit({ name: "chat-activity-done" }, async () => {
+    await opening(`${C_LICENSED}&fix_delay=0`);
+    await chip(page, "Fix what you can");
+    await card(page, "batch").getByRole("button", { name: "Fix these for me" }).click();
+    await page.locator(".chat").getByText(/Done\. \d+ things fixed\./).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator('.chat-activity-row[data-state="running"]').count()) !== 0) throw new Error("a row still runs after the batch settled");
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-activity-failed" }, async () => {
+    await opening(`${C_LICENSED}&fix_delay=0&batch=partial`);
+    await chip(page, "Fix what you can");
+    await card(page, "batch").getByRole("button", { name: "Fix these for me" }).click();
+    await page.locator(".chat").getByText(/\d+ of \d+ fixed\./).waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-activity-single-admin", volatile: true }, async () => {
+    // Unlicensed: the firewall card from the list; one admin row with "your password" and no spinner.
+    await opening(`${C}&fix_delay=60000`);
+    await chip(page, "Show me the list");
+    await page.locator(".chat .guided-end-row").filter({ hasText: "The firewall is off" }).click();
+    await card(page, "fix").getByRole("button", { name: "Turn it on" }).click();
+    await page.locator('.chat-activity-row[data-state="running"]').waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { primaries: 0, calls: 0 });
+  });
+  await visit({ name: "chat-lock-card" }, async () => {
+    // Unlicensed, the free firewall fix done: the lock card once, with its field and "Not now".
+    await opening(`${C}&fix_delay=0`);
+    await chip(page, "Show me the list");
+    await page.locator(".chat .guided-end-row").filter({ hasText: "The firewall is off" }).click();
+    await card(page, "fix").getByRole("button", { name: "Turn it on" }).click();
+    await card(page, "lock").waitFor({ timeout: STEP_TIMEOUT });
+    await card(page, "lock").getByPlaceholder("Paste your licence key").waitFor({ timeout: STEP_TIMEOUT });
+    await card(page, "lock").locator(".guided-link").filter({ hasText: "Not now" }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-show-card" }, async () => {
+    await opening(C);
+    await chip(page, "Show me the list");
+    await page.locator(".chat .guided-end-row").filter({ hasText: "Your disk is not locked" }).click();
+    await card(page, "show").getByRole("button", { name: "Show me where" }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-activity-show-watching" }, async () => {
+    // "Show me where" opens the pane and the card keeps a "Check again" link while one row watches.
+    await card(page, "show").getByRole("button", { name: "Show me where" }).click();
+    await page.locator(".chat-activity-row").filter({ hasText: "Watching for the change" }).waitFor({ timeout: STEP_TIMEOUT });
+    const calls = await demoCalls(page);
+    if (!calls.some((c) => c.kind === "openSettingsPane")) throw new Error("no pane was opened");
+    await card(page, "show").locator(".guided-link").filter({ hasText: "Check again" }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { primaries: 0, calls: 0 });
+  });
+  await visit({ name: "chat-end" }, async () => {
+    // One step, snoozed: the end message with its two chips.
+    await opening(`reset=1&fixture=hardened&fail=001&onboarded=1&delay=0&provider=chatgpt&ai=available&memory=${stored}`);
+    await card(page).locator(".guided-link").first().click();
+    await page.locator(".chat-headline").filter({ hasText: /Your Mac is safer than it was\.|Your Mac is in good shape\.|Nothing left for me to do\./ }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator("button.chat-chip").count()) !== 2) throw new Error("the end message offers two chips");
+    await assertChatScreen(page, { primaries: 0, calls: 0 });
+  });
+  await visit({ name: "chat-model-waiting", volatile: true }, async () => {
+    // The caret alone and the badge from the first moment; Stop in the Send slot; one call.
+    await opening(`${C}&chat_first_partial=60000`);
+    await sendText(page, "Why does the disk matter?");
+    await page.locator(".guided-model .caret").waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".chat-composer").getByRole("button", { name: "Stop" }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator(".chat-card").count()) !== 1) throw new Error("a card appeared before the stream completed");
+    await assertChatScreen(page, { calls: 1 });
+  });
+  await visit({ name: "chat-stopped" }, async () => {
+    await page.locator(".chat-composer").getByRole("button", { name: "Stop" }).click();
+    await page.locator(".chat").getByText("Stopped.", { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator("button.chat-chip").filter({ hasText: /^Send again$/ }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator(".guided-model").count()) !== 0) throw new Error("the partial text survived Stop");
+    await assertChatScreen(page);
+  });
+  await visit({ name: "chat-still-waiting", volatile: true }, async () => {
+    await opening(`${C}&chat_first_partial=9000`);
+    await sendText(page, "Why does the disk matter?");
+    await page.locator(".chat").getByText(CHAT_STILL_WAITING, { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { calls: 1 });
+  });
+  await visit({ name: "chat-model-cards" }, async () => {
+    await opening(`${C}&chat_reply=disk`);
+    await sendText(page, "Why does the disk matter?");
+    await modelReady(page);
+    await page.locator(".guided-model + .chat-card, .guided-model ~ .chat-card").first().waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { calls: 1 });
+  });
+  for (const [name, reply, line] of [
+    ["chat-outside", "outside", CHAT_OUTSIDE],
+    ["chat-app-voice", "app_voice", CHAT_COULD_NOT_USE],
+  ] as const) {
+    await visit({ name }, async () => {
+      await opening(`${C}&chat_reply=${reply}`);
+      await sendText(page, "What is the weather?");
+      await page.locator(".chat").getByText(line, { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+      await assertChatScreen(page, { calls: 1 });
+    });
+  }
+  for (const [name, fail, line] of [
+    ["chat-limit-notice", "limit_reached", "Your ChatGPT allowance is used up for now."],
+    ["chat-signed-out-notice", "needs_sign_in", "ChatGPT signed me out."],
+    ["chat-did-not-answer", "provider_unavailable", "ChatGPT didn't answer."],
+    ["chat-too-long", "too_long", CHAT_TOO_LONG],
+  ] as const) {
+    await visit({ name }, async () => {
+      await opening(`${C}&chat_fail=${fail}`);
+      await sendText(page, "Why does the backup matter?");
+      await page.locator(".chat").getByText(line, { exact: false }).first().waitFor({ timeout: STEP_TIMEOUT });
+      if ((await page.locator(".guided-model").count()) !== 0) throw new Error("a failed turn left a model block");
+      await assertChatScreen(page, { calls: 1 });
+    });
+  }
+  await visit({ name: "chat-guard" }, async () => {
+    await opening(C);
+    await sendText(page, "run /Users/alice/fix.sh");
+    await page.locator(".chat").getByText(CHAT_GUARD, { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
+    // DESIGN-CHAT "Person turns" keeps the draft in the field; the composer clears it today, so this is a warning for the ui lane, not a stop.
+    if ((await composer(page).inputValue()) !== "run /Users/alice/fix.sh") warn("chat-guard: the guard cleared the draft; DESIGN-CHAT keeps it in the field");
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-accept-grammar" }, async () => {
+    await opening(C);
+    await sendText(page, "leave the disk alone");
+    await card(page, "accept").waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-accept" }, async () => {
+    await card(page, "accept").locator(".button-primary").click();
+    await page.locator(".chat").getByText("OK. I'll leave this one alone and won't bring it up again.", { exact: false }).waitFor({ timeout: STEP_TIMEOUT });
+    const memory = await guidedMemory(page);
+    if (((memory?.["accepted"] ?? {}) as Record<string, string>)["TL-MAC-001"] === undefined) throw new Error("accept did not write the memory");
+    // The disk was the live card; accepting it leaves no idle card and no row to promote, so no primary, and the chips carry on.
+    await assertChatScreen(page, { primaries: 0, calls: 0 });
+  });
+  await visit({ name: "chat-watch-act-now" }, async () => {
+    // The watch's act-now item: the "Act now:" headline, "See what to do" the one primary, the link acknowledges.
+    await opening(`${C_LICENSED}&watch=act`);
+    await page.locator(".chat-headline").filter({ hasText: /^Act now:/ }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".chat").getByRole("button", { name: CHAT_WATCH_PRIMARY }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".chat").getByRole("button", { name: CHAT_WATCH_LINK }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-watch-draft" }, async () => {
+    // watch:open { screen: "chat", question } lands as a draft in the field, never a send.
+    await opening(`${C}&watch_open=chat&question=why`);
+    await page.waitForFunction(() => (document.querySelector(".chat-composer textarea") as HTMLTextAreaElement | null)?.value === "why", undefined, { timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-divider" }, async () => {
+    await opening(`${C}&chat_divider=1`);
+    await chip(page, "Show me the list");
+    await page.locator(".chat-divider").waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { primaries: 0, calls: 0 });
+  });
+  await visit({ name: "chat-apple-derived-cards" }, async () => {
+    const apple = encodeURIComponent(JSON.stringify({ version: 1, aiLastAvailable: { provider: "apple", at: new Date().toISOString() } }));
+    await opening(`reset=1&fixture=dev-machine&onboarded=1&delay=0&provider=apple&ai=available&chat_reply=disk&memory=${apple}`);
+    await sendText(page, "Why does the disk matter?");
+    await modelReady(page, APPLE_BADGE);
+    await page.locator(".guided-model ~ .chat-card").first().waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { calls: 1 });
+  });
+  await visit({ name: "chat-composer-near-limit" }, async () => {
+    await opening(C);
+    await composer(page).fill("a".repeat(445));
+    await page.locator(".chat-count").filter({ hasText: "55 left" }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-new-pill" }, async () => {
+    await opening(`${C}&chat_reply=long`);
+    await sendText(page, "Tell me everything.");
+    await modelReady(page);
+    await page.locator(".chat").evaluate((log) => log.scrollTo({ top: 0 }));
+    await chip(page, "Show me the list");
+    await page.locator("button.chat-new-pill").waitFor({ timeout: STEP_TIMEOUT });
+  });
+  await visit({ name: "settings-chat-home" }, async () => {
+    await goto(`${C}&guided=0`);
+    await nav(page, "Settings");
+    await heading(page, "Settings");
+    const section = page.locator("section[aria-labelledby='checkup-heading']");
+    await section.getByRole("switch", { name: CHAT_HOME_SWITCH }).waitFor({ timeout: STEP_TIMEOUT });
+    await section.getByText("Off shows the step-by-step check-up first. The chat stays one tap away.").waitFor({ timeout: STEP_TIMEOUT });
+  });
+  skipped("chat-watch-act-now-mid-chat", "chat_watch_at= lives in demo-watch.ts, owned by the watch session");
+  skipped("chat-activity-watch-check", "check_delay= lives in demo-watch.ts, owned by the watch session");
 }

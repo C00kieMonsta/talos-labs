@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FishyKind, FixProgress, WatchState } from "@talos/core";
-import { FISHY_KINDS, PLAYBOOK } from "@talos/core";
+import { FISHY_KINDS, PLAYBOOK, RATING_ORDER, safeWindowSentence } from "@talos/core";
 import type { WatchDemoFlags } from "../app/demo-boot";
 import { DEFAULT_WATCH_DEMO } from "../app/demo-boot";
-import { DEMO_WATCH_PLAN_TTL_MS, DemoWatch } from "./demo-watch";
+import { DEFAULT_FLIP_AFTER_MS, DEMO_REASONS, DEMO_WATCH_PLAN_TTL_MS, DemoWatch } from "./demo-watch";
 
 const NOW = "2026-10-17T12:00:00.000Z";
 
@@ -44,12 +44,109 @@ describe("DemoWatch per ?watch=", () => {
     const unreadable = await make({ watch: "unreadable" }).status();
     expect(unreadable.rating).toBe("calm");
     expect(unreadable.unavailable).toEqual([
-      { probeId: "probe.listeners", reason: "permission_denied" },
-      { probeId: "probe.remote_access", reason: "permission_denied" },
-      { probeId: "probe.file_sharing", reason: "permission_denied" },
+      { probeId: "probe.listeners", reason: "unsigned_build" },
+      { probeId: "probe.remote_access", reason: "unsigned_build" },
+      { probeId: "probe.file_sharing", reason: "unsigned_build" },
     ]);
     const first = await make({ watch: "first-run" }).status();
-    expect(first).toMatchObject({ firstRun: true, rating: "calm", since: null, lastCheckAt: null, cycleIndex: 0, items: [] });
+    expect(first).toMatchObject({ firstRun: true, rating: "calm", since: null, lastCheckAt: null, cycleIndex: 0, items: [], nextCheckAt: null, lastChangeAt: null, judge: null, report: null, next: null, recentCount: 0, rulesSince: null });
+    expect(first.ai).toEqual({ enabled: false, provider: "chatgpt" });
+  });
+
+  it("the window fields: next check in 48 minutes, the last change 3 days ago, the report with its next step, and the count of items", async () => {
+    const calm = await make({ watch: "calm", watchAi: "chatgpt" }).status();
+    expect(calm.nextCheckAt).toBe("2026-10-17T12:48:00.000Z");
+    expect(calm.lastChangeAt).toBe("2026-10-14T12:00:00.000Z");
+    expect(calm.report).toEqual({ reportId: "demo-report", scannedAt: "2026-10-17T10:00:00.000Z", score: 72, grade: "fair" });
+    expect(calm.next).toEqual({ reportId: "demo-report", ruleId: "TL-MAC-001", kind: "fix" });
+    expect(calm.rulesSince).toBeNull();
+    expect(calm.recentCount).toBe(0);
+    expect(calm.pausedUntil).toBeNull();
+    expect((await make({ watch: "act" }).status()).recentCount).toBe(2);
+  });
+
+  it("paused, not-connected, look-empty and no-report", async () => {
+    const paused = await make({ watch: "paused" }).status();
+    expect(paused).toMatchObject({ rating: "calm", items: [], pausedUntil: "2026-10-17T13:00:00.000Z" });
+    const notConnected = await make({ watch: "not-connected", watchAi: "chatgpt" }).status();
+    expect(notConnected).toMatchObject({ rating: "calm", ai: { enabled: false, provider: null }, judge: null });
+    expect(notConnected.report).not.toBeNull();
+    const lookEmpty = await make({ watch: "look-empty", watchAi: "chatgpt" }).status();
+    expect(lookEmpty).toMatchObject({ rating: "keep_an_eye", items: [], recentCount: 1, rulesSince: { reportId: "demo-report", appeared: 1 } });
+    expect(lookEmpty.judge?.rating).toBe("keep_an_eye");
+    const noReport = await make({ watch: "no-report", watchAi: "chatgpt" }).status();
+    expect(noReport).toMatchObject({ rating: "calm", report: null, next: null });
+    expect(noReport.judge?.rating).toBe("calm");
+  });
+
+  it("watchAi decides ai and the judge: ChatGPT and Claude in every rating, Apple never on calm, limit and off none", async () => {
+    for (const watch of ["calm", "look", "act"] as const) {
+      const chatgpt = await make({ watch, watchAi: "chatgpt" }).status();
+      expect(chatgpt.ai).toEqual({ enabled: true, provider: "chatgpt" });
+      expect(chatgpt.judge).toEqual({ provider: "chatgpt", at: "2026-10-17T11:48:00.000Z", rating: chatgpt.rating, reason: DEMO_REASONS[chatgpt.rating] });
+      const claude = await make({ watch, watchAi: "claude" }).status();
+      expect(claude.ai).toEqual({ enabled: true, provider: "claude_plan" });
+      expect(claude.judge?.provider).toBe("claude_plan");
+      const apple = await make({ watch, watchAi: "apple" }).status();
+      expect(apple.ai).toEqual({ enabled: true, provider: "apple" });
+      expect(apple.judge === null, watch).toBe(watch === "calm");
+      expect((await make({ watch, watchAi: "limit" }).status()).ai).toEqual({ enabled: true, provider: "chatgpt" });
+      expect((await make({ watch, watchAi: "limit" }).status()).judge).toBeNull();
+      expect((await make({ watch, watchAi: "off" }).status()).ai).toEqual({ enabled: false, provider: "chatgpt" });
+      expect((await make({ watch, watchAi: "off" }).status()).judge).toBeNull();
+      expect((await make({ watch }).status()).judge).toBeNull();
+    }
+  });
+
+  it("every demo reason passes safeWindowSentence for its rating and stays within 120 characters", () => {
+    for (const rating of RATING_ORDER) {
+      expect(DEMO_REASONS[rating].length).toBeLessThanOrEqual(120);
+      expect(safeWindowSentence(DEMO_REASONS[rating], rating), rating).toBe(true);
+    }
+  });
+
+  it("watchReason=0 hides the judge and watchNext=0 hides the next step", async () => {
+    const noReason = await make({ watch: "calm", watchAi: "chatgpt", watchReason: false }).status();
+    expect(noReason.judge).toBeNull();
+    expect(noReason.next).not.toBeNull();
+    const noNext = await make({ watch: "calm", watchAi: "chatgpt", watchNext: false }).status();
+    expect(noNext.next).toBeNull();
+    expect(noNext.report).not.toBeNull();
+    expect(noNext.judge).not.toBeNull();
+  });
+
+  it("watch_flip re-rates after the delay and emits onState, with the judge following the rating", async () => {
+    vi.useFakeTimers();
+    try {
+      const port = make({ watch: "calm", watchAi: "chatgpt", watchFlip: "act_now", watchFlipAfter: 250 });
+      const states: WatchState[] = [];
+      port.onState((s) => states.push(s));
+      expect((await port.status()).rating).toBe("calm");
+      vi.advanceTimersByTime(249);
+      expect(states).toEqual([]);
+      vi.advanceTimersByTime(1);
+      expect(states).toHaveLength(1);
+      const flipped = await port.status();
+      expect(flipped.rating).toBe("act_now");
+      expect(flipped.items.map((i) => i.signalId)).toEqual(["sig.persistence_new", "sig.listener_new_ports"]);
+      expect(flipped.judge).toMatchObject({ rating: "act_now", reason: DEMO_REASONS.act_now });
+      const byDefault = make({ watch: "act", watchAi: "chatgpt", watchFlip: "calm" });
+      const later: WatchState[] = [];
+      byDefault.onState((s) => later.push(s));
+      vi.advanceTimersByTime(DEFAULT_FLIP_AFTER_MS - 1);
+      expect(later).toEqual([]);
+      vi.advanceTimersByTime(1);
+      expect(later[0]).toMatchObject({ rating: "calm", items: [] });
+      expect(later[0]?.judge?.rating).toBe("calm");
+      const look = make({ watch: "calm", watchFlip: "keep_an_eye", watchFlipAfter: 0 });
+      vi.advanceTimersByTime(0);
+      const lookState = await look.status();
+      expect(lookState.rating).toBe("keep_an_eye");
+      expect(lookState.items).toHaveLength(1);
+      expect(lookState.judge).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("records watch:notified only when constructed with watch=act, no gate and a licence", async () => {
@@ -261,16 +358,34 @@ describe("DemoWatch recorded calls", () => {
     expect(seen).toHaveLength(2);
   });
 
-  it("openMain reaches onOpen listeners and records nothing", async () => {
+  it("openMain reaches onOpen listeners with the question and records the screen only", async () => {
     const port = make();
-    const opened: string[] = [];
-    const off = port.onOpen((e) => opened.push(e.screen));
+    const opened: unknown[] = [];
+    const off = port.onOpen((e) => opened.push(e));
     await port.openMain("settings_watch");
+    await port.openMain("chat", "What changed?");
+    await port.openMain("chat");
     off();
     await port.openMain("home");
-    expect(opened).toEqual(["settings_watch"]);
-    expect(kinds()).toEqual([]);
+    expect(opened).toEqual([{ screen: "settings_watch" }, { screen: "chat", question: "What changed?" }, { screen: "chat" }]);
+    expect(window.__talosDemoCalls).toEqual([
+      { kind: "watch_open_main", arg: "settings_watch" },
+      { kind: "watch_open_main", arg: "chat" },
+      { kind: "watch_open_main", arg: "chat" },
+      { kind: "watch_open_main", arg: "home" },
+    ]);
+    expect(JSON.stringify(window.__talosDemoCalls)).not.toContain("What changed");
     expect(port.onNotified(() => undefined)()).toBe(true);
+  });
+
+  it("setProfile takes and ignores next", async () => {
+    const port = make({ watch: "calm", watchAi: "chatgpt" });
+    const profile = { role: "individual", technical: "low", handlesClientData: false, laptopLeavesHome: true } as const;
+    const before = await port.status();
+    await port.setProfile(profile, undefined, true, [], { reportId: "r-9", ruleId: "TL-MAC-002", kind: "show" });
+    await port.setProfile(profile, undefined, true, undefined, null);
+    expect(await port.status()).toEqual(before);
+    expect(JSON.stringify(window.__talosDemoCalls)).not.toContain("r-9");
   });
 });
 

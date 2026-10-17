@@ -9,10 +9,13 @@ import { ICONS } from "./app/icons";
 import { parseWatchDemoQuery } from "./app/demo-boot";
 import { useRouter } from "./app/router";
 import type { Route, RouteMove } from "./app/router";
-import { CHECKUP_LABEL, SCAN_ERROR_LABELS, askSubtitle, formatDateTime } from "./app/labels";
+import { CHAT_LABEL, CHECKUP_LABEL, SCAN_ERROR_LABELS, formatDateTime } from "./app/labels";
 import { useScan } from "./scan/useScan";
 import { useScanPacer } from "./scan/useScanPacer";
 import { useAiAvailability, REPROBE_SETTINGS_MS, limitReprobeMs } from "./scan/useAiAvailability";
+import { useAiLastAvailable } from "./scan/useAiLastAvailable";
+import { ChatDraftContext } from "./chat/draft";
+import type { ChatDraft } from "./chat/draft";
 import { AiConnectContext, CONNECT_POLL_MS, useConnect } from "./scan/ai-connect";
 import { useAiConnect } from "./scan/useAiConnect";
 import type { PermissionKind } from "./scan/useCapabilityPoll";
@@ -49,7 +52,6 @@ import { Scanning } from "./screens/Scanning";
 import { Overview } from "./screens/Overview";
 import { Findings } from "./screens/Findings";
 import { FindingDetail } from "./screens/FindingDetail";
-import { Ask } from "./screens/Ask";
 import { Settings } from "./screens/Settings";
 import type { ProviderInfo } from "./screens/Settings";
 
@@ -57,7 +59,7 @@ const NAV_ROUTES: Readonly<Record<SidebarKey, Route>> = {
   checkup: { name: "guided" },
   overview: { name: "overview" },
   findings: { name: "findings" },
-  ask: { name: "ask" },
+  chat: { name: "chat" },
   settings: { name: "settings" },
 };
 
@@ -276,6 +278,11 @@ export default function App() {
   }, []);
   const memoryRef = useRef(memory);
   memoryRef.current = memory;
+  // The chat home reads the last settled probe at boot (DESIGN-CHAT section 2).
+  useAiLastAvailable({ availability: ai.availability, provider: settings.explainer.provider, aiEnabled: settings.explainer.aiEnabled, memory, saveMemory });
+  // A question from the watch window waits here until the chat is on screen (DESIGN-WATCH-WINDOW "Commands"); seq tells a repeat apart.
+  const [chatDraft, setChatDraft] = useState<ChatDraft | null>(null);
+  const draftSeq = useRef(0);
   const acceptRule = useCallback((id: RuleId) => saveMemory(acceptRules(memoryRef.current, [id], new Date().toISOString())), [saveMemory]);
   const unaccept = useCallback((id: RuleId) => saveMemory(unacceptRule(memoryRef.current, id)), [saveMemory]);
   // Lives here, not in the Connect screen, so a running sign-in keeps being polled while the person visits other screens.
@@ -346,17 +353,29 @@ export default function App() {
     setPendingAnchor(target === "about" ? "about" : null);
   });
   // The tray, a notification tap and the small window's links: the fishy flow opens only when the watch has something to show.
-  const onWatchOpen = useRef<(screen: WatchOpenScreen) => void>(() => undefined);
-  onWatchOpen.current = (screen) => {
+  // Typed structurally so it compiles before and after the watch window's chat and connect screens land (DESIGN-WATCH-WINDOW "Commands").
+  const onWatchOpen = useRef<(event: { readonly screen: string; readonly question?: string }) => void>(() => undefined);
+  onWatchOpen.current = (event) => {
+    const { screen } = event;
     if (screen === "settings_watch") {
       router.navigate({ name: "settings" });
       setPendingAnchor("watch");
     } else if (screen === "noticed" && router.route.name !== "fishy" && watch.state?.licensed === true && watch.state.items.length > 0) {
       // A flow already on screen stays: a second entry would land back on the flow after Done.
       fishy.open(router.route, "noticed");
+    } else if (screen === "chat") {
+      // The question is a draft, never a send; the chat compares it with its own "Why does ... matter?" text.
+      if (typeof event.question === "string" && event.question.trim().length > 0) {
+        draftSeq.current += 1;
+        setChatDraft({ text: event.question.slice(0, 500), seq: draftSeq.current });
+      }
+      const onChat = router.route.name === "chat" || (router.route.name === "guided" && guided.phase.kind === "chat");
+      if (!onChat) router.navigate({ name: "chat" });
+    } else if (screen === "connect") {
+      if (router.route.name !== "connect") connect.open({ name: "guided" });
     }
   };
-  useEffect(() => adapters.watch.onOpen(({ screen }) => onWatchOpen.current(screen)), []);
+  useEffect(() => adapters.watch.onOpen((event) => onWatchOpen.current(event)), []);
   // With the watch on, closing the window hides it, so a reopen is a show, not a relaunch: the launch scan
   // runs here. Not for noticed or settings_watch, which land the person on another screen.
   const onMainShown = useRef<(screen: WatchOpenScreen) => void>(() => undefined);
@@ -364,6 +383,21 @@ export default function App() {
     if (screen === "home") launchScan();
   };
   useEffect(() => adapters.watch.onShown(({ screen }) => onMainShown.current(screen)), []);
+  // AI off, not_offered or plan_not_eligible while the chat is on screen: the plan or end screen on the same plan (DESIGN-CHAT section 2).
+  const inChat = guided.phase.kind === "chat";
+  const { leaveChat, toChat } = guided.chat;
+  const aiEnabled = settings.explainer.aiEnabled;
+  const availability = ai.availability;
+  useEffect(() => {
+    if (!inChat) return;
+    if (!aiEnabled || availability === "not_offered" || availability === "plan_not_eligible") leaveChat();
+  }, [inChat, aiEnabled, availability, leaveChat]);
+  // The chat route reached with the plan on screen (the expert sidebar, chatHome off): enter the chat when the AI can answer.
+  const onChatRoute = router.route.name === "chat";
+  const hasPlan = guided.phase.kind === "since" || guided.phase.kind === "plan" || guided.phase.kind === "step" || guided.phase.kind === "end";
+  useEffect(() => {
+    if (onChatRoute && hasPlan && aiUsable) toChat();
+  }, [onChatRoute, hasPlan, aiUsable, toChat]);
   useEffect(() => {
     if (pendingAnchor === null || router.route.name !== "settings") return;
     // Settings sections carry their id on the heading.
@@ -420,22 +454,25 @@ export default function App() {
     );
   }
 
-  if (router.route.name === "guided") {
+  // The chat is a guided phase: both routes draw the guided screens, and the chat screen when the phase is chat.
+  if (router.route.name === "guided" || router.route.name === "chat") {
     return (
       <AiConnectContext.Provider value={connect}>
       <AppContext.Provider value={value}>
       <WatchControllerContext.Provider value={watch}>
       <FishyContext.Provider value={fishy}>
+      <ChatDraftContext.Provider value={chatDraft}>
         <GradientDefs />
         {scanning ? (
           <ScanningShell guided inactive={inactive} />
         ) : (
           <GuidedShell inactive={inactive}>
-            <ScreenErrorBoundary resetKey={`guided:${guided.phase.kind}`} onRescan={() => guided.start()} onSettings={() => router.navigate({ name: "settings" })}>
+            <ScreenErrorBoundary resetKey={`${router.route.name}:${guided.phase.kind}`} onRescan={() => guided.start()} onSettings={() => router.navigate({ name: "settings" })}>
               <Guided controller={guided} onWelcomeStart={onWelcomeStart} />
             </ScreenErrorBoundary>
           </GuidedShell>
         )}
+      </ChatDraftContext.Provider>
       </FishyContext.Provider>
       </WatchControllerContext.Provider>
       </AppContext.Provider>
@@ -481,14 +518,14 @@ export default function App() {
     );
   }
 
-  // Ask is listed while a remote provider is chosen but not yet connected, so its Connect row is reachable.
-  const { provider, aiEnabled } = settings.explainer;
-  const showAsk = aiUsable || (aiEnabled && (provider === "chatgpt" || provider === "claude_plan"));
+  // Chat is listed while a remote provider is chosen but not yet connected, so the way to connect stays reachable.
+  const { provider } = settings.explainer;
+  const showChat = aiUsable || (aiEnabled && (provider === "chatgpt" || provider === "claude_plan"));
   const items: NavItem[] = [
     { name: "checkup", label: CHECKUP_LABEL },
     { name: "overview", label: "Overview" },
     { name: "findings", label: "Findings" },
-    ...(showAsk ? [{ name: "ask" as const, label: "Ask" }] : []),
+    ...(showChat ? [{ name: "chat" as const, label: CHAT_LABEL }] : []),
   ];
   const current: SidebarKey = router.route.name === "finding" ? "findings" : router.route.name;
 
@@ -627,7 +664,7 @@ function Banners() {
 
 /** Toolbar contents per route. Screens that own their h1 (a finding) get no title here. */
 function RouteToolbar({ route }: { route: Route }) {
-  const { scan, router, settings } = useApp();
+  const { scan, router } = useApp();
   const report = lastReport(scan.scan);
   const rescan: ToolbarAction = { label: "Rescan", icon: ICONS.rescan, onClick: () => void scan.start() };
   switch (route.name) {
@@ -649,8 +686,8 @@ function RouteToolbar({ route }: { route: Route }) {
       );
     case "finding":
       return <Toolbar back={{ label: "Findings", onClick: () => router.back() }} />;
-    case "ask":
-      return <Toolbar title="Ask about your report" subtitle={askSubtitle(settings.explainer.provider)} />;
+    case "chat":
+      return null;
     case "settings":
       return <Toolbar title="Settings" />;
     case "connect":
@@ -750,7 +787,12 @@ function SettingsRoute({ guided, onResetMemory }: { guided: GuidedController; on
       onChangeAi={() => connect.open({ name: "settings" })}
       // With nothing to connect and On this Mac hidden the Connect screen has no row, so Change is not offered.
       canChangeAi={connect.offered === null || connect.connectable || connect.offered.apple}
-      onDisconnect={() => connect.disconnect()}
+      // Disconnect removes the chat home as AI off does (DESIGN-CHAT section 2).
+      onDisconnect={async () => {
+        const cleared = await connect.disconnect();
+        if (cleared) guided.chat.leaveChat();
+        return cleared;
+      }}
       providerInfo={providerInfo}
     />
   );
@@ -766,8 +808,8 @@ function screenFor(route: Route, guided: GuidedController, onResetMemory: () => 
       return <Findings />;
     case "finding":
       return <FindingDetail ruleId={route.ruleId} />;
-    case "ask":
-      return <Ask />;
+    case "chat":
+      return null;
     case "settings":
       return <SettingsRoute guided={guided} onResetMemory={onResetMemory} />;
     case "connect":

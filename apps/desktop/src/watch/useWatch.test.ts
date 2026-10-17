@@ -161,6 +161,33 @@ describe("useWatch on mount", () => {
     expect((h.port.setProfile as ReturnType<typeof vi.fn>).mock.calls.at(-1)).toEqual([PROFILE, undefined, true]);
   });
 
+  it("pushes next as a fifth argument when given, again when it changes, not for an equal row in a new object, and null as none", async () => {
+    const h = mount();
+    const row = { reportId: "r-1", ruleId: "TL-MAC-001", kind: "fix" } as const;
+    h.hook.rerender({ next: row });
+    await flush();
+    expect(h.port.setProfile).toHaveBeenLastCalledWith(PROFILE, undefined, true, undefined, row);
+    expect((h.port.setProfile as ReturnType<typeof vi.fn>).mock.calls.at(-1)).toHaveLength(5);
+    const pushes = (h.port.setProfile as ReturnType<typeof vi.fn>).mock.calls.length;
+    h.hook.rerender({ next: { ...row } });
+    await flush();
+    expect(h.port.setProfile).toHaveBeenCalledTimes(pushes);
+    h.hook.rerender({ next: { ...row, kind: "show" } });
+    await flush();
+    expect(h.port.setProfile).toHaveBeenCalledTimes(pushes + 1);
+    expect(h.port.setProfile).toHaveBeenLastCalledWith(PROFILE, undefined, true, undefined, { ...row, kind: "show" });
+    h.hook.rerender({ next: null });
+    await flush();
+    expect(h.port.setProfile).toHaveBeenCalledTimes(pushes + 2);
+    expect(h.port.setProfile).toHaveBeenLastCalledWith(PROFILE, undefined, true, undefined, null);
+    h.hook.rerender({ next: null, accepted: ["TL-MAC-001"] });
+    await flush();
+    expect(h.port.setProfile).toHaveBeenLastCalledWith(PROFILE, undefined, true, ["TL-MAC-001"], null);
+    h.hook.rerender({});
+    await flush();
+    expect((h.port.setProfile as ReturnType<typeof vi.fn>).mock.calls.at(-1)).toEqual([PROFILE, undefined, true]);
+  });
+
   it("a watch:state with licensed false clears the startAtLogin cache and patches settings", async () => {
     const h = mount({ autostart: true, settings: { startAtLogin: true } });
     await flush();

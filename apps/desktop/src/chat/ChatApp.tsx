@@ -32,7 +32,7 @@ export function ChatApp({ message, headlineRef }: { message: App; headlineRef?: 
           <GuidedList rows={group.rows} />
         </section>
       ))}
-      {message.source !== null && <p className="chat-meta">{message.source}</p>}
+      {message.sourceLine !== null && <p className="chat-meta">{message.sourceLine}</p>}
     </div>
   );
 }

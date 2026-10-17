@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ActionId, ExplainerProfile, RuleId, SignalId, WatchAi, WatchInterval, WatchMemory, WatchPort, WatchState } from "@talos/core";
+import type { ActionId, ExplainerProfile, RuleId, SignalId, WatchAi, WatchInterval, WatchMemory, WatchNext, WatchPort, WatchState } from "@talos/core";
 import { AI_ASK_AGAIN_MS } from "@talos/core";
 import type { WatchSettings } from "../settings";
 import type { WatchController } from "./watch-controller";
@@ -36,6 +36,8 @@ export interface WatchDeps {
   readonly licensed: boolean | null;
   /** The rule ids the person chose to leave alone; pushed beside the profile when given, so Rust persists them. */
   readonly accepted?: readonly RuleId[];
+  /** The plan's "Do this next" for the watch window's "Up next" row; null with no plan; pushed beside the profile when given. */
+  readonly next?: WatchNext | null;
   updateSettings(patch: Partial<WatchSettings>): void;
   readonly memory: WatchMemory;
   saveMemory(next: WatchMemory): void;
@@ -120,17 +122,24 @@ export function useWatch(deps: WatchDeps): WatchController {
   const { licensed } = deps;
   // Keyed on the joined ids, so a new array with the same ids does not push again.
   const acceptedKey = deps.accepted?.join(",");
+  // Keyed the same way: undefined when the dep is absent, "none" for null, else the row's three ids.
+  const nextKey = deps.next === undefined ? undefined : deps.next === null ? "none" : `${deps.next.reportId}|${deps.next.ruleId}|${deps.next.kind}`;
   useEffect(() => {
     if (licensed === null) return;
     const profile = { role, technical, handlesClientData, laptopLeavesHome };
     const ai = aiEnabled === undefined ? undefined : { enabled: aiEnabled, provider: aiProvider ?? null };
-    const { accepted } = depsRef.current;
-    if (acceptedKey === undefined || accepted === undefined) {
+    const { accepted, next } = depsRef.current;
+    const withAccepted = acceptedKey !== undefined && accepted !== undefined;
+    if (nextKey !== undefined && next !== undefined) {
+      void port.setProfile(profile, ai, licensed, withAccepted ? accepted : undefined, next).catch(() => undefined);
+      return;
+    }
+    if (!withAccepted) {
       void port.setProfile(profile, ai, licensed).catch(() => undefined);
       return;
     }
     void port.setProfile(profile, ai, licensed, accepted).catch(() => undefined);
-  }, [port, role, technical, handlesClientData, laptopLeavesHome, aiEnabled, aiProvider, licensed, acceptedKey]);
+  }, [port, role, technical, handlesClientData, laptopLeavesHome, aiEnabled, aiProvider, licensed, acceptedKey, nextKey]);
 
   const write = useCallback((next: WatchMemory) => depsRef.current.saveMemory(next), []);
 

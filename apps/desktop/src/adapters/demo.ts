@@ -26,6 +26,7 @@ import type { ExplainerProvider, ExplainerSettings } from "../settings";
 import type { Adapters } from "./index";
 import { DemoAiConnect, type DemoConnectOutcome } from "./demo-ai-connect";
 import { DemoAppleExplainer, DemoExplainer } from "./demo-explainer";
+import type { DemoChatOptions } from "./demo-explainer";
 import { DemoFixPort, type DemoBatchOutcome, type DemoFixOutcome } from "./demo-fix";
 import { DemoProviderExplainer } from "./demo-provider-explainer";
 import { DemoWatch } from "./demo-watch";
@@ -93,10 +94,12 @@ export interface DemoOptions {
   readonly claudeFetch?: boolean;
   /** The watch window and fishy flow state; absent gives a calm, enabled watch with nothing to show. */
   readonly watchDemo?: WatchDemoFlags;
+  /** The chat's canned reply and failure, from the chat_* demo params; shared by the two provider fakes and the Apple fake. */
+  readonly chat?: DemoChatOptions;
 }
 
 /** No ?watch= params: the same as DEFAULT_WATCH_DEMO in demo-boot.ts, kept here so demo.ts imports no value from it. */
-const NO_WATCH_DEMO: WatchDemoFlags = { watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false, licensed: false };
+const NO_WATCH_DEMO: WatchDemoFlags = { watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false, licensed: false, watchReason: true, watchNext: true, watchFlip: null, watchFlipAfter: null };
 
 export type DemoScanError = "collector_crashed" | "timeout" | "schema_mismatch";
 export const DEMO_SCAN_ERRORS: readonly DemoScanError[] = ["collector_crashed", "timeout", "schema_mismatch"];
@@ -291,11 +294,12 @@ export function createDemoAdapters(options: DemoOptions): Adapters {
     availability: seedsApple ? (options.ai ?? "available") : "available",
     readyAfterMs: options.aiReadyMs ?? null,
     failure,
+    chat: options.chat,
   });
   const aiConnect = new DemoAiConnect(options);
   const providers: Record<"chatgpt" | "claude_plan", DemoProviderExplainer> = {
-    chatgpt: new DemoProviderExplainer("chatgpt", { catalog: MACOS_CATALOG, connect: aiConnect, failure }),
-    claude_plan: new DemoProviderExplainer("claude_plan", { catalog: MACOS_CATALOG, connect: aiConnect, failure }),
+    chatgpt: new DemoProviderExplainer("chatgpt", { catalog: MACOS_CATALOG, connect: aiConnect, failure, chat: options.chat }),
+    claude_plan: new DemoProviderExplainer("claude_plan", { catalog: MACOS_CATALOG, connect: aiConnect, failure, chat: options.chat }),
   };
   return {
     systemState,
@@ -321,7 +325,7 @@ export function createDemoAdapters(options: DemoOptions): Adapters {
           return providers[settings.provider];
         case "claude":
         case "ollama":
-          return new DemoExplainer(settings.provider, MACOS_CATALOG, failure, DEMO_EXPLAIN_DELAY_MS);
+          return new DemoExplainer(settings.provider, MACOS_CATALOG, failure, DEMO_EXPLAIN_DELAY_MS, options.chat);
       }
     },
     aiConnect,

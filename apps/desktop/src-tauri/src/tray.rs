@@ -119,7 +119,11 @@ pub fn rows_for(state: &WatchState) -> Vec<f64> {
                 0.0
             };
             let body = if state.items.is_empty() { 20.0 } else { 92.0 };
-            let reason = if judge_for(Rating::KeepAnEye) { 72.0 } else { 0.0 };
+            let reason = if judge_for(Rating::KeepAnEye) {
+                72.0
+            } else {
+                0.0
+            };
             let ask_link = if state.ai.enabled { 32.0 } else { 0.0 };
             vec![STATUS, meta, body, reason, 44.0, ask_link, FOOTER]
         }
@@ -908,20 +912,243 @@ mod tests {
         );
     }
 
+    use crate::watch::settings::WatchAi;
+    use crate::watch::{
+        Grade, JudgeLine, ModelProvider, NextKind, NextRow, ProbeId, ProbeReason, ReportRow,
+        RulesSince, UnavailableProbe,
+    };
+
+    fn judge(rating: Rating) -> JudgeLine {
+        JudgeLine {
+            provider: ModelProvider::Chatgpt,
+            at: "2026-10-17T11:48:00.000Z".into(),
+            rating,
+            reason: "The one thing still open is your unlocked disk.".into(),
+        }
+    }
+
+    fn report() -> ReportRow {
+        ReportRow {
+            report_id: "demo-report".into(),
+            scanned_at: "2026-10-17T10:00:00.000Z".into(),
+            score: Some(72),
+            grade: Some(Grade::Fair),
+        }
+    }
+
+    fn next() -> NextRow {
+        NextRow {
+            report_id: "demo-report".into(),
+            rule_id: "TL-MAC-001".into(),
+            kind: NextKind::Fix,
+        }
+    }
+
+    fn unavailable(n: usize) -> Vec<UnavailableProbe> {
+        [
+            ProbeId::Listeners,
+            ProbeId::RemoteAccess,
+            ProbeId::FileSharing,
+        ]
+        .into_iter()
+        .take(n)
+        .map(|probe_id| UnavailableProbe {
+            probe_id,
+            reason: ProbeReason::UnsignedBuild,
+        })
+        .collect()
+    }
+
+    const CHECKED: Option<&str> = Some("2026-10-17T11:48:00Z");
+
+    fn ai(enabled: bool, provider: Option<ModelProvider>) -> WatchAi {
+        WatchAi { enabled, provider }
+    }
+
+    /// A calm window as the demo draws it: checked, the judge line, the report, the next step
+    /// and the field.
+    fn calm_full() -> WatchState {
+        let mut s = state(Rating::Calm, 0, CHECKED);
+        s.ai = ai(true, Some(ModelProvider::Chatgpt));
+        s.judge = Some(judge(Rating::Calm));
+        s.report = Some(report());
+        s.next = Some(next());
+        s
+    }
+
+    fn look_full(items: usize) -> WatchState {
+        let mut s = state(Rating::KeepAnEye, items, CHECKED);
+        s.ai = ai(true, Some(ModelProvider::Chatgpt));
+        s.judge = Some(judge(Rating::KeepAnEye));
+        s
+    }
+
+    fn act_full(reason: bool) -> WatchState {
+        let mut s = state(Rating::ActNow, 3, CHECKED);
+        s.ai = ai(true, Some(ModelProvider::Chatgpt));
+        s.judge = reason.then(|| judge(Rating::ActNow));
+        s
+    }
+
     #[test]
-    fn the_window_height_follows_the_state_and_never_passes_360() {
+    fn the_window_height_is_the_row_sum_of_the_named_cases() {
         let mut first = state(Rating::Calm, 0, None);
         first.first_run = true;
-        assert_eq!(window_height(&first), 170.0);
+        assert_eq!(window_height(&first), 170.0, "first run");
+        assert_eq!(rows_for(&first), vec![58.0, 32.0, 32.0]);
+
+        let mut paused = state(Rating::Calm, 0, CHECKED);
+        paused.paused_until = Some("2026-10-17T13:00:00.000Z".into());
+        assert_eq!(window_height(&paused), 152.0, "paused");
+        let mut paused_act = act_full(true);
+        paused_act.paused_until = Some("2026-10-17T13:00:00.000Z".into());
         assert_eq!(
-            window_height(&state(Rating::Calm, 0, Some("2026-10-17T11:00:00Z"))),
-            150.0
+            window_height(&paused_act),
+            152.0,
+            "a paused window is about the pause, whatever the rating"
         );
-        assert_eq!(window_height(&state(Rating::KeepAnEye, 1, None)), 280.0);
-        assert_eq!(window_height(&state(Rating::ActNow, 3, None)), 360.0);
+
+        assert_eq!(
+            window_height(&calm_full()),
+            332.0,
+            "calm: judge, score, next, field"
+        );
+        let mut authored = calm_full();
+        authored.judge = None;
+        assert_eq!(window_height(&authored), 280.0, "calm: authored line");
+        let mut unreadable = calm_full();
+        unreadable.unavailable = unavailable(3);
+        assert_eq!(
+            window_height(&unreadable),
+            400.0,
+            "calm: three unreadable probes + judge"
+        );
+        let mut one = calm_full();
+        one.unavailable = unavailable(1);
+        assert_eq!(
+            window_height(&one),
+            380.0,
+            "calm: one unreadable probe + judge"
+        );
+        let mut two = calm_full();
+        two.unavailable = unavailable(2);
+        assert_eq!(window_height(&two), 400.0, "two probes read as several");
+        let mut not_connected = calm_full();
+        not_connected.ai = ai(false, None);
+        not_connected.judge = None;
+        assert_eq!(
+            window_height(&not_connected),
+            288.0,
+            "calm: the Connect line"
+        );
+        let mut off = calm_full();
+        off.ai = ai(false, Some(ModelProvider::Chatgpt));
+        off.judge = None;
+        assert_eq!(
+            window_height(&off),
+            228.0,
+            "calm: AI off with a provider chosen"
+        );
+        let mut no_report = calm_full();
+        no_report.judge = None;
+        no_report.report = None;
+        no_report.next = None;
+        assert_eq!(window_height(&no_report), 252.0, "calm: no report yet");
+        let mut foreign_next = calm_full();
+        foreign_next.next = Some(NextRow {
+            report_id: "older-report".into(),
+            ..next()
+        });
+        assert_eq!(
+            window_height(&foreign_next),
+            304.0,
+            "a next step from another report draws no Up next"
+        );
+        let mut checking = calm_full();
+        checking.checking = true;
+        assert_eq!(
+            window_height(&checking),
+            312.0,
+            "while checking the meta is one line"
+        );
+        let mut unchecked = calm_full();
+        unchecked.last_check_at = None;
+        assert_eq!(
+            window_height(&unchecked),
+            312.0,
+            "never checked: the next-check line only"
+        );
+
+        assert_eq!(window_height(&look_full(1)), 396.0, "look: reason + link");
+        let mut no_link = look_full(1);
+        no_link.ai = ai(false, Some(ModelProvider::Chatgpt));
+        assert_eq!(window_height(&no_link), 356.0, "look: reason, no link");
+        let mut no_reason = look_full(1);
+        no_reason.judge = None;
+        assert_eq!(window_height(&no_reason), 316.0, "look: link only");
+        let mut neither = look_full(1);
+        neither.judge = None;
+        neither.ai = ai(false, Some(ModelProvider::Chatgpt));
+        assert_eq!(window_height(&neither), 276.0, "look: neither");
+        let mut empty = look_full(0);
+        empty.rules_since = Some(RulesSince {
+            report_id: "demo-report".into(),
+            appeared: 1,
+        });
+        assert_eq!(window_height(&empty), 324.0, "look-empty: reason + link");
+        let mut look_unreadable = look_full(1);
+        look_unreadable.unavailable = unavailable(1);
+        assert_eq!(
+            window_height(&look_unreadable),
+            416.0,
+            "look meta is 40 with an unreadable area"
+        );
+        let mut mismatched = look_full(1);
+        mismatched.judge = Some(judge(Rating::Calm));
+        assert_eq!(
+            window_height(&mismatched),
+            316.0,
+            "a judge line for another rating is not drawn"
+        );
+
+        assert_eq!(window_height(&act_full(true)), 404.0, "act: reason");
+        assert_eq!(window_height(&act_full(false)), 324.0, "act");
+        let mut capped = act_full(true);
+        capped.unavailable = unavailable(1);
+        assert_eq!(
+            window_height(&capped),
+            420.0,
+            "act: reason + unreadable, capped from 424"
+        );
+        let mut act_empty = act_full(true);
+        act_empty.items.clear();
+        assert_eq!(
+            window_height(&act_empty),
+            232.0,
+            "act with no item: the look-empty line"
+        );
+    }
+
+    #[test]
+    fn the_window_height_never_passes_420() {
         for rating in Rating::ALL {
-            assert!(window_height(&state(*rating, 2, None)) <= WINDOW_SIZE.height);
+            let mut s = state(*rating, 3, CHECKED);
+            s.ai = ai(true, Some(ModelProvider::Chatgpt));
+            s.judge = Some(judge(*rating));
+            s.unavailable = unavailable(3);
+            s.report = Some(report());
+            s.next = Some(next());
+            assert!(
+                window_height(&s) <= MAX_WINDOW_HEIGHT,
+                "{}",
+                rating.as_str()
+            );
         }
+        assert_eq!(MAX_WINDOW_HEIGHT, 420.0);
+        assert_eq!(
+            WINDOW_SIZE.height, 360.0,
+            "the config's pre-show size is unchanged"
+        );
     }
 
     #[test]
@@ -990,9 +1217,56 @@ mod tests {
     fn the_open_payload_is_the_screen_word() {
         let value = serde_json::to_value(OpenPayload {
             screen: OpenScreen::SettingsWatch,
+            question: None,
         })
         .unwrap();
-        assert_eq!(value, serde_json::json!({ "screen": "settings_watch" }));
+        assert_eq!(
+            value,
+            serde_json::json!({ "screen": "settings_watch" }),
+            "no question key when there is none"
+        );
+        let value = serde_json::to_value(OpenPayload {
+            screen: OpenScreen::Chat,
+            question: Some("What changed?".into()),
+        })
+        .unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({ "screen": "chat", "question": "What changed?" })
+        );
+    }
+
+    #[test]
+    fn the_paused_tooltip_names_the_local_time_and_falls_back_on_a_bad_one() {
+        let now = at("2026-10-17T12:00:00Z");
+        let mut paused = state(Rating::ActNow, 2, CHECKED);
+        paused.paused_until = Some("2026-10-17T13:30:00.000Z".into());
+        let text = tooltip(&paused, now);
+        assert!(text.starts_with("Talos Labs: paused until "), "{text}");
+        let tail = text.trim_start_matches("Talos Labs: paused until ");
+        let bytes = tail.as_bytes();
+        assert_eq!(bytes.len(), 6, "{text}");
+        assert!(
+            bytes[0].is_ascii_digit()
+                && bytes[1].is_ascii_digit()
+                && bytes[2] == b':'
+                && bytes[3].is_ascii_digit()
+                && bytes[4].is_ascii_digit()
+                && bytes[5] == b'.',
+            "{text}"
+        );
+        let expected = DateTime::parse_from_rfc3339("2026-10-17T13:30:00.000Z")
+            .unwrap()
+            .with_timezone(&Local)
+            .format("%H:%M")
+            .to_string();
+        assert_eq!(text, format!("Talos Labs: paused until {expected}."));
+        paused.paused_until = Some("soon".into());
+        assert_eq!(
+            tooltip(&paused, now),
+            "Talos Labs: act now.",
+            "an unreadable time falls back to the rating form"
+        );
     }
 
     #[test]

@@ -272,7 +272,11 @@ mod tests {
             br#"{"version":1,"enabled":true,"everyMinutes":60,"notify":true,"licensed":true}"#,
         )
         .unwrap();
-        assert_eq!(load(&dir).next, None, "a pre-change file loads with no next step");
+        assert_eq!(
+            load(&dir).next,
+            None,
+            "a pre-change file loads with no next step"
+        );
         let disabled = WatchSettingsFile {
             enabled: false,
             ..settings

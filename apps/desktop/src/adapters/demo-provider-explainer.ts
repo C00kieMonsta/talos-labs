@@ -85,6 +85,8 @@ export class DemoProviderExplainer implements ExplainerPort {
 
   /** Streams the canned ChatResult word by word; the prose check runs on every partial and the validator on the whole. */
   async chat(call: ChatCall, options?: ExplainOptions<ChatResult>): Promise<ExplainerResult<ChatResult>> {
+    // The question only; the harness counts chat calls and asserts no context text was recorded.
+    recordDemoCall({ kind: "chat", prompt: call.input.question });
     const blocked = await this.gate();
     if (blocked !== null) return { ok: false, reason: blocked };
     const chat = this.options.chat ?? {};

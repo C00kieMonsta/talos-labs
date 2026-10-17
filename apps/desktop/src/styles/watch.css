@@ -92,7 +92,8 @@
   color: var(--fg);
 }
 
-.watch-up-next {
+/* 28 px: the link's own padding is smaller than the footer links' so the row fits its budget. */
+.watch-link.watch-up-next {
   min-height: 28px;
   padding: var(--space-0) 0;
   overflow: hidden;
@@ -177,9 +178,13 @@
   color: var(--fg);
 }
 
-/* The look state's one text link under the primary. */
-.watch-ask-why {
+/* The look state's one text link under the primary, 32 px like the footer's. */
+.watch-link.watch-ask-why {
+  display: inline-flex;
+  align-items: center;
   align-self: flex-start;
+  min-height: 32px;
+  padding: 0;
 }
 
 /* Row 3: the top item. */
@@ -265,6 +270,14 @@
   justify-content: space-between;
   gap: var(--space-2);
   margin-top: auto;
+}
+
+/* 32 px each, the footer row's budget. */
+.watch-footer .watch-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0;
 }
 
 .watch-footer .watch-link:last-child {

@@ -350,14 +350,14 @@
 
 .chat-composer {
   position: relative;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: end;
   gap: 8px;
 }
 
 .chat-field {
-  flex: 1 1 auto;
+  width: 100%;
   min-width: 0;
   min-height: 44px;
   max-width: none;
@@ -380,20 +380,27 @@
 }
 
 .chat-send {
-  flex: 0 0 44px;
   width: 44px;
   height: 44px;
   padding: 0;
+  border-color: var(--border);
+  background: var(--bg-elevated);
+  color: var(--fg);
+}
+
+.chat-send:disabled {
+  color: var(--fg-secondary);
+  opacity: 0.6;
 }
 
 .chat-count {
-  flex: 1 0 100%;
+  grid-column: 1 / -1;
   font: var(--text-guided-meta);
   color: var(--fg-secondary);
 }
 
 .chat-composer-state {
-  flex: 1 1 auto;
+  grid-column: 1 / -1;
   min-height: 44px;
   margin: 0;
   padding: 11px 0;

@@ -40,8 +40,7 @@ pub const IMPERATIVE_START: &str = r"(?i)(^|[.!?]\s+)(click|press|open|go|run|ty
 /// The window line never says the Mac is safe.
 pub const REASSURANCE: &str = r"(?i)\b(safe|safely|protected|secure|secured|clean|fine|all clear|no threat|no malware|no virus)\b";
 /// On calm the app shows the time; a duration in the sentence is wrong by the afternoon.
-pub const DURATION: &str =
-    r"(?i)\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(minutes?|hours?|days?|weeks?)\b";
+pub const DURATION: &str = r"(?i)\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(minutes?|hours?|days?|weeks?)\b";
 /// A second sentence: a terminal stop, a space and a letter.
 pub const SECOND_SENTENCE: &str = r"[.!?]\s+[A-Za-z]";
 
@@ -460,7 +459,10 @@ mod tests {
     fn the_window_sentence_keeps_the_plain_lines_and_drops_the_rest() {
         for text in KEPT_ON_BOTH {
             assert!(safe_window_sentence(text, Rating::Calm), "calm: {text}");
-            assert!(safe_window_sentence(text, Rating::KeepAnEye), "look: {text}");
+            assert!(
+                safe_window_sentence(text, Rating::KeepAnEye),
+                "look: {text}"
+            );
             assert!(safe_window_sentence(text, Rating::ActNow), "act: {text}");
         }
         assert!(
@@ -471,11 +473,20 @@ mod tests {
         assert!(safe_window_sentence(DURATION_CASE, Rating::ActNow));
         for text in DROPPED_ON_BOTH {
             assert!(!safe_window_sentence(text, Rating::Calm), "calm: {text}");
-            assert!(!safe_window_sentence(text, Rating::KeepAnEye), "look: {text}");
+            assert!(
+                !safe_window_sentence(text, Rating::KeepAnEye),
+                "look: {text}"
+            );
         }
         let long = "a".repeat(121);
-        assert!(!safe_window_sentence(&long, Rating::KeepAnEye), "121 characters");
-        assert!(safe_window_sentence(&"a".repeat(120), Rating::KeepAnEye), "120 is the cap");
+        assert!(
+            !safe_window_sentence(&long, Rating::KeepAnEye),
+            "121 characters"
+        );
+        assert!(
+            safe_window_sentence(&"a".repeat(120), Rating::KeepAnEye),
+            "120 is the cap"
+        );
         assert!(!safe_window_sentence("", Rating::KeepAnEye));
         assert!(!safe_window_sentence("   ", Rating::KeepAnEye));
         assert!(
@@ -506,7 +517,10 @@ mod tests {
             safe_window_sentence("A new program listens at 18:00.", Rating::ActNow),
             "a clock time is not a port"
         );
-        assert!(safe_window_sentence("Nothing is open 24/7 here.", Rating::Calm));
+        assert!(safe_window_sentence(
+            "Nothing is open 24/7 here.",
+            Rating::Calm
+        ));
         assert_eq!(MAX_REASON_CHARS, 120);
         assert_eq!(MAX_SENTENCE_CHARS, 300);
         assert_eq!(BANNED_WORDS.len(), 19);
@@ -523,7 +537,10 @@ mod tests {
         }
         let mut v = raw("act_now");
         v["ratingReason"] = json!(KEPT_ON_BOTH[0]);
-        assert_eq!(validate(&v, &context()).unwrap().rating_reason, KEPT_ON_BOTH[0]);
+        assert_eq!(
+            validate(&v, &context()).unwrap().rating_reason,
+            KEPT_ON_BOTH[0]
+        );
         // The context floors at keep_an_eye, so the clamped rating is what the duration rule
         // sees: a calm verdict with a duration is kept because the shown rating is not calm.
         let mut v = raw("calm");
@@ -539,20 +556,23 @@ mod tests {
             "Your Mac is safe now."
         );
         let mut v = raw("act_now");
-        v["actions"] = json!([{ "actionId": "act.stop_background_program", "sentence": DURATION_CASE }]);
+        v["actions"] =
+            json!([{ "actionId": "act.stop_background_program", "sentence": DURATION_CASE }]);
         assert_eq!(
             validate(&v, &context()).unwrap().actions[0].sentence,
             DURATION_CASE
         );
         let mut v = raw("act_now");
-        v["actions"] = json!([{ "actionId": "act.stop_background_program", "sentence": "a".repeat(200) }]);
+        v["actions"] =
+            json!([{ "actionId": "act.stop_background_program", "sentence": "a".repeat(200) }]);
         assert_eq!(
             validate(&v, &context()).unwrap().actions[0].sentence.len(),
             200,
             "an action sentence between 120 and 300 is kept"
         );
         let mut v = raw("act_now");
-        v["actions"] = json!([{ "actionId": "act.stop_background_program", "sentence": "a".repeat(301) }]);
+        v["actions"] =
+            json!([{ "actionId": "act.stop_background_program", "sentence": "a".repeat(301) }]);
         assert_eq!(validate(&v, &context()).unwrap().actions[0].sentence, "");
         let mut v = raw("act_now");
         v["probes"] = json!([{ "probeId": "probe.persistence", "reason": "Please check it again, I think." }]);

@@ -77,8 +77,8 @@ export function rebuilt(core: Core, report: ScanReport): void {
       core.setPhase({ ...phase, plan });
       return;
     case "chat":
-      // The transcript is kept; cardFor's live check collapses a card whose item left the allow-lists.
-      core.setPhase({ ...phase, plan, active: phase.active === null || plan.steps.some((s) => s.id === phase.active?.id) ? phase.active : null });
+      // The transcript is kept, and so is the plan's reportId, which the chat keys its opening on; a fresh check-up gets a new one.
+      core.setPhase({ ...phase, plan: { ...plan, reportId: old.reportId }, active: phase.active === null || plan.steps.some((s) => s.id === phase.active?.id) ? phase.active : null });
       return;
     case "plan":
       if (plan.steps.length === 0) core.setPhase({ kind: "end", plan: finalPlan(core, plan), fixed: [...core.fixed] });

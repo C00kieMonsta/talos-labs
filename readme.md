@@ -111,6 +111,8 @@ Talos Labs explains things with the AI you already pay for. You connect ChatGPT 
 
 Your check-up and your fixes never leave this Mac. With ChatGPT or Claude connected, Talos Labs sends them a short summary of the results and nothing else: rule ids, statuses, severities, points, counts and your profile. No path, process name, file name or other machine text is in it. Model output is schema-checked and rendered as plain text in a card marked with the provider's name and "Not verified". One switch in Settings turns it off.
 
+Once your AI has answered, the check-up opens as a conversation: Talos Labs tells you what it found and you type or tap what you want ("fix what you can", "why does the disk matter", "leave the disk alone"). The AI may only point at things the check-up already holds, by id; the app draws the card and nothing runs until you tap its button, with macOS asking for your password as before. Without a connected AI there is no chat and the step-by-step check-up is the home; a Settings switch puts the step-by-step first even with an AI connected. See [docs/DESIGN-CHAT.md](docs/DESIGN-CHAT.md).
+
 Developer mode adds two more providers for people who want them: Claude with your own Anthropic API key (stored in the macOS Keychain), and Ollama on `127.0.0.1:11434`. They receive the same derived document.
 
 ## Platform support
