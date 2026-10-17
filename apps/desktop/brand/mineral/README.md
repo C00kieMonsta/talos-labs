@@ -13,3 +13,10 @@ Warmth pass (docs/DESIGN-WARMTH.md):
 
 - `grain/grain-overlay.png`: the kit's 512 px grey noise tile (values 30 to 230, alpha 5 to 12 of 255). `tokens.css` points `--grain-url` at it; `base.css` paints it over the canvas gradient. `grain/mineral-grain.png` (1000 x 700, opaque sandy texture) is carried for completeness and is not referenced by any stylesheet.
 - `hero/horizon.svg`: the site hero's horizon, two quadratic dunes in a 1400 x 170 box. `src/components/Hero.tsx` carries the same two paths inline with token fills; this file is the editable source.
+- `hero/rings.svg`: the site hero's seven concentric circles and centre dot in a 670 box. `Hero.tsx` carries the radii and draws them in `currentColor` as `kind="rings"`; this file is the editable source.
+
+Editable sources carried for later work (nothing reads them at build time):
+
+- `installer/dmg-background.svg`: the vector the DMG background PNG was exported from.
+- `app-icon/background.svg` and `app-icon/foreground.svg`: the Icon Composer layer sources (the espresso rounded square, the paper spiral) for a compiled `.icon` with light, dark and tinted appearances.
+- `app-icon/app-icon.svg`, `app-icon-dark.svg`, `app-icon-tinted.svg`: the three flat colourways the kit exported its PNGs from (espresso `#35241F`, ink `#2C211C`, clay `#EBDFD4` with an espresso spiral).

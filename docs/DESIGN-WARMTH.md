@@ -78,6 +78,10 @@ Apply in `screens.css`: `.score-meter-value { stroke: url(#talos-ring-gradient) 
 - Fills `--horizon-1` (back dune, `#ebdfd4` light, `#2f2521` dark) and `--horizon-2` at 50 % (front dune, `#d8bba9` light, `#3a2e29` dark).
 - In flow, not absolute: the last child of the guided column with `margin-top: auto`, so it sits at the bottom of the viewport when the screen is short and after the content when it scrolls. No text sits on it. `--fg` and the accent link clear 4.5:1 on both dunes in case the "Check again" link ever meets it; `--fg-secondary` does not (4.16:1 on the front dune), so secondary text may never sit on the band.
 
+### 4c. Rings band (available, not mounted)
+
+- `<Hero kind="rings" size={560} />`: the site hero's seven concentric circles and centre dot (`brand/mineral/hero/rings.svg`; `RINGS_RADII` in `Hero.tsx`), in the same place as the spiral band with the same stroke token, opacity token and 1.2 px non-scaling line. Imported from the kit on 2026-10-17 so a screen can take the site's hero instead of the mark; no screen does yet. The `canvas-spiral` contrast row covers it: text over a ring is text over a line at `--hero-spiral-opacity`.
+
 ## 5. Status mark
 
 The 56 px done disc above "Your Mac is safer than it was." and "Your Mac is in good shape." becomes a gradient disc: `GradientDefs` defines `#talos-mark-gradient` (`MARK_GRADIENT_ID`, fill string `MARK_GRADIENT_FILL`), the accent gradient at 135deg. The tick is drawn in `--accent-fg` (white on rust 5.11:1 at the lightest stop; dark ink on `#d49a80` 7.01:1). The drawn-tick animation is unchanged.

@@ -1,0 +1,41 @@
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { cleanup, render } from "@testing-library/react";
+import { HORIZON_BACK, HORIZON_FRONT, Hero, RINGS_RADII } from "./Hero";
+
+afterEach(cleanup);
+
+describe("Hero", () => {
+  it("draws the spiral in a square band that assistive tech never reads", () => {
+    const { container } = render(createElement(Hero, { kind: "spiral", size: 400 }));
+    const band = container.querySelector(".hero.hero-spiral") as HTMLElement;
+    expect(band.getAttribute("aria-hidden")).toBe("true");
+    expect(band.style.width).toBe("400px");
+    expect(band.style.height).toBe("400px");
+    expect(band.querySelector("svg path")?.getAttribute("stroke")).toBe("currentColor");
+  });
+
+  it("draws the site's seven rings and the centre dot in currentColor", () => {
+    const { container } = render(createElement(Hero, { kind: "rings" }));
+    const band = container.querySelector(".hero.hero-rings") as HTMLElement;
+    expect(band.getAttribute("aria-hidden")).toBe("true");
+    expect(band.style.width).toBe("560px");
+    const rings = [...band.querySelectorAll("g circle")].map((c) => Number(c.getAttribute("r")));
+    expect(rings).toEqual([...RINGS_RADII]);
+    expect(band.querySelector("g")?.getAttribute("stroke")).toBe("currentColor");
+    const dot = band.querySelector("svg > circle");
+    expect(dot?.getAttribute("fill")).toBe("currentColor");
+    expect(dot?.getAttribute("r")).toBe("3");
+  });
+
+  it("draws the horizon full width with the two dunes stretched to the band", () => {
+    const { container } = render(createElement(Hero, { kind: "horizon", height: 90 }));
+    const band = container.querySelector(".hero.hero-horizon") as HTMLElement;
+    expect(band.getAttribute("aria-hidden")).toBe("true");
+    expect(band.style.height).toBe("90px");
+    expect(band.querySelector("svg")?.getAttribute("preserveAspectRatio")).toBe("none");
+    const paths = [...band.querySelectorAll("path")].map((p) => p.getAttribute("d"));
+    expect(paths).toEqual([HORIZON_BACK, HORIZON_FRONT]);
+  });
+});

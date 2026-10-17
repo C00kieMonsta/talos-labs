@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 670 670">
+  <!-- The site hero's rings (website/index.html): seven circles 32 units apart and a centre dot. Colours are swapped for tokens in components/Hero.tsx. -->
+  <g fill="none" stroke="#9F654F" stroke-width="1.2" opacity=".75">
+    <circle cx="334" cy="335" r="85"/>
+    <circle cx="334" cy="335" r="117"/>
+    <circle cx="334" cy="335" r="149"/>
+    <circle cx="334" cy="335" r="181"/>
+    <circle cx="334" cy="335" r="213"/>
+    <circle cx="334" cy="335" r="245"/>
+    <circle cx="334" cy="335" r="277"/>
+  </g>
+  <circle cx="334" cy="335" r="3" fill="#A14F36"/>
+</svg>

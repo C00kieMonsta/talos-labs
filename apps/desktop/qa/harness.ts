@@ -1910,7 +1910,11 @@ export async function walkWatch(page: Page, baseUrl: string, visit: Visit): Prom
     if ((await page.getByText(/part of the full version/).count()) !== 0) throw new Error("a lock card is drawn in Settings");
   });
   // Pasting a key swaps the sections live: the Watch section appears first with its defaults, and the paste asks for the permission once.
-  await visit({ name: "settings-watch-unlock", volatile: true }, async () => {
+  await visit({ name: "settings-watch-unlock" }, async () => {
+    await goto(`${G_FREE}&guided=0`);
+    await nav(page, "Settings");
+    await heading(page, "Settings");
+    await assertRecorded(page, "watch_set_profile", false);
     await page.getByPlaceholder("Paste your licence key").fill(GUIDED_KEY);
     await page.locator("section[aria-labelledby='watch-heading']").waitFor({ timeout: STEP_TIMEOUT });
     const first = page.locator(".settings section.settings-section").first();
@@ -1980,7 +1984,7 @@ export async function walkWatch(page: Page, baseUrl: string, visit: Visit): Prom
     await page.locator(".guided-body").getByText(/Nothing leaves your Mac\.$/).waitFor({ timeout: STEP_TIMEOUT });
     if ((await page.locator(".guided-body").getByText(/menu bar/).count()) !== 0) throw new Error("the welcome mentions the menu bar without a licence");
     await link(page, "What do you look at?");
-    await page.locator(".guided-reads").getByRole("heading", { name: "Reads", level: 2 }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".guided-reads").getByRole("heading", { name: "Reads", level: 2, exact: true }).waitFor({ timeout: STEP_TIMEOUT });
     await page.locator(".guided-reads").getByRole("heading", { name: "Never reads", level: 2 }).waitFor({ timeout: STEP_TIMEOUT });
     if ((await page.locator(".fishy-welcome-watch").count()) !== 0) throw new Error("the not-antivirus block is drawn without a licence");
     await assertNotRecorded(page, "watch_request_notify_permission");

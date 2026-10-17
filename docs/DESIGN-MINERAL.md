@@ -21,8 +21,11 @@ Nothing in the app imports from the kit folder. The assets the app needs were co
 | `brand/mineral/logos/spiral-mark-{light,dark,rust}.svg`, `wordmark-{light,dark}.svg` | `brand/logos/` | `gen-icons.ts` emits `SpiralMark.tsx` from the dark mark; `Brand.tsx` renders it in `currentColor` |
 | `brand/mineral/app-icon/icon-1024.png`, `Talos-Labs.icns` | `brand/app-icon/` | `pnpm tauri icon` writes `src-tauri/icons/`; the `.icns` then overwrites `icon.icns` |
 | `brand/mineral/installer/dmg-background.png` | `installer/` | copied to `src-tauri/assets/dmg-background.png`, named by `bundle.macOS.dmg.background` in `tauri.conf.json` |
+| `brand/mineral/grain/grain-overlay.png`, `mineral-grain.png` | `marketing/` | `--grain-url` in `tokens.css` (docs/DESIGN-WARMTH.md section 1b); the second is carried, not referenced |
+| `brand/mineral/hero/horizon.svg`, `rings.svg` | `website/index.html` (the hero's dunes and rings) | `src/components/Hero.tsx`, `kind="horizon"` and `kind="rings"`; the SVGs are the editable sources |
+| `brand/mineral/installer/dmg-background.svg`, `app-icon/background.svg`, `foreground.svg`, `app-icon*.svg` | `installer/`, `brand/app-icon/` | nothing at build time; editable sources for the DMG and for an Icon Composer `.icon` |
 
-Paths in the table are relative to `apps/desktop/`. The kit's `website/`, `marketing/` (grain textures) and `installer/dmg-background.svg` stay in the kit; the app never shows grain.
+Paths in the table are relative to `apps/desktop/`. The kit's `website/`, `preview/`, `tokens/` and `app/` prototype stay in the kit as references; the prototype's screens were ported class for class into `src/styles/`. Grain and the hero bands came in with docs/DESIGN-WARMTH.md, which overrides the "no grain" rule in section 5.
 
 ## 2. Tokens
 
