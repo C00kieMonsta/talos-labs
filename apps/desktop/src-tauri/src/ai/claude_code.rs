@@ -1,15 +1,16 @@
 //! The Claude plan route: Anthropic's own Claude Code program, verified by codesign before every
 //! spawn, run with a Talos-owned config folder, a scrubbed environment and no shell.
 //!
-//! Layout under `<app_data>/claude-code/`: `config/` (CLAUDE_CONFIG_DIR), `home/` (HOME),
-//! `versions/<v>` and `installed.json`. Each run gets a fresh 0700 cwd under `/private/tmp`.
+//! Layout under `<app_data>/claude-code/`: `config/` (CLAUDE_CONFIG_DIR), `versions/<v>` and
+//! `installed.json`. HOME and USER are the real account's, so the login keychain is reachable.
+//! Each explanation gets a fresh 0700 cwd under `/private/tmp`; the probes run in `config/`.
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -82,7 +83,6 @@ impl std::fmt::Display for Version {
 pub struct Dirs {
     pub root: PathBuf,
     pub config: PathBuf,
-    pub home: PathBuf,
     pub versions: PathBuf,
     pub installed: PathBuf,
 }
@@ -92,7 +92,6 @@ impl Dirs {
         let root = app_data.join("claude-code");
         Dirs {
             config: root.join("config"),
-            home: root.join("home"),
             versions: root.join("versions"),
             installed: root.join("installed.json"),
             root,
@@ -101,11 +100,72 @@ impl Dirs {
 
     /// Creates the folders with owner-only permissions.
     pub fn ensure(&self) -> std::io::Result<()> {
-        for dir in [&self.root, &self.config, &self.home, &self.versions] {
+        for dir in [&self.root, &self.config, &self.versions] {
             create_private_dir(dir)?;
         }
         Ok(())
     }
+}
+
+/// The account Talos runs as: its home folder and user name from the password database, with
+/// the process environment as the fallback. Never taken from the webview.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Account {
+    pub home: PathBuf,
+    pub user: String,
+}
+
+/// Resolved once per process. Claude Code keeps the plan credential in the login keychain, which
+/// the Security framework finds under the real `$HOME/Library/Keychains` and files under `$USER`;
+/// a made-up HOME gets "Keychain Not Found" and the sign-in is lost.
+pub fn account() -> Option<Account> {
+    static ACCOUNT: OnceLock<Option<Account>> = OnceLock::new();
+    ACCOUNT.get_or_init(resolve_account).clone()
+}
+
+fn resolve_account() -> Option<Account> {
+    let passwd = passwd_entry();
+    let home = passwd
+        .as_ref()
+        .map(|(_, dir)| dir.clone())
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+        .filter(|dir| !dir.as_os_str().is_empty())?;
+    let user = passwd
+        .map(|(name, _)| name)
+        .filter(|name| !name.is_empty())
+        .or_else(|| std::env::var("USER").ok())
+        .or_else(|| std::env::var("LOGNAME").ok())
+        .filter(|name| !name.is_empty())?;
+    Some(Account { home, user })
+}
+
+/// `pw_name` and `pw_dir` for the current uid.
+fn passwd_entry() -> Option<(String, PathBuf)> {
+    use std::ffi::CStr;
+    let mut buf = vec![0 as libc::c_char; 16 * 1024];
+    // SAFETY: passwd is plain data, so a zeroed value is valid until getpwuid_r fills it.
+    let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
+    let mut result: *mut libc::passwd = std::ptr::null_mut();
+    // SAFETY: the buffer outlives every read of the entry, and the fields are only read when
+    // the call succeeded and set `result`.
+    let rc = unsafe {
+        libc::getpwuid_r(
+            libc::getuid(),
+            &mut pwd,
+            buf.as_mut_ptr(),
+            buf.len(),
+            &mut result,
+        )
+    };
+    if rc != 0 || result.is_null() || pwd.pw_name.is_null() || pwd.pw_dir.is_null() {
+        return None;
+    }
+    // SAFETY: both pointers are into `buf`, which is still alive, and are NUL-terminated.
+    let (name, dir) = unsafe { (CStr::from_ptr(pwd.pw_name), CStr::from_ptr(pwd.pw_dir)) };
+    let name = name.to_str().ok()?.to_owned();
+    let dir = PathBuf::from(dir.to_str().ok()?);
+    Some((name, dir))
 }
 
 fn create_private_dir(dir: &Path) -> std::io::Result<()> {
@@ -163,7 +223,8 @@ pub fn verify(bin: &Path) -> Result<Verified, VerifyError> {
     Ok(Verified(bin.to_path_buf()))
 }
 
-/// The one way to build a Claude Code command: scrubbed env, Talos folders, no shell.
+/// The one way to build a Claude Code command: scrubbed env, the Talos config folder, the real
+/// HOME and USER (for the login keychain), no shell.
 pub fn claude_command(bin: &Verified, dirs: &Dirs, cwd: &Path, args: &[&str]) -> Command {
     let mut command = Command::new(bin.path());
     command
@@ -171,13 +232,18 @@ pub fn claude_command(bin: &Verified, dirs: &Dirs, cwd: &Path, args: &[&str]) ->
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
         .env("LANG", "en_GB.UTF-8")
-        .env("HOME", &dirs.home)
         .env("CLAUDE_CONFIG_DIR", &dirs.config)
         .env("DISABLE_AUTOUPDATER", "1")
         .env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
         .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped());
+    if let Some(account) = account() {
+        command
+            .env("HOME", &account.home)
+            .env("USER", &account.user)
+            .env("LOGNAME", &account.user);
+    }
     #[cfg(feature = "debug-raw")]
     command.stderr(Stdio::inherit());
     #[cfg(not(feature = "debug-raw"))]
@@ -270,7 +336,7 @@ pub fn locate(dirs: &Dirs) -> Option<Located> {
     let home = dirs::home_dir();
     let version_of = |bin: &Verified| -> Option<Version> {
         let (stdout, _) = run_capture(
-            claude_command(bin, dirs, &dirs.home, &["--version"]),
+            claude_command(bin, dirs, &dirs.config, &["--version"]),
             SHORT_TIMEOUT,
         )
         .ok()
@@ -596,14 +662,25 @@ pub fn parse_auth_status(stdout: &str) -> Option<AuthStatus> {
     })
 }
 
+/// The probe runs in the config dir, never the real home, so no ancestor CLAUDE.md is in play.
 fn auth_status(bin: &Verified, dirs: &Dirs) -> Option<AuthStatus> {
     let (stdout, _) = run_capture(
-        claude_command(bin, dirs, &dirs.home, &["auth", "status"]),
+        claude_command(bin, dirs, &dirs.config, &["auth", "status"]),
         SHORT_TIMEOUT,
     )
     .ok()
     .flatten()?;
     parse_auth_status(&stdout)
+}
+
+/// What a finished `auth login` child means when the probe afterwards shows no plan sign-in: a
+/// clean exit is the person closing the sign-in, any other exit is Claude Code not answering.
+fn login_exit(status: ExitStatus) -> ConnectOutcome {
+    if status.success() {
+        ConnectOutcome::Closed
+    } else {
+        ConnectOutcome::ProviderUnavailable
+    }
 }
 
 /// The locked-down explanation run. No positional: the prompt goes on stdin.
@@ -884,7 +961,7 @@ impl ClaudeCode {
                 break ConnectOutcome::Timeout;
             }
             match child.wait_timeout(Duration::from_millis(500)) {
-                Ok(Some(_)) => {
+                Ok(Some(status)) => {
                     // The sign-in may have taken minutes: the signature is checked again before the probe.
                     let Ok(bin) = verify(located.bin.path()) else {
                         break ConnectOutcome::ProviderUnavailable;
@@ -895,7 +972,7 @@ impl ClaudeCode {
                         exec::join(stdout);
                         return ConnectPoll::stage(Stage::Done);
                     }
-                    break ConnectOutcome::Closed;
+                    break login_exit(status);
                 }
                 Ok(None) => continue,
                 Err(_) => {
@@ -911,9 +988,10 @@ impl ClaudeCode {
 
     /// `claude auth logout` under the Talos config dir, then the credentials file by name.
     /// Claude Code keys its Keychain item to `CLAUDE_CONFIG_DIR` (code.claude.com/docs/en/iam,
-    /// "Credential management"; probed on 2.1.287 with a throwaway dir), so the owner's own item
-    /// is out of reach. Only a logout that ran and a status probe that no longer reports claude.ai
-    /// count as cleared; anything else is an error and the webview keeps showing the sign-in.
+    /// "Credential management"; probed on 2.1.287 with a throwaway dir and the real HOME, see
+    /// the ignored auth status test), so the owner's own item is out of reach. Only a logout that
+    /// ran and a status probe that no longer reports claude.ai count as cleared; anything else is
+    /// an error and the webview keeps showing the sign-in.
     pub fn disconnect(&self, dirs: &Dirs) -> Result<(), String> {
         *lock(&self.auth_cache) = None;
         if dirs.ensure().is_err() {
@@ -924,7 +1002,7 @@ impl ClaudeCode {
         };
         let logged_out = matches!(
             run_capture(
-                claude_command(&located.bin, dirs, &dirs.home, &["auth", "logout"]),
+                claude_command(&located.bin, dirs, &dirs.config, &["auth", "logout"]),
                 SHORT_TIMEOUT,
             ),
             Ok(Some((_, Some(0))))
@@ -1171,7 +1249,7 @@ mod tests {
         let instructions = "You explain. Secret canary: NEVER-IN-ARGS";
         let args = generate_args("You explain.", schemas::EXPLAIN);
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        let command = claude_command(&bin, &dirs, &dirs.home, &refs);
+        let command = claude_command(&bin, &dirs, &dirs.config, &refs);
         assert_eq!(command.get_program(), "/opt/talos/claude");
         let got: Vec<String> = command
             .get_args()
@@ -1210,7 +1288,9 @@ mod tests {
                 "DISABLE_AUTOUPDATER",
                 "HOME",
                 "LANG",
+                "LOGNAME",
                 "PATH",
+                "USER",
             ]
         );
         let value = |key: &str| {
@@ -1221,10 +1301,26 @@ mod tests {
         };
         assert_eq!(value("PATH"), "/usr/bin:/bin");
         assert_eq!(value("LANG"), "en_GB.UTF-8");
-        assert_eq!(value("HOME"), dirs.home.to_string_lossy());
         assert_eq!(value("CLAUDE_CONFIG_DIR"), dirs.config.to_string_lossy());
-        assert_eq!(command.get_current_dir(), Some(dirs.home.as_path()));
+        // The real account, so the login keychain is found; never a folder of ours.
+        let account = account().unwrap();
+        assert_eq!(account.home, dirs::home_dir().unwrap());
+        assert!(!account.user.is_empty());
+        assert!(!account.user.contains('/'));
+        assert_eq!(value("HOME"), account.home.to_string_lossy());
+        assert_eq!(value("USER"), account.user);
+        assert_eq!(value("LOGNAME"), account.user);
+        assert!(!value("HOME").starts_with(&*root.to_string_lossy()));
+        assert_eq!(command.get_current_dir(), Some(dirs.config.as_path()));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_failed_login_child_is_unavailable_and_a_clean_one_is_closed() {
+        let clean = Command::new("/usr/bin/true").status().unwrap();
+        let failed = Command::new("/usr/bin/false").status().unwrap();
+        assert_eq!(login_exit(clean), ConnectOutcome::Closed);
+        assert_eq!(login_exit(failed), ConnectOutcome::ProviderUnavailable);
     }
 
     #[test]
@@ -1243,6 +1339,41 @@ mod tests {
         // Every call runs codesign: a second check of the same copy is rejected the same way.
         assert_eq!(verify(&copy), Err(VerifyError::Rejected));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Needs the owner's install; run with `cargo test -- --ignored`. The real HOME and USER are
+    /// passed, so the login keychain is reachable, and the probe under a throwaway config dir
+    /// must still see no sign-in: Claude Code keys its keychain item to CLAUDE_CONFIG_DIR.
+    /// Starts no sign-in.
+    #[test]
+    #[ignore]
+    fn auth_status_under_a_throwaway_config_dir_sees_no_sign_in() {
+        let bin_path = dirs::home_dir()
+            .unwrap()
+            .join(".local/share/claude/versions/2.1.287");
+        let bin = verify(&bin_path).unwrap();
+        let root = temp_root("auth-status");
+        let dirs = Dirs::under(&root.join("data"));
+        dirs.ensure().unwrap();
+        let (stdout, code) = run_capture(
+            claude_command(&bin, &dirs, &dirs.config, &["auth", "status"]),
+            SHORT_TIMEOUT,
+        )
+        .unwrap()
+        .unwrap();
+        let status = auth_status(&bin, &dirs);
+        let _ = std::fs::remove_dir_all(&root);
+        eprintln!("--- auth status (exit {code:?}) ---\n{stdout}");
+        let status = status.unwrap();
+        assert!(!status.logged_in, "{stdout}");
+        assert_eq!(status.auth_method, "none", "{stdout}");
+        assert!(!status.plan_signed_in());
+        let real = account().unwrap();
+        assert!(
+            !stdout.contains(&real.user),
+            "no account name in the probe output"
+        );
+        assert!(!stdout.contains('@'), "no email in the probe output");
     }
 
     /// Needs the owner's install; run with `cargo test -- --ignored`.
@@ -1383,10 +1514,11 @@ mod tests {
         let root = temp_root("dirs");
         let dirs = Dirs::under(&root);
         dirs.ensure().unwrap();
-        for dir in [&dirs.root, &dirs.config, &dirs.home, &dirs.versions] {
+        for dir in [&dirs.root, &dirs.config, &dirs.versions] {
             let mode = std::fs::metadata(dir).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode, 0o700, "{}", dir.display());
         }
+        assert!(!dirs.root.join("home").exists(), "no HOME of our own");
         let path = {
             let run = RunDir::create().unwrap();
             assert_eq!(run.path().parent(), Some(Path::new(RUN_DIR_ROOT)));
@@ -1539,7 +1671,8 @@ mod tests {
     }
 
     /// Manual recorder, run once by hand. Points Claude Code at a local listener that answers 401
-    /// and checks what the first request carries. Uses throwaway HOME and config dirs only.
+    /// and checks what the first request carries. The child gets the real HOME and USER, as in
+    /// the app, and a throwaway config dir under the temp dir; nothing is signed in.
     #[test]
     #[ignore]
     fn recorder_shows_the_prompt_on_stdin_and_no_canary() {
@@ -1621,8 +1754,10 @@ mod tests {
         let (head, body) = capture.join().unwrap();
         let _ = std::fs::remove_file(&canary);
         let _ = std::fs::remove_dir_all(&root);
-        let home = dirs::home_dir().unwrap().to_string_lossy().into_owned();
-        let account = std::env::var("USER").unwrap_or_default();
+        let real = account().unwrap();
+        let home = real.home.to_string_lossy().into_owned();
+        let account = real.user;
+        let config = dirs.config.to_string_lossy().into_owned();
         eprintln!(
             "--- request head ---\n{head}\n--- body ({} bytes) ---\n{body}\n--- stdout ---\n{}",
             body.len(),
@@ -1641,9 +1776,9 @@ mod tests {
             "no ancestor CLAUDE.md"
         );
         assert!(!body.contains(&home), "no home path");
-        if !account.is_empty() {
-            assert!(!body.contains(&account), "no account name");
-        }
+        assert!(!body.contains(&account), "no account name");
+        assert!(!body.contains("/Users/"), "no path under /Users");
+        assert!(!body.contains(&config), "no config dir path");
         // Claude Code names the cwd; it must carry no per-user path.
         assert!(!body.contains("/var/folders/"), "no per-user temp path");
         assert!(

@@ -191,11 +191,43 @@ pub fn write_host_state(dir: &Path, state: &HostState) -> Result<(), String> {
     crate::report_store::write_private(&state_path(dir), &bytes).map_err(|e| e.to_string())
 }
 
-/// The host id, generated once.
+/// OpenAI accepts a host id only as a URI: `urn:uuid:`, a JWK thumbprint URN or `did:key`.
+pub const HOST_ID_PREFIX: &str = "urn:uuid:";
+
+/// `urn:uuid:` plus a lower-case version 4 UUID.
+pub fn valid_host_id(value: &str) -> bool {
+    let Some(uuid) = value.strip_prefix(HOST_ID_PREFIX) else {
+        return false;
+    };
+    uuid.len() == 36
+        && uuid.bytes().enumerate().all(|(i, b)| match i {
+            8 | 13 | 18 | 23 => b == b'-',
+            _ => b.is_ascii_hexdigit() && !b.is_ascii_uppercase(),
+        })
+}
+
+pub fn random_host_id() -> String {
+    use rand::RngCore;
+    let mut b = [0u8; 16];
+    rand::rng().fill_bytes(&mut b);
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    // A hyphen before bytes 4, 6, 8 and 10 gives the 8-4-4-4-12 form.
+    let mut out = String::from(HOST_ID_PREFIX);
+    for (i, x) in b.iter().enumerate() {
+        if matches!(i, 4 | 6 | 8 | 10) {
+            out.push('-');
+        }
+        out.push_str(&format!("{x:02x}"));
+    }
+    out
+}
+
+/// The host id, generated once. A value in the old 32-hex form is replaced, because OpenAI rejects it.
 pub fn ensure_host_state(dir: &Path) -> Result<HostState, String> {
     let mut state = read_host_state(dir);
-    if state.host_id.len() != 32 || !state.host_id.bytes().all(|b| b.is_ascii_hexdigit()) {
-        state.host_id = random_hex(16);
+    if !valid_host_id(&state.host_id) {
+        state.host_id = random_host_id();
         write_host_state(dir, &state)?;
     }
     Ok(state)
@@ -1589,12 +1621,20 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let chatgpt = ChatGpt::default();
         let host = ensure_host_state(&dir).unwrap();
-        assert_eq!(host.host_id.len(), 32);
+        assert!(valid_host_id(&host.host_id), "{}", host.host_id);
         assert_eq!(
             ensure_host_state(&dir).unwrap().host_id,
             host.host_id,
             "generated once"
         );
+        // A host id from before the URN form is replaced; OpenAI answered invalid_authorize_request to it.
+        let mut old = read_host_state(&dir);
+        old.host_id = random_hex(16);
+        write_host_state(&dir, &old).unwrap();
+        let migrated = ensure_host_state(&dir).unwrap().host_id;
+        assert!(valid_host_id(&migrated) && migrated != old.host_id, "{migrated}");
+        assert!(!valid_host_id("urn:uuid:ABCDEF12-3456-4789-8ABC-DEF012345678"), "upper case is refused");
+        assert!(!valid_host_id("6ba7b810-9dad-11d1-80b4-00c04fd430c8"), "the prefix is required");
         let tokens = || Tokens {
             access: Zeroizing::new("acc".into()),
             refresh: Zeroizing::new("ref".into()),
