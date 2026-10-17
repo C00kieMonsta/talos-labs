@@ -86,8 +86,8 @@ function newestCard(state: ChatState, where: (card: Card) => boolean = () => tru
   return null;
 }
 
-/** The card the person just declined: resolved as snoozed, naming one rule. */
-const declined = (c: Card) => c.state === "resolved" && c.outcome === "snoozed" && c.card.ruleId !== null;
+/** The card the person just declined: resolved as snoozed, naming a rule (a batch names several). */
+const declined = (c: Card) => c.state === "resolved" && c.outcome === "snoozed" && c.card.ruleIds.length > 0;
 const namesRule = (c: Card) => c.card.ruleId !== null;
 
 /** The newest turn the person typed; chip echoes are labels, not questions. */
@@ -290,18 +290,33 @@ export function createChatController(deps: ControllerDeps): ChatController {
 
   const stepForRule = (ruleId: RuleId): GuidedStep | null => bridge.plan?.steps.find((s) => s.kind !== "paywall" && ruleIdsOf(s).includes(ruleId)) ?? null;
 
-  /** The reminder replaces the "Do this later" snooze; an idle card for the step collapses to the line (2f). */
-  const remind = (step: GuidedStep, when: RemindWhen) => {
-    const ruleIds = ruleIdsOf(step);
+  /** The walk goes on from this step after the auto-advance tick, as it does after a settled card. */
+  const continueWalk = (stepId: string) => {
+    walkCursor = stepId;
+    if (getState().walking) deps.scheduleWalk();
+  };
+
+  /** The reminder replaces the "Do this later" snooze; an idle card for the step collapses to the line (2f). Only a rule in allowed.remind. */
+  const reminded = (step: GuidedStep | null, ruleIds: readonly RuleId[], when: RemindWhen) => {
     const first = ruleIds[0];
-    if (first === undefined) return;
-    const open = newestCard(getState(), (c) => c.step?.id === step.id && c.state === "idle");
-    bridge.remind(step, when);
+    if (first === undefined || !ruleIds.some((id) => deps.allowed().remind.includes(id))) return;
+    const open = step === null ? null : newestCard(getState(), (c) => c.step?.id === step.id && c.state === "idle");
+    if (step === null) bridge.remindRules(ruleIds, when);
+    else bridge.remind(step, when);
     note("snoozed", ruleIds);
     const chipId: ChipId = when === "tomorrow" ? "remind_tomorrow" : "remind_sunday";
-    dispatch({ type: "app_answered", at: at(), answer: { headline: chipLabel(chipId), body: ACTIVITY.remind[when].replace("{headline}", guidedFor(first).headline), label: "remind", cards: [] } });
-    if (open !== null) result(open.id, "snoozed", CHAT.ok);
+    const body = ACTIVITY.remind[when].replace("{headline}", guidedFor(first).headline);
+    if (open !== null) result(open.id, "snoozed", step?.kind === "permission" ? CHAT.ok : body);
+    else dispatch({ type: "app_answered", at: at(), answer: { headline: chipLabel(chipId), body, label: "remind", cards: [] } });
+    if (step !== null) continueWalk(step.id);
     afterSettle();
+  };
+  const remind = (step: GuidedStep, when: RemindWhen) => reminded(step, ruleIdsOf(step), when);
+  /** A rule's step this check-up, else a later id with no step: the two dates and the line, nothing else. */
+  const remindRule = (ruleId: RuleId, when: RemindWhen) => {
+    const step = stepForRule(ruleId);
+    if (step !== null) remind(step, when);
+    else if (bridge.plan?.later.includes(ruleId) === true) reminded(null, [ruleId], when);
   };
 
   /** Answered from the plan's points, zero calls: the risk, the cost, and the third line for a critical rule (2h). */
@@ -313,7 +328,7 @@ export function createChatController(deps: ControllerDeps): ChatController {
     if (info !== null) lines.push(ACTIVITY.whatIf.cost.replace("{p}", String(info.points)));
     if (severityFor(ruleId) === "critical") lines.push(ACTIVITY.whatIf.critical);
     const seed = plan === null ? null : cardFor({ kind: "what_if", ruleId, signalId: null, when: null }, plan, deps.allowed());
-    dispatch({ type: "app_answered", at: at(), answer: { headline: chipLabel("what_if"), body: lines.join("\n"), label: "what_if", cards: seed === null ? [] : [seed] } });
+    dispatch({ type: "app_answered", at: at(), answer: { headline: ACTIVITY.whatIf.headline.replace("{headline}", guidedFor(ruleId).headline), body: lines.join("\n"), label: "what_if", cards: seed === null ? [] : [seed] } });
   };
 
   const watchWord = (): "calm" | "look" | "act" | null => {
@@ -336,18 +351,16 @@ export function createChatController(deps: ControllerDeps): ChatController {
   const gated = (kind: "investigate" | "close_watch") => {
     const look = kind === "investigate";
     const notice = (text: string, wayOut: Extract<ChatAction, { type: "notice_added" }>["wayOut"] = null) => dispatch({ type: "notice_added", at: at(), text, wayOut });
-    if (deps.watchOn()) notice(look ? ACTIVITY.refuse.lookNotYet : ACTIVITY.refuse.closerNotYet);
+    if (deps.watchOn()) notice(look ? ACTIVITY.refuse.lookNotYet : ACTIVITY.refuse.closerNotYet, look ? null : { kind: "link", label: ACTIVITY.links.settings, route: { name: "settings" } });
     else if (!deps.licensed()) notice(look ? ACTIVITY.refuse.full_version : ACTIVITY.refuse.full_version_closer);
     else notice(ACTIVITY.refuse.watch_off, { kind: "link", label: ACTIVITY.links.settings, route: { name: "settings" } });
   };
 
   const agentTurn = (match: GrammarMatch) => {
     switch (match.kind) {
-      case "remind": {
-        const step = stepForRule(match.ruleId);
-        if (step !== null) remind(step, match.when);
+      case "remind":
+        remindRule(match.ruleId, match.when);
         return;
-      }
       case "what_if":
         whatIf(match.ruleId);
         return;
@@ -355,22 +368,46 @@ export function createChatController(deps: ControllerDeps): ChatController {
         writeUp();
         return;
       case "investigate":
+        if (match.ruleId === null) gated("investigate");
+        else lookInto(match.ruleId);
+        return;
       case "close_watch":
-        gated(match.kind);
+        gated("close_watch");
         return;
     }
   };
 
+  /** "Look into this" on a check-up item is the zero-call recheck (2b), behind the recheck gate; a settled item gets a fresh check-up. */
+  const lookInto = (ruleId: RuleId) => {
+    if (!deps.licensed()) {
+      dispatch({ type: "notice_added", at: at(), text: ACTIVITY.refuse.full_version_recheck, wayOut: null });
+      return;
+    }
+    const open = newestCard(getState(), (c) => (c.state === "idle" || c.state === "failed") && c.step !== null && c.card.ruleIds.includes(ruleId));
+    if (open !== null) {
+      checkAgain(open.id);
+      return;
+    }
+    const step = undoneSteps().find((s) => ruleIdsOf(s).includes(ruleId));
+    if (step === undefined) {
+      note("rescanned", []);
+      bridge.rescan();
+      return;
+    }
+    dispatch({ type: "card_appended", at: at(), seed: seedForStep(step) });
+    const card = newestCard(getState(), (c) => c.step?.id === step.id && c.state === "idle");
+    if (card !== null) checkAgain(card.id);
+  };
+
   /** A model-named app answer, run after its cards landed (2i). */
   const pendingIntent = (intent: ChatIntent) => {
-    if (intent.kind === "remind_rule" && intent.ruleId !== null) {
-      const step = stepForRule(intent.ruleId);
-      if (step !== null) remind(step, intent.when ?? "tomorrow");
-    } else if (intent.kind === "what_if" && intent.ruleId !== null) whatIf(intent.ruleId);
+    if (intent.kind === "remind_rule" && intent.ruleId !== null) remindRule(intent.ruleId, intent.when ?? "tomorrow");
+    else if (intent.kind === "what_if" && intent.ruleId !== null) whatIf(intent.ruleId);
     else if (intent.kind === "write_up") writeUp();
   };
 
-  const grammarContext = (): GrammarContext => ({ undone: undoneSteps().flatMap(ruleIdsOf), failing: deps.allowed().whatIf, newestRuleId: newestCard(getState())?.card.ruleId ?? null });
+  // allowed.remind is the undone and later ids less the accepted; the newest card's first rule covers a batch card.
+  const grammarContext = (): GrammarContext => ({ undone: deps.allowed().remind, failing: deps.allowed().whatIf, newestRuleId: newestCard(getState())?.card.ruleIds[0] ?? null });
 
   /** A tapped checklist row: its row steps up, or its step lands as the live card out of order (2c). */
   const promoteStep = (stepId: string) => {
@@ -379,16 +416,20 @@ export function createChatController(deps: ControllerDeps): ChatController {
     const row = state.messages.find((m) => m.kind === "row" && m.seed.step?.id === stepId);
     if (row !== undefined) {
       dispatch({ type: "row_promoted", at: at(), rowId: row.id });
+      walkCursor = stepId;
       return;
     }
     const step = undoneSteps().find((s) => s.id === stepId);
     if (step === undefined || newestCard(state, (c) => c.step?.id === stepId && c.state === "idle" && c.live) !== null) return;
     dispatch({ type: "card_appended", at: at(), seed: seedForStep(step) });
+    walkCursor = stepId;
   };
 
   const walkNext = (): boolean => {
     const state = getState();
     if (!state.walking || state.working !== null) return false;
+    // A card the person tapped up between the result and the tick is the live one; the timer leaves it.
+    if (newestCard(state, (c) => c.state === "idle" && c.live) !== null) return false;
     // The walk continues from the row after the one resolved (2c), then wraps to the first undone.
     const steps = bridge.plan?.steps ?? [];
     const cursor = walkCursor === null ? -1 : steps.findIndex((s) => s.id === walkCursor);
@@ -487,11 +528,12 @@ export function createChatController(deps: ControllerDeps): ChatController {
       }
       case "remind_tomorrow":
       case "remind_sunday": {
-        // The card just declined, else the newest card naming a rule.
-        const target = newestCard(state, declined) ?? newestCard(state, namesRule);
+        // The card just declined, else the newest card naming a rule a reminder may still name.
+        const remindable = (c: Card) => c.card.ruleIds.some((r) => deps.allowed().remind.includes(r));
+        const target = newestCard(state, declined) ?? newestCard(state, remindable);
         echo(id);
-        const step = target?.card.ruleId === null || target === null ? null : stepForRule(target.card.ruleId);
-        if (step !== null) remind(step, id === "remind_tomorrow" ? "tomorrow" : "sunday");
+        const first = target?.card.ruleIds[0];
+        if (first !== undefined) remindRule(first, id === "remind_tomorrow" ? "tomorrow" : "sunday");
         return;
       }
       case "what_if": {
@@ -605,6 +647,7 @@ export function createChatController(deps: ControllerDeps): ChatController {
       if (copy.primary === "next") {
         bridge.leaveAlone(step);
         result(cardId, "stale", CHAT.ok);
+        continueWalk(step.id);
         afterSettle();
         return;
       }
@@ -642,6 +685,7 @@ export function createChatController(deps: ControllerDeps): ChatController {
           bridge.accept([card.card.ruleId]);
           note("accepted", [card.card.ruleId]);
           result(cardId, "accepted", CHAT.accepted);
+          if (step !== null) continueWalk(step.id);
           afterSettle();
         }
         return;
@@ -686,6 +730,7 @@ export function createChatController(deps: ControllerDeps): ChatController {
         note("snoozed", ruleIdsOf(step));
         result(cardId, "snoozed", step.kind === "permission" ? CHAT.ok : LATER_FLASH);
         if (asked.length > 0) answer(asked.map((id) => ({ card: { kind: "accept", ruleId: id, ruleIds: [id], severity: severityOf([id]) }, step: null, item: null })));
+        continueWalk(step.id);
         afterSettle();
         return;
       }
@@ -702,6 +747,7 @@ export function createChatController(deps: ControllerDeps): ChatController {
           result(cardId, "snoozed", LATER_FLASH);
           if (asked.length > 0) answer(asked.map((id) => ({ card: { kind: "accept", ruleId: id, ruleIds: [id], severity: severityOf([id]) }, step: null, item: null })));
         }
+        continueWalk(step.id);
         afterSettle();
         return;
       }

@@ -98,6 +98,19 @@ describe("chipsFor: the agent rows", () => {
     expect(labels(last, { ...FACTS, anyUndone: false })).toEqual([ACTIVITY.chips.remindTomorrow, ACTIVITY.chips.whatIf, CHAT.chips.showList]);
   });
 
+  it("after a reminder: What if I leave it?, What's next?, the list; no Why? about the rule put off and no second reminder chip", () => {
+    const snoozed = reduce(opened, { type: "card_result", at: AT, cardId: opened.live as string, outcome: "snoozed", line: "OK.", rows: [] });
+    const reminded = reduce(snoozed, { type: "app_answered", at: AT, answer: { headline: ACTIVITY.chips.remindTomorrow, body: "OK.", label: "remind", cards: [] } });
+    expect(labels(reminded)).toEqual([ACTIVITY.chips.whatIf, CHAT.chips.whatsNext, CHAT.chips.showList]);
+    expect(labels(reminded, { ...FACTS, anyUndone: false })).toEqual([ACTIVITY.chips.whatIf, CHAT.chips.showList]);
+  });
+
+  it("a declined batch offers the reminder chips as a declined single card does", () => {
+    const listed = reduce(opened, { type: "app_answered", at: AT, answer: { headline: null, body: null, label: "answer", cards: [seedForStep(stepById(PLAN, "batch"))] } });
+    const snoozed = reduce(listed, { type: "card_result", at: AT, cardId: listed.live as string, outcome: "snoozed", line: "OK.", rows: [] });
+    expect(labels(snoozed, { ...FACTS, ruleCard: false })).toEqual([ACTIVITY.chips.remindTomorrow, ACTIVITY.chips.whatIf, CHAT.chips.whatsNext, CHAT.chips.showList]);
+  });
+
   it("after a what-if answer: Leave it alone, What's next?, the list, and the what-if chip is not repeated", () => {
     const answered = reduce(opened, { type: "app_answered", at: AT, answer: { headline: "What if I leave it?", body: null, label: "what_if", cards: [seedForStep(stepById(PLAN, "show:TL-MAC-001"))] } });
     expect(labels(answered)).toEqual([CHAT.chips.leaveAlone, CHAT.chips.whatsNext, CHAT.chips.showList]);

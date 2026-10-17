@@ -409,7 +409,7 @@ describe("agent copy", () => {
       ...Object.values(ACTIVITY.whatIf),
       ...Object.values(ACTIVITY.refuse),
     ];
-    expect(perString.length).toBe(6 + 1 + 2 + 3 + 3 + 2 + 11);
+    expect(perString.length).toBe(6 + 1 + 2 + 3 + 3 + 3 + 11);
     for (const text of perString) expect(syllablesPerWord(text), text).toBeLessThanOrEqual(1.6);
   });
 

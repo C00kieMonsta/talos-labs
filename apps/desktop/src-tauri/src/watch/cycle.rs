@@ -336,7 +336,12 @@ fn observed_in(outcomes: &[ProbeOutcome], signal: SignalId) -> Option<&Observed>
 }
 
 /// Re-seeds one entry from the observed value with no change recorded.
-fn reseed(baseline: &mut Baseline, signal: SignalId, value: &Observed, now: &str) -> &mut Entry {
+fn reseed<'a>(
+    baseline: &'a mut Baseline,
+    signal: SignalId,
+    value: &Observed,
+    now: &str,
+) -> &'a mut Entry {
     let (kind, current, members) = stored_of(baseline, value);
     let entry = baseline.baselines.entry(signal).or_insert_with(|| Entry {
         kind,
@@ -1442,9 +1447,18 @@ fn host_facts() -> (String, Option<String>) {
 #[cfg(target_os = "macos")]
 fn check_app_bundles(paths: &[PathBuf], budget: &mut usize) -> Vec<AppCheck> {
     use crate::collect::macos::apps;
+    let Ok(home) = crate::collect::macos::home() else {
+        return paths
+            .iter()
+            .map(|_| AppCheck {
+                quarantined: None,
+                signature: None,
+            })
+            .collect();
+    };
     let cancel = std::sync::atomic::AtomicBool::new(false);
     let run = apps::codesign_runner(&cancel);
-    apps::check_bundles(paths, budget, None, &run)
+    apps::check_bundles(paths, &home, budget, None, &run)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -1842,6 +1856,7 @@ mod tests {
     const T1: &str = "2026-10-17T13:00:00.000Z";
     const T2: &str = "2026-10-17T14:00:00.000Z";
     const T3: &str = "2026-10-17T15:00:00.000Z";
+    const T4: &str = "2026-10-17T16:00:00.000Z";
     const NEXT_DAY: &str = "2026-10-18T13:01:00.000Z";
 
     fn at(text: &str) -> DateTime<Utc> {
@@ -4221,6 +4236,203 @@ mod tests {
             "without a recent entry"
         );
         assert_eq!(baseline.os_build.as_deref(), Some("26B100"));
+    }
+
+    #[test]
+    fn a_second_changed_build_cycle_with_hosts_still_missing_counts_the_other_moves() {
+        let settings = WatchSettingsFile::default();
+        let mut baseline = Baseline::new();
+        cycle(
+            &mut baseline,
+            &hold_outcomes("a", true),
+            &settings,
+            T0,
+            &all_valid,
+        );
+        prepare(
+            &mut baseline,
+            &with_build(&hold_outcomes("a", true), &settings, T1, Some("26A434")),
+        );
+        // The update moved every file; hosts did not report.
+        let (context, _) = prepare(
+            &mut baseline,
+            &with_build(&hold_outcomes("b", false), &settings, T2, Some("26B100")),
+        );
+        assert_eq!(
+            change_of(&context, SignalId::ShellStartupChanged),
+            Change::Same,
+            "held once"
+        );
+        assert_eq!(baseline.os_build.as_deref(), Some("26A434"));
+        // Hosts is still missing; a real edit to .zshrc and pam.d must count.
+        let (context, compared) = prepare(
+            &mut baseline,
+            &with_build(&hold_outcomes("c", false), &settings, T3, Some("26B100")),
+        );
+        assert_eq!(
+            change_of(&context, SignalId::ShellStartupChanged),
+            Change::Changed,
+            "a digest already re-seeded for the build compares normally"
+        );
+        assert_eq!(
+            change_of(&context, SignalId::PamAuthChanged),
+            Change::Changed
+        );
+        assert!(
+            compared
+                .details
+                .iter()
+                .any(|d| d.file_path.as_deref() == Some("/Users/demo/.zshrc")),
+            "Details names the file"
+        );
+        assert!(
+            baseline
+                .recent
+                .iter()
+                .any(|r| r.signal_id == SignalId::ShellStartupChanged),
+            "with a recent entry"
+        );
+        assert_eq!(
+            baseline.os_build.as_deref(),
+            Some("26A434"),
+            "the build is still not stored while hosts waits"
+        );
+        // Hosts reports at last: it is re-seeded silently and the build is stored.
+        let (context, _) = prepare(
+            &mut baseline,
+            &with_build(&hold_outcomes("c", true), &settings, T4, Some("26B100")),
+        );
+        assert_eq!(change_of(&context, SignalId::HostsChanged), Change::Same);
+        assert!(
+            !baseline
+                .recent
+                .iter()
+                .any(|r| r.signal_id == SignalId::HostsChanged)
+        );
+        assert_eq!(baseline.os_build.as_deref(), Some("26B100"));
+    }
+
+    #[test]
+    fn a_widened_signal_definition_reseeds_a_stored_baseline_silently_once() {
+        let settings = WatchSettingsFile::default();
+        let mut baseline = Baseline::new();
+        let remote = |on: bool| {
+            vec![ok(
+                ProbeId::RemoteAccess,
+                vec![o(SignalId::RemoteAccessOn, Observed::Bool(on))],
+            )]
+        };
+        // A baseline stored before threats v2: remote access off, no definition version.
+        cycle(&mut baseline, &remote(false), &settings, T0, &all_valid);
+        let stored = baseline
+            .baselines
+            .get_mut(&SignalId::RemoteAccessOn)
+            .unwrap();
+        assert_eq!(
+            stored.definition,
+            Some(2),
+            "seeded under the current definition"
+        );
+        stored.definition = None;
+        // The first cycle on the new build reads true through the AEServer row alone.
+        let (context, _) = prepare(
+            &mut baseline,
+            &input(&remote(true), &settings, T1, &all_valid),
+        );
+        assert_eq!(
+            change_of(&context, SignalId::RemoteAccessOn),
+            Change::Same,
+            "the upgrade is not a change on the Mac"
+        );
+        assert!(baseline.recent.is_empty(), "nothing recorded");
+        assert!(
+            !baseline.gates.contains_key(&SignalId::RemoteAccessOn),
+            "no gate opens"
+        );
+        let entry = baseline.baselines.get(&SignalId::RemoteAccessOn).unwrap();
+        assert_eq!(entry.value, StoredValue::Bool(true));
+        assert_eq!(entry.definition, Some(2));
+        // From then on the signal compares normally.
+        let (context, _) = prepare(
+            &mut baseline,
+            &input(&remote(false), &settings, T2, &all_valid),
+        );
+        assert_eq!(
+            change_of(&context, SignalId::RemoteAccessOn),
+            Change::Changed
+        );
+        assert_eq!(
+            baseline.baselines[&SignalId::RemoteAccessOn].definition,
+            Some(2)
+        );
+        // A fresh install seeds under the current definition and compares from its second cycle.
+        let mut fresh = Baseline::new();
+        cycle(&mut fresh, &remote(true), &settings, T0, &all_valid);
+        assert_eq!(
+            fresh.baselines[&SignalId::RemoteAccessOn].definition,
+            Some(2)
+        );
+        let (context, _) = prepare(
+            &mut fresh,
+            &input(&remote(false), &settings, T1, &all_valid),
+        );
+        assert_eq!(
+            change_of(&context, SignalId::RemoteAccessOn),
+            Change::Changed
+        );
+    }
+
+    #[test]
+    fn the_app_details_row_names_the_flagged_bundle_first_whatever_the_name_order() {
+        let settings = WatchSettingsFile::default();
+        let mut baseline = Baseline::new();
+        let mut first = sweep(vec![], true);
+        first.push(apps_outcome(&["Claude.app"]));
+        cycle(&mut baseline, &first, &settings, T0, &all_valid);
+        // Pages.app (App Store) sorts before Zed.app (unsigned) in the same tick.
+        let mut second = sweep(vec![], true);
+        second.push(apps_outcome(&["Claude.app", "Pages.app", "Zed.app"]));
+        let by_name = |paths: &[PathBuf]| -> Vec<AppCheck> {
+            paths
+                .iter()
+                .map(|p| AppCheck {
+                    quarantined: Some(false),
+                    signature: Some(if p.ends_with("Zed.app") {
+                        crate::state::SignatureWord::Unsigned
+                    } else {
+                        crate::state::SignatureWord::AppStore
+                    }),
+                })
+                .collect()
+        };
+        let (context, compared) = prepare(
+            &mut baseline,
+            &PrepareInput {
+                app_codesign: &by_name,
+                ..input(&second, &settings, T1, &all_valid)
+            },
+        );
+        assert_eq!(
+            change_of(&context, SignalId::AppNewUnsigned),
+            Change::Changed
+        );
+        let rows: Vec<&WatchDetailsItem> = compared
+            .details
+            .iter()
+            .filter(|d| d.signal_id == SignalId::AppSet)
+            .collect();
+        assert_eq!(rows.len(), 2, "both fresh bundles keep a row");
+        assert_eq!(rows[0].label.as_deref(), Some("Zed.app"));
+        assert_eq!(
+            rows[0].signature,
+            Some(crate::state::SignatureWord::Unsigned),
+            "the first row is the bundle that skipped the checks"
+        );
+        assert_eq!(rows[1].label.as_deref(), Some("Pages.app"));
+        assert_eq!(
+            rows[1].signature,
+            Some(crate::state::SignatureWord::AppStore)
+        );
     }
 
     #[test]

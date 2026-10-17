@@ -628,6 +628,8 @@ const UNREADABLE: WatchState["unavailable"] = [
   { probeId: "probe.file_sharing", reason: "unsigned_build" },
 ];
 const UNREADABLE_ONE: WatchState["unavailable"] = [{ probeId: "probe.listeners", reason: "unsigned_build" }];
+/** The Spotlight row, carried across cycles and never drawn by the window. */
+const SPOTLIGHT_OFF: WatchState["unavailable"] = [{ probeId: "probe.library_apps", reason: "spotlight_off" }];
 
 /** A full calm WatchState on the demo machine; every key present so Rust's serde and the window's parser see whole states. */
 export function baseState(over: Partial<WatchState> = {}): WatchState {
@@ -669,7 +671,8 @@ function heightCase(name: string, height: number, over: Partial<WatchState>): He
  * the heights are written by hand from the sum rule. `calm-no-provider` (`ai` off with no provider, a Developer one in the real app) sizes no
  * row 5: the Connect line is the window's own localStorage read and no pushed `ai` shape carries it, so Rust never reserves it.
  * `calm-apple-reason` carries an On this Mac calm line, which both sides hide. `look-apple-reason` sizes the reason row 90:
- * the Apple badge wraps to a second line under a three-line reason.
+ * the Apple badge wraps to a second line under a three-line reason. The two `spotlight-off` cases pin that a `spotlight_off`
+ * row, which the window never draws, sizes no unreadable row on either side.
  */
 export const HEIGHT_CASES: readonly HeightCase[] = [
   heightCase("first-run", 170, { firstRun: true, since: null, lastCheckAt: null, cycleIndex: 0, nextCheckAt: null, lastChangeAt: null, report: null, next: null }),
@@ -678,6 +681,8 @@ export const HEIGHT_CASES: readonly HeightCase[] = [
   heightCase("calm-reason", 332, { judge: judge("calm") }),
   heightCase("calm", 280, {}),
   heightCase("calm-unreadable", 400, { judge: judge("calm"), unavailable: UNREADABLE }),
+  heightCase("calm-spotlight-off", 332, { judge: judge("calm"), unavailable: SPOTLIGHT_OFF }),
+  heightCase("calm-unreadable-spotlight-off", 380, { judge: judge("calm"), unavailable: [...SPOTLIGHT_OFF, ...UNREADABLE_ONE] }),
   heightCase("calm-no-provider", 228, { ai: { enabled: false, provider: null } }),
   heightCase("calm-no-ai", 228, { ai: { enabled: false, provider: "chatgpt" } }),
   heightCase("calm-apple-reason", 280, { ai: { enabled: true, provider: "apple" }, judge: { ...judge("calm"), provider: "apple" } }),

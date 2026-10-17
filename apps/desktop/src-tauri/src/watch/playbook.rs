@@ -576,7 +576,7 @@ pub static PLAYBOOK: [PlaybookAction; 26] = [
         Rating::KeepAnEye,
         &AIRDROP,
         "Limit AirDrop to people you know",
-        "Experts set AirDrop to Contacts Only, so no one nearby can push files to the Mac.",
+        "Experts set AirDrop to Contacts Only, so strangers nearby cannot send files to the Mac.",
         "containment",
         "RS.MI-02",
     ),

@@ -34,6 +34,7 @@ export const INERT_CHAT_BRIDGE: ChatBridge = {
   watchingSince: () => null,
   later: () => [],
   remind: () => undefined,
+  remindRules: () => undefined,
   reminders: [],
   accept: () => undefined,
   answerNo: () => undefined,

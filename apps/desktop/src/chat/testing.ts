@@ -137,6 +137,7 @@ export function fakeBridge(plan: GuidedPlan, overrides: Partial<ChatBridge> = {}
     watchingSince: () => control.watchingSince,
     later: vi.fn(() => []),
     remind: vi.fn(),
+    remindRules: vi.fn(),
     reminders: [],
     accept: vi.fn(),
     answerNo: vi.fn(),

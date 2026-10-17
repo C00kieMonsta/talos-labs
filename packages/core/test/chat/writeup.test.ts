@@ -55,7 +55,7 @@ describe("buildWriteUp on the dev machine", () => {
     expect(undone.length).toBeGreaterThan(3);
     for (const id of undone) {
       const g = guided(id);
-      expect(out.text, id).toContain(`  ${g?.headline} ${g?.why}`);
+      expect(out.text, id).toContain(`  ${g?.headline}. ${g?.why}`);
     }
     expect(lines).toContain("Still to do:");
     expect(lines).not.toContain("Fixed today:");
@@ -91,7 +91,7 @@ describe("buildWriteUp on the dev machine", () => {
     expect(done002.startsWith(DONE_PREFIX)).toBe(true);
     expect(fixed.text).toContain(`Fixed today:\n  ${done002.slice(DONE_PREFIX.length)}\n  ${(guided("TL-MAC-022")?.done ?? "").slice(DONE_PREFIX.length)}`);
     expect(fixed.text).not.toContain(DONE_PREFIX);
-    expect(fixed.text).not.toContain(`  ${guided("TL-MAC-002")?.headline} ${guided("TL-MAC-002")?.why}`);
+    expect(fixed.text).not.toContain(`  ${guided("TL-MAC-002")?.headline}. ${guided("TL-MAC-002")?.why}`);
     expect(fixed.dropped).toBe(0);
   });
 
@@ -105,7 +105,20 @@ describe("buildWriteUp on the dev machine", () => {
     expect(text).toContain(`Left alone by choice:\n  ${guided("TL-MAC-026")?.headline}`);
     expect(text.indexOf("Still to do:")).toBeLessThan(text.indexOf("Left for later:"));
     expect(text.indexOf("Left for later:")).toBeLessThan(text.indexOf("Left alone by choice:"));
-    expect(text).not.toContain(`  ${guided("TL-MAC-010")?.headline} ${guided("TL-MAC-010")?.why}`);
+    expect(text).not.toContain(`  ${guided("TL-MAC-010")?.headline}. ${guided("TL-MAC-010")?.why}`);
+  });
+
+  it("a later or accepted rule whose step the chat kept is listed under its own label only, never under Still to do", () => {
+    const memory: GuidedMemory = { ...EMPTY_GUIDED_MEMORY, snoozed: { "TL-MAC-010": "2026-12-01T00:00:00.000Z" }, accepted: { "TL-MAC-026": AT } };
+    // finalPlan's shape: the fresh lists from memory over the step list the chat already showed.
+    const plan: GuidedPlan = { ...planFor(memory), steps: planFor().steps };
+    expect(plan.steps.flatMap((step) => (step.kind === "show" ? [step.ruleId] : []))).toEqual(expect.arrayContaining(["TL-MAC-010", "TL-MAC-026"]));
+    const text = buildWriteUp(inputFor({ plan }), STRINGS).text;
+    const todo = text.slice(text.indexOf("Still to do:"), text.indexOf("Left for later:"));
+    expect(todo).not.toContain(guided("TL-MAC-010")?.headline);
+    expect(todo).not.toContain(guided("TL-MAC-026")?.headline);
+    expect(text).toContain(`Left for later:\n  ${guided("TL-MAC-010")?.headline}`);
+    expect(text).toContain(`Left alone by choice:\n  ${guided("TL-MAC-026")?.headline}`);
   });
 
   it("the brief appears only when one is passed and the quote prefix exists, as the last line, in quotes", () => {

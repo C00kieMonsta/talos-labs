@@ -202,13 +202,18 @@ function later(core: Core, step: GuidedStep): readonly RuleId[] {
 }
 
 /** The reminder replaces the snooze "Do this later" wrote; laterCount stands so the third-Later ask is not advanced (2f). */
+function remindIds(core: Core, rules: readonly RuleId[], when: RemindWhen): void {
+  if (chatPhase(core) === null || rules.length === 0) return;
+  const next = remindRules(core.memory, rules, reminderDate(core.now(), when));
+  writeMemory(core, { snoozed: next.snoozed, reminders: next.reminders });
+}
+
 function remind(core: Core, step: GuidedStep, when: RemindWhen): void {
   if (chatPhase(core) === null || step.kind === "paywall" || step.kind === "permission") return;
   const rules = ruleIdsOf(step);
   const scan = core.scan.scan;
   if (scan.kind === "ready" && scan.watching !== null && rules.includes(scan.watching.ruleId)) core.scan.stopWatch();
-  const next = remindRules(core.memory, rules, reminderDate(core.now(), when));
-  writeMemory(core, { snoozed: next.snoozed, reminders: next.reminders });
+  remindIds(core, rules, when);
   clearIfActive(core, step);
 }
 
@@ -330,6 +335,7 @@ export function buildChatBridge(core: Core, bump: () => void, openPermission: ()
     // A memory write changes which steps count as done, so each one re-renders the phase.
     later: (step) => after(bump, later(core, step)),
     remind: (step, when) => after(bump, remind(core, step, when)),
+    remindRules: (ruleIds, when) => after(bump, remindIds(core, ruleIds, when)),
     accept: (ruleIds) => after(bump, accept(core, ruleIds)),
     answerNo: (step) => after(bump, answerNo(core, step)),
     leaveAlone: (step) => after(bump, leaveAlone(core, step)),

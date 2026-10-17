@@ -37987,6 +37987,114 @@
       "height": 400
     },
     {
+      "name": "calm-spotlight-off",
+      "state": {
+        "enabled": true,
+        "licensed": true,
+        "firstRun": false,
+        "hiddenLaunch": false,
+        "rating": "calm",
+        "since": "2026-10-14T12:00:00.000Z",
+        "lastCheckAt": "2026-10-17T11:48:00.000Z",
+        "checking": false,
+        "cycleIndex": 7,
+        "everyMinutes": 60,
+        "notify": true,
+        "pausedUntil": null,
+        "closeWatchUntil": null,
+        "unavailable": [
+          {
+            "probeId": "probe.library_apps",
+            "reason": "spotlight_off"
+          }
+        ],
+        "gated": [],
+        "items": [],
+        "nextCheckAt": "2026-10-17T12:48:00.000Z",
+        "lastChangeAt": "2026-10-14T12:00:00.000Z",
+        "ai": {
+          "enabled": true,
+          "provider": "chatgpt"
+        },
+        "judge": {
+          "provider": "chatgpt",
+          "at": "2026-10-17T11:48:00.000Z",
+          "rating": "calm",
+          "reason": "The one thing still open is your unlocked disk, and it matters most on a laptop that leaves the house."
+        },
+        "recentCount": 0,
+        "rulesSince": null,
+        "report": {
+          "reportId": "demo-report",
+          "scannedAt": "2026-10-17T10:00:00.000Z",
+          "score": 72,
+          "grade": "fair"
+        },
+        "next": {
+          "reportId": "demo-report",
+          "ruleId": "TL-MAC-001",
+          "kind": "fix"
+        }
+      },
+      "height": 332
+    },
+    {
+      "name": "calm-unreadable-spotlight-off",
+      "state": {
+        "enabled": true,
+        "licensed": true,
+        "firstRun": false,
+        "hiddenLaunch": false,
+        "rating": "calm",
+        "since": "2026-10-14T12:00:00.000Z",
+        "lastCheckAt": "2026-10-17T11:48:00.000Z",
+        "checking": false,
+        "cycleIndex": 7,
+        "everyMinutes": 60,
+        "notify": true,
+        "pausedUntil": null,
+        "closeWatchUntil": null,
+        "unavailable": [
+          {
+            "probeId": "probe.library_apps",
+            "reason": "spotlight_off"
+          },
+          {
+            "probeId": "probe.listeners",
+            "reason": "unsigned_build"
+          }
+        ],
+        "gated": [],
+        "items": [],
+        "nextCheckAt": "2026-10-17T12:48:00.000Z",
+        "lastChangeAt": "2026-10-14T12:00:00.000Z",
+        "ai": {
+          "enabled": true,
+          "provider": "chatgpt"
+        },
+        "judge": {
+          "provider": "chatgpt",
+          "at": "2026-10-17T11:48:00.000Z",
+          "rating": "calm",
+          "reason": "The one thing still open is your unlocked disk, and it matters most on a laptop that leaves the house."
+        },
+        "recentCount": 0,
+        "rulesSince": null,
+        "report": {
+          "reportId": "demo-report",
+          "scannedAt": "2026-10-17T10:00:00.000Z",
+          "score": 72,
+          "grade": "fair"
+        },
+        "next": {
+          "reportId": "demo-report",
+          "ruleId": "TL-MAC-001",
+          "kind": "fix"
+        }
+      },
+      "height": 380
+    },
+    {
       "name": "calm-no-provider",
       "state": {
         "enabled": true,

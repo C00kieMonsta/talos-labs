@@ -284,9 +284,12 @@ fn check_signature(
     }
 }
 
-/// `listxattr` first, then the signature within the budget and the deadline.
+/// `listxattr` first, then the signature within the budget and the deadline. The path is
+/// re-bound through `bundle_candidate` right before its `codesign` runs: a bundle swapped for a
+/// symlink since the listing is left unchecked, and spends nothing.
 pub fn check_bundles(
     paths: &[PathBuf],
+    home: &Path,
     budget: &mut usize,
     deadline: Option<Instant>,
     run: &CodesignRunner<'_>,
@@ -295,7 +298,11 @@ pub fn check_bundles(
         .iter()
         .map(|path| AppCheck {
             quarantined: quarantined(path),
-            signature: check_signature(path, budget, deadline, run),
+            signature: if bundle_candidate(path, home).as_deref() == Some(path.as_path()) {
+                check_signature(path, budget, deadline, run)
+            } else {
+                None
+            },
         })
         .collect()
 }
@@ -310,14 +317,15 @@ pub fn flagged(check: &AppCheck) -> bool {
 
 fn apps_inner(cancel: &AtomicBool) -> Result<AppsCheck, Fail> {
     check_cancel(cancel)?;
-    let bundles = list_bundles(&home()?)?;
+    let home = home()?;
+    let bundles = list_bundles(&home)?;
     let bundle_count = bundles.len() as u64;
     let looked: Vec<&BundleEntry> = bundles.iter().take(CHECKUP_BUNDLE_CAP).collect();
     let paths: Vec<PathBuf> = looked.iter().map(|b| b.path.clone()).collect();
     let mut budget = CHECKUP_BUNDLE_CAP * 2;
     let deadline = Some(Instant::now() + CHECKUP_CODESIGN_BUDGET);
     let run = codesign_runner(cancel);
-    let checks = check_bundles(&paths, &mut budget, deadline, &run);
+    let checks = check_bundles(&paths, &home, &mut budget, deadline, &run);
     let checked_count = checks.iter().filter(|c| c.signature.is_some()).count() as u64;
     let flagged_bundles = looked
         .iter()
@@ -616,7 +624,8 @@ mod tests {
 
     #[test]
     fn check_bundles_stops_at_the_budget_and_the_deadline_and_on_cancel() {
-        let dir = tmp("budget");
+        let home = tmp("budget");
+        let dir = home.join("Applications");
         let paths: Vec<PathBuf> = (0..4)
             .map(|i| {
                 let p = dir.join(format!("A{i}.app"));
@@ -633,7 +642,7 @@ mod tests {
             }
         };
         let mut budget = 5usize;
-        let checks = check_bundles(&paths, &mut budget, None, &valid_developer);
+        let checks = check_bundles(&paths, &home, &mut budget, None, &valid_developer);
         assert_eq!(runs.get(), 5, "two runs per valid bundle until the budget");
         assert_eq!(budget, 0);
         assert_eq!(checks[0].signature, Some(SignatureWord::DeveloperId));
@@ -650,7 +659,7 @@ mod tests {
             CodesignArgs::Dvv => panic!("never -dvv on an unsigned bundle"),
         };
         let mut budget = 10usize;
-        let checks = check_bundles(&paths, &mut budget, None, &unsigned);
+        let checks = check_bundles(&paths, &home, &mut budget, None, &unsigned);
         assert_eq!(budget, 6, "one run per unsigned bundle");
         assert!(
             checks
@@ -661,7 +670,7 @@ mod tests {
 
         let invalid = |_: &Path, _: CodesignArgs| out(1, "/x: invalid signature\n");
         let mut budget = 10usize;
-        let checks = check_bundles(&paths, &mut budget, None, &invalid);
+        let checks = check_bundles(&paths, &home, &mut budget, None, &invalid);
         assert!(
             checks
                 .iter()
@@ -678,7 +687,7 @@ mod tests {
         };
         let mut budget = 100usize;
         let deadline = Some(Instant::now() + Duration::from_millis(50));
-        let checks = check_bundles(&paths, &mut budget, deadline, &sleepy);
+        let checks = check_bundles(&paths, &home, &mut budget, deadline, &sleepy);
         assert_eq!(
             checks[0].signature, None,
             "the deadline passed during the first verify, so no -dvv"
@@ -697,11 +706,58 @@ mod tests {
             Err(ExecError::Cancelled)
         };
         let mut budget = 100usize;
-        let checks = check_bundles(&paths, &mut budget, None, &cancelling);
+        let checks = check_bundles(&paths, &home, &mut budget, None, &cancelling);
         assert_eq!(runs.get(), 1, "a cancelled runner stops");
         assert_eq!(budget, 0);
         assert!(checks.iter().all(|c| c.signature.is_none()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_bundle_swapped_for_a_symlink_after_the_listing_is_left_unchecked() {
+        let home = tmp("swap");
+        let apps = home.join("Applications");
+        let real = apps.join("Real.app");
+        let kept = apps.join("Kept.app");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::create_dir_all(&kept).unwrap();
+        let paths: Vec<PathBuf> = list_bundles(&home)
+            .unwrap()
+            .into_iter()
+            .map(|b| b.path)
+            .filter(|p| p.starts_with(&home))
+            .collect();
+        assert_eq!(paths, vec![kept.clone(), real.clone()]);
+        // Between the listing and the check, Real.app becomes a link to a folder under ~/Documents.
+        let target = home.join("Documents/Target.app");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::remove_dir_all(&real).unwrap();
+        symlink(&target, &real).unwrap();
+        let seen = std::cell::RefCell::new(Vec::<PathBuf>::new());
+        let runner = |path: &Path, _: CodesignArgs| {
+            seen.borrow_mut().push(path.to_path_buf());
+            out(1, "/x: code object is not signed at all\n")
+        };
+        let mut budget = 10usize;
+        let checks = check_bundles(&paths, &home, &mut budget, None, &runner);
+        assert_eq!(
+            checks[0].signature,
+            Some(SignatureWord::Unsigned),
+            "Kept.app is checked"
+        );
+        assert_eq!(
+            checks[1].signature, None,
+            "the swapped path runs no codesign"
+        );
+        assert_eq!(seen.borrow().as_slice(), std::slice::from_ref(&kept));
+        assert_eq!(budget, 9, "the swapped path spends nothing");
+        // A path that is gone is unchecked too.
+        std::fs::remove_file(&real).unwrap();
+        let mut budget = 10usize;
+        let checks = check_bundles(&paths, &home, &mut budget, None, &runner);
+        assert_eq!(checks[1].signature, None);
+        assert_eq!(budget, 9);
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
@@ -729,7 +785,8 @@ mod tests {
 
     #[test]
     fn the_check_up_scan_stays_ok_with_a_sleeping_runner() {
-        let dir = tmp("checkup");
+        let home = tmp("checkup");
+        let dir = home.join("Applications");
         let paths: Vec<PathBuf> = (0..3)
             .map(|i| {
                 let p = dir.join(format!("B{i}.app"));
@@ -743,12 +800,12 @@ mod tests {
         };
         let mut budget = CHECKUP_BUNDLE_CAP * 2;
         let deadline = Some(Instant::now() + Duration::from_millis(10));
-        let checks = check_bundles(&paths, &mut budget, deadline, &sleepy);
+        let checks = check_bundles(&paths, &home, &mut budget, deadline, &sleepy);
         let checked = checks.iter().filter(|c| c.signature.is_some()).count();
         assert_eq!(checked, 0, "later bundles stay unchecked");
         assert_eq!(checks.len(), paths.len(), "every bundle keeps its row");
         assert_eq!(CHECKUP_CODESIGN_BUDGET, Duration::from_secs(15));
         assert_eq!(CHECKUP_BUNDLE_CAP, 60);
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&home);
     }
 }

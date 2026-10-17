@@ -8,7 +8,6 @@ import { useConnect } from "../scan/ai-connect";
 import { limitReprobeMs } from "../scan/useAiAvailability";
 import { lastReport } from "../scan/machine";
 import { useFishyController } from "../guided/fishy/controller";
-import { formatDate } from "../app/labels";
 import { CHAT, FISHY, SHOW, WATCH } from "../guided/copy";
 import type { ChatBridge } from "../guided/state";
 import { STALE_AFTER_MS, autoAdvanceMs, paced } from "../guided/timing";
@@ -174,7 +173,8 @@ export function useChat(bridge: ChatBridge): UseChat {
           return false;
         }
       },
-      date: () => formatDate(new Date().toISOString()),
+      // The write-up is read later and out of context, so its title carries the year; the strip's formatDate does not.
+      date: () => new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric" }).format(new Date()),
     });
   }, [allowed, setRow]);
   const controllerRef = useRef<ChatController | null>(null);

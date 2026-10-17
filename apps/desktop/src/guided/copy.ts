@@ -614,6 +614,7 @@ export const ACTIVITY = {
     },
   },
   whatIf: {
+    headline: "If you leave it: {headline}",
     cost: "Leaving it keeps {p} off your score.",
     critical: "This is the one that would hurt most.",
   },

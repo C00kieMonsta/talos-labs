@@ -21,7 +21,7 @@ use tauri::{
 };
 use tauri_plugin_notification::NotificationExt;
 
-use crate::watch::{ModelProvider, OpenScreen, Rating, WatchState};
+use crate::watch::{ModelProvider, OpenScreen, ProbeReason, Rating, WatchState};
 
 /// The custom Quit item, shared by the app menu and the tray menu; `menu::on_event` exits for both.
 pub const QUIT_ID: &str = "talos-quit";
@@ -67,7 +67,12 @@ pub fn rows_for(state: &WatchState) -> Vec<f64> {
         return vec![58.0, 32.0, 32.0];
     }
     let checked = state.checking || state.last_check_at.is_some();
-    let unavailable = state.unavailable.len();
+    // A spotlight_off row is never drawn (WatchWindow.tsx shownUnavailable), so it sizes nothing.
+    let unavailable = state
+        .unavailable
+        .iter()
+        .filter(|row| row.reason != ProbeReason::SpotlightOff)
+        .count();
     // The line the window draws: about the shown rating, and never On this Mac on calm. The
     // Apple badge wraps to a second line, so its row is one line taller.
     let reason_row = |rating: Rating| -> f64 {
@@ -1052,6 +1057,33 @@ mod tests {
         let mut two = calm_full();
         two.unavailable = unavailable(2);
         assert_eq!(window_height(&two), 400.0, "two probes read as several");
+        let spotlight = UnavailableProbe {
+            probe_id: ProbeId::LibraryApps,
+            reason: ProbeReason::SpotlightOff,
+        };
+        let mut spotlight_only = calm_full();
+        spotlight_only.unavailable = vec![spotlight];
+        assert_eq!(
+            window_height(&spotlight_only),
+            332.0,
+            "calm: a lone spotlight_off row sizes no unreadable row"
+        );
+        let mut mixed = calm_full();
+        mixed.unavailable = vec![spotlight];
+        mixed.unavailable.extend(unavailable(1));
+        assert_eq!(
+            window_height(&mixed),
+            380.0,
+            "calm: spotlight_off beside one real row sizes one row"
+        );
+        let mut paused_spotlight = state(Rating::Calm, 0, CHECKED);
+        paused_spotlight.paused_until = Some("2026-10-17T13:00:00.000Z".into());
+        paused_spotlight.unavailable = vec![spotlight];
+        assert_eq!(
+            window_height(&paused_spotlight),
+            152.0,
+            "paused: a spotlight_off row never wraps the meta line"
+        );
         let mut no_provider = calm_full();
         no_provider.ai = ai(false, None);
         no_provider.judge = None;

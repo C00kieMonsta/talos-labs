@@ -1,4 +1,5 @@
 import type { WatchState } from "@talos/core";
+import { shownUnavailable } from "./copy";
 
 /**
  * The window's height as Rust sizes it (tray.rs window_height; docs/DESIGN-WATCH-WINDOW.md
@@ -25,18 +26,20 @@ function judgeRow(state: WatchState): number {
 export function watchWindowRows(state: WatchState, connect = false): readonly number[] {
   if (state.firstRun) return [58, 32, 32];
   const checked = state.checking || state.lastCheckAt !== null;
+  // A spotlight_off row is never drawn, so it sizes nothing (tray.rs rows_for filters it too).
+  const unavailableCount = shownUnavailable(state.unavailable).length;
   // Paused meta is look's: the unreadable count wraps it to a second line.
-  if (state.pausedUntil !== null) return [24, checked ? (state.unavailable.length > 0 ? 40 : 20) : 0, 20, 32];
+  if (state.pausedUntil !== null) return [24, checked ? (unavailableCount > 0 ? 40 : 20) : 0, 20, 32];
   const judge = judgeRow(state);
   if (state.rating === "calm") {
     const metaCalm = state.checking ? 20 : (state.lastCheckAt !== null ? 20 : 0) + 20;
-    const unreadable = state.unavailable.length === 0 ? 0 : state.unavailable.length === 1 ? 40 : 60;
+    const unreadable = unavailableCount === 0 ? 0 : unavailableCount === 1 ? 40 : 60;
     const sentence = judge === 0 ? 20 : 72;
     const upNext = state.report !== null && state.next !== null && state.next.reportId === state.report.reportId ? 28 : 0;
     const row5 = state.ai.enabled ? 44 : connect ? 52 : 0;
     return [24, metaCalm, unreadable, sentence, 20 + upNext, row5, 32];
   }
-  const metaItem = checked ? (state.unavailable.length > 0 ? 40 : 20) : 0;
+  const metaItem = checked ? (unavailableCount > 0 ? 40 : 20) : 0;
   if (state.rating === "keep_an_eye") {
     const body = state.items.length > 0 ? 92 : 20;
     return [24, metaItem, body, judge, 44, state.ai.enabled ? 32 : 0, 32];

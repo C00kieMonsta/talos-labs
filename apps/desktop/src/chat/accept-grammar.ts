@@ -32,6 +32,11 @@ function words(text: string): string[] {
     .filter((w) => w.length > 0 && !STOP.has(w));
 }
 
+/** True for a phrase of stop words only ("it", "this one"): it names nothing on its own. */
+export function namesNothing(phrase: string): boolean {
+  return words(phrase).length === 0;
+}
+
 /** The captured phrase, or null when no pattern matches. */
 export function acceptPhrase(text: string): string | null {
   const trimmed = text.trim();

@@ -51,11 +51,11 @@ export function chipLabel(id: ChipId): string {
   return LABELS[id];
 }
 
-type Context = "opening" | "result" | "offer" | "end" | "nothing" | "later" | "what_if";
+type Context = "opening" | "result" | "offer" | "end" | "nothing" | "later" | "what_if" | "reminded";
 
-/** A card the person just declined: resolved as snoozed and naming one rule. */
+/** A card the person just declined: resolved as snoozed and naming a rule (a batch names several). */
 function declined(m: ChatMessage): boolean {
-  return m.kind === "card" && m.state === "resolved" && m.outcome === "snoozed" && m.card.ruleId !== null;
+  return m.kind === "card" && m.state === "resolved" && m.outcome === "snoozed" && m.card.ruleIds.length > 0;
 }
 
 /** What the newest message says about where the conversation is. */
@@ -75,6 +75,7 @@ function contextOf(messages: readonly ChatMessage[]): Context {
         const before = [...earlier].reverse().find((p) => p.kind !== "row" && p.kind !== "notice");
         if (before !== undefined && declined(before)) return "later";
         if (before?.kind === "app" && before.label === "what_if") return "what_if";
+        if (before?.kind === "app" && before.label === "remind") return "reminded";
         return before?.kind === "card" && before.state === "resolved" ? "result" : "offer";
       }
       case "app":
@@ -82,6 +83,7 @@ function contextOf(messages: readonly ChatMessage[]): Context {
         if (m.label === "opening") return "opening";
         if (m.label === "result") return "result";
         if (m.label === "what_if") return "what_if";
+        if (m.label === "remind") return "reminded";
         return "offer";
       case "model":
         return "offer";
@@ -121,6 +123,12 @@ export function chipsFor(state: ChatState, facts: ChipFacts): readonly Chip[] {
       break;
     case "later":
       ids.push("remind_tomorrow", "what_if");
+      next();
+      ids.push("show_list");
+      break;
+    case "reminded":
+      // The reminder is set, so its chip goes; Why? would ask about the rule just put off.
+      ids.push("what_if");
       next();
       ids.push("show_list");
       break;

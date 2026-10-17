@@ -56,9 +56,14 @@ export function syncWalk(checklist: WalkChecklist, messages: readonly ChatMessag
   return { done: rows.filter((r) => r.icon === "ok").length, of: checklist.of, rows };
 }
 
-/** Settled rows fold into the progress line; the live step's rows (a batch is several) and the next two show, the rest is "and {n} more". */
+/** A row the person can still act on in this walk: running, or pending with no "Another day" tag. */
+export function openWalkRow(row: WalkRow): boolean {
+  return row.icon === "running" || (row.icon === "pending" && row.tag === undefined);
+}
+
+/** Settled and put-off rows fold into the progress line; the live step's rows (a batch is several) and the next two show, the rest is "and {n} more". */
 export function visibleWalkRows(checklist: WalkChecklist): { rows: readonly WalkRow[]; more: number } {
-  const open = checklist.rows.filter((r) => r.icon === "running" || r.icon === "pending");
+  const open = checklist.rows.filter(openWalkRow);
   const running = open.filter((r) => r.icon === "running");
   const pending = open.filter((r) => r.icon === "pending");
   const rows = [...running, ...pending.slice(0, 2)];

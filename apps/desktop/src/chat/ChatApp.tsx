@@ -3,7 +3,7 @@ import { Icon } from "../components/Icon";
 import { GuidedList, RowIcon } from "../guided/GuidedList";
 import { ACTIVITY, PLAN, SINCE } from "../guided/copy";
 import type { ChatMessage, WalkChecklist } from "./state";
-import { visibleWalkRows } from "./walk";
+import { openWalkRow, visibleWalkRows } from "./walk";
 
 type App = Extract<ChatMessage, { kind: "app" }>;
 
@@ -16,7 +16,7 @@ function WalkList({ checklist, onPromoteStep }: { checklist: WalkChecklist; onPr
       <ul className="guided-list chat-walk" role="list">
         {rows.map((row) => (
           <li key={`${row.stepId}:${row.ruleId}`} className={`guided-row guided-row-${row.icon}`}>
-            {row.icon === "pending" ? (
+            {row.icon === "pending" && openWalkRow(row) ? (
               <button type="button" className="guided-end-row chat-walk-row" onClick={() => onPromoteStep?.(row.stepId)}>
                 <RowIcon icon="pending" />
                 <span className="guided-row-text">

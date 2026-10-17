@@ -2899,9 +2899,11 @@ export async function walkChat(page: Page, baseUrl: string, visit: Visit): Promi
     await assertChatScreen(page, { primaries: 0, calls: 0 });
   });
   await visit({ name: "chat-remind-sunday" }, async () => {
+    // The live card is idle, so it collapses to the reminder line itself (2f); no second app message.
     await opening(C);
     await sendText(page, "remind me on Sunday");
-    await page.locator('.chat-app[data-label="remind"]').filter({ hasText: `OK. I'll bring this up on Sunday when you open me: ${DISK_HEADLINE}.` }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".chat-card").filter({ hasText: `OK. I'll bring this up on Sunday when you open me: ${DISK_HEADLINE}.` }).waitFor({ timeout: STEP_TIMEOUT });
+    if ((await page.locator('.chat-app[data-label="remind"]').count()) !== 0) throw new Error("the collapsed card and a reminder message both say OK");
     const until = (await reminders())["TL-MAC-001"];
     if (until === undefined || new Date(until).getDay() !== 0) throw new Error(`the Sunday reminder is not on a Sunday: ${until}`);
     await assertChatScreen(page, { primaries: 0, calls: 0 });
@@ -2973,8 +2975,10 @@ export async function walkChat(page: Page, baseUrl: string, visit: Visit): Promi
     await assertChatScreen(page, { primaries: 1, calls: 0 });
   });
   await visit({ name: "chat-look-into-gated" }, async () => {
-    // The port does not exist yet: the honest line, no call, no card.
+    // With no check-up item under the form (the write-up card names none), the watch's port does not exist yet: the honest line, no call, no card.
     await opening(C_LICENSED);
+    await chip(page, "Write this up");
+    await page.locator("pre.chat-writeup").waitFor({ timeout: STEP_TIMEOUT });
     await sendText(page, "look into this");
     await page.locator(".chat-notice").filter({ hasText: "I can't look closer from here yet. I'll keep checking on my usual timer." }).waitFor({ timeout: STEP_TIMEOUT });
     await assertChatScreen(page, { calls: 0 });
@@ -2983,6 +2987,7 @@ export async function walkChat(page: Page, baseUrl: string, visit: Visit): Promi
     await opening(C_LICENSED);
     await sendText(page, "watch closer for an hour");
     await page.locator(".chat-notice").filter({ hasText: "I can't change how often I check from here yet. You can set it in Settings." }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".chat-notice .guided-link").filter({ hasText: /^Open Settings$/ }).waitFor({ timeout: STEP_TIMEOUT });
     await assertChatScreen(page, { calls: 0 });
   });
   await visit({ name: "chat-model-remind" }, async () => {
@@ -2990,7 +2995,8 @@ export async function walkChat(page: Page, baseUrl: string, visit: Visit): Promi
     await opening(`${C}&chat_reply=remind`);
     await sendText(page, "Could you bring this up another time?");
     await modelReady(page);
-    await page.locator('.chat-app[data-label="remind"]').waitFor({ timeout: STEP_TIMEOUT });
+    // The reminder line sits in the collapsed idle card when the model named the live item, else in its own message.
+    await page.locator(".chat-card, .chat-app").filter({ hasText: "OK. I'll bring this up tomorrow when you open me:" }).first().waitFor({ timeout: STEP_TIMEOUT });
     if (Object.keys(await reminders()).length === 0) throw new Error("the model's reminder wrote nothing");
     await assertChatScreen(page, { calls: 1 });
   });

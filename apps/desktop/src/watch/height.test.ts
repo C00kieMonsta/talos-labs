@@ -87,6 +87,18 @@ describe("watchWindowHeight, the rule", () => {
     expect(watchWindowHeight(fakeWatchState({ ...base, unavailable: [UNREADABLE, { probeId: "probe.remote_access", reason: "unsigned_build" }, { probeId: "probe.file_sharing", reason: "unsigned_build" }] }))).toBe(400);
   });
 
+  it("a spotlight_off row sizes nothing: alone it is no unreadable row, beside one real row it is one row", () => {
+    const base = { ai: AI, judge: JUDGE_CALM, report: REPORT, next: NEXT } as const;
+    const spotlight = { probeId: "probe.library_apps", reason: "spotlight_off" } as const;
+    expect(watchWindowHeight(fakeWatchState({ ...base, unavailable: [spotlight] }))).toBe(332);
+    expect(watchWindowRows(fakeWatchState({ ...base, unavailable: [spotlight] }))[2]).toBe(0);
+    expect(watchWindowHeight(fakeWatchState({ ...base, unavailable: [spotlight, UNREADABLE] }))).toBe(380);
+    expect(watchWindowRows(fakeWatchState({ ...base, unavailable: [spotlight, UNREADABLE] }))[2]).toBe(40);
+    expect(watchWindowRows(fakeWatchState({ pausedUntil: "2026-10-17T13:00:00.000Z", unavailable: [spotlight] }))).toEqual([24, 20, 20, 32]);
+    expect(watchWindowRows(fakeWatchState({ rating: "keep_an_eye", items: [item()], unavailable: [spotlight] }))[1]).toBe(20);
+    expect(watchWindowRows(fakeWatchState({ rating: "act_now", items: [item()], unavailable: [spotlight, UNREADABLE] }))[1]).toBe(40);
+  });
+
   it("calm row 5: nothing with the switch off, whether or not a provider is chosen; 52 only where the Connect line is drawn", () => {
     expect(watchWindowHeight(fakeWatchState({ ai: { enabled: false, provider: null }, report: REPORT, next: NEXT }))).toBe(228);
     expect(watchWindowHeight(fakeWatchState({ ai: { enabled: false, provider: "chatgpt" }, report: REPORT, next: NEXT }))).toBe(228);

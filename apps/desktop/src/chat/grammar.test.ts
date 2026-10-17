@@ -18,12 +18,19 @@ describe("grammarMatch", () => {
     expect(grammarMatch("ask me again tomorrow.", CONTEXT)).toEqual({ kind: "remind", ruleId: "TL-MAC-002", when: "tomorrow" });
     expect(grammarMatch("ask me tomorrow", { ...CONTEXT, newestRuleId: null })).toBeNull();
     expect(grammarMatch("remind me about the firewall tomorrow", { ...CONTEXT, undone: ids(["TL-MAC-001"]) })).toBeNull();
+    // The newest card's rule is only a target while a reminder may still name it.
+    expect(grammarMatch("ask me tomorrow", { ...CONTEXT, newestRuleId: "TL-MAC-026" })).toBeNull();
+    expect(grammarMatch("remind me tomorrow about it", CONTEXT)).toEqual({ kind: "remind", ruleId: "TL-MAC-002", when: "tomorrow" });
+    expect(grammarMatch("ask me tomorrow about this", CONTEXT)).toEqual({ kind: "remind", ruleId: "TL-MAC-002", when: "tomorrow" });
   });
 
   it("the what-if question resolves against the failing rules; the write-up forms carry no id", () => {
     expect(grammarMatch("what if I leave the disk alone?", CONTEXT)).toEqual({ kind: "what_if", ruleId: "TL-MAC-001" });
     expect(grammarMatch("What happens if I skip the backup", CONTEXT)).toEqual({ kind: "what_if", ruleId: "TL-MAC-026" });
     expect(grammarMatch("what if I don't turn on the firewall?", CONTEXT)).toEqual({ kind: "what_if", ruleId: "TL-MAC-002" });
+    expect(grammarMatch("what if I leave it", CONTEXT)).toEqual({ kind: "what_if", ruleId: "TL-MAC-002" });
+    expect(grammarMatch("what if I leave it", { ...CONTEXT, newestRuleId: null })).toBeNull();
+    expect(grammarMatch("what if I leave it", { ...CONTEXT, newestRuleId: "TL-MAC-008" })).toBeNull();
     expect(grammarMatch("write this up for my son", CONTEXT)).toEqual({ kind: "write_up" });
     expect(grammarMatch("Write it up", CONTEXT)).toEqual({ kind: "write_up" });
     expect(grammarMatch("give me a summary I can send", CONTEXT)).toEqual({ kind: "write_up" });
@@ -44,6 +51,8 @@ describe("grammarMatch", () => {
     expect(grammarMatch("what if it rains", CONTEXT)).toBeNull();
     expect(grammarMatch("what if I leave the kettle alone?", CONTEXT)).toBeNull();
     expect(grammarMatch("look into the kettle", CONTEXT)).toBeNull();
+    expect(grammarMatch("look at the firewall", CONTEXT)).toBeNull();
+    expect(grammarMatch("look at this", CONTEXT)).toBeNull();
     expect(grammarMatch("why does the disk matter?", CONTEXT)).toBeNull();
     expect(machineText("remind me about /Users/alice tomorrow")).toBe(true);
     expect(machineText("what if I leave ~/Public alone?")).toBe(true);

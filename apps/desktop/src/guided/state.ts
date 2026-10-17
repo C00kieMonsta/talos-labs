@@ -128,6 +128,8 @@ export interface ChatBridge {
   later(step: GuidedStep): readonly RuleId[];
   /** "Ask me again tomorrow" and "Remind me on Sunday" (DESIGN-AGENT 2f): snoozed and reminders to 09:00 that day; laterCount untouched. */
   remind(step: GuidedStep, when: RemindWhen): void;
+  /** The same reminder for a rule with no step this check-up (a later id): the two dates, nothing else. */
+  remindRules(ruleIds: readonly RuleId[], when: RemindWhen): void;
   /** The due reminder ids landed() found for this check-up, for the opening's lead line. */
   readonly reminders: readonly RuleId[];
   /** "Leave it alone, I know the risk": accepted until "Ask me again". */

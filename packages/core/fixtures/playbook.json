@@ -1039,7 +1039,7 @@
       "sig.airdrop_everyone"
     ],
     "title": "Limit AirDrop to people you know",
-    "whatExpertsDo": "Experts set AirDrop to Contacts Only, so no one nearby can push files to the Mac.",
+    "whatExpertsDo": "Experts set AirDrop to Contacts Only, so strangers nearby cannot send files to the Mac.",
     "phase": "containment",
     "outcome": "RS.MI-02"
   },

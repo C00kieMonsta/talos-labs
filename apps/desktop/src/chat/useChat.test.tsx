@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import type { ReactNode } from "react";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import type { AiAvailability, WatchState } from "@talos/core";
-import { DEV_MACHINE, WATCH_AGENT_PORTS_READY, askWhyQuestion, reminderDate, validateChat } from "@talos/core";
+import type { AiAvailability, GuidedMemory, WatchState } from "@talos/core";
+import { DEV_MACHINE, EMPTY_GUIDED_MEMORY, REMINDER_HOUR, WATCH_AGENT_PORTS_READY, askWhyQuestion, reminderDate, validateChat } from "@talos/core";
 import { AppContext } from "../app/context";
 import type { AppContextValue } from "../app/context";
 import { fakeAdapters, fakeContextValue, fakeWatchController, fakeWatchState } from "../app/testing";
@@ -12,6 +12,7 @@ import type { GuidedPlan } from "@talos/core";
 import { ACTIVITY, CHAT, END, EXPLAIN, FISHY, LATER_FLASH, WATCH } from "../guided/copy";
 import { guidedFor } from "../guided/plan";
 import { CHAT_REDUCED_PARTIAL_MS } from "./useChat";
+import { autoAdvanceMs } from "../guided/timing";
 import { DEFAULT_SETTINGS } from "../settings";
 import type { AppSettings } from "../settings";
 import type { ScanState } from "../scan/machine";
@@ -39,8 +40,9 @@ interface Holder {
   licensed: boolean;
 }
 
-function harness(script: ScriptedChat = {}, licensed = true) {
-  const plan = planFor(licensed);
+/** `memory` is what the allow-lists read; `planMemory` is what the plan was built from, so a step can outlive an accept. */
+function harness(script: ScriptedChat = {}, licensed = true, memory: GuidedMemory = EMPTY_GUIDED_MEMORY, planMemory: GuidedMemory = memory) {
+  const plan = planFor(licensed, planMemory);
   const { bridge, control } = fakeBridge(plan);
   const explainer = scriptedExplainer(script);
   const holder: Holder = { scan: { kind: "ready", report: REPORT, state: DEV_MACHINE, explain: { kind: "off" }, lastRecheck: null, fixing: null, watching: null }, availability: "available", watch: fakeWatchState(), draft: null, consume: vi.fn(), licensed };
@@ -48,7 +50,7 @@ function harness(script: ScriptedChat = {}, licensed = true) {
   const watch = fakeWatchController();
   const wrapper = ({ children }: { children: ReactNode }) => {
     const settings: AppSettings = { ...DEFAULT_SETTINGS, onboarded: true, explainer: { ...DEFAULT_SETTINGS.explainer, provider: "chatgpt" }, watch: { ...DEFAULT_SETTINGS.watch, enabled: true } };
-    const base = fakeContextValue({ adapters, license: { status: "none" }, gate: { licensed: holder.licensed, freeFixes: plan.freeFixes, has: () => holder.licensed, fixLocked: () => !holder.licensed, explainLocked: () => false, watchLocked: !holder.licensed }, scanState: holder.scan, settings });
+    const base = fakeContextValue({ adapters, license: { status: "none" }, gate: { licensed: holder.licensed, freeFixes: plan.freeFixes, has: () => holder.licensed, fixLocked: () => !holder.licensed, explainLocked: () => false, watchLocked: !holder.licensed }, scanState: holder.scan, settings, guidedMemory: memory });
     const value: AppContextValue = { ...base, ai: { ...base.ai, availability: holder.availability } };
     return createElement(AppContext.Provider, { value }, createElement(WatchControllerContext.Provider, { value: { ...watch, state: holder.watch } }, createElement(ChatDraftContext.Provider, { value: { draft: holder.draft, consume: holder.consume } }, children)));
   };
@@ -453,7 +455,8 @@ describe("useChat: agent", () => {
     expect(remind?.headline).toBe(ACTIVITY.chips.remindTomorrow);
     expect(remind?.body).toBe(ACTIVITY.remind.tomorrow.replace("{headline}", guidedFor("TL-MAC-001").headline));
     expect(h.explainer.calls).toHaveLength(0);
-    expect(reminderDate("2026-10-18T10:00:00.000Z", "sunday").slice(0, 10)).toBe("2026-10-25");
+    const sunday = new Date(reminderDate(new Date(2026, 9, 18, 12).toISOString(), "sunday"));
+    expect([sunday.getDate(), sunday.getDay(), sunday.getHours()]).toEqual([25, 0, REMINDER_HOUR]);
   });
 
   it("the typed Sunday form collapses the live card to the line and names the rule it resolved; a due reminder renders the lead once", () => {
@@ -566,32 +569,146 @@ describe("useChat: agent", () => {
     expect(h.explainer.calls).toHaveLength(0);
   });
 
-  it("the typed look-into and closer forms answer the gated lines with no call; the chip row never exceeds four", () => {
+  it("typed look-into on a check-up item runs the recheck; with no item it answers the gated line; closer offers Settings; no call", () => {
     const h = harness();
+    const live = cards(h.hook.result.current.state.messages).find((c) => c.live)!;
     act(() => h.hook.result.current.controller.send("look into this"));
-    expect(h.hook.result.current.state.messages.at(-1)).toMatchObject({ kind: "notice", text: ACTIVITY.refuse.lookNotYet });
+    expect(h.bridge.checkAgain).toHaveBeenCalledWith(live.step);
+    expect(h.hook.result.current.state.messages.some((m) => m.kind === "notice")).toBe(false);
+    // The write-up card names no rule, so the bare form has nothing on this Mac to recheck.
+    act(() => h.hook.result.current.controller.chip("write_up"));
+    act(() => h.hook.result.current.controller.send("look into this"));
+    expect(h.hook.result.current.state.messages.at(-1)).toMatchObject({ kind: "notice", text: ACTIVITY.refuse.lookNotYet, wayOut: null });
     act(() => h.hook.result.current.controller.send("watch closer for an hour"));
-    expect(h.hook.result.current.state.messages.at(-1)).toMatchObject({ kind: "notice", text: ACTIVITY.refuse.closerNotYet });
+    expect(h.hook.result.current.state.messages.at(-1)).toMatchObject({ kind: "notice", text: ACTIVITY.refuse.closerNotYet, wayOut: { kind: "link", label: ACTIVITY.links.settings } });
     expect(h.explainer.calls).toHaveLength(0);
     expect(h.hook.result.current.chips.length).toBeLessThanOrEqual(4);
     const free = harness({}, false);
     act(() => free.hook.result.current.controller.send("look into this"));
-    expect(free.hook.result.current.state.messages.at(-1)).toMatchObject({ kind: "notice", text: ACTIVITY.refuse.full_version });
+    expect(free.hook.result.current.state.messages.at(-1)).toMatchObject({ kind: "notice", text: ACTIVITY.refuse.full_version_recheck });
+    expect(free.bridge.checkAgain).not.toHaveBeenCalled();
     for (const chip of ["show_list", "whats_next", "write_up"] as const) {
       act(() => free.hook.result.current.controller.chip(chip));
       expect(free.hook.result.current.chips.length).toBeLessThanOrEqual(4);
     }
   });
 
-  it("a model reply naming remind_rule lands the reminder after the model block; one naming investigate is dropped by the validator", async () => {
+  it("a typed reminder with the live card idle collapses the card to the reminder line with no second message, and a batch card is a target", () => {
+    const h = harness();
+    act(() => h.hook.result.current.controller.chip("fix_what_you_can"));
+    const batch = cards(h.hook.result.current.state.messages).find((c) => c.live)!;
+    expect(batch.card.kind).toBe("batch");
+    act(() => h.hook.result.current.controller.send("ask me tomorrow"));
+    expect(h.bridge.remind).toHaveBeenCalledWith(batch.step, "tomorrow");
+    const first = batch.card.ruleIds[0]!;
+    const body = ACTIVITY.remind.tomorrow.replace("{headline}", guidedFor(first).headline);
+    expect(cards(h.hook.result.current.state.messages).find((c) => c.id === batch.id)).toMatchObject({ state: "resolved", outcome: "snoozed", result: body });
+    expect(app(h.hook.result.current.state.messages, "remind")).toHaveLength(0);
+    expect(h.explainer.calls).toHaveLength(0);
+  });
+
+  it("a reminder never names a rule outside allowed.remind: an accepted rule or one just fixed", async () => {
+    const h = harness({}, true, { ...EMPTY_GUIDED_MEMORY, accepted: { "TL-MAC-001": "2026-10-10T09:00:00.000Z" } }, EMPTY_GUIDED_MEMORY);
+    expect(cards(h.hook.result.current.state.messages).find((c) => c.live)?.card.ruleId).toBe("TL-MAC-001");
+    act(() => h.hook.result.current.controller.send("Ask me again tomorrow"));
+    expect(h.bridge.remind).not.toHaveBeenCalled();
+    expect(h.bridge.remindRules).not.toHaveBeenCalled();
+    act(() => h.hook.result.current.controller.send("remind me tomorrow"));
+    expect(h.bridge.remind).not.toHaveBeenCalled();
+    await waitFor(() => expect(h.hook.result.current.state.stream.kind).toBe("idle"));
+    const g = harness();
+    const live = cards(g.hook.result.current.state.messages).find((c) => c.live)!;
+    act(() => g.hook.result.current.controller.primary(live.id));
+    g.control.settled = { step: live.step!, outcome: "fixed", state: { kind: "done", line: "Done.", rows: [] } };
+    g.control.done = [live.step!.id];
+    g.holder.scan = { ...g.holder.scan };
+    g.hook.rerender();
+    await waitFor(() => expect(g.hook.result.current.state.working).toBeNull());
+    act(() => g.hook.result.current.controller.send("ask me again tomorrow"));
+    expect(g.bridge.remind).not.toHaveBeenCalled();
+    expect(app(g.hook.result.current.state.messages, "remind")).toHaveLength(0);
+  });
+
+  it("a model reminder for a later id with no step writes the dates through remindRules and renders the line", async () => {
+    const memory: GuidedMemory = { ...EMPTY_GUIDED_MEMORY, snoozed: { "TL-MAC-010": "2026-12-01T00:00:00.000Z" } };
+    const h = harness({ result: { ok: true, value: { reply: "Sunday it is.", relatedRuleIds: [], outsideScope: false, intents: [{ kind: "remind_rule", ruleId: "TL-MAC-010", signalId: null, when: "sunday" }], locked: [] } } }, true, memory);
+    expect(h.plan.later).toEqual(["TL-MAC-010"]);
+    act(() => h.hook.result.current.controller.send("Could you bring the screen lock up on Sunday?"));
+    await waitFor(() => expect(h.hook.result.current.state.stream.kind).toBe("idle"));
+    expect(h.bridge.remindRules).toHaveBeenCalledWith(["TL-MAC-010"], "sunday");
+    expect(h.bridge.remind).not.toHaveBeenCalled();
+    expect(app(h.hook.result.current.state.messages, "remind").at(-1)?.body).toBe(ACTIVITY.remind.sunday.replace("{headline}", guidedFor("TL-MAC-010").headline));
+  });
+
+  it("the what-if headline names the item; the write-up title carries the year", () => {
+    const h = harness();
+    act(() => h.hook.result.current.controller.send("what if I leave the disk alone?"));
+    expect(app(h.hook.result.current.state.messages, "what_if").at(-1)?.headline).toBe(ACTIVITY.whatIf.headline.replace("{headline}", guidedFor("TL-MAC-001").headline));
+    act(() => h.hook.result.current.controller.chip("write_up"));
+    const card = cards(h.hook.result.current.state.messages).find((c) => c.card.kind === "write_up")!;
+    expect(card.writeUpText?.split("\n")[0]).toMatch(/^Talos Labs check-up, \d{1,2} [A-Z][a-z]+ \d{4}$/);
+  });
+
+  it("Do this later and a typed reminder during Do them all land the next card after the tick and tag the row Another day", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    act(() => h.hook.result.current.controller.chip("do_them_all"));
+    const walk = () => app(h.hook.result.current.state.messages, "walk").at(-1)?.checklist ?? null;
+    const live = cards(h.hook.result.current.state.messages).find((c) => c.live)!;
+    act(() => h.hook.result.current.controller.link(live.id));
+    h.control.done = [live.step!.id];
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(autoAdvanceMs(false) + 1);
+    });
+    const second = cards(h.hook.result.current.state.messages).find((c) => c.live)!;
+    expect(second.id).not.toBe(live.id);
+    expect(second.step?.id).toBe(h.plan.steps.filter((s) => s.kind !== "paywall" && s.id !== live.step!.id)[0]?.id);
+    expect(walk()?.rows.find((r) => r.stepId === live.step!.id)?.tag).toBe(ACTIVITY.rows.anotherDay);
+    expect(h.hook.result.current.state.walking).toBe(true);
+    act(() => h.hook.result.current.controller.send("ask me tomorrow"));
+    expect(h.bridge.remind).toHaveBeenCalledWith(second.step, "tomorrow");
+    h.control.done = [live.step!.id, second.step!.id];
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(autoAdvanceMs(false) + 1);
+    });
+    const third = cards(h.hook.result.current.state.messages).find((c) => c.live)!;
+    expect(third.id).not.toBe(second.id);
+    expect(third.state).toBe("idle");
+    expect(h.explainer.calls).toHaveLength(0);
+  });
+
+  it("a row tapped between a result and the walk's tick stays the one live card; the tick lands no second card for it", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    act(() => h.hook.result.current.controller.chip("do_them_all"));
+    const live = cards(h.hook.result.current.state.messages).find((c) => c.live)!;
+    act(() => h.hook.result.current.controller.primary(live.id));
+    h.control.settled = { step: live.step!, outcome: "fixed", state: { kind: "done", line: "Done.", rows: live.card.ruleIds.map((ruleId) => ({ ruleId, ok: true, text: "x" })) } };
+    h.control.done = [live.step!.id];
+    h.holder.scan = { ...h.holder.scan };
+    h.hook.rerender();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    const chosen = h.plan.steps.filter((s) => s.kind !== "paywall" && s.id !== live.step!.id).at(-1)!;
+    act(() => h.hook.result.current.controller.promoteStep(chosen.id));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(autoAdvanceMs(false) + 1);
+    });
+    const { messages } = h.hook.result.current.state;
+    expect(messages.filter((m) => (m.kind === "card" && m.step?.id === chosen.id) || (m.kind === "row" && m.seed.step?.id === chosen.id))).toHaveLength(1);
+    expect(cards(messages).find((c) => c.live)?.step?.id).toBe(chosen.id);
+  });
+
+  it("a model reply naming remind_rule collapses the item's idle card to the reminder line after the model block; one naming investigate is dropped by the validator", async () => {
     const h = harness({ result: { ok: true, value: { reply: "Tomorrow it is.", relatedRuleIds: [], outsideScope: false, intents: [{ kind: "remind_rule", ruleId: "TL-MAC-001", signalId: null, when: "tomorrow" }], locked: [] } } });
+    const live = cards(h.hook.result.current.state.messages).find((c) => c.live)!;
     act(() => h.hook.result.current.controller.send("Can you ask me tomorrow instead?"));
     await waitFor(() => expect(h.hook.result.current.state.stream.kind).toBe("idle"));
     const messages = h.hook.result.current.state.messages;
-    const model = messages.findIndex((m) => m.kind === "model" && m.text === "Tomorrow it is.");
-    const remind = messages.findIndex((m) => m.kind === "app" && m.label === "remind");
-    expect(model).toBeGreaterThan(-1);
-    expect(remind).toBeGreaterThan(model);
+    expect(messages.some((m) => m.kind === "model" && m.text === "Tomorrow it is.")).toBe(true);
+    expect(cards(messages).find((c) => c.id === live.id)).toMatchObject({ state: "resolved", outcome: "snoozed", result: ACTIVITY.remind.tomorrow.replace("{headline}", guidedFor("TL-MAC-001").headline) });
+    expect(app(messages, "remind")).toHaveLength(0);
     expect(h.bridge.remind).toHaveBeenCalledWith(h.plan.steps.find((s) => s.id === "show:TL-MAC-001"), "tomorrow");
     const allowed = allowedFor(h.plan, true);
     const raw = { reply: "That one is worth a closer look.", relatedRuleIds: [], outsideScope: false, intents: [{ kind: "investigate", ruleId: null, signalId: "sig.persistence_new", when: null }] };

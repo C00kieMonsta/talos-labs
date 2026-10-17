@@ -84,11 +84,11 @@ describe("HEIGHT_CASES", () => {
 
   it("every state carries every WatchState key in the reference order", () => {
     expect(keys.slice(-8)).toEqual(["nextCheckAt", "lastChangeAt", "ai", "judge", "recentCount", "rulesSince", "report", "next"]);
-    expect(HEIGHT_CASES).toHaveLength(19);
+    expect(HEIGHT_CASES).toHaveLength(21);
     for (const c of HEIGHT_CASES) expect(Object.keys(c.state), c.name).toEqual(keys);
   });
 
-  it("the sixteen names and heights are the ones of contract F, plus paused-unreadable, calm-no-provider, calm-apple-reason and look-apple-reason", () => {
+  it("the sixteen names and heights are the ones of contract F, plus paused-unreadable, calm-no-provider, calm-apple-reason, look-apple-reason and the two spotlight-off cases", () => {
     expect(HEIGHT_CASES.map((c) => [c.name, c.height])).toEqual([
       ["first-run", 170],
       ["paused", 152],
@@ -96,6 +96,8 @@ describe("HEIGHT_CASES", () => {
       ["calm-reason", 332],
       ["calm", 280],
       ["calm-unreadable", 400],
+      ["calm-spotlight-off", 332],
+      ["calm-unreadable-spotlight-off", 380],
       ["calm-no-provider", 228],
       ["calm-no-ai", 228],
       ["calm-apple-reason", 280],
@@ -112,6 +114,8 @@ describe("HEIGHT_CASES", () => {
     ]);
     const unreadable = HEIGHT_CASES.find((c) => c.name === "calm-unreadable");
     expect(unreadable?.state.unavailable.map((p) => p.reason)).toEqual(["unsigned_build", "unsigned_build", "unsigned_build"]);
+    const mixed = HEIGHT_CASES.find((c) => c.name === "calm-unreadable-spotlight-off");
+    expect(mixed?.state.unavailable.map((p) => p.reason)).toEqual(["spotlight_off", "unsigned_build"]);
     for (const c of HEIGHT_CASES) {
       if (c.state.next !== null) expect(MACOS_CATALOG.rules.some((r) => r.id === c.state.next?.ruleId), c.name).toBe(true);
       expect(c.height, c.name).toBeLessThanOrEqual(420);

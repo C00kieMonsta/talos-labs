@@ -1,5 +1,5 @@
 import type { RemindWhen, RuleId } from "@talos/core";
-import { matchRules } from "./accept-grammar";
+import { matchRules, namesNothing } from "./accept-grammar";
 
 /**
  * The agent grammars (docs/DESIGN-AGENT.md section 4 "Grammars"): the typed forms of the five intents, routed after the
@@ -28,16 +28,17 @@ const REMIND_A = new RegExp(`^(?:(?:ask|remind|tell) me|bring (?:this|it) up)(?:
 const REMIND_B = new RegExp(`^(tomorrow|on sunday)[,.]? (?:ask|remind) me(?: again)?(?: about (.+?))?${END}`, "i");
 const WHAT_IF = new RegExp(`^what (?:if|happens if|would happen if) i (?:leave|skip|ignore|don'?t (?:do|fix|lock|turn on)) (.+?)(?: alone)?\\??${END}`, "i");
 const WRITE_UP = [new RegExp(`^(?:write|type|put) (?:this|it) up(?: for .+)?${END}`, "i"), new RegExp(`^(?:give|make|send) me a summary.*$`, "i")];
-const LOOK_BARE = new RegExp(`^(?:look (?:into|at) (?:this|it|that)|look closer(?: at (?:this|it|that))?|check (?:this|that|it) again|dig into (?:this|it|that))${END}`, "i");
-const LOOK_PHRASE = new RegExp(`^(?:look into|look closer at|dig into|look at) (.+?)(?: again)?${END}`, "i");
+const LOOK_BARE = new RegExp(`^(?:look into (?:this|it|that)|look closer(?: at (?:this|it|that))?|check (?:this|that|it) again|dig into (?:this|it|that))${END}`, "i");
+const LOOK_PHRASE = new RegExp(`^(?:look into|look closer at|dig into) (.+?)(?: again)?${END}`, "i");
 const CLOSER = new RegExp(`^(?:watch|check) (?:this |it )?(?:closer|more often)(?: for an hour)?${END}`, "i");
 
 function whenOf(word: string): RemindWhen {
   return word.toLowerCase() === "tomorrow" ? "tomorrow" : "sunday";
 }
 
+/** The candidate the phrase names; with no phrase, or one of stop words, the newest card's rule when it is a candidate. */
 function resolve(phrase: string | undefined, candidates: readonly RuleId[], fallback: RuleId | null): RuleId | null {
-  if (phrase === undefined) return fallback;
+  if (phrase === undefined || namesNothing(phrase)) return fallback !== null && candidates.includes(fallback) ? fallback : null;
   return matchRules(phrase, candidates)[0] ?? null;
 }
 
@@ -54,7 +55,7 @@ export function grammarMatch(text: string, context: GrammarContext): GrammarMatc
   }
   const whatIf = WHAT_IF.exec(trimmed);
   if (whatIf !== null) {
-    const ruleId = resolve(whatIf[1], context.failing, null);
+    const ruleId = resolve(whatIf[1], context.failing, context.newestRuleId);
     return ruleId === null ? null : { kind: "what_if", ruleId };
   }
   if (WRITE_UP.some((p) => p.test(trimmed))) return { kind: "write_up" };
@@ -62,7 +63,7 @@ export function grammarMatch(text: string, context: GrammarContext): GrammarMatc
   if (LOOK_BARE.test(trimmed)) return { kind: "investigate", ruleId: context.newestRuleId };
   const look = LOOK_PHRASE.exec(trimmed);
   if (look !== null) {
-    const ruleId = resolve(look[1], context.failing, null);
+    const ruleId = resolve(look[1], context.failing, context.newestRuleId);
     return ruleId === null ? null : { kind: "investigate", ruleId };
   }
   return null;

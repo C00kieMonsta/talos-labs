@@ -100,7 +100,9 @@ export function buildWriteUp(input: WriteUpInput, strings: WriteUpStrings, catal
   const { value, grade } = input.report.score;
   if (value !== null && grade !== null) push(strings.score.replace("{n}", String(value)).replace("{grade}", strings.grade[grade]));
 
-  const undone = [...new Set(input.plan.steps.flatMap(stepRuleIds))].filter((id) => !fixed.has(id));
+  // The chat keeps every step it showed, so a snoozed or accepted rule still has one; it belongs to its own section only.
+  const aside = new Set<RuleId>([...input.plan.later, ...input.plan.accepted]);
+  const undone = [...new Set(input.plan.steps.flatMap(stepRuleIds))].filter((id) => !fixed.has(id) && !aside.has(id));
   section(strings.fixed, guidedOf(input.fixed, (rule) => withoutDone(rule.guided.done)));
   section(strings.todo, guidedOf(undone, (rule) => `${rule.guided.headline}. ${rule.guided.why}`));
   section(strings.later, guidedOf(input.plan.later, (rule) => rule.guided.headline));
