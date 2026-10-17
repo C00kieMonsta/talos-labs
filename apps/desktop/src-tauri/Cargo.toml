@@ -75,3 +75,9 @@ codegen-units = 1
 lto = true
 opt-level = 3
 strip = true
+
+# The crates.io tray-icon 0.25.1 puts its click target at the button's frame instead of its bounds and
+# measures the icon from the status window, which is full width on macOS 26 and later. vendor/tray-icon
+# is that release with those two fixes (search "Talos patch"); drop this once upstream carries them.
+[patch.crates-io]
+tray-icon = { path = "vendor/tray-icon" }

@@ -514,11 +514,23 @@ fn toggle_watch_window(app: &AppHandle, rect: Rect, position: PhysicalPosition<f
         hide_watch_window(app);
         return;
     }
+    // The click position is physical, and monitor_from_point compares in points, so match the
+    // monitor by its physical rect. A miss falls back to the primary display, never to scale 1.
     let monitor = app
-        .monitor_from_point(position.x, position.y)
+        .available_monitors()
         .ok()
-        .flatten();
-    let scale = monitor.as_ref().map_or(1.0, tauri::Monitor::scale_factor);
+        .and_then(|monitors| {
+            monitors.into_iter().find(|monitor| {
+                let origin = monitor.position();
+                let size = monitor.size();
+                position.x >= f64::from(origin.x)
+                    && position.x < f64::from(origin.x) + f64::from(size.width)
+                    && position.y >= f64::from(origin.y)
+                    && position.y < f64::from(origin.y) + f64::from(size.height)
+            })
+        })
+        .or_else(|| app.primary_monitor().ok().flatten());
+    let scale = monitor.as_ref().map_or(2.0, tauri::Monitor::scale_factor);
     let work_area = monitor.as_ref().map_or(
         LogicalRect {
             x: f64::MIN / 2.0,

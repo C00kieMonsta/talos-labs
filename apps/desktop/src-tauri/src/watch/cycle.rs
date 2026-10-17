@@ -609,14 +609,15 @@ pub fn prepare(baseline: &mut Baseline, input: &PrepareInput<'_>) -> (WatchConte
     if let Some(report) = input.report {
         baseline.rules = snapshot_of(report);
     }
-    // Gates open when the context says gated and close when it no longer does.
+    // Gates open when the context says gated and close when a fresh reading no longer does.
+    // An unavailable reading says nothing about the flip, so the question stays open.
     for signal in &context.signals {
         if signal.gated {
             baseline
                 .gates
                 .entry(signal.signal_id)
                 .or_insert_with(|| now.clone());
-        } else {
+        } else if signal.freshness == Freshness::Fresh {
             baseline.gates.remove(&signal.signal_id);
         }
     }
@@ -2740,7 +2741,7 @@ mod tests {
     }
 
     #[test]
-    fn repro_an_open_gate_survives_an_unavailable_read_and_is_not_accepted() {
+    fn an_open_gate_survives_an_unavailable_read_and_is_not_accepted_after_a_day() {
         let settings = WatchSettingsFile::default();
         let mut baseline = Baseline::new();
         let on = vec![ok(
