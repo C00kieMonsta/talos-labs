@@ -104,7 +104,7 @@ describe("WATCH_WINDOW copy", () => {
     for (const headline of Object.values(FISHY.noticed.headline)) {
       const question = WATCH_WINDOW.askWhy(headline);
       expect(question).toBe(askWhyQuestion(headline));
-      expect(question).not.toContain('"');
+      expect(question).toBe(`Why does "${headline}" matter?`);
       expect(question.startsWith("Why does ")).toBe(true);
       expect(question.endsWith(" matter?")).toBe(true);
       expect(syllablesPerWord(question), headline).toBeLessThanOrEqual(1.6);

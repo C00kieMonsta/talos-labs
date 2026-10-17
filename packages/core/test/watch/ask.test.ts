@@ -4,17 +4,16 @@ import { WATCH_HEADLINES } from "../../src/watch/cases";
 import { WATCH_BANNED_PATTERN } from "../../src/watch/words";
 
 describe("askWhyQuestion", () => {
-  it("is the Why chip's form: the headline with its first letter lower-cased, no quotes", () => {
-    expect(askWhyQuestion("A new start-up program appeared")).toBe("Why does a new start-up program appeared matter?");
-    expect(askWhyQuestion("A new start-up program appeared")).not.toContain('"');
+  it("is the Why chip's form: the headline quoted as a title, its case kept", () => {
+    expect(askWhyQuestion("A new start-up program appeared")).toBe('Why does "A new start-up program appeared" matter?');
   });
 
-  it("lower-cases the first character only, so Mac keeps its capital", () => {
-    expect(askWhyQuestion("Your Mac is listening")).toBe("Why does your Mac is listening matter?");
+  it("keeps the headline's own capitals", () => {
+    expect(askWhyQuestion("Your Mac is listening")).toBe('Why does "Your Mac is listening" matter?');
   });
 
   it("trims surrounding spaces", () => {
-    expect(askWhyQuestion("  Your backups were switched off  ")).toBe("Why does your backups were switched off matter?");
+    expect(askWhyQuestion("  Your backups were switched off  ")).toBe('Why does "Your backups were switched off" matter?');
   });
 
   it("throws invalid_input on an empty headline", () => {

@@ -6,6 +6,6 @@
 export function askWhyQuestion(headline: string): string {
   const trimmed = headline.trim();
   if (trimmed.length === 0) throw new Error("invalid_input");
-  const first = trimmed.charAt(0).toLowerCase();
-  return `Why does ${first}${trimmed.slice(1)} matter?`;
+  // The headline is a sentence, so it is quoted as a title rather than bent into the question.
+  return `Why does "${trimmed}" matter?`;
 }

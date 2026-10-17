@@ -489,7 +489,7 @@ describe("WatchWindow, look", () => {
     const fake = await renderWindow(LOOK);
     fireEvent.click(screen.getByRole("button", { name: WATCH_WINDOW.askLink }));
     expect(fake.openMain).toHaveBeenCalledWith("chat", askWhyQuestion(FISHY.noticed.headline.dns));
-    expect(fake.openMain).toHaveBeenCalledWith("chat", "Why does the way your Mac finds websites changed matter?");
+    expect(fake.openMain).toHaveBeenCalledWith("chat", 'Why does "The way your Mac finds websites changed" matter?');
     expect(fake.openMain).toHaveBeenCalledTimes(1);
   });
 
