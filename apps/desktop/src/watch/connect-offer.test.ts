@@ -21,10 +21,13 @@ function storage(values: Record<string, string | null>): Pick<Storage, "getItem"
 }
 
 describe("connectOffer", () => {
-  it("is true with the switch on, a consumer provider and no recent Not now", () => {
+  it("is true with the switch on, ChatGPT or Claude chosen and no recent Not now", () => {
     expect(connectOffer(storage({ "talos.settings": settings("chatgpt"), "talos.guided": guided(null) }), NOW)).toBe(true);
     expect(connectOffer(storage({ "talos.settings": settings("claude_plan"), "talos.guided": guided(daysAgo(20)) }), NOW)).toBe(true);
-    expect(connectOffer(storage({ "talos.settings": settings("apple"), "talos.guided": guided(null) }), NOW)).toBe(true);
+  });
+
+  it("is false with On this Mac, which never connects", () => {
+    expect(connectOffer(storage({ "talos.settings": settings("apple"), "talos.guided": guided(null) }), NOW)).toBe(false);
   });
 
   it("is false with a Developer provider", () => {

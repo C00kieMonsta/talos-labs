@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEMO_REASONS, HEIGHT_CASES, LONG_WINDOW_SENTENCE, VALIDATE_CASES, WINDOW_SENTENCE_CASES } from "../../src/watch/cases";
-import { safeSentence, safeWindowSentence, validateWatchVerdict } from "../../src/watch/validate";
+import { APP_VOICE, APP_VOICE_I, ID_LIKE, safeSentence, safeWindowSentence, validateWatchVerdict } from "../../src/watch/validate";
 
 const base = VALIDATE_CASES[0];
 if (base === undefined || base.expected === "rejected") throw new Error("the first validate case must be the kept verdict");
@@ -29,6 +29,11 @@ describe("safeWindowSentence", () => {
       "dropped: a banned word",
       "dropped: a path",
       "dropped: a port",
+      "dropped: a host and port",
+      "dropped: an any-host port",
+      "dropped: a rule id",
+      "dropped: a signal id",
+      "kept: a lower-case i is not the app's voice",
       "dropped: a 121-character sentence",
       "dropped: two sentences",
       "dropped: empty",
@@ -42,6 +47,27 @@ describe("safeWindowSentence", () => {
     ]);
     expect(LONG_WINDOW_SENTENCE).toHaveLength(121);
     expect(safeWindowSentence(LONG_WINDOW_SENTENCE.slice(1), "keep_an_eye")).toBe(true);
+  });
+
+  it("the bare pronoun is case-sensitive and the contractions are not, as in Rust", () => {
+    expect(APP_VOICE_I.test("I think so")).toBe(true);
+    expect(APP_VOICE_I.test("the option i on that screen")).toBe(false);
+    expect(APP_VOICE_I.test("Wi-Fi is on")).toBe(false);
+    expect(APP_VOICE.test("i'll look")).toBe(true);
+    expect(APP_VOICE.test("LET'S go")).toBe(true);
+    expect(APP_VOICE.test("I")).toBe(false);
+    expect(safeWindowSentence("The option i on that screen is still off.", "keep_an_eye")).toBe(true);
+    expect(safeWindowSentence("I think the option is off.", "keep_an_eye")).toBe(false);
+  });
+
+  it("an id never reaches the window line, while an action sentence keeps the looser rule", () => {
+    for (const text of ["TL-MAC-004 is still open on this Mac.", "sig.persistence_new moved again.", "probe.hosts could not run.", "act.report is the next step."]) {
+      expect(ID_LIKE.test(text), text).toBe(true);
+      expect(safeWindowSentence(text, "act_now"), text).toBe(false);
+      expect(safeSentence(text), text).toBe(true);
+    }
+    expect(ID_LIKE.test("It is time to act. Nothing else moved.")).toBe(false);
+    expect(ID_LIKE.test("The signal is a probe of the act.")).toBe(false);
   });
 
   it("the first kept sentence is under 120 characters and whitespace alone is dropped", () => {

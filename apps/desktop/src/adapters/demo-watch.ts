@@ -329,10 +329,11 @@ export class DemoWatch implements WatchPort {
     return this.state;
   }
 
+  /** Lifts a pause as Rust's request_check_now does: the press is the person's later word. */
   async checkNow(): Promise<void> {
     recordDemoCall({ kind: "watch_check_now" });
-    this.set({ checking: true });
-    await wait(this.delayMs);
+    this.set({ checking: true, pausedUntil: null });
+    await wait(this.flags.watchCheckDelay ?? this.delayMs);
     this.set({ checking: false, lastCheckAt: this.now(), cycleIndex: this.state.cycleIndex + 1, firstRun: false });
   }
 

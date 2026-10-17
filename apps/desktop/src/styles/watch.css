@@ -75,10 +75,12 @@
   overflow-wrap: anywhere;
 }
 
+/* An inline-block badge moves to the next line whole; only the 281 px Apple Intelligence one, wider than the 276 px column, wraps inside itself. */
 .watch .guided-model-badge {
+  display: inline-block;
+  max-width: 100%;
   color: var(--fg-secondary);
   font: var(--text-guided-meta);
-  white-space: nowrap;
 }
 
 /* The check-up row: the score line and, under it, the "Up next" link. */
@@ -94,8 +96,17 @@
 
 /* 28 px: the link's own padding is smaller than the footer links' so the row fits its budget. */
 .watch-link.watch-up-next {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0);
   min-height: 28px;
+  max-width: 100%;
   padding: var(--space-0) 0;
+}
+
+/* Only the headline is cut with an ellipsis; the chevron after it always stays on screen. */
+.watch-up-next-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -27,7 +27,8 @@ export const WATCH_WINDOW = {
   /** The authored "Why?" question, built by the one helper the chat reads too (docs/DESIGN-CHAT.md, the Why chip). */
   askWhy: (headline: string): string => askWhyQuestion(headline),
   askLink: "Ask why this matters",
-  /** The look state with no item has no headline to ask about; the link carries this draft instead. */
+  /** The look state with no item has no headline to ask about; the link reads this and carries the draft below. */
+  askWhatChangedLink: "Ask what changed",
   askWhatChanged: "What changed on my Mac?",
   send: "Send",
   connectLine: "Connect your AI to ask me things from here.",

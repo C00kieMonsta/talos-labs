@@ -26,12 +26,12 @@ describe("parseDemoQuery", () => {
       watchMemory: null,
       chatDemo: DEFAULT_CHAT_DEMO,
     });
-    expect(DEFAULT_WATCH_DEMO).toEqual({ watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false, licensed: false, watchReason: true, watchNext: true, watchFlip: null, watchFlipAfter: null });
+    expect(DEFAULT_WATCH_DEMO).toEqual({ watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false, licensed: false, watchReason: true, watchNext: true, watchFlip: null, watchFlipAfter: null, watchCheckDelay: null });
   });
 
   it("reads every parameter", () => {
     const flags = parseDemoQuery(
-      "?fixture=hardened&explainer=timeout&delay=50&reset=1&provider=ollama&dev=1&onboarded=1&licensed=1&fix=wrong_password&batch=partial&scan_error=timeout&fix_delay=10&ai=model_not_ready&ai_ready=500&ai_until=2026-10-16T18%3A00%3A00.000Z&connect=closed&connect_delay=0&claude_fetch=1&fda_after=2&automation=denied&bundled=0&poll_after=3&pace=0&guided=0&memory=%7B%22version%22%3A1%7D&since=1&continue=guided&technical=medium&watch=act&fishy=remote&fishyGate=1&fishyWired=1&watchAi=chatgpt&ransomNote=1&watchReason=0&watchNext=0&watch_flip=act_now&watch_flip_after=250&watchMemory=%7B%22version%22%3A1%7D",
+      "?fixture=hardened&explainer=timeout&delay=50&reset=1&provider=ollama&dev=1&onboarded=1&licensed=1&fix=wrong_password&batch=partial&scan_error=timeout&fix_delay=10&ai=model_not_ready&ai_ready=500&ai_until=2026-10-16T18%3A00%3A00.000Z&connect=closed&connect_delay=0&claude_fetch=1&fda_after=2&automation=denied&bundled=0&poll_after=3&pace=0&guided=0&memory=%7B%22version%22%3A1%7D&since=1&continue=guided&technical=medium&watch=act&fishy=remote&fishyGate=1&fishyWired=1&watchAi=chatgpt&ransomNote=1&watchReason=0&watchNext=0&watch_flip=act_now&watch_flip_after=250&check_delay=600&watchMemory=%7B%22version%22%3A1%7D",
     );
     expect(flags).toEqual({
       options: {
@@ -65,7 +65,7 @@ describe("parseDemoQuery", () => {
       since: true,
       continueGuided: true,
       technical: "medium",
-      watchDemo: { watch: "act", fishy: "remote", fishyGate: true, fishyWired: true, watchAi: "chatgpt", ransomNote: true, licensed: true, watchReason: false, watchNext: false, watchFlip: "act_now", watchFlipAfter: 250 },
+      watchDemo: { watch: "act", fishy: "remote", fishyGate: true, fishyWired: true, watchAi: "chatgpt", ransomNote: true, licensed: true, watchReason: false, watchNext: false, watchFlip: "act_now", watchFlipAfter: 250, watchCheckDelay: 600 },
       watchMemory: '{"version":1}',
       chatDemo: DEFAULT_CHAT_DEMO,
     });
@@ -75,7 +75,7 @@ describe("parseDemoQuery", () => {
     for (const state of ["calm", "look", "act", "unreadable", "first-run"] as const) expect(parseWatchDemoQuery(new URLSearchParams(`watch=${state}`)).watch).toBe(state);
     for (const kind of ["persistence", "listener", "guard", "remote", "admin", "dns", "backup"] as const) expect(parseWatchDemoQuery(new URLSearchParams(`fishy=${kind}`)).fishy).toBe(kind);
     for (const ai of ["off", "apple", "chatgpt", "claude", "limit"] as const) expect(parseWatchDemoQuery(new URLSearchParams(`watchAi=${ai}`)).watchAi).toBe(ai);
-    expect(parseWatchDemoQuery(new URLSearchParams("watch=panic&fishy=ransomware&watchAi=gemini&fishyGate=yes&fishyWired=0&ransomNote=2&watchReason=2&watchNext=yes&watch_flip=red&watch_flip_after=-1"))).toEqual(DEFAULT_WATCH_DEMO);
+    expect(parseWatchDemoQuery(new URLSearchParams("watch=panic&fishy=ransomware&watchAi=gemini&fishyGate=yes&fishyWired=0&ransomNote=2&watchReason=2&watchNext=yes&watch_flip=red&watch_flip_after=-1&check_delay=soon"))).toEqual(DEFAULT_WATCH_DEMO);
     expect(parseWatchDemoQuery(new URLSearchParams(""))).toEqual(DEFAULT_WATCH_DEMO);
     expect(parseWatchDemoQuery(new URLSearchParams("licensed=1")).licensed).toBe(true);
     expect(parseWatchDemoQuery(new URLSearchParams("licensed=yes")).licensed).toBe(false);

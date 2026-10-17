@@ -832,17 +832,17 @@ pub fn start(app: AppHandle) {
                 let store = app.state::<WatchStore>();
                 let paused_until = store.snapshot().paused_until;
                 if ends_pause(woken, pause_over(paused_until.as_deref(), Utc::now())) {
-                    // The pause ran out: the window reads "paused" from the field alone, so it
-                    // is cleared here and the next tick runs on its own timer.
+                    // The pause ran out: clear it and run the check the pause held back.
                     store.update(|s| s.paused_until = None);
                     publish(&app);
-                    continue;
+                    false
+                } else {
+                    let reconfigure = woken && store.reconfigure.swap(false, Ordering::SeqCst);
+                    let pending = store.manual_requested.load(Ordering::SeqCst)
+                        || store.refresh_requested.load(Ordering::SeqCst)
+                        || store.full_check_requested.load(Ordering::SeqCst);
+                    skip_wake(reconfigure, pending)
                 }
-                let reconfigure = woken && store.reconfigure.swap(false, Ordering::SeqCst);
-                let pending = store.manual_requested.load(Ordering::SeqCst)
-                    || store.refresh_requested.load(Ordering::SeqCst)
-                    || store.full_check_requested.load(Ordering::SeqCst);
-                skip_wake(reconfigure, pending)
             };
             if skip {
                 continue;
@@ -887,7 +887,8 @@ pub fn pause_over(paused_until: Option<&str>, now: DateTime<Utc>) -> bool {
     }
 }
 
-/// A timeout (not a wake) that lands after the pause ended clears it without a cycle.
+/// A timeout (not a wake) that lands after the pause ended clears it; the cycle then runs at
+/// once, as the next tick after the pause did before the loop was pause-aware.
 pub fn ends_pause(woken: bool, pause_over: bool) -> bool {
     !woken && pause_over
 }
@@ -957,10 +958,16 @@ fn request_refresh(app: &AppHandle) {
 /// Pauses the loop for `minutes`.
 pub fn pause(app: &AppHandle, minutes: u32) {
     let until = Utc::now() + chrono::Duration::minutes(i64::from(minutes));
-    app.state::<WatchStore>().update(|s| {
-        s.paused_until = Some(cycle::iso(until));
-    });
+    apply_pause(&app.state::<WatchStore>(), cycle::iso(until));
     publish(app);
+}
+
+/// Records the pause and wakes the loop as a reconfigure, so the wait is re-read against the
+/// pause end instead of running out a whole interval and reading "Paused until" past its time.
+pub fn apply_pause(store: &WatchStore, until: String) {
+    store.update(|s| s.paused_until = Some(until));
+    store.reconfigure.store(true, Ordering::SeqCst);
+    store.notify.notify_one();
 }
 
 /// The watch just became active: a first run, the pause lifted and one cycle at once.
@@ -1258,7 +1265,8 @@ pub fn snooze(app: &AppHandle, signal: SignalId) -> Result<(), String> {
 }
 
 /// A Talos fix just ran: changes within ten minutes of it are held for a cycle. Never waits on
-/// a running cycle, so the fix sheet resolves at once.
+/// a running cycle, so the fix sheet resolves at once. The cleared judge line is published at
+/// once: no refresh cycle follows, so the window would otherwise keep the pre-fix sentence.
 pub fn record_fix(app: &AppHandle) {
     if let Some(store) = app.try_state::<WatchStore>() {
         let _ = store.edit(
@@ -1268,6 +1276,7 @@ pub fn record_fix(app: &AppHandle) {
             },
         );
         forget_judge(&store);
+        publish(app);
     }
     on_idle(app);
 }
@@ -1536,6 +1545,35 @@ mod tests {
         assert_eq!(
             store.baseline_in(None).last_fix_at.as_deref(),
             Some("2026-10-17T13:00:00.000Z")
+        );
+    }
+
+    #[test]
+    fn a_recorded_fix_leaves_no_judge_line_in_the_snapshot_the_publish_sends() {
+        let store = WatchStore::default();
+        store.update(|s| {
+            s.ai.enabled = true;
+            s.judge = Some(JudgeLine {
+                provider: ModelProvider::Chatgpt,
+                at: "2026-10-17T11:48:00.000Z".into(),
+                rating: Rating::Calm,
+                reason: "The one thing still open is your unlocked disk.".into(),
+            });
+        });
+        store
+            .apply_edit(
+                None,
+                Edit::RecordFix {
+                    at: "2026-10-17T12:00:00.000Z".into(),
+                },
+            )
+            .unwrap();
+        forget_judge(&store);
+        let published = store.snapshot();
+        assert_eq!(published.judge, None, "the window gets the cleared slot");
+        assert_eq!(
+            store.baseline_in(None).last_fix_at.as_deref(),
+            Some("2026-10-17T12:00:00.000Z")
         );
     }
 
@@ -1857,6 +1895,11 @@ mod tests {
         assert_eq!(ok("a\u{0007}b"), bad, "a control character refuses");
         assert_eq!(ok("a\tb"), bad);
         assert_eq!(ok("a\u{007f}b"), bad);
+        assert_eq!(
+            ok("a\u{0085}b"),
+            bad,
+            "a C1 control (NEL) refuses too; the adapter strips the same Cc set before it sends"
+        );
         assert_eq!(ok(&"a".repeat(500)), Ok(Some("a".repeat(500))));
         assert_eq!(ok(&"a".repeat(501)), bad);
         let smile = "\u{1F600}".repeat(250);
@@ -1946,6 +1989,63 @@ mod tests {
         );
         assert!(!ends_pause(false, false));
         assert!(!ends_pause(true, false));
+    }
+
+    #[test]
+    fn a_pause_set_while_waiting_wakes_the_loop_and_shortens_the_next_wait() {
+        let now = DateTime::parse_from_rfc3339("2026-10-17T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let every = Duration::from_secs(240 * 60);
+        let store = WatchStore::default();
+        assert_eq!(
+            wait_for(every, store.snapshot().paused_until.as_deref(), now),
+            every
+        );
+        apply_pause(&store, "2026-10-17T13:00:00.000Z".into());
+        assert!(
+            store.reconfigure.load(Ordering::SeqCst),
+            "the wake is a reconfigure, so the loop re-reads the wait and runs no cycle"
+        );
+        let woken = tauri::async_runtime::block_on(async {
+            tokio::time::timeout(Duration::from_millis(200), store.notify.notified())
+                .await
+                .is_ok()
+        });
+        assert!(woken, "the loop is woken at once");
+        assert_eq!(
+            wait_for(every, store.snapshot().paused_until.as_deref(), now),
+            Duration::from_secs(60 * 60),
+            "the re-read wait lands at the pause end, not 230 minutes later"
+        );
+        assert!(
+            skip_wake(store.reconfigure.swap(false, Ordering::SeqCst), false),
+            "nothing pending: the woken loop goes back to waiting"
+        );
+    }
+
+    #[test]
+    fn the_command_that_receives_the_raw_question_never_prints_it() {
+        // tests/ai_no_logging.rs does not list commands.rs; this mirrors the TS grep in
+        // tauri-watch.test.ts for the one Rust function that takes the question before clean_question.
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/commands.rs");
+        let text = std::fs::read_to_string(path).unwrap_or_default();
+        assert!(
+            text.contains("fn watch_open_main"),
+            "commands.rs holds watch_open_main"
+        );
+        for (number, line) in text.lines().enumerate() {
+            if !line.to_lowercase().contains("question") {
+                continue;
+            }
+            for needle in ["println!", "eprintln!", "dbg!"] {
+                assert!(
+                    !line.contains(needle),
+                    "commands.rs:{}: {needle} on a line that mentions the question",
+                    number + 1
+                );
+            }
+        }
     }
 
     #[test]

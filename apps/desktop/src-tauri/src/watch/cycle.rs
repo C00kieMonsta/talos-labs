@@ -31,7 +31,7 @@ use super::types::{
 use super::validate;
 use super::{
     Change, FishyKind, Freshness, JudgeLine, ModelProvider, ProbeReason, Rating, RulesSince,
-    SignalId, UnavailableProbe, WatchItem, WatchStore,
+    SignalId, UnavailableProbe, WatchItem, WatchState, WatchStore,
 };
 use crate::state::Os;
 
@@ -699,7 +699,9 @@ pub fn recent_count(baseline: &Baseline, now: DateTime<Utc>) -> u32 {
 }
 
 /// The judge's window line from this cycle's call: the validated reason when it survived
-/// `safe_window_sentence` and the verdict's rating equals the shown rating.
+/// `safe_window_sentence` and the verdict's rating equals the shown rating. On this Mac never
+/// writes a calm line (DESIGN-WATCH-WINDOW section 3, the state machine): one that arrives
+/// anyway is hidden.
 pub fn judge_line(
     judged: Option<(&WatchVerdict, ModelProvider)>,
     shown: Rating,
@@ -707,12 +709,35 @@ pub fn judge_line(
 ) -> Option<JudgeLine> {
     judged
         .filter(|(v, _)| !v.rating_reason.is_empty() && v.rating == shown)
+        .filter(|(_, provider)| !(*provider == ModelProvider::Apple && shown == Rating::Calm))
         .map(|(v, provider)| JudgeLine {
             provider,
             at: started.to_owned(),
             rating: v.rating,
             reason: v.rating_reason.clone(),
         })
+}
+
+/// Writes the cycle's judge line into the published state. The switch is read live: a push that
+/// turned the AI off while the cycle ran has cleared the slot, and the cycle must not refill it.
+pub fn settle_judge(
+    s: &mut WatchState,
+    kept: Option<JudgeLine>,
+    gate_open: bool,
+    change_moved: bool,
+    rating_changed: bool,
+) {
+    s.judge = if s.ai.enabled {
+        next_judge(
+            s.judge.take(),
+            kept,
+            gate_open,
+            change_moved,
+            rating_changed,
+        )
+    } else {
+        None
+    };
 }
 
 /// The judge line after a cycle (DESIGN-WATCH-WINDOW section 3, "Cache and currency"): a kept
@@ -1411,13 +1436,7 @@ pub fn run_once(app: &AppHandle, now: DateTime<Utc>) {
         s.unavailable = unavailable.clone();
         s.gated = conclusion.gated.clone();
         s.items = conclusion.items.clone();
-        s.judge = next_judge(
-            s.judge.take(),
-            kept.clone(),
-            gate_open,
-            change_moved,
-            rating_changed,
-        );
+        settle_judge(s, kept.clone(), gate_open, change_moved, rating_changed);
         s.last_change_at = baseline.last_change_at.clone();
         s.recent_count = recent;
         s.rules_since = baseline.rules_since.clone();
@@ -3286,6 +3305,83 @@ mod tests {
             store.last_verdict_for(at(T2)).is_some(),
             "survives a cleared line"
         );
+    }
+
+    #[test]
+    fn an_on_device_calm_reason_is_hidden_and_a_chatgpt_one_is_kept() {
+        let settings = WatchSettingsFile::default();
+        let mut baseline = Baseline::new();
+        baseline.cycle_index = 2;
+        let (context, compared) = prepare(
+            &mut baseline,
+            &input(&sweep(vec![], true), &settings, T1, &all_valid),
+        );
+        let calm = serde_json::json!({ "rating": "calm", "ratingReason": "The one thing still open is your unlocked disk.", "basedOn": [], "probes": [], "actions": [] });
+        // Scripted answers as Apple Intelligence, the on-device model.
+        let judge = Scripted(vec![Ok(calm)], std::cell::RefCell::new(0));
+        assert_eq!(judge.provider(), ModelProvider::Apple);
+        let verdict = ask(&judge, &context).unwrap().unwrap();
+        assert_eq!(
+            verdict.rating_reason, "The one thing still open is your unlocked disk.",
+            "the sentence passes the window rule"
+        );
+        let conclusion = conclude(
+            &mut baseline,
+            &context,
+            &compared,
+            Some((&verdict, judge.provider())),
+            &settings,
+            at(T1),
+            false,
+        );
+        assert_eq!(conclusion.rating, Rating::Calm);
+        assert_eq!(
+            judge_line(Some((&verdict, judge.provider())), conclusion.rating, T1),
+            None,
+            "On this Mac never draws a calm line"
+        );
+        assert_eq!(
+            judge_line(
+                Some((&verdict, ModelProvider::Chatgpt)),
+                conclusion.rating,
+                T1
+            )
+            .map(|line| line.reason),
+            Some("The one thing still open is your unlocked disk.".to_owned()),
+            "the same sentence from ChatGPT is drawn"
+        );
+    }
+
+    #[test]
+    fn a_cycle_that_ends_after_the_ai_was_switched_off_leaves_no_judge_line() {
+        let held = JudgeLine {
+            provider: ModelProvider::Chatgpt,
+            at: T0.to_owned(),
+            rating: Rating::Calm,
+            reason: "The one thing still open is your unlocked disk.".to_owned(),
+        };
+        let kept = JudgeLine {
+            at: T1.to_owned(),
+            ..held.clone()
+        };
+        let store = WatchStore::default();
+        store.update(|s| {
+            s.ai.enabled = true;
+            s.judge = Some(held.clone());
+        });
+        // The push lands mid-cycle: set_profile clears the slot and syncs the switch.
+        store.update(|s| {
+            s.ai.enabled = false;
+            s.judge = None;
+        });
+        store.update(|s| settle_judge(s, Some(kept.clone()), true, false, false));
+        assert_eq!(store.snapshot().judge, None, "the kept line is not written");
+        store.update(|s| settle_judge(s, None, false, false, false));
+        assert_eq!(store.snapshot().judge, None, "nothing to keep either");
+        // With the switch on the same cycle writes the kept line.
+        store.update(|s| s.ai.enabled = true);
+        store.update(|s| settle_judge(s, Some(kept.clone()), true, false, false));
+        assert_eq!(store.snapshot().judge, Some(kept));
     }
 
     #[test]

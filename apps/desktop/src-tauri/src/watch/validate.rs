@@ -23,11 +23,14 @@ pub const MAX_ACTIONS: usize = 3;
 /// A token that reads like a path: a slash or tilde at a word start followed by path
 /// characters, so "and/or" and "24/7" pass.
 pub const PATH_LIKE: &str = r"(^|[^A-Za-z0-9])[~/][A-Za-z0-9._-]+";
-/// A token that reads like a port: a colon not preceded by a digit, so "18:00" passes. The
-/// regex crate has no lookbehind, so the preceding character is matched instead.
-pub const PORT_LIKE: &str = r"(^|[^0-9]):[0-9]{2,5}\b";
+/// A token that reads like a port: a colon not preceded by a digit, so "18:00" passes, or a
+/// dotted digit host before the colon, so "127.0.0.1:8080" does not. The regex crate has no
+/// lookbehind, so the preceding character is matched instead.
+pub const PORT_LIKE: &str = r"(^|[^0-9]):[0-9]{2,5}\b|\d\.\d+:[0-9]{2,5}\b";
 /// Words a model sentence may never carry: they read as an instruction to act on a program.
 pub const BANNED_VERBS: &str = r"(?i)\b(pid|process|kill|delete|remove|rm|unload)\b";
+/// A rule, signal, probe or action id: the judge's vocabulary, never a word in the window.
+pub const ID_LIKE: &str = r"\bTL-[A-Z]{3}-[A-Za-z0-9]+|\b(sig|probe|act)\.[a-z_]+\b";
 /// The window line speaks to the reader, never as the app.
 pub const APP_VOICE: &str = r"(?i)\b(I'll|I've|I'm|I'd|me|my|mine|we|us|our|let's)\b";
 /// The bare pronoun, case-sensitive so "i" inside a word or a lower-case "i" is not it.
@@ -41,8 +44,8 @@ pub const IMPERATIVE_START: &str = r"(?i)(^|[.!?]\s+)(click|press|open|go|run|ty
 pub const REASSURANCE: &str = r"(?i)\b(safe|safely|protected|secure|secured|clean|fine|all clear|no threat|no malware|no virus)\b";
 /// On calm the app shows the time; a duration in the sentence is wrong by the afternoon.
 pub const DURATION: &str = r"(?i)\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(minutes?|hours?|days?|weeks?)\b";
-/// A second sentence: a terminal stop, a space and a letter.
-pub const SECOND_SENTENCE: &str = r"[.!?]\s+[A-Za-z]";
+/// A second sentence: a terminal stop, a space and any non-space character.
+pub const SECOND_SENTENCE: &str = r"[.!?]\s+\S";
 
 /// The guided banned words (apps/desktop/src/guided/copy.test.ts, mirrored as
 /// `WATCH_BANNED_WORDS` in core and pinned by `watch-cases.json`'s `bannedWords`).
@@ -77,6 +80,8 @@ static PORT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(PORT_LIKE).expect(
 #[allow(clippy::expect_used)]
 static VERB_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(BANNED_VERBS).expect("literal regex"));
+#[allow(clippy::expect_used)]
+static ID_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(ID_LIKE).expect("literal regex"));
 #[allow(clippy::expect_used)]
 static APP_VOICE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(APP_VOICE).expect("literal regex"));
@@ -135,17 +140,28 @@ pub fn safe_sentence(text: &str) -> bool {
 }
 
 /// True when `ratingReason` may be drawn in the menu bar window (DESIGN-WATCH-WINDOW section
-/// 3): at most 120 UTF-16 units and not blank, then every `safe_sentence` rule, then no app
-/// voice, no action claim, no imperative sentence start, no guided banned word, no reassurance,
-/// no duration on calm, and one sentence only. False on the first hit.
+/// 3): at most 120 UTF-16 units and not blank, then every `safe_sentence` rule, then no id, no
+/// app voice, no action claim, no imperative sentence start, no guided banned word, no
+/// reassurance, no duration on calm, and one sentence only. False on the first hit.
 pub fn safe_window_sentence(text: &str, rating: Rating) -> bool {
-    if text.encode_utf16().count() > MAX_REASON_CHARS || text.trim().is_empty() {
+    // One line only: a line break would hide a second sentence from the rules below.
+    if text.contains(['\n', '\r']) {
+        return false;
+    }
+    // Curly apostrophes fold to the ASCII one so "Don’t" and "Let’s" meet the same rules.
+    let folded = text.replace(['\u{2019}', '\u{02BC}'], "'");
+    // The rules run on the trimmed text, so a leading space never hides an imperative.
+    let text = folded.trim();
+    if text.encode_utf16().count() > MAX_REASON_CHARS || text.is_empty() {
         return false;
     }
     if contains_command_text(text) {
         return false;
     }
     if PATH_RE.is_match(text) || PORT_RE.is_match(text) || VERB_RE.is_match(text) {
+        return false;
+    }
+    if ID_RE.is_match(text) {
         return false;
     }
     if APP_VOICE_I_RE.is_match(text) || APP_VOICE_RE.is_match(text) {
@@ -173,11 +189,12 @@ fn read_sentence(value: Option<&Value>) -> Result<String, Rejected> {
     })
 }
 
-/// The window line: kept when it passes `safe_window_sentence` for the clamped rating, else "".
+/// The window line: kept trimmed when it passes `safe_window_sentence` for the clamped rating,
+/// else "".
 fn read_window_sentence(value: Option<&Value>, rating: Rating) -> Result<String, Rejected> {
     let text = value.and_then(Value::as_str).ok_or(Rejected)?;
     Ok(if safe_window_sentence(text, rating) {
-        text.to_owned()
+        text.trim().to_owned()
     } else {
         String::new()
     })
@@ -443,8 +460,12 @@ mod tests {
         "A new start-up program is how malware usually stays on a Mac.",
     ];
     const DURATION_CASE: &str = "Three days without a change.";
-    const DROPPED_ON_BOTH: [&str; 9] = [
+    const DROPPED_ON_BOTH: [&str; 13] = [
         "I'll keep an eye on it for you.",
+        "Something listens on 127.0.0.1:8080 now.",
+        "It is open on 0.0.0.0:22.",
+        "TL-MAC-004 is still open.",
+        "sig.persistence_new moved again.",
         "Your Mac is safe for now.",
         "There is no malware here.",
         "Done, the firewall is back on.",
@@ -502,6 +523,22 @@ mod tests {
             "an imperative after a stop is also a second sentence"
         );
         assert!(
+            !safe_window_sentence(" Turn the firewall on.", Rating::ActNow),
+            "a leading space hides no imperative"
+        );
+        assert!(
+            !safe_window_sentence("Something changed\nTurn it off now", Rating::ActNow),
+            "a line break is never one sentence"
+        );
+        assert!(
+            !safe_window_sentence("Two things changed. 3 of them are new.", Rating::ActNow),
+            "a second sentence may start with a digit"
+        );
+        assert!(
+            safe_window_sentence("  Nothing changed since yesterday.  ", Rating::ActNow),
+            "surrounding whitespace is trimmed"
+        );
+        assert!(
             !safe_window_sentence("A new daemon appeared.", Rating::ActNow),
             "a banned word"
         );
@@ -521,6 +558,28 @@ mod tests {
             "Nothing is open 24/7 here.",
             Rating::Calm
         ));
+        assert!(
+            safe_window_sentence(
+                "The option i on that screen is still off.",
+                Rating::KeepAnEye
+            ),
+            "a lower-case i is not the bare pronoun"
+        );
+        assert!(
+            !safe_window_sentence("I think the option is off.", Rating::KeepAnEye),
+            "the bare pronoun"
+        );
+        for text in ["probe.hosts could not run.", "act.report is the next step."] {
+            assert!(!safe_window_sentence(text, Rating::ActNow), "an id: {text}");
+            assert!(
+                safe_sentence(text),
+                "an action sentence keeps the looser rule: {text}"
+            );
+        }
+        assert!(
+            safe_window_sentence("It is time to act, nothing else moved.", Rating::ActNow),
+            "a word is not an id"
+        );
         assert_eq!(MAX_REASON_CHARS, 120);
         assert_eq!(MAX_SENTENCE_CHARS, 300);
         assert_eq!(BANNED_WORDS.len(), 19);
@@ -592,5 +651,10 @@ mod tests {
         assert!(!safe_sentence("Under folder:/Library it sits."));
         assert!(safe_sentence("It comes back at 18:00."));
         assert!(!safe_sentence("port :8080 opened."));
+        assert!(!safe_sentence("Something listens on 127.0.0.1:8080 now."));
+        assert!(!safe_sentence("It is open on 0.0.0.0:22."));
+        assert!(!safe_sentence("10.0.0.5:5900"));
+        assert!(!PORT_RE.is_match("18:00"));
+        assert!(PORT_RE.is_match("127.0.0.1:8080"));
     }
 }

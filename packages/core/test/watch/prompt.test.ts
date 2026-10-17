@@ -84,21 +84,24 @@ describe("HEIGHT_CASES", () => {
 
   it("every state carries every WatchState key in the reference order", () => {
     expect(keys.slice(-8)).toEqual(["nextCheckAt", "lastChangeAt", "ai", "judge", "recentCount", "rulesSince", "report", "next"]);
-    expect(HEIGHT_CASES).toHaveLength(16);
+    expect(HEIGHT_CASES).toHaveLength(19);
     for (const c of HEIGHT_CASES) expect(Object.keys(c.state), c.name).toEqual(keys);
   });
 
-  it("the sixteen names and heights are the ones of contract F", () => {
+  it("the sixteen names and heights are the ones of contract F, plus paused-unreadable, calm-no-provider, calm-apple-reason and look-apple-reason", () => {
     expect(HEIGHT_CASES.map((c) => [c.name, c.height])).toEqual([
       ["first-run", 170],
       ["paused", 152],
+      ["paused-unreadable", 172],
       ["calm-reason", 332],
       ["calm", 280],
       ["calm-unreadable", 400],
-      ["calm-not-connected", 288],
+      ["calm-no-provider", 228],
       ["calm-no-ai", 228],
+      ["calm-apple-reason", 280],
       ["calm-no-report", 252],
       ["look-reason", 396],
+      ["look-apple-reason", 414],
       ["look-reason-no-link", 356],
       ["look", 316],
       ["look-plain", 276],

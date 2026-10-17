@@ -358,6 +358,33 @@ describe("DemoWatch recorded calls", () => {
     expect(seen).toHaveLength(2);
   });
 
+  it("checkNow lifts a pause as Rust does, from the first state it publishes", async () => {
+    const port = make({ watch: "paused" });
+    expect((await port.status()).pausedUntil).toBe("2026-10-17T13:00:00.000Z");
+    const seen: (string | null)[] = [];
+    port.onState((s) => seen.push(s.pausedUntil));
+    await port.checkNow();
+    expect(seen).toEqual([null, null]);
+    expect(await port.status()).toMatchObject({ pausedUntil: null, checking: false, rating: "calm", lastCheckAt: NOW });
+  });
+
+  it("check_delay holds checking true for that long after Check now, whatever the demo delay", async () => {
+    vi.useFakeTimers();
+    try {
+      const port = new DemoWatch(flags({ watch: "look", watchCheckDelay: 250 }), 0, () => NOW);
+      const seen: boolean[] = [];
+      port.onState((s) => seen.push(s.checking));
+      const done = port.checkNow();
+      await vi.advanceTimersByTimeAsync(249);
+      expect(seen).toEqual([true]);
+      await vi.advanceTimersByTimeAsync(1);
+      await done;
+      expect(seen).toEqual([true, false]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("openMain reaches onOpen listeners with the question and records the screen only", async () => {
     const port = make();
     const opened: unknown[] = [];

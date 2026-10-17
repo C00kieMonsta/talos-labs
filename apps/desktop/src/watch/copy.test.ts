@@ -61,6 +61,7 @@ const SCORED: readonly { readonly key: keyof typeof WATCH_WINDOW; readonly score
   { key: "checkupNone", score: 1.4 },
   { key: "askPlaceholder", score: 1.2 },
   { key: "askLink", score: 1.25 },
+  { key: "askWhatChangedLink", score: 1.33 },
   { key: "askWhatChanged", score: 1.2 },
   { key: "connectLine", score: 1.11 },
   { key: "connectLink", score: 1.33 },

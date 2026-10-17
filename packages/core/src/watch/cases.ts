@@ -7,7 +7,7 @@ import { buildWatchJudgeInstructions } from "../explainer/watch-prompt";
 import { DEV_MACHINE } from "../fixtures/dev-machine";
 import { HARDENED } from "../fixtures/hardened";
 import type { ExplainerProfile } from "../ports/explainer-port";
-import type { Change, FishyKind, Rating, SignalId, WatchContext, WatchItem, WatchReport, WatchRule, WatchSignal, WatchState, WatchVerdict } from "../ports/watch-port";
+import type { Change, FishyKind, Rating, SignalId, WatchContext, WatchItem, WatchJudge, WatchReport, WatchRule, WatchSignal, WatchState, WatchVerdict } from "../ports/watch-port";
 import { ACTION_IDS, MODEL_PROBE_IDS } from "../ports/watch-port";
 import { MACOS_CATALOG } from "../rules/macos/index";
 import { EMPTY_WATCH_MEMORY } from "./memory";
@@ -265,6 +265,8 @@ export const VALIDATE_CASES: readonly ValidateCase[] = [
   validateCase("dropped: command text in the reason", ACT_CONTEXT, { ...GOOD, ratingReason: "Run this:\n```\nls\n```" }),
   validateCase("dropped: a path in the reason", ACT_CONTEXT, { ...GOOD, ratingReason: "Look under /usr/local/bin for it." }),
   validateCase("dropped: a port in the reason", ACT_CONTEXT, { ...GOOD, ratingReason: "Something listens on :8080 now." }),
+  validateCase("dropped: a host and port in the reason", ACT_CONTEXT, { ...GOOD, ratingReason: "Something listens on 127.0.0.1:8080 now." }),
+  validateCase("dropped: an any-host port in an action sentence", ACT_CONTEXT, { ...GOOD, actions: [{ actionId: "act.disconnect_network", sentence: "It is open on 0.0.0.0:22." }] }),
   validateCase("dropped: a reason over 120 characters", ACT_CONTEXT, { ...GOOD, ratingReason: "a".repeat(121) }),
   validateCase("kept: a reason of exactly 120 characters", ACT_CONTEXT, { ...GOOD, ratingReason: "a".repeat(120) }),
   validateCase("dropped: an action sentence over 300 characters stays dropped, a 200-character one is kept", ACT_CONTEXT, {
@@ -458,11 +460,22 @@ export const WINDOW_SENTENCE_CASES: readonly WindowSentenceCase[] = [
   { name: "dropped: no malware", text: "There is no malware here.", rating: "calm", kept: false },
   { name: "dropped: an action claim", text: "Done, the firewall is back on.", rating: "keep_an_eye", kept: false },
   { name: "dropped: an imperative start", text: "Turn the firewall on first.", rating: "keep_an_eye", kept: false },
+  { name: "dropped: an imperative start with a curly apostrophe", text: "Don\u2019t turn the firewall off.", rating: "keep_an_eye", kept: false },
+  { name: "dropped: the app's voice with a curly apostrophe", text: "Let\u2019s look at it together.", rating: "keep_an_eye", kept: false },
   { name: "dropped: a banned word", text: "A new rule appeared.", rating: "keep_an_eye", kept: false },
   { name: "dropped: a path", text: "~/Library/LaunchAgents changed.", rating: "keep_an_eye", kept: false },
   { name: "dropped: a port", text: "port :8080 opened.", rating: "keep_an_eye", kept: false },
+  { name: "dropped: a host and port", text: "Something listens on 127.0.0.1:8080 now.", rating: "keep_an_eye", kept: false },
+  { name: "dropped: an any-host port", text: "It is open on 0.0.0.0:22.", rating: "keep_an_eye", kept: false },
+  { name: "dropped: a rule id", text: "TL-MAC-004 is still open.", rating: "keep_an_eye", kept: false },
+  { name: "dropped: a signal id", text: "sig.persistence_new moved again.", rating: "keep_an_eye", kept: false },
+  { name: "kept: a lower-case i is not the app's voice", text: "The option i on that screen is still off.", rating: "keep_an_eye", kept: true },
   { name: "dropped: a 121-character sentence", text: LONG_WINDOW_SENTENCE, rating: "keep_an_eye", kept: false },
   { name: "dropped: two sentences", text: "Two things changed. One of them is new.", rating: "keep_an_eye", kept: false },
+  { name: "dropped: a second sentence starting with a digit", text: "Two things changed. 3 of them are new.", rating: "keep_an_eye", kept: false },
+  { name: "dropped: an imperative start after a leading space", text: " Turn the firewall on.", rating: "keep_an_eye", kept: false },
+  { name: "dropped: a line break between two sentences", text: "Something changed\nTurn it off now", rating: "keep_an_eye", kept: false },
+  { name: "kept: surrounding whitespace is trimmed first", text: "  Nothing changed since yesterday.  ", rating: "keep_an_eye", kept: true },
   { name: "dropped: empty", text: "", rating: "calm", kept: false },
 ];
 
@@ -485,7 +498,7 @@ const DEMO_REPORT: WatchReport = { reportId: DEMO_REPORT_ID, scannedAt: minutesB
 const DEMO_NEXT: WatchState["next"] = { reportId: DEMO_REPORT_ID, ruleId: "TL-MAC-001", kind: "fix" };
 const DEMO_AI: WatchState["ai"] = { enabled: true, provider: "chatgpt" };
 
-function judge(rating: Rating): WatchState["judge"] {
+function judge(rating: Rating): WatchJudge {
   return { provider: "chatgpt", at: minutesBefore(12), rating, reason: DEMO_REASONS[rating] };
 }
 
@@ -559,17 +572,26 @@ function heightCase(name: string, height: number, over: Partial<WatchState>): He
   return { name, state: baseState(over), height };
 }
 
-/** The sixteen named states of contract F; the heights are written by hand from the sum rule. */
+/**
+ * The sixteen named states of contract F plus paused-unreadable, calm-no-provider, calm-apple-reason and look-apple-reason;
+ * the heights are written by hand from the sum rule. `calm-no-provider` (`ai` off with no provider, a Developer one in the real app) sizes no
+ * row 5: the Connect line is the window's own localStorage read and no pushed `ai` shape carries it, so Rust never reserves it.
+ * `calm-apple-reason` carries an On this Mac calm line, which both sides hide. `look-apple-reason` sizes the reason row 90:
+ * the Apple badge wraps to a second line under a three-line reason.
+ */
 export const HEIGHT_CASES: readonly HeightCase[] = [
   heightCase("first-run", 170, { firstRun: true, since: null, lastCheckAt: null, cycleIndex: 0, nextCheckAt: null, lastChangeAt: null, report: null, next: null }),
   heightCase("paused", 152, { pausedUntil: minutesAfter(60) }),
+  heightCase("paused-unreadable", 172, { pausedUntil: minutesAfter(60), unavailable: UNREADABLE_ONE }),
   heightCase("calm-reason", 332, { judge: judge("calm") }),
   heightCase("calm", 280, {}),
   heightCase("calm-unreadable", 400, { judge: judge("calm"), unavailable: UNREADABLE }),
-  heightCase("calm-not-connected", 288, { ai: { enabled: false, provider: null } }),
+  heightCase("calm-no-provider", 228, { ai: { enabled: false, provider: null } }),
   heightCase("calm-no-ai", 228, { ai: { enabled: false, provider: "chatgpt" } }),
+  heightCase("calm-apple-reason", 280, { ai: { enabled: true, provider: "apple" }, judge: { ...judge("calm"), provider: "apple" } }),
   heightCase("calm-no-report", 252, { report: null, next: null }),
   heightCase("look-reason", 396, { rating: "keep_an_eye", since: minutesBefore(30), items: LOOK_ITEMS, recentCount: 1, lastChangeAt: minutesBefore(30), judge: judge("keep_an_eye") }),
+  heightCase("look-apple-reason", 414, { rating: "keep_an_eye", since: minutesBefore(30), items: LOOK_ITEMS, recentCount: 1, lastChangeAt: minutesBefore(30), ai: { enabled: true, provider: "apple" }, judge: { ...judge("keep_an_eye"), provider: "apple" } }),
   heightCase("look-reason-no-link", 356, { rating: "keep_an_eye", since: minutesBefore(30), items: LOOK_ITEMS, recentCount: 1, lastChangeAt: minutesBefore(30), judge: judge("keep_an_eye"), ai: { enabled: false, provider: "chatgpt" } }),
   heightCase("look", 316, { rating: "keep_an_eye", since: minutesBefore(30), items: LOOK_ITEMS, recentCount: 1, lastChangeAt: minutesBefore(30) }),
   heightCase("look-plain", 276, { rating: "keep_an_eye", since: minutesBefore(30), items: LOOK_ITEMS, recentCount: 1, lastChangeAt: minutesBefore(30), ai: { enabled: false, provider: "chatgpt" } }),

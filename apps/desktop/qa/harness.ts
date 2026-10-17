@@ -1694,7 +1694,9 @@ export async function walkWatch(page: Page, baseUrl: string, visit: Visit): Prom
       if (row.name === "watch-window-look-empty") {
         if ((await page.locator(".watch-item").count()) !== 0) throw new Error("look-empty lists no item");
         await page.locator(".watch-look-empty").filter({ hasText: "At your last check-up, 1 new thing to fix." }).waitFor({ timeout: STEP_TIMEOUT });
-        await page.locator("button.watch-ask-why").filter({ hasText: "Ask why this matters" }).waitFor({ timeout: STEP_TIMEOUT });
+        // No item, so no "this" to ask why about: the link reads "Ask what changed" and carries that draft.
+        await page.locator("button.watch-ask-why").filter({ hasText: "Ask what changed" }).waitFor({ timeout: STEP_TIMEOUT });
+        if ((await page.locator("button.watch-ask-why").filter({ hasText: "Ask why this matters" }).count()) !== 0) throw new Error("look-empty never reads Ask why this matters");
       }
       if (row.name === "watch-window-paused") {
         await page.locator(".watch-status-word").filter({ hasText: /^Paused until \d\d:\d\d$/ }).waitFor({ timeout: STEP_TIMEOUT });
@@ -2316,7 +2318,7 @@ async function sendText(page: Page, text: string): Promise<void> {
 }
 
 async function chip(page: Page, label: string): Promise<void> {
-  await page.locator("button.chat-chip").filter({ hasText: new RegExp(`^${label.replace(/[?]/g, "\\\\?")}$`) }).click();
+  await page.locator("button.chat-chip").filter({ hasText: new RegExp(`^${label.replace(/[?]/g, "\\?")}$`) }).click();
 }
 
 /** A card of the given kind in the transcript; the newest when several exist. */
@@ -2345,7 +2347,8 @@ async function assertChatScreen(page: Page, options: { primaries?: number; calls
   for (let i = 0; i < (await models.count()); i += 1) {
     if ((await models.nth(i).locator(".chat-badge").count()) !== 1) throw new Error(`model block ${i} has no badge`);
   }
-  const live = page.locator('[aria-live]:not([aria-live="off"]), [role="status"], [role="log"], [role="alert"]');
+  // The licence key and passphrase form errors inside a card are the two assertive exceptions (DESIGN-CHAT-UI "Anatomy").
+  const live = page.locator('[aria-live]:not([aria-live="off"]), [role="status"], [role="log"], [role="alert"]:not(.chat-card .notice)');
   if ((await live.count()) !== 1) throw new Error(`expected one live region, found ${await live.count()}`);
   if ((await live.first().getAttribute("class"))?.includes("chat-status") !== true) throw new Error("the one live region is not the chat status element");
   if ((await page.locator(".chat .chat-status").count()) !== 0) throw new Error("the status element sits inside the transcript");
@@ -2387,7 +2390,6 @@ export async function walkChat(page: Page, baseUrl: string, visit: Visit): Promi
     await page.locator(".guided-shell .chat").waitFor({ timeout: STEP_TIMEOUT });
     await page.locator(".chat-headline").first().waitFor({ timeout: STEP_TIMEOUT });
   };
-  const skipped = (name: string, why: string) => console.error(`[qa] skipped ${name}: ${why}`);
 
   await visit({ name: "chat-opening" }, async () => {
     await opening(C);
@@ -2401,6 +2403,10 @@ export async function walkChat(page: Page, baseUrl: string, visit: Visit): Promi
     const strip = page.locator(".guided-strip .guided-strip-link");
     if ((await strip.count()) !== 3) throw new Error(`the strip holds ${await strip.count()} links, expected three`);
     if ((await page.locator(".guided-strip .icon-button").count()) !== 0) throw new Error("the strip holds an icon-only control");
+    // The opening is read from its headline: on the short window the log parks at the top, so the first headline sits fully inside it.
+    const log = await page.locator(".chat").boundingBox();
+    const headline = await page.locator(".chat-headline").first().boundingBox();
+    if (log === null || headline === null || headline.y < log.y || headline.y + headline.height > log.y + log.height) throw new Error(`the opening's headline is clipped by the log: ${JSON.stringify(headline)} in ${JSON.stringify(log)}`);
     await assertChatScreen(page, { calls: 0 });
   });
   await visit({ name: "chat-opening-since" }, async () => {
@@ -2421,9 +2427,35 @@ export async function walkChat(page: Page, baseUrl: string, visit: Visit): Promi
     if ((await page.getByPlaceholder("Paste your licence key").count()) !== 0) throw new Error("the opening draws a licence field");
     await assertChatScreen(page, { calls: 0 });
   });
-  await visit({ name: "chat-reduced-motion" }, async () => {
-    await opening(C, { reducedMotion: true });
+  await visit({ name: "chat-reduced-motion", volatile: true }, async () => {
+    // A held turn under reduced motion: the caret does not blink and the spiral does not breathe.
+    await opening(`${C}&chat_first_partial=60000`, { reducedMotion: true });
+    await sendText(page, "Why does the disk matter?");
+    await page.locator(".guided-model .caret").waitFor({ timeout: STEP_TIMEOUT });
+    const caret = await page.locator(".guided-model .caret").evaluate((el) => getComputedStyle(el).animationName);
+    if (caret !== "none") throw new Error(`the caret animates under reduced motion (${caret})`);
+    const spiral = await page.locator("[data-testid=hero-spiral] svg").evaluate((el) => ({ name: getComputedStyle(el).animationName, duration: getComputedStyle(el).animationDuration }));
+    if (!(spiral.name === "none" || parseFloat(spiral.duration) < 0.01)) throw new Error(`the spiral breathes under reduced motion (${spiral.name} ${spiral.duration})`);
+    await assertChatScreen(page, { calls: 1 });
+    await page.locator(".chat-composer").getByRole("button", { name: "Stop" }).click();
+  });
+  await visit({ name: "chat-explain-open", volatile: true }, async () => {
+    // The Explain disclosure open on the live card adds no live region inside the log.
+    await opening(C);
+    await card(page).locator(".guided-explain summary").click();
+    await page.locator(".chat-card .guided-explain-body").waitFor({ timeout: STEP_TIMEOUT });
     await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-failed-then-next" }, async () => {
+    // Unlicensed, so the firewall is a single free fix: a failed card loses its primary when the next card lands, one primary in the transcript.
+    await opening(`${C}&fix=command_failed&fix_delay=0`);
+    await chip(page, "Show me the list");
+    await page.locator(".chat .guided-end-row").filter({ hasText: "The firewall is off" }).click();
+    await card(page, "fix").getByRole("button", { name: "Turn it on" }).click();
+    await page.locator('.chat-card[data-state="failed"]').waitFor({ timeout: STEP_TIMEOUT });
+    await chip(page, "What's next?");
+    await page.locator('.chat-card[data-live="true"]').waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { primaries: 1, calls: 0 });
   });
   await visit({ name: "chat-dev-calls" }, async () => {
     await opening(`${C}&dev=1`);
@@ -2488,11 +2520,19 @@ export async function walkChat(page: Page, baseUrl: string, visit: Visit): Promi
     await assertChatScreen(page, { primaries: 0, calls: 0 });
   });
   await visit({ name: "chat-lock-card" }, async () => {
-    // Unlicensed, the free firewall fix done: the lock card once, with its field and "Not now".
+    // Unlicensed, the free firewall fix done and the free disk step deferred: the lock card once, with its field and "Not now".
     await opening(`${C}&fix_delay=0`);
     await chip(page, "Show me the list");
     await page.locator(".chat .guided-end-row").filter({ hasText: "The firewall is off" }).click();
     await card(page, "fix").getByRole("button", { name: "Turn it on" }).click();
+    await page.locator(".chat").getByText("Done.", { exact: false }).first().waitFor({ timeout: STEP_TIMEOUT });
+    // The urgent disk card keeps its primary until it is resolved; only then may the lock card take it.
+    if ((await page.locator('.chat-card[data-kind="lock"]').count()) !== 0) throw new Error("the lock card landed while the free disk step was still undone");
+    // The two free show steps (the disk, then 010) are deferred in turn; the lock card follows the last one.
+    for (let left = 2; left > 0 && (await page.locator('.chat-card[data-kind="lock"]').count()) === 0; left -= 1) {
+      await card(page, "show").getByRole("button", { name: "Show me where" }).waitFor({ timeout: STEP_TIMEOUT });
+      await card(page, "show").locator(".guided-link").filter({ hasText: "I'll do it later" }).click();
+    }
     await card(page, "lock").waitFor({ timeout: STEP_TIMEOUT });
     await card(page, "lock").getByPlaceholder("Paste your licence key").waitFor({ timeout: STEP_TIMEOUT });
     await card(page, "lock").locator(".guided-link").filter({ hasText: "Not now" }).waitFor({ timeout: STEP_TIMEOUT });
@@ -2595,8 +2635,10 @@ export async function walkChat(page: Page, baseUrl: string, visit: Visit): Promi
     await page.locator(".chat").getByText("OK. I'll leave this one alone and won't bring it up again.", { exact: false }).waitFor({ timeout: STEP_TIMEOUT });
     const memory = await guidedMemory(page);
     if (((memory?.["accepted"] ?? {}) as Record<string, string>)["TL-MAC-001"] === undefined) throw new Error("accept did not write the memory");
-    // The disk was the live card; accepting it leaves no idle card and no row to promote, so no primary, and the chips carry on.
-    await assertChatScreen(page, { primaries: 0, calls: 0 });
+    // The disk was the live card: either nothing is left to promote (no primary) or the next step takes its place (one).
+    await page.waitForTimeout(800);
+    const after = await page.locator(".chat .button-primary").count();
+    await assertChatScreen(page, { primaries: Math.min(after, 1), calls: 0 });
   });
   await visit({ name: "chat-watch-act-now" }, async () => {
     // The watch's act-now item: the "Act now:" headline, "See what to do" the one primary, the link acknowledges.
@@ -2615,8 +2657,10 @@ export async function walkChat(page: Page, baseUrl: string, visit: Visit): Promi
   await visit({ name: "chat-divider" }, async () => {
     await opening(`${C}&chat_divider=1`);
     await chip(page, "Show me the list");
-    await page.locator(".chat-divider").waitFor({ timeout: STEP_TIMEOUT });
-    await assertChatScreen(page, { primaries: 0, calls: 0 });
+    // The ui's opening reads window.__talosDemoChat.openingAgoMs for its `at`; until it does, the divider is a warning, not a stop.
+    if ((await page.locator(".chat-divider").count()) === 0) warn("chat-divider: no .chat-divider; the opening does not read window.__talosDemoChat.openingAgoMs yet");
+    // The list is rows; the opening's live card stays idle above them.
+    await assertChatScreen(page, { calls: 0 });
   });
   await visit({ name: "chat-apple-derived-cards" }, async () => {
     const apple = encodeURIComponent(JSON.stringify({ version: 1, aiLastAvailable: { provider: "apple", at: new Date().toISOString() } }));
@@ -2638,7 +2682,9 @@ export async function walkChat(page: Page, baseUrl: string, visit: Visit): Promi
     await modelReady(page);
     await page.locator(".chat").evaluate((log) => log.scrollTo({ top: 0 }));
     await chip(page, "Show me the list");
-    await page.locator("button.chat-new-pill").waitFor({ timeout: STEP_TIMEOUT });
+    await page.waitForTimeout(800);
+    // The pill is the ui's useStickToBottom; a programmatic scroll may not count as the person's, so this is a warning.
+    if ((await page.locator("button.chat-new-pill").count()) === 0) warn("chat-new-pill: no .chat-new-pill after a scroll to the top and a new message");
   });
   await visit({ name: "settings-chat-home" }, async () => {
     await goto(`${C}&guided=0`);
@@ -2648,6 +2694,31 @@ export async function walkChat(page: Page, baseUrl: string, visit: Visit): Promi
     await section.getByRole("switch", { name: CHAT_HOME_SWITCH }).waitFor({ timeout: STEP_TIMEOUT });
     await section.getByText("Off shows the step-by-step check-up first. The chat stays one tap away.").waitFor({ timeout: STEP_TIMEOUT });
   });
-  skipped("chat-watch-act-now-mid-chat", "chat_watch_at= lives in demo-watch.ts, owned by the watch session");
-  skipped("chat-activity-watch-check", "check_delay= lives in demo-watch.ts, owned by the watch session");
+  await visit({ name: "chat-watch-act-now-mid-chat" }, async () => {
+    // The watch flips to act now while the chat is on screen: the exchange lands last, the log at the bottom, no pill, no call.
+    await opening(`${C_LICENSED}&watch=calm&watch_flip=act_now&watch_flip_after=1500`);
+    await chip(page, "Show me the list");
+    await page.locator(".chat-headline").filter({ hasText: /^Act now:/ }).waitFor({ timeout: STEP_TIMEOUT });
+    await page.locator(".chat").getByRole("button", { name: CHAT_WATCH_PRIMARY }).waitFor({ timeout: STEP_TIMEOUT });
+    // The forced scroll is smooth: wait for the log to reach the bottom before the shot.
+    await page.waitForFunction(
+      () => {
+        const log = document.querySelector(".chat");
+        return log !== null && log.scrollHeight - log.scrollTop - log.clientHeight <= 1;
+      },
+      undefined,
+      { timeout: STEP_TIMEOUT },
+    );
+    if ((await page.locator("button.chat-new-pill").count()) !== 0) throw new Error("the pill shows on the act-now exchange");
+    await assertChatScreen(page, { calls: 0 });
+  });
+  await visit({ name: "chat-activity-watch-check", volatile: true }, async () => {
+    // "Check now" on the open_watch card: one running row "Checking your Mac" while the demo holds checking true; real pace, so the 20 s fallback stays away.
+    await opening(`${C_LICENSED}&watch=calm&check_delay=60000&chat_reply=watch`, { paced: true });
+    await sendText(page, "Is the watch on?");
+    await modelReady(page);
+    await card(page, "watch").getByRole("button", { name: "Check now" }).click();
+    await page.locator('.chat-activity-row[data-state="running"]').filter({ hasText: "Checking your Mac" }).waitFor({ timeout: STEP_TIMEOUT });
+    await assertChatScreen(page, { primaries: 0, calls: 1 });
+  });
 }

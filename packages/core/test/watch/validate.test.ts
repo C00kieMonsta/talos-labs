@@ -47,6 +47,8 @@ describe("validateWatchVerdict", () => {
       "dropped: command text in the reason",
       "dropped: a path in the reason",
       "dropped: a port in the reason",
+      "dropped: a host and port in the reason",
+      "dropped: an any-host port in an action sentence",
       "dropped: a reason over 120 characters",
       "kept: a reason of exactly 120 characters",
       "dropped: an action sentence over 300 characters stays dropped, a 200-character one is kept",
@@ -93,6 +95,11 @@ describe("safeSentence and the three patterns", () => {
     expect(PORT_LIKE.test("at 14:32")).toBe(false);
     expect(PORT_LIKE.test("18:00")).toBe(false);
     expect(PORT_LIKE.test("ratio 1:2")).toBe(false);
+    expect(PORT_LIKE.test("Something listens on 127.0.0.1:8080 now.")).toBe(true);
+    expect(PORT_LIKE.test("It is open on 0.0.0.0:22.")).toBe(true);
+    expect(PORT_LIKE.test("10.0.0.5:5900")).toBe(true);
+    expect(safeSentence("Something listens on 127.0.0.1:8080 now.")).toBe(false);
+    expect(safeSentence("It comes back at 18:00.")).toBe(true);
     for (const verb of ["pid", "Process", "KILL", "delete", "remove", "rm", "unload"]) expect(BANNED_VERBS.test(`please ${verb} it`), verb).toBe(true);
     expect(BANNED_VERBS.test("the processor is warm")).toBe(false);
     expect(safeSentence("$ ls -la")).toBe(false);

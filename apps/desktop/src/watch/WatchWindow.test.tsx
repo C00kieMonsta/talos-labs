@@ -186,8 +186,15 @@ describe("WatchWindow, the calm window", () => {
     await renderWindow({ ...CALM, judge: judge("calm", { provider: "claude_plan" }) });
     expect(text(".guided-model-badge")).toBe("Claude, not verified");
     cleanup();
-    await renderWindow({ ...CALM, judge: judge("calm", { provider: "apple" }) });
+    await renderWindow({ ...CALM, rating: "keep_an_eye", items: [item()], judge: judge("keep_an_eye", { provider: "apple" }) });
     expect(text(".guided-model-badge")).toBe("Apple Intelligence on this Mac, not verified");
+  });
+
+  it("hides an On this Mac line on calm and shows the authored line instead", async () => {
+    await renderWindow({ ...CALM, ai: { enabled: true, provider: "apple" }, judge: judge("calm", { provider: "apple" }) });
+    expect(document.querySelector(".guided-model-line")).toBeNull();
+    expect(document.querySelector(".guided-model-badge")).toBeNull();
+    expect(text(".watch-calm-line")).toBe("No change in 3 days.");
   });
 
   it("the authored line follows the date of the last change", async () => {
@@ -229,6 +236,20 @@ describe("WatchWindow, the calm window", () => {
     expect(fake.openMain).toHaveBeenCalledTimes(1);
   });
 
+  it("Up next keeps a long headline in its own span so the ellipsis cuts the text and never the chevron", async () => {
+    // TL-MAC-024 is the widest headline: 416 px at the window's font against a 288 px row.
+    await renderWindow({ ...CALM, next: { ...NEXT, ruleId: "TL-MAC-024" } });
+    const link = document.querySelector<HTMLButtonElement>("button.watch-link.watch-up-next");
+    expect(link).not.toBeNull();
+    const parts = Array.from(link?.children ?? []);
+    expect(parts.map((part) => part.className)).toEqual(["watch-up-next-text", ""]);
+    expect(parts[0]?.textContent).toBe(`Up next: ${guidedFor("TL-MAC-024").headline}`);
+    expect(parts[1]?.getAttribute("aria-hidden")).toBe("true");
+    expect(parts[1]?.textContent).toBe("›");
+    expect(link?.lastElementChild).toBe(parts[1]);
+    expect(link?.textContent).toBe(`Up next: ${guidedFor("TL-MAC-024").headline} ›`);
+  });
+
   it("a past, null or unreadable next check reads soon, and the closer watch wins", async () => {
     await renderWindow({ ...CALM, nextCheckAt: ago(5) });
     expect(text(".watch-meta-next")).toBe(WATCH_WINDOW.nextCheckSoon);
@@ -267,6 +288,18 @@ describe("WatchWindow, the calm window", () => {
         ],
       }),
     ).toBe("I couldn't check 3 areas. Open Talos Labs to see why.");
+  });
+
+  it("falls back to the count when the areas sentence would pass three lines: more than three areas, or over 110 characters", () => {
+    const timedOut = (["probe.firewall", "probe.remote_access", "probe.file_sharing", "probe.accounts", "probe.hosts", "probe.backup"] as const).map((probeId) => ({ probeId, reason: "timeout" as const }));
+    expect(unavailableLine({ ...CALM, unavailable: timedOut })).toBe("I couldn't check 6 areas. Open Talos Labs to see why.");
+    expect(unavailableLine({ ...CALM, unavailable: timedOut.slice(0, 4) })).toBe("I couldn't check 4 areas. Open Talos Labs to see why.");
+    const longLabels = (["probe.persistence_signatures", "probe.hosts", "probe.malware_protection"] as const).map((probeId) => ({ probeId, reason: "needs_automation_permission" as const }));
+    expect(unavailableLine({ ...CALM, unavailable: longLabels })).toBe("I couldn't check 3 areas. Open Talos Labs to see why.");
+    const shortLabels = (["probe.firewall", "probe.hosts", "probe.backup"] as const).map((probeId) => ({ probeId, reason: "timeout" as const }));
+    const line = unavailableLine({ ...CALM, unavailable: shortLabels });
+    expect(line).toBe("I couldn't check the firewall, website address overrides and backups. Took too long to read.");
+    expect(line.length).toBeLessThanOrEqual(110);
   });
 });
 
@@ -448,7 +481,9 @@ describe("WatchWindow, look", () => {
     expect(rows()).toEqual(["watch-status", "watch-meta", "watch-look-empty", "guided-model-line", "button", "watch-link", "watch-footer"]);
     fireEvent.click(screen.getByRole("button", { name: WATCH.showMe }));
     expect(fake.openMain).toHaveBeenCalledWith("home");
-    fireEvent.click(screen.getByRole("button", { name: WATCH_WINDOW.askLink }));
+    // With no item there is no "this" to ask why about: the link's label matches the draft it carries.
+    expect(screen.queryByRole("button", { name: WATCH_WINDOW.askLink })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: WATCH_WINDOW.askWhatChangedLink }));
     expect(fake.openMain).toHaveBeenLastCalledWith("chat", WATCH_WINDOW.askWhatChanged);
     expect(lookEmptyLine({ ...empty, rulesSince: { reportId: "r-1", appeared: 3 } })).toBe("At your last check-up, 3 new things to fix.");
     expect(lookEmptyLine({ ...empty, rulesSince: { reportId: "r-1", appeared: 0 } })).toBe("1 change in the last day.");
@@ -537,12 +572,29 @@ describe("WatchWindow, first run and paused", () => {
     expect(rows()).toEqual(["watch-status", "watch-meta", "watch-paused-line", "watch-footer"]);
   });
 
+  it("paused with an unreadable area keeps the count on the meta line, as look and act do", async () => {
+    await renderWindow({ ...PAUSED, unavailable: [{ probeId: "probe.listeners", reason: "unsigned_build" }] });
+    expect(text(".watch-meta-checked")).toBe("Checked 10 minutes ago");
+    expect(text(".watch-meta-unavailable")).toBe(WATCH.couldNotCheckOne);
+    expect(document.querySelector(".watch-unreadable")).toBeNull();
+    expect(rows()).toEqual(["watch-status", "watch-meta", "watch-paused-line", "watch-footer"]);
+  });
+
   it("paused with items and a judge still draws only the pause", async () => {
     await renderWindow({ ...ACT, pausedUntil: ago(-30), judge: judge("act_now") });
     expect(document.querySelector(".watch-item")).toBeNull();
     expect(document.querySelector(".guided-model-line")).toBeNull();
     expect(primaries()).toEqual([]);
     expect(text(".watch-status-word")).toContain("Paused until");
+  });
+
+  it("a pause during act now drops the critical colour with the act-now word", async () => {
+    const until = ago(-48);
+    await renderWindow({ ...ACT, pausedUntil: until });
+    const status = document.querySelector(".watch-status");
+    expect(status).not.toBeNull();
+    expect(status?.classList.contains("watch-status-act")).toBe(false);
+    expect(text(".watch-status-word")).toBe(`Paused until ${formatTime(until)}`);
   });
 });
 

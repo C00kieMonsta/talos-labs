@@ -204,7 +204,7 @@ fn the_window_labels_are_the_two_in_tauri_conf() {
     assert_eq!(watch["label"], "watch");
     assert_eq!(watch["url"], "watch.html");
     assert_eq!(watch["width"], 320);
-    assert_eq!(watch["height"], 360);
+    assert_eq!(watch["height"], 420);
     assert_eq!(watch["visible"], false);
     assert_eq!(watch["decorations"], false);
     assert_eq!(watch["alwaysOnTop"], true);

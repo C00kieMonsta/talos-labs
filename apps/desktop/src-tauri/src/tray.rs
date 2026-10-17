@@ -21,7 +21,7 @@ use tauri::{
 };
 use tauri_plugin_notification::NotificationExt;
 
-use crate::watch::{OpenScreen, Rating, WatchState};
+use crate::watch::{ModelProvider, OpenScreen, Rating, WatchState};
 
 /// The custom Quit item, shared by the app menu and the tray menu; `menu::on_event` exits for both.
 pub const QUIT_ID: &str = "talos-quit";
@@ -68,14 +68,30 @@ pub fn rows_for(state: &WatchState) -> Vec<f64> {
     }
     let checked = state.checking || state.last_check_at.is_some();
     let unavailable = state.unavailable.len();
-    let judge_for = |rating: Rating| {
-        state
-            .judge
-            .as_ref()
-            .is_some_and(|judge| judge.rating == rating)
+    // The line the window draws: about the shown rating, and never On this Mac on calm. The
+    // Apple badge wraps to a second line, so its row is one line taller.
+    let reason_row = |rating: Rating| -> f64 {
+        match state.judge.as_ref() {
+            Some(judge)
+                if judge.rating == rating
+                    && !(rating == Rating::Calm && judge.provider == ModelProvider::Apple) =>
+            {
+                if judge.provider == ModelProvider::Apple {
+                    90.0
+                } else {
+                    72.0
+                }
+            }
+            _ => 0.0,
+        }
     };
     if state.paused_until.is_some() {
-        let meta = if checked { 20.0 } else { 0.0 };
+        // The meta line is look's: the unreadable count wraps it to a second line.
+        let meta = if checked {
+            if unavailable > 0 { 40.0 } else { 20.0 }
+        } else {
+            0.0
+        };
         return vec![STATUS, meta, 20.0, FOOTER]
             .into_iter()
             .filter(|row| *row > 0.0)
@@ -97,19 +113,17 @@ pub fn rows_for(state: &WatchState) -> Vec<f64> {
                 1 => 40.0,
                 _ => 60.0,
             };
-            let sentence = if judge_for(Rating::Calm) { 72.0 } else { 20.0 };
+            let reason = reason_row(Rating::Calm);
+            let sentence = if reason > 0.0 { reason } else { 20.0 };
             let up_next = match (&state.report, &state.next) {
                 (Some(report), Some(next)) if next.report_id == report.report_id => 28.0,
                 _ => 0.0,
             };
             let checkup = 20.0 + up_next;
-            let row5 = if state.ai.enabled {
-                44.0
-            } else if state.ai.provider.is_none() {
-                52.0
-            } else {
-                0.0
-            };
+            // The ask field. The Connect line (DESIGN-WATCH-WINDOW section 2, "AI not connected")
+            // is drawn from the window's own localStorage read, which no pushed `ai` shape carries
+            // today, so no row is sized for it: a `provider` of None is a Developer provider.
+            let row5 = if state.ai.enabled { 44.0 } else { 0.0 };
             vec![STATUS, meta, unreadable, sentence, checkup, row5, FOOTER]
         }
         Rating::KeepAnEye => {
@@ -119,11 +133,7 @@ pub fn rows_for(state: &WatchState) -> Vec<f64> {
                 0.0
             };
             let body = if state.items.is_empty() { 20.0 } else { 92.0 };
-            let reason = if judge_for(Rating::KeepAnEye) {
-                72.0
-            } else {
-                0.0
-            };
+            let reason = reason_row(Rating::KeepAnEye);
             let ask_link = if state.ai.enabled { 32.0 } else { 0.0 };
             vec![STATUS, meta, body, reason, 44.0, ask_link, FOOTER]
         }
@@ -133,7 +143,7 @@ pub fn rows_for(state: &WatchState) -> Vec<f64> {
             } else {
                 0.0
             };
-            let reason = if judge_for(Rating::ActNow) { 72.0 } else { 0.0 };
+            let reason = reason_row(Rating::ActNow);
             if state.items.is_empty() {
                 vec![STATUS, meta, 20.0, reason, FOOTER]
             } else {
@@ -1007,6 +1017,15 @@ mod tests {
             152.0,
             "a paused window is about the pause, whatever the rating"
         );
+        let mut paused_unreadable = state(Rating::Calm, 0, CHECKED);
+        paused_unreadable.paused_until = Some("2026-10-17T13:00:00.000Z".into());
+        paused_unreadable.unavailable = unavailable(1);
+        assert_eq!(
+            window_height(&paused_unreadable),
+            172.0,
+            "paused: the unreadable count wraps the meta line to 40"
+        );
+        assert_eq!(rows_for(&paused_unreadable), vec![24.0, 40.0, 20.0, 32.0]);
 
         assert_eq!(
             window_height(&calm_full()),
@@ -1033,13 +1052,24 @@ mod tests {
         let mut two = calm_full();
         two.unavailable = unavailable(2);
         assert_eq!(window_height(&two), 400.0, "two probes read as several");
-        let mut not_connected = calm_full();
-        not_connected.ai = ai(false, None);
-        not_connected.judge = None;
+        let mut no_provider = calm_full();
+        no_provider.ai = ai(false, None);
+        no_provider.judge = None;
         assert_eq!(
-            window_height(&not_connected),
-            288.0,
-            "calm: the Connect line"
+            window_height(&no_provider),
+            228.0,
+            "calm: no provider (a Developer one) sizes no row 5"
+        );
+        let mut apple_calm = calm_full();
+        apple_calm.ai = ai(true, Some(ModelProvider::Apple));
+        apple_calm.judge = Some(JudgeLine {
+            provider: ModelProvider::Apple,
+            ..judge(Rating::Calm)
+        });
+        assert_eq!(
+            window_height(&apple_calm),
+            280.0,
+            "calm: an On this Mac line is hidden, the authored line stands"
         );
         let mut off = calm_full();
         off.ai = ai(false, Some(ModelProvider::Chatgpt));
@@ -1102,6 +1132,28 @@ mod tests {
             window_height(&look_unreadable),
             416.0,
             "look meta is 40 with an unreadable area"
+        );
+        let mut look_apple = look_full(1);
+        look_apple.ai = ai(true, Some(ModelProvider::Apple));
+        look_apple.judge = Some(JudgeLine {
+            provider: ModelProvider::Apple,
+            ..judge(Rating::KeepAnEye)
+        });
+        assert_eq!(
+            window_height(&look_apple),
+            414.0,
+            "look: the Apple badge wraps, so the reason row is 90"
+        );
+        let mut act_apple = act_full(true);
+        act_apple.ai = ai(true, Some(ModelProvider::Apple));
+        act_apple.judge = Some(JudgeLine {
+            provider: ModelProvider::Apple,
+            ..judge(Rating::ActNow)
+        });
+        assert_eq!(
+            window_height(&act_apple),
+            420.0,
+            "act: the Apple reason row is capped from 422"
         );
         let mut mismatched = look_full(1);
         mismatched.judge = Some(judge(Rating::Calm));

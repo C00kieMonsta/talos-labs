@@ -179,6 +179,9 @@ describe("cleanQuestion and toOpenEvent", () => {
     expect(cleanQuestion(" hi\nthere ")).toBe("hi there");
     expect(cleanQuestion("a\r\nb")).toBe("a b");
     expect(cleanQuestion("a\u0007b\u007Fc")).toBe("abc");
+    // C1 controls (U+0085 NEL from pasted text, U+009F) go too: Rust refuses every char::is_control, so the tap must not fail there.
+    expect(cleanQuestion("a\u0085b\u009Fc\u0080")).toBe("abc");
+    expect(cleanQuestion("café  ok")).toBe("café  ok");
     expect(cleanQuestion("\t  \n")).toBe("");
     expect(cleanQuestion("caf\u00e9 \ud83d\ude00")).toBe("caf\u00e9 \ud83d\ude00");
   });

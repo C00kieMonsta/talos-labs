@@ -94,9 +94,11 @@ export interface WatchDemoFlags {
   readonly watchFlip: Rating | null;
   /** ?watch_flip_after= the delay in milliseconds before the flip; 1000 when absent with watch_flip. */
   readonly watchFlipAfter: number | null;
+  /** ?check_delay= holds `checking: true` for this many milliseconds after "Check now"; null uses the demo's delay. */
+  readonly watchCheckDelay: number | null;
 }
 
-export const DEFAULT_WATCH_DEMO: WatchDemoFlags = { watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false, licensed: false, watchReason: true, watchNext: true, watchFlip: null, watchFlipAfter: null };
+export const DEFAULT_WATCH_DEMO: WatchDemoFlags = { watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false, licensed: false, watchReason: true, watchNext: true, watchFlip: null, watchFlipAfter: null, watchCheckDelay: null };
 
 export interface DemoFlags {
   readonly options: DemoOptions;
@@ -189,6 +191,7 @@ export function parseWatchDemoQuery(params: URLSearchParams): WatchDemoFlags {
     watchNext: params.get("watchNext") !== "0",
     watchFlip: pickOne(params.get("watch_flip"), RATING_ORDER),
     watchFlipAfter: count(params, "watch_flip_after"),
+    watchCheckDelay: count(params, "check_delay"),
   };
 }
 

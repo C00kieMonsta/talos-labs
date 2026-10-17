@@ -46,7 +46,16 @@ function withStop(text: string): string {
   return /[.!?]$/.test(text) ? text : `${text}.`;
 }
 
-/** The calm window's visible unreadable row (docs/DESIGN-WATCH-WINDOW.md section 2): one probe, several with one reason, or several reasons. */
+/** The most areas the calm unreadable row names; more than this reads as the count. */
+const UNREADABLE_MAX_AREAS = 3;
+/** The longest areas sentence that stays within the row's three lines (60 px) at the window's font. */
+const UNREADABLE_MAX_CHARS = 110;
+
+/**
+ * The calm window's visible unreadable row (docs/DESIGN-WATCH-WINDOW.md section 2): one probe, several with one reason, or
+ * several reasons. The row is sized 60 px from Rust, which cannot see the labels, so a sentence over three lines (more than
+ * three areas, or over 110 characters) falls back to the count.
+ */
 export function unavailableLine(state: WatchState): string {
   const probes = state.unavailable;
   if (probes.length === 0) return "";
@@ -55,9 +64,10 @@ export function unavailableLine(state: WatchState): string {
   if (probes.length === 1 && first !== undefined) {
     return WATCH_WINDOW.couldNotCheckArea.replace("{area}", WATCH_PROBE_LABELS[first.probeId]).replace("{reason}", withStop(reasonLabel(first.reason)));
   }
-  if (reasons.length === 1 && first !== undefined) {
+  if (reasons.length === 1 && first !== undefined && probes.length <= UNREADABLE_MAX_AREAS) {
     const areas = joinAreas(probes.map((probe) => WATCH_PROBE_LABELS[probe.probeId]));
-    return WATCH_WINDOW.couldNotCheckAreas.replace("{areas}", areas).replace("{reason}", withStop(reasonLabel(first.reason)));
+    const line = WATCH_WINDOW.couldNotCheckAreas.replace("{areas}", areas).replace("{reason}", withStop(reasonLabel(first.reason)));
+    if (line.length <= UNREADABLE_MAX_CHARS) return line;
   }
   return WATCH_WINDOW.couldNotCheckMixed.replace("{n}", String(probes.length));
 }
@@ -79,13 +89,16 @@ export function lookEmptyLine(state: WatchState): string {
   return plural(state.recentCount, WATCH_WINDOW.lookEmptyChange, WATCH_WINDOW.lookEmptyChanges);
 }
 
-/** The judge's line the window may draw: non-null and about the rating shown. */
+/** The judge's line the window may draw: non-null, about the rating shown, and never On this Mac on calm (section 3, the state machine). */
 function currentJudge(state: WatchState): WatchJudge | null {
-  return state.judge !== null && state.judge.rating === state.rating ? state.judge : null;
+  if (state.judge === null || state.judge.rating !== state.rating) return null;
+  if (state.rating === "calm" && state.judge.provider === "apple") return null;
+  return state.judge;
 }
 
 function StatusLine({ state }: { readonly state: WatchState }) {
-  const act = state.rating === "act_now";
+  // The critical colour goes with the act-now word only; a pause is drawn in the neutral colour.
+  const act = state.pausedUntil === null && state.rating === "act_now";
   const icon = state.pausedUntil !== null ? ICONS.pause : act ? SEVERITY_ICONS.critical : state.rating === "keep_an_eye" ? ICONS.info : ICONS.checkup;
   return (
     <div className={act ? "watch-status watch-status-act" : "watch-status"} role="status">
@@ -185,7 +198,7 @@ function CheckupRow({ state, port }: { readonly state: WatchState; readonly port
       <p className="watch-checkup-score">{score}</p>
       {headline !== null && (
         <button type="button" className="watch-link watch-up-next" onClick={() => void port.openMain("home")}>
-          {WATCH_WINDOW.upNext.replace("{headline}", headline)} <span aria-hidden="true">›</span>
+          <span className="watch-up-next-text">{WATCH_WINDOW.upNext.replace("{headline}", headline)}</span> <span aria-hidden="true">›</span>
         </button>
       )}
     </div>
@@ -343,7 +356,7 @@ export function WatchWindow({
           className="watch-link watch-ask-why"
           onClick={() => void port.openMain("chat", top === undefined ? WATCH_WINDOW.askWhatChanged : WATCH_WINDOW.askWhy(FISHY.noticed.headline[top.kind]))}
         >
-          {WATCH_WINDOW.askLink}
+          {top === undefined ? WATCH_WINDOW.askWhatChangedLink : WATCH_WINDOW.askLink}
         </button>
       )}
       <footer className="watch-footer">

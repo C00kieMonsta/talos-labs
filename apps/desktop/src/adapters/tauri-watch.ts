@@ -464,11 +464,12 @@ function nextOnTheWire(next: WatchNext | null): { readonly kind: string; readonl
 
 /**
  * The person's own words, as the main window's composer takes them: CR and LF become spaces,
- * other control characters are stripped, the ends are trimmed. Never logged, never persisted.
+ * every other Unicode control (C0, DEL and C1, the set Rust's `char::is_control` refuses) is
+ * stripped, the ends are trimmed. Never logged, never persisted.
  */
 export function cleanQuestion(text: string): string {
   // eslint-disable-next-line no-control-regex
-  return text.replace(/[\r\n]+/g, " ").replace(/[\u0000-\u001F\u007F]/g, "").trim();
+  return text.replace(/[\r\n]+/g, " ").replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim();
 }
 
 export class TauriWatchAdapter implements WatchPort {

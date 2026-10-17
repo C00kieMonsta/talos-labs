@@ -66,6 +66,14 @@ describe("watchWindowHeight, the rule", () => {
     expect(watchWindowHeight(fakeWatchState({ pausedUntil: "2026-10-17T13:00:00.000Z", lastCheckAt: null }))).toBe(124);
   });
 
+  it("paused with an unreadable area is 172: the meta line wraps to 40 as in look and act", () => {
+    const paused = { pausedUntil: "2026-10-17T13:00:00.000Z", unavailable: [UNREADABLE] } as const;
+    expect(watchWindowHeight(fakeWatchState(paused))).toBe(172);
+    expect(watchWindowRows(fakeWatchState(paused))).toEqual([24, 40, 20, 32]);
+    expect(watchWindowRows(fakeWatchState({ ...paused, checking: true, lastCheckAt: null }))).toEqual([24, 40, 20, 32]);
+    expect(watchWindowRows(fakeWatchState({ ...paused, lastCheckAt: null }))).toEqual([24, 0, 20, 32]);
+  });
+
   it("calm with the judge, the score, Up next and the field is 332; authored 280; no report 252", () => {
     expect(watchWindowHeight(fakeWatchState({ ai: AI, judge: JUDGE_CALM, report: REPORT, next: NEXT }))).toBe(332);
     expect(watchWindowHeight(fakeWatchState({ ai: AI, report: REPORT, next: NEXT }))).toBe(280);
@@ -79,9 +87,23 @@ describe("watchWindowHeight, the rule", () => {
     expect(watchWindowHeight(fakeWatchState({ ...base, unavailable: [UNREADABLE, { probeId: "probe.remote_access", reason: "unsigned_build" }, { probeId: "probe.file_sharing", reason: "unsigned_build" }] }))).toBe(400);
   });
 
-  it("calm row 5: the Connect line reserves 52 with no provider, and nothing with a provider and the switch off", () => {
-    expect(watchWindowHeight(fakeWatchState({ ai: { enabled: false, provider: null }, report: REPORT, next: NEXT }))).toBe(288);
+  it("calm row 5: nothing with the switch off, whether or not a provider is chosen; 52 only where the Connect line is drawn", () => {
+    expect(watchWindowHeight(fakeWatchState({ ai: { enabled: false, provider: null }, report: REPORT, next: NEXT }))).toBe(228);
     expect(watchWindowHeight(fakeWatchState({ ai: { enabled: false, provider: "chatgpt" }, report: REPORT, next: NEXT }))).toBe(228);
+    expect(watchWindowHeight(fakeWatchState({ ai: { enabled: false, provider: null }, report: REPORT, next: NEXT }), true)).toBe(288);
+    expect(watchWindowRows(fakeWatchState({ ai: { enabled: false, provider: null }, report: REPORT, next: NEXT }), true)[5]).toBe(52);
+    expect(watchWindowHeight(fakeWatchState({ ai: AI, report: REPORT, next: NEXT }), true)).toBe(280);
+  });
+
+  it("calm: an On this Mac judge line is hidden and counts as the authored line; look and act keep it at 90, as the badge wraps", () => {
+    const apple = { enabled: true, provider: "apple" } as const;
+    expect(watchWindowHeight(fakeWatchState({ ai: apple, judge: { ...JUDGE_CALM, provider: "apple" }, report: REPORT, next: NEXT }))).toBe(280);
+    expect(watchWindowRows(fakeWatchState({ ai: apple, judge: { ...JUDGE_CALM, provider: "apple" }, report: REPORT, next: NEXT }))[3]).toBe(20);
+    expect(watchWindowHeight(fakeWatchState({ rating: "keep_an_eye", items: [item()], ai: apple, judge: { ...JUDGE_CALM, provider: "apple", rating: "keep_an_eye" } }))).toBe(414);
+    expect(watchWindowRows(fakeWatchState({ rating: "keep_an_eye", items: [item()], ai: apple, judge: { ...JUDGE_CALM, provider: "apple", rating: "keep_an_eye" } }))[3]).toBe(90);
+    const items = [item(), item({ signalId: "sig.listener_new_ports", kind: "listener" })];
+    expect(watchWindowRows(fakeWatchState({ rating: "act_now", items, ai: apple, judge: { ...JUDGE_CALM, provider: "apple", rating: "act_now" } }))[5]).toBe(90);
+    expect(watchWindowHeight(fakeWatchState({ rating: "act_now", items, ai: apple, judge: { ...JUDGE_CALM, provider: "apple", rating: "act_now" } }))).toBe(WATCH_WINDOW_MAX_HEIGHT);
   });
 
   it("calm: a judge for another rating counts as authored, and Up next needs the report ids to match", () => {
