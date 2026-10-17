@@ -7,8 +7,9 @@ import { DEMO_WATCH_PLAN_TTL_MS, DemoWatch } from "./demo-watch";
 
 const NOW = "2026-10-17T12:00:00.000Z";
 
+/** The main window's fishy base carries licensed=1, so the tests start licensed unless they say otherwise. */
 function flags(over: Partial<WatchDemoFlags> = {}): WatchDemoFlags {
-  return { ...DEFAULT_WATCH_DEMO, ...over };
+  return { ...DEFAULT_WATCH_DEMO, licensed: true, ...over };
 }
 
 function make(over: Partial<WatchDemoFlags> = {}, now: () => string = () => NOW): DemoWatch {
@@ -51,12 +52,16 @@ describe("DemoWatch per ?watch=", () => {
     expect(first).toMatchObject({ firstRun: true, rating: "calm", since: null, lastCheckAt: null, cycleIndex: 0, items: [] });
   });
 
-  it("records watch:notified only when constructed with watch=act and no gate", () => {
+  it("records watch:notified only when constructed with watch=act, no gate and a licence", async () => {
     make({ watch: "act" });
     expect(window.__talosDemoCalls).toEqual([{ kind: "watch:notified", arg: "sig.persistence_new" }]);
     delete window.__talosDemoCalls;
     make({ watch: "look" });
     make({ watch: "act", fishy: "remote", fishyGate: true });
+    // Unlicensed, the state starts with licensed false and the items wait for the webview's push; Rust would never have notified.
+    const unlicensed = await make({ watch: "act", licensed: false }).status();
+    expect(unlicensed.licensed).toBe(false);
+    expect(unlicensed.items.map((i) => i.signalId)).toEqual(["sig.persistence_new", "sig.listener_new_ports"]);
     expect(kinds()).toEqual([]);
   });
 });

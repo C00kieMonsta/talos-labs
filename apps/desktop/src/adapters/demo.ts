@@ -96,7 +96,7 @@ export interface DemoOptions {
 }
 
 /** No ?watch= params: the same as DEFAULT_WATCH_DEMO in demo-boot.ts, kept here so demo.ts imports no value from it. */
-const NO_WATCH_DEMO: WatchDemoFlags = { watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false };
+const NO_WATCH_DEMO: WatchDemoFlags = { watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false, licensed: false };
 
 export type DemoScanError = "collector_crashed" | "timeout" | "schema_mismatch";
 export const DEMO_SCAN_ERRORS: readonly DemoScanError[] = ["collector_crashed", "timeout", "schema_mismatch"];

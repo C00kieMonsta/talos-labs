@@ -25,7 +25,7 @@ describe("parseDemoQuery", () => {
       watchDemo: DEFAULT_WATCH_DEMO,
       watchMemory: null,
     });
-    expect(DEFAULT_WATCH_DEMO).toEqual({ watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false });
+    expect(DEFAULT_WATCH_DEMO).toEqual({ watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false, licensed: false });
   });
 
   it("reads every parameter", () => {
@@ -64,17 +64,19 @@ describe("parseDemoQuery", () => {
       since: true,
       continueGuided: true,
       technical: "medium",
-      watchDemo: { watch: "act", fishy: "remote", fishyGate: true, fishyWired: true, watchAi: "chatgpt", ransomNote: true },
+      watchDemo: { watch: "act", fishy: "remote", fishyGate: true, fishyWired: true, watchAi: "chatgpt", ransomNote: true, licensed: true },
       watchMemory: '{"version":1}',
     });
   });
 
-  it("parseWatchDemoQuery reads the seven watch params and ignores unknown values", () => {
+  it("parseWatchDemoQuery reads the six watch params and the licence flag and ignores unknown values", () => {
     for (const state of ["calm", "look", "act", "unreadable", "first-run"] as const) expect(parseWatchDemoQuery(new URLSearchParams(`watch=${state}`)).watch).toBe(state);
     for (const kind of ["persistence", "listener", "guard", "remote", "admin", "dns", "backup"] as const) expect(parseWatchDemoQuery(new URLSearchParams(`fishy=${kind}`)).fishy).toBe(kind);
     for (const ai of ["off", "apple", "chatgpt", "claude", "limit"] as const) expect(parseWatchDemoQuery(new URLSearchParams(`watchAi=${ai}`)).watchAi).toBe(ai);
     expect(parseWatchDemoQuery(new URLSearchParams("watch=panic&fishy=ransomware&watchAi=gemini&fishyGate=yes&fishyWired=0&ransomNote=2"))).toEqual(DEFAULT_WATCH_DEMO);
     expect(parseWatchDemoQuery(new URLSearchParams(""))).toEqual(DEFAULT_WATCH_DEMO);
+    expect(parseWatchDemoQuery(new URLSearchParams("licensed=1")).licensed).toBe(true);
+    expect(parseWatchDemoQuery(new URLSearchParams("licensed=yes")).licensed).toBe(false);
     expect(parseDemoQuery("?watchMemory=%7B%22version%22%3A1%2C%22fishyRanAt%22%3A%222026-10-16T10%3A00%3A00.000Z%22%7D").watchMemory).toBe('{"version":1,"fishyRanAt":"2026-10-16T10:00:00.000Z"}');
   });
 

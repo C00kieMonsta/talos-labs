@@ -193,7 +193,7 @@ export class DemoWatch implements WatchPort {
     const firstRun = watch === "first-run";
     this.state = {
       enabled: true,
-      licensed: true,
+      licensed: flags.licensed,
       firstRun,
       hiddenLaunch: false,
       rating,
@@ -209,8 +209,8 @@ export class DemoWatch implements WatchPort {
       gated: gatedId === null ? [] : [gatedId],
       items: this.itemsFor(rating, at),
     };
-    // Rust emits watch:notified on the transition into act now; the harness asserts the record.
-    if (watch === "act" && gatedId === null) {
+    // Rust emits watch:notified on the transition into act now, and only while the watch is active; the harness asserts the record.
+    if (watch === "act" && gatedId === null && flags.licensed) {
       const top = this.state.items[0];
       if (top !== undefined) recordDemoCall({ kind: "watch:notified", arg: top.signalId });
     }

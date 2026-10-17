@@ -1672,6 +1672,8 @@ export async function walkWatch(page: Page, baseUrl: string, visit: Visit): Prom
     if ((await page.getByText("I'll keep checking from the menu bar.", { exact: true }).count()) !== 0) throw new Error("the watch's calm sentence is drawn while the watch is locked");
     await page.getByText("I'll check again next time you open me.", { exact: true }).waitFor({ timeout: STEP_TIMEOUT });
     await assertNotRecorded(page, "watch_request_notify_permission");
+    // An unlicensed demo starts without the licence, so no act-now transition ever notified.
+    await assertNotRecorded(page, "watch:notified");
     await assertGuidedScreen(page, { primaries: 0, foldLink: false });
     await assertNoUrlRecorded(page);
   });
@@ -1886,9 +1888,11 @@ export async function walkWatch(page: Page, baseUrl: string, visit: Visit): Prom
     if (!/^\d{4}-/.test(notNow["act.disconnect_network"] ?? "")) throw new Error(`actionNotNow was not written: ${JSON.stringify(memory)}`);
     const snoozed = (memory?.["snoozedSignals"] ?? {}) as Record<string, string>;
     if (!/^\d{4}-/.test(snoozed["sig.persistence_new"] ?? "")) throw new Error(`snoozedSignals was not written: ${JSON.stringify(memory)}`);
-    // DESIGN-WATCH section 5: no act-now state survives a "Not now". The demo's act state holds a second item, which keeps the card.
-    if ((await actNowCard().count()) !== 0) warn('after "Not now", the act-now card is still on the end screen (the demo snoozes one item of two; demo-watch.test.ts pins it)');
-    await assertGuidedScreen(page, { primaries: (await actNowCard().count()) === 0 ? 0 : 1, foldLink: false });
+    // DESIGN-WATCH section 5: no act-now state survives a "Not now". The demo's act state holds a second item, which the controller snoozes with the first.
+    await assertRecorded(page, "watch_snooze", "sig.listener_new_ports");
+    if (!/^\d{4}-/.test(snoozed["sig.listener_new_ports"] ?? "")) throw new Error(`the second act-now item was not snoozed: ${JSON.stringify(memory)}`);
+    if ((await actNowCard().count()) !== 0) throw new Error('after "Not now", the act-now card is still on the end screen');
+    await assertGuidedScreen(page, { primaries: 0, foldLink: false });
   });
 
   // Settings without a licence: no Watch section, no lock card; the Licence section names the watch in one line.

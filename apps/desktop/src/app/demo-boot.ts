@@ -74,9 +74,11 @@ export interface WatchDemoFlags {
   readonly watchAi: WatchDemoAi | null;
   /** ?ransomNote=1 shows the do-not-pay row. */
   readonly ransomNote: boolean;
+  /** ?licensed=1 starts the watch in the licensed state; unlicensed, the demo records no watch:notified. The watch window forces true. */
+  readonly licensed: boolean;
 }
 
-export const DEFAULT_WATCH_DEMO: WatchDemoFlags = { watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false };
+export const DEFAULT_WATCH_DEMO: WatchDemoFlags = { watch: null, fishy: null, fishyGate: false, fishyWired: false, watchAi: null, ransomNote: false, licensed: false };
 
 export interface DemoFlags {
   readonly options: DemoOptions;
@@ -119,7 +121,7 @@ function count(params: URLSearchParams, name: string): number | null {
   return Number.isInteger(value) && value >= 0 ? value : null;
 }
 
-/** The six watch parameters; unknown values fall back to null or false. */
+/** The six watch parameters plus the licence flag; unknown values fall back to null or false. */
 export function parseWatchDemoQuery(params: URLSearchParams): WatchDemoFlags {
   return {
     watch: pickOne(params.get("watch"), WATCH_STATES),
@@ -128,6 +130,7 @@ export function parseWatchDemoQuery(params: URLSearchParams): WatchDemoFlags {
     fishyWired: flag(params, "fishyWired"),
     watchAi: pickOne(params.get("watchAi"), WATCH_AI),
     ransomNote: flag(params, "ransomNote"),
+    licensed: flag(params, "licensed"),
   };
 }
 

@@ -11,8 +11,11 @@ import { WatchWindow } from "./WatchWindow";
 import type { WatchWindowPort } from "./WatchWindow";
 
 // Demo mode is a build-time choice, as in app/container.ts. The real window gets the limited adapter: four commands, nothing else.
+// The window exists only while the watch is active, so the demo window is always licensed.
 const port: WatchWindowPort =
-  import.meta.env.VITE_TALOS_DEMO === "1" ? new DemoWatch(parseWatchDemoQuery(new URLSearchParams(window.location.search))) : new TauriWatchAdapter({ limited: true });
+  import.meta.env.VITE_TALOS_DEMO === "1"
+    ? new DemoWatch({ ...parseWatchDemoQuery(new URLSearchParams(window.location.search)), licensed: true })
+    : new TauriWatchAdapter({ limited: true });
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
